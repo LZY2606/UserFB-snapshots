@@ -1,0 +1,21 @@
+CASE decoding stereo_full_axis checks=9
+CASE decoding mono_leading_silence checks=8
+CASE decoding four_readers_interleaved checks=88
+CASE decoding slnt_only_and_empty_list checks=26
+CASE decoding chunk_sizes_1_7_19 checks=66
+CASE decoding hold_edge_cases checks=11
+CASE decoding odd_unknown_chunks checks=5
+GROUP decoding cases=7 checks=213 COMPLETE
+CASE seeking matches_sequential checks=178
+CASE seeking far_slnt_io_budget checks=14
+CASE seeking independent_instances checks=15
+CASE seeking tail_64bit_huge_slnt checks=13
+CASE seeking boundaries_inside_block checks=30
+GROUP seeking cases=5 checks=250 COMPLETE
+CASE bounds disk_entry_and_eof checks=11
+CASE bounds malformed_open_failures checks=10
+CASE bounds duplicate_root_and_nested checks=3
+CASE bounds failed_seek_keeps_position checks=8
+CASE bounds counting_vio_budget checks=5
+GROUP bounds cases=5 checks=37 COMPLETE
+TARGET_COMPLETE cases=17

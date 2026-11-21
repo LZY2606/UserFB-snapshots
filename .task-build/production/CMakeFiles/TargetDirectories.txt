@@ -1,0 +1,14 @@
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/baseline.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/sndfile.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production/upstream/CMakeFiles/install/strip.dir

@@ -85,6 +85,9 @@ static int	ima_close	(SF_PRIVATE *psf) ;
 static int wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 static int wavlike_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 
+void	wavlike_ima_decode_block_data (const unsigned char *block, short *samples, int channels,
+	int blocksize, int samplesperblock) ;
+
 /*-static int aiff_ima_reader_init (SF_PRIVATE *psf, int blockalign, int samplesperblock) ;-*/
 static int aiff_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 static int aiff_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
@@ -387,8 +390,7 @@ aiff_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 
 static int
 wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
-{	int		chan, k, predictor, blockindx, indx, indxstart, diff ;
-	short	step, bytecode, stepindx [2] = { 0 } ;
+{	int k ;
 
 	pima->blockcount ++ ;
 	pima->samplecount = 0 ;
@@ -401,21 +403,41 @@ wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 	if ((k = (int) psf_fread (pima->block, 1, pima->blocksize, psf)) != pima->blocksize)
 		psf_log_printf (psf, "*** Warning : short read (%d != %d).\n", k, pima->blocksize) ;
 
+	for (k = 0 ; k < 4 * pima->channels ; k += 4)
+		if (pima->block [k + 3] != 0)
+		{	psf_log_printf (psf, "IMA ADPCM synchronisation error.\n") ;
+			break ;
+			} ;
+
+	wavlike_ima_decode_block_data (pima->block, pima->samples, pima->channels,
+		pima->blocksize, pima->samplesperblock) ;
+
+	return 1 ;
+} /* wavlike_ima_decode_block */
+
+/*
+** Decode one complete WAV style IMA-ADPCM block already present in
+** block[] into samples[] (samplesperblock * channels interleaved
+** shorts). Shared by the ordinary WAV decoder and the read-only
+** LIST/wavl segment decoder.
+*/
+void
+wavlike_ima_decode_block_data (const unsigned char *block, short *samples, int channels,
+	int blocksize, int samplesperblock)
+{	int		chan, k, predictor, blockindx, indx, indxstart, diff ;
+	short	step, bytecode, stepindx [2] = { 0 } ;
+
 	/* Read and check the block header. */
 
-	for (chan = 0 ; chan < pima->channels ; chan++)
-	{	predictor = pima->block [chan*4] | (pima->block [chan*4+1] << 8) ;
+	for (chan = 0 ; chan < channels ; chan++)
+	{	predictor = block [chan*4] | (block [chan*4+1] << 8) ;
 		if (predictor & 0x8000)
 			predictor -= 0x10000 ;
 
-		stepindx [chan] = pima->block [chan*4+2] ;
+		stepindx [chan] = block [chan*4+2] ;
 		stepindx [chan] = clamp_ima_step_index (stepindx [chan]) ;
 
-
-		if (pima->block [chan*4+3] != 0)
-			psf_log_printf (psf, "IMA ADPCM synchronisation error.\n") ;
-
-		pima->samples [chan] = predictor ;
+		samples [chan] = predictor ;
 		} ;
 
 	/*
@@ -423,32 +445,32 @@ wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 	**	correct sample positions.
 	*/
 
-	blockindx = 4 * pima->channels ;
+	blockindx = 4 * channels ;
 
-	indxstart = pima->channels ;
-	while (blockindx < pima->blocksize)
-	{	for (chan = 0 ; chan < pima->channels ; chan++)
+	indxstart = channels ;
+	while (blockindx < blocksize)
+	{	for (chan = 0 ; chan < channels ; chan++)
 		{	indx = indxstart + chan ;
 			for (k = 0 ; k < 4 ; k++)
-			{	bytecode = pima->block [blockindx++] ;
-				pima->samples [indx] = bytecode & 0x0F ;
-				indx += pima->channels ;
-				pima->samples [indx] = (bytecode >> 4) & 0x0F ;
-				indx += pima->channels ;
+			{	bytecode = block [blockindx++] ;
+				samples [indx] = bytecode & 0x0F ;
+				indx += channels ;
+				samples [indx] = (bytecode >> 4) & 0x0F ;
+				indx += channels ;
 				} ;
 			} ;
-		indxstart += 8 * pima->channels ;
+		indxstart += 8 * channels ;
 		} ;
 
 	/* Decode the encoded 4 bit samples. */
 
-	for (k = pima->channels ; k < (pima->samplesperblock * pima->channels) ; k ++)
-	{	chan = (pima->channels > 1) ? (k % 2) : 0 ;
+	for (k = channels ; k < (samplesperblock * channels) ; k ++)
+	{	chan = (channels > 1) ? (k % 2) : 0 ;
 
-		bytecode = pima->samples [k] & 0xF ;
+		bytecode = samples [k] & 0xF ;
 
 		step = ima_step_size [stepindx [chan]] ;
-		predictor = pima->samples [k - pima->channels] ;
+		predictor = samples [k - channels] ;
 
 		diff = step >> 3 ;
 		if (bytecode & 1)
@@ -470,11 +492,9 @@ wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 		stepindx [chan] += ima_indx_adjust [bytecode] ;
 		stepindx [chan] = clamp_ima_step_index (stepindx [chan]) ;
 
-		pima->samples [k] = predictor ;
+		samples [k] = predictor ;
 		} ;
-
-	return 1 ;
-} /* wavlike_ima_decode_block */
+} /* wavlike_ima_decode_block_data */
 
 static int
 wavlike_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)

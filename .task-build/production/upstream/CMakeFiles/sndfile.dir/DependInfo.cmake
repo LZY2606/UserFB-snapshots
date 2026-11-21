@@ -1,0 +1,115 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  )
+
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/ALACBitUtilities.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ALACBitUtilities.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ALACBitUtilities.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/ag_dec.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ag_dec.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ag_dec.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/ag_enc.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ag_enc.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/ag_enc.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/alac_decoder.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/alac_decoder.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/alac_decoder.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/alac_encoder.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/alac_encoder.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/alac_encoder.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/dp_dec.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/dp_dec.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/dp_dec.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/dp_enc.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/dp_enc.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/dp_enc.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/matrix_dec.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/matrix_dec.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/matrix_dec.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ALAC/matrix_enc.c" "upstream/CMakeFiles/sndfile.dir/src/ALAC/matrix_enc.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ALAC/matrix_enc.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/G72x/g721.c" "upstream/CMakeFiles/sndfile.dir/src/G72x/g721.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/G72x/g721.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/G72x/g723_16.c" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_16.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_16.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/G72x/g723_24.c" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_24.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_24.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/G72x/g723_40.c" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_40.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/G72x/g723_40.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/G72x/g72x.c" "upstream/CMakeFiles/sndfile.dir/src/G72x/g72x.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/G72x/g72x.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/add.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/add.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/add.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/code.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/code.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/code.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/decode.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/decode.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/decode.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/gsm_create.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_create.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_create.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/gsm_decode.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_decode.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_decode.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/gsm_destroy.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_destroy.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_destroy.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/gsm_encode.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_encode.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_encode.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/gsm_option.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_option.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/gsm_option.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/long_term.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/long_term.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/long_term.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/lpc.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/lpc.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/lpc.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/preprocess.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/preprocess.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/preprocess.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/rpe.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/rpe.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/rpe.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/short_term.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/short_term.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/short_term.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/GSM610/table.c" "upstream/CMakeFiles/sndfile.dir/src/GSM610/table.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/GSM610/table.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/aiff.c" "upstream/CMakeFiles/sndfile.dir/src/aiff.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/aiff.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/alac.c" "upstream/CMakeFiles/sndfile.dir/src/alac.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/alac.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/alaw.c" "upstream/CMakeFiles/sndfile.dir/src/alaw.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/alaw.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/au.c" "upstream/CMakeFiles/sndfile.dir/src/au.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/au.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/audio_detect.c" "upstream/CMakeFiles/sndfile.dir/src/audio_detect.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/audio_detect.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/avr.c" "upstream/CMakeFiles/sndfile.dir/src/avr.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/avr.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/broadcast.c" "upstream/CMakeFiles/sndfile.dir/src/broadcast.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/broadcast.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/caf.c" "upstream/CMakeFiles/sndfile.dir/src/caf.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/caf.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/cart.c" "upstream/CMakeFiles/sndfile.dir/src/cart.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/cart.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/chanmap.c" "upstream/CMakeFiles/sndfile.dir/src/chanmap.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/chanmap.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/chunk.c" "upstream/CMakeFiles/sndfile.dir/src/chunk.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/chunk.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/command.c" "upstream/CMakeFiles/sndfile.dir/src/command.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/command.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/common.c" "upstream/CMakeFiles/sndfile.dir/src/common.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/common.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/dither.c" "upstream/CMakeFiles/sndfile.dir/src/dither.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/dither.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/double64.c" "upstream/CMakeFiles/sndfile.dir/src/double64.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/double64.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/dwd.c" "upstream/CMakeFiles/sndfile.dir/src/dwd.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/dwd.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/dwvw.c" "upstream/CMakeFiles/sndfile.dir/src/dwvw.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/dwvw.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/file_io.c" "upstream/CMakeFiles/sndfile.dir/src/file_io.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/file_io.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/flac.c" "upstream/CMakeFiles/sndfile.dir/src/flac.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/flac.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/float32.c" "upstream/CMakeFiles/sndfile.dir/src/float32.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/float32.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/g72x.c" "upstream/CMakeFiles/sndfile.dir/src/g72x.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/g72x.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/gsm610.c" "upstream/CMakeFiles/sndfile.dir/src/gsm610.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/gsm610.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/htk.c" "upstream/CMakeFiles/sndfile.dir/src/htk.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/htk.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/id3.c" "upstream/CMakeFiles/sndfile.dir/src/id3.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/id3.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ima_adpcm.c" "upstream/CMakeFiles/sndfile.dir/src/ima_adpcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ima_adpcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ima_oki_adpcm.c" "upstream/CMakeFiles/sndfile.dir/src/ima_oki_adpcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ima_oki_adpcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/interleave.c" "upstream/CMakeFiles/sndfile.dir/src/interleave.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/interleave.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ircam.c" "upstream/CMakeFiles/sndfile.dir/src/ircam.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ircam.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/macos.c" "upstream/CMakeFiles/sndfile.dir/src/macos.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/macos.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mat4.c" "upstream/CMakeFiles/sndfile.dir/src/mat4.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mat4.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mat5.c" "upstream/CMakeFiles/sndfile.dir/src/mat5.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mat5.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mpc2k.c" "upstream/CMakeFiles/sndfile.dir/src/mpc2k.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mpc2k.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mpeg.c" "upstream/CMakeFiles/sndfile.dir/src/mpeg.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mpeg.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mpeg_decode.c" "upstream/CMakeFiles/sndfile.dir/src/mpeg_decode.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mpeg_decode.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/mpeg_l3_encode.c" "upstream/CMakeFiles/sndfile.dir/src/mpeg_l3_encode.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/mpeg_l3_encode.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ms_adpcm.c" "upstream/CMakeFiles/sndfile.dir/src/ms_adpcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ms_adpcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/nist.c" "upstream/CMakeFiles/sndfile.dir/src/nist.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/nist.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/nms_adpcm.c" "upstream/CMakeFiles/sndfile.dir/src/nms_adpcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/nms_adpcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg.c" "upstream/CMakeFiles/sndfile.dir/src/ogg.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg_opus.c" "upstream/CMakeFiles/sndfile.dir/src/ogg_opus.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg_opus.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg_pcm.c" "upstream/CMakeFiles/sndfile.dir/src/ogg_pcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg_pcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg_speex.c" "upstream/CMakeFiles/sndfile.dir/src/ogg_speex.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg_speex.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg_vcomment.c" "upstream/CMakeFiles/sndfile.dir/src/ogg_vcomment.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg_vcomment.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ogg_vorbis.c" "upstream/CMakeFiles/sndfile.dir/src/ogg_vorbis.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ogg_vorbis.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/paf.c" "upstream/CMakeFiles/sndfile.dir/src/paf.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/paf.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/pcm.c" "upstream/CMakeFiles/sndfile.dir/src/pcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/pcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/pvf.c" "upstream/CMakeFiles/sndfile.dir/src/pvf.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/pvf.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/raw.c" "upstream/CMakeFiles/sndfile.dir/src/raw.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/raw.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/rf64.c" "upstream/CMakeFiles/sndfile.dir/src/rf64.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/rf64.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/rx2.c" "upstream/CMakeFiles/sndfile.dir/src/rx2.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/rx2.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/sd2.c" "upstream/CMakeFiles/sndfile.dir/src/sd2.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/sd2.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/sds.c" "upstream/CMakeFiles/sndfile.dir/src/sds.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/sds.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/sndfile.c" "upstream/CMakeFiles/sndfile.dir/src/sndfile.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/sndfile.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/strings.c" "upstream/CMakeFiles/sndfile.dir/src/strings.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/strings.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/svx.c" "upstream/CMakeFiles/sndfile.dir/src/svx.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/svx.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/txw.c" "upstream/CMakeFiles/sndfile.dir/src/txw.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/txw.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/ulaw.c" "upstream/CMakeFiles/sndfile.dir/src/ulaw.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/ulaw.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/voc.c" "upstream/CMakeFiles/sndfile.dir/src/voc.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/voc.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/vox_adpcm.c" "upstream/CMakeFiles/sndfile.dir/src/vox_adpcm.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/vox_adpcm.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/w64.c" "upstream/CMakeFiles/sndfile.dir/src/w64.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/w64.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/wav.c" "upstream/CMakeFiles/sndfile.dir/src/wav.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/wav.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/wavl.c" "upstream/CMakeFiles/sndfile.dir/src/wavl.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/wavl.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/wavlike.c" "upstream/CMakeFiles/sndfile.dir/src/wavlike.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/wavlike.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/wve.c" "upstream/CMakeFiles/sndfile.dir/src/wve.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/wve.c.o.d"
+  "/Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/src/xi.c" "upstream/CMakeFiles/sndfile.dir/src/xi.c.o" "gcc" "upstream/CMakeFiles/sndfile.dir/src/xi.c.o.d"
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")

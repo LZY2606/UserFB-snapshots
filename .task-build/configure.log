@@ -1,0 +1,43 @@
+-- Could NOT find ALSA (missing: ALSA_LIBRARY ALSA_INCLUDE_DIR) 
+-- Could NOT find Sndio (missing: SNDIO_LIBRARY SNDIO_INCLUDE_DIR) 
+-- The following OPTIONAL packages have been found:
+
+ * Speex, an audio codec tuned for speech, <www.speex.org/>
+   Enables experimental Speex support
+ * SQLite3, light weight SQL database engine., <www.sqlite.org/>
+   Enables regtest
+
+-- The following RECOMMENDED packages have been found:
+
+ * Vorbis, open source lossy audio codec, <www.vorbis.com/>
+   Enables Vorbis support
+ * FLAC, Free Lossless Audio Codec Library, <www.xiph.org/flac/>
+   Enables FLAC support
+ * Opus, Standardized open source low-latency fullband codec, <www.opus-codec.org/>
+   Enables experimental Opus support
+ * mp3lame, High quality MPEG Audio Layer III (MP3) encoder, <https://lame.sourceforge.io/>
+   Enables MPEG layer III (MP3) writing support
+ * mpg123 (required version >= 1.25.10), MPEG Audio Layer I/II/III decoder, <https://www.mpg123.de/>
+   Enables MPEG Audio reading support
+
+-- The following features have been disabled:
+
+ * BUILD_SHARED_LIBS, build shared libraries
+ * ENABLE_EXTERNAL_LIBS, enable FLAC, Vorbis, and Opus codecs
+ * ENABLE_MPEG, enable MPEG audio (including mp3) codecs
+ * ENABLE_EXPERIMENTAL, enable experimental code
+ * BUILD_TESTING, build tests
+ * BUILD_REGTEST, build regtest
+ * ENABLE_CPACK, enable CPack support
+ * ENABLE_PACKAGE_CONFIG, generate and install package config file
+ * INSTALL_PKGCONFIG_MODULE, generate and install pkg-config module
+ * INSTALL_MANPAGES, install man pages for programs
+
+-- The following OPTIONAL packages have not been found:
+
+ * ALSA
+ * Sndio
+
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z02452/attempts/20261121T151845074512Z/repo/.task-build/production

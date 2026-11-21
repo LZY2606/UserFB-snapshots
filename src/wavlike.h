@@ -329,6 +329,13 @@ typedef struct
 	** header.
 	*/
 	int rf64_downgrade ;
+
+#ifdef TASK_BUILD_WAVL
+	/* Non-NULL only for read-only LIST/wavl IMA-ADPCM files; owned by the
+	** wavl segment manager and released through wavl_free().
+	*/
+	struct WAVL_PRIVATE_tag	*wavl_data ;
+#endif
 } WAVLIKE_PRIVATE ;
 
 #define		WAVLIKE_GSM610_BLOCKSIZE	65

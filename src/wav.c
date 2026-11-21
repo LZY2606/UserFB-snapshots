@@ -31,6 +31,10 @@
 #include	"common.h"
 #include	"wavlike.h"
 
+#ifdef TASK_BUILD_WAVL
+#include	"wavl.h"
+#endif
+
 /*------------------------------------------------------------------------------
  * Macros to handle big/little endian issues.
  */
@@ -262,7 +266,16 @@ wav_open	(SF_PRIVATE *psf)
 					break ;
 
 		case SF_FORMAT_IMA_ADPCM :
-					error = wavlike_ima_init (psf, blockalign, framesperblock) ;
+#ifdef TASK_BUILD_WAVL
+					/* The wavl manager installs its own read/seek hooks
+					** without decoding any audio at open time; ordinary
+					** files keep the standard IMA codec.
+					*/
+					if (wavl_active (psf))
+						error = wavl_codec_init (psf) ;
+					else
+#endif
+						error = wavlike_ima_init (psf, blockalign, framesperblock) ;
 					break ;
 
 		case SF_FORMAT_MS_ADPCM :
@@ -310,6 +323,13 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 	uint32_t	marker, chunk_size = 0, RIFFsize = 0, done = 0 ;
 	int			parsestage = 0, error, format = 0 ;
 
+#ifdef TASK_BUILD_WAVL
+	WAVL_PRIVATE	*wavl = NULL ;
+	int				wavl_list_count = 0, wavl_top_data = 0, wavl_fmt_seen = 0 ;
+	uint32_t		wavl_riff_declared = 0 ;
+	int				wavl_riff_declared_set = 0 ;
+#endif
+
 	if (psf->is_pipe == 0 && psf->filelength > 0xFFFFFFFFLL)
 		psf_log_printf (psf, "Warning : filelength > 0xffffffff. This is bad!!!!\n") ;
 
@@ -349,6 +369,10 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 					parsestage |= HAVE_RIFF ;
 
 					RIFFsize = chunk_size ;
+#ifdef TASK_BUILD_WAVL
+					wavl_riff_declared = chunk_size ;
+					wavl_riff_declared_set = 1 ;
+#endif
 
 					if (psf->fileoffset > 0 && psf->filelength > RIFFsize + 8)
 					{	/* Set file length. */
@@ -397,9 +421,18 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 						return error ;
 
 					format = wav_fmt->format ;
+#ifdef TASK_BUILD_WAVL
+					wavl_fmt_seen = 1 ;
+#endif
 					break ;
 
 			case data_MARKER :
+#ifdef TASK_BUILD_WAVL
+					/* A wavl file must not carry a top level data chunk. */
+					if (psf->file.mode == SFM_READ && wavl_list_count > 0)
+						return SFE_WAV_BAD_LIST ;
+					wavl_top_data = 1 ;
+#endif
 					if ((parsestage & (HAVE_RIFF | HAVE_WAVE | HAVE_fmt)) != (HAVE_RIFF | HAVE_WAVE | HAVE_fmt))
 						return SFE_WAV_NO_DATA ;
 
@@ -564,6 +597,39 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 			case LIST_MARKER :
 					parsestage |= HAVE_other ;
 
+#ifdef TASK_BUILD_WAVL
+					if (psf->file.mode == SFM_READ && marker == LIST_MARKER && format == WAVE_FORMAT_IMA_ADPCM)
+					{	uint32_t form_tag = 0 ;
+						sf_count_t form_pos = psf_ftell (psf) ;
+
+						if (chunk_size < 4 || (psf_binheader_readf (psf, "m", &form_tag) != 4))
+							return SFE_WAV_BAD_LIST ;
+
+						if (form_tag == wavl_MARKER)
+						{	if (! wavl_fmt_seen)
+								return SFE_WAV_NO_FMT ;
+							if (wavl_top_data)
+								return SFE_WAV_BAD_LIST ;
+							if ((++ wavl_list_count) > 1)
+								return SFE_WAV_BAD_LIST ;
+
+							if ((error = wavl_parse_list (psf, &wavl, chunk_size, form_pos)) != 0)
+								return error ;
+
+							/* The parser consumed the whole body including
+							** any odd padding byte, so no loop jump remains.
+							*/
+							chunk_size = 0 ;
+							break ;
+							} ;
+
+						/* Not a wavl LIST: hand the whole chunk (including
+						** the form tag) to the generic subchunk parser.
+						*/
+						psf_binheader_readf (psf, "j", -4) ;
+						} ;
+#endif
+
 					if ((error = wavlike_subchunk_parse (psf, marker, chunk_size)) != 0)
 						return error ;
 					break ;
@@ -663,6 +729,50 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 			break ;
 			} ;
 		} ; /* while (1) */
+
+#ifdef TASK_BUILD_WAVL
+	if (psf->file.mode == SFM_READ && wavl != NULL)
+	{	if (wavl_top_data)
+		{	wavl_free (wavl) ;
+			return SFE_WAV_BAD_LIST ;
+			} ;
+
+		/* Strict boundary checks for the segmented layout: the upstream
+		** parser only warns and clamps a wrong RIFF size, but the wavl
+		** contract requires an error before any audio is exposed.
+		*/
+		if (! wavl_riff_declared_set ||
+			(sf_count_t) wavl_riff_declared + 8 > psf->filelength ||
+			(sf_count_t) wavl_riff_declared + 8 < wavl->list_end)
+		{	wavl_free (wavl) ;
+			return SFE_WAV_BAD_LIST ;
+			} ;
+
+		if (format != WAVE_FORMAT_IMA_ADPCM || psf->is_pipe || ! psf->sf.seekable)
+		{	wavl_free (wavl) ;
+			return SFE_WAV_BAD_LIST ;
+			} ;
+
+		if (psf->sf.channels < 1 || psf->sf.channels > SF_MAX_CHANNELS)
+		{	wavl_free (wavl) ;
+			return SFE_CHANNEL_COUNT ;
+			} ;
+
+		if ((error = wavl_finalize (psf, wavl, (uint32_t) fact_chunk.frames, (parsestage & HAVE_fact) != 0)) != 0)
+		{	wavl_free (wavl) ;
+			return error ;
+			} ;
+
+		psf->endian = psf->rwf_endian ;
+
+		/* IMA geometry for the codec switch in wav_open(). */
+		psf->sf.format = SF_FORMAT_WAV | SF_FORMAT_IMA_ADPCM ;
+		*blockalign = wav_fmt->ima.blockalign ;
+		*framesperblock = wav_fmt->ima.samplesperblock ;
+
+		return 0 ;
+		} ;
+#endif
 
 	if (psf->dataoffset <= 0)
 		return SFE_WAV_NO_DATA ;
@@ -1320,6 +1430,15 @@ wav_write_tailer (SF_PRIVATE *psf)
 static int
 wav_close (SF_PRIVATE *psf)
 {
+#ifdef TASK_BUILD_WAVL
+	WAVLIKE_PRIVATE *wpriv = psf->container_data ;
+
+	if (wpriv != NULL && wpriv->wavl_data != NULL)
+	{	wavl_free (wpriv->wavl_data) ;
+		wpriv->wavl_data = NULL ;
+		} ;
+#endif
+
 	if (psf->file.mode == SFM_WRITE || psf->file.mode == SFM_RDWR)
 	{	wav_write_tailer (psf) ;
 
