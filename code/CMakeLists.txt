@@ -20,6 +20,7 @@ ScreamTx.cpp
 ScreamV2Tx.cpp
 ScreamV2TxStream.cpp
 RtpQueue.cpp
+LayerDependency.cpp
 scream_sender.cpp
 )
 
@@ -34,6 +35,7 @@ ScreamV2Tx.cpp
 ScreamV2TxStream.cpp
 ScreamRx.cpp
 RtpQueue.cpp
+LayerDependency.cpp
 NetQueue.cpp
 OooQueue.cpp
 VideoEnc.cpp

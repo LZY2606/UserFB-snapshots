@@ -1,5 +1,6 @@
 #include "RtpQueue.h"
 #include "ScreamTx.h"
+#include "LayerDependency.h"
 #ifdef _WIN32
 #define NOMINMAX
 #include <winSock2.h>
@@ -323,6 +324,8 @@ ScreamV2Tx::ScreamV2Tx(float lossBeta_,
 
     mssList[0] = kRecommendedMss;
 
+    layerDependencyManager = new LayerDependencyManager();
+
     if (enableCyclicPacing) {
         adjustedPacketPacingHeadroom = std::max(1.0f, packetPacingHeadroom - (kCyclicPacingGain - 1.0f) / kPacingCycles);
     }
@@ -335,6 +338,7 @@ ScreamV2Tx::ScreamV2Tx(float lossBeta_,
 ScreamV2Tx::~ScreamV2Tx() {
     for (int n = 0; n < nStreams; n++)
         delete streams[n];
+    delete layerDependencyManager;
 }
 
 
@@ -381,6 +385,45 @@ RtpQueueIface* ScreamV2Tx::getStreamQueue(uint32_t ssrc) {
         return 0;
     else
         return stream->rtpQueue;
+}
+
+/*
+* Declare a layer dependency child->base, see ScreamTx.h for details
+*/
+bool ScreamV2Tx::setLayerDependency(uint32_t child,
+    uint32_t base,
+    uint32_t anchorRtp,
+    uint32_t anchorPlayoutNtp,
+    uint32_t clockRate) {
+    if (child == base || clockRate == 0)
+        return false;
+    int childId, baseId;
+    Stream* childStream = getStream(child, childId);
+    Stream* baseStream = getStream(base, baseId);
+    if (childStream == NULL || baseStream == NULL)
+        return false;
+    /*
+    * The child RTP queue must support inspection of the head frame
+    *  RTP timestamp and deadline based discard of unsent head frames
+    */
+    RtpQueueLayerIface* layerQueue = dynamic_cast<RtpQueueLayerIface*>(childStream->rtpQueue);
+    if (layerQueue == NULL)
+        return false;
+    return layerDependencyManager->addDependency(child, base,
+        childStream->rtpQueue, layerQueue,
+        anchorRtp, anchorPlayoutNtp, clockRate);
+}
+
+bool ScreamV2Tx::hasLayerDependency(uint32_t ssrc) {
+    return layerDependencyManager->hasDependency(ssrc);
+}
+
+bool ScreamV2Tx::isLayerChildHeadBlocked(uint32_t ssrc) {
+    return layerDependencyManager->isChildHeadBlocked(ssrc);
+}
+
+void ScreamV2Tx::purgeLayerDependencyFrames(uint32_t time_ntp) {
+    layerDependencyManager->purgeExpired(time_ntp);
 }
 
 /*
@@ -435,6 +478,12 @@ void ScreamV2Tx::newMediaFrame(uint32_t time_ntp, uint32_t ssrc, int bytesRtp, b
 */
 float ScreamV2Tx::isOkToTransmit(uint32_t time_ntp, uint32_t& ssrc) {
     if (!isInitialized) initialize(time_ntp);
+    /*
+    * Release unsent enhancement packets whose playout deadline has
+    *  passed and garbage collect expired base frame proofs before
+    *  picking a stream to transmit from
+    */
+    purgeLayerDependencyFrames(time_ntp);
     /*
     * Update rate estimated
     */
@@ -567,6 +616,12 @@ float ScreamV2Tx::addTransmitted(uint32_t time_ntp,
     txPacket->isUsed = true;
     txPacket->isAcked = false;
     txPacket->isAfterReceivedEdge = false;
+
+    /*
+    * Register transmitted base layer packets for layer dependency
+    *  tracking, frame records are based on actually transmitted packets
+    */
+    layerDependencyManager->notifyTransmitted(ssrc, timeStamp, isMark);
 
     /*
     * Update bytesInFlight
@@ -782,6 +837,13 @@ bool ScreamV2Tx::markAcked(uint32_t time_ntp,
             stream->rtpQueueDelay = tmp->rtpQueueDelay;
             tmp->isAcked = true;
             ackedOwd = timestamp - tmp->timeTx_ntp;
+
+            /*
+            * A real positive ACK of a transmitted packet, update layer
+            *  dependency base frame confirmation. Loss detection, timeout
+            *  clearing and ring slot overwrite never reach this point.
+            */
+            layerDependencyManager->notifyAcked(stream->ssrc, tmp->timeStamp);
 
             if (fp_txrxlog) {
                 /*
@@ -2234,9 +2296,10 @@ ScreamV2Tx::Stream* ScreamV2Tx::getPrioritizedStream(uint32_t time_ntp) {
     uint32_t maxDiff = 0;
     for (int n = 0; n < nStreams; n++) {
         Stream* tmp = streams[n];
-        if (tmp->rtpQueue->sizeOfQueue() == 0) {
+        if (tmp->rtpQueue->sizeOfQueue() == 0 || isLayerChildHeadBlocked(tmp->ssrc)) {
             /*
-            * Queue empty
+            * Queue empty or head frame blocked by an unconfirmed
+            *  layer dependency
             */
         }
         else {
@@ -2263,7 +2326,7 @@ ScreamV2Tx::Stream* ScreamV2Tx::getPrioritizedStream(uint32_t time_ntp) {
     for (int n = 0; n < nStreams; n++) {
         Stream* tmp = streams[n];
         float priority = tmp->targetPriority;
-        if (tmp->rtpQueue->sizeOfQueue() > 0 && priority > maxPrio) {
+        if (tmp->rtpQueue->sizeOfQueue() > 0 && !isLayerChildHeadBlocked(tmp->ssrc) && priority > maxPrio) {
             maxPrio = priority;
             stream = tmp;
         }

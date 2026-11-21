@@ -116,6 +116,38 @@ Test report(s) for SCReAM V2 is found here https://github.com/EricssonResearch/s
 A test report at CableLabs L4S interop test in november 2024 shows that SCReAM V2 works fine when subject to competing flows over the same bottleneck. 
 https://github.com/EricssonResearch/scream/blob/master/CableLabs-L4S-interop-nov-2024-Ericsson.pdf 
 
+## Layer dependent scheduling (enhancement layer gating)
+`ScreamV2Tx` supports an optional layer dependency mode for layered (e.g. SVC-style) video that avoids wasting bandwidth on enhancement frames whose base frame has not been confirmed by the receiver. It is configured per sender with:
+
+```cpp
+bool setLayerDependency(uint32_t child, uint32_t base,
+    uint32_t anchorRtp, uint32_t anchorPlayoutNtp, uint32_t clockRate);
+```
+
+### Topology
+* Both SSRCs must already be registered with `registerNewStream` and must differ, `clockRate` must be positive.
+* Each child (enhancement) stream is configured exactly once, and this must happen before the first packet is enqueued or transmitted on either stream; the caller guarantees this timing.
+* One base stream may have several children, but chains and cycles are rejected: a stream that is already a child cannot become a base, and a stream that is already a base for others cannot become a child.
+* The child's RTP queue must implement `RtpQueueLayerIface` (head-frame RTP timestamp inspection and deadline based head-frame drop). `RtpQueue` implements it; existing custom `RtpQueueIface` implementations compile unchanged but cannot be used as child queues (`setLayerDependency` then returns false).
+* Unknown SSRCs, duplicate configuration, illegal topology or an incapable queue all return `false` and leave the previous state untouched. When no dependency is configured, scheduling behaves exactly as before.
+
+### Frame confirmation
+Base and enhancement layers are expected to share the same media clock and frame RTP timestamps; enhancement frames may be enqueued before the corresponding base frame. Frame records are created from the base packets actually registered through `addTransmitted`. An enhancement frame at the head of the child queue becomes a transmission candidate only when the marker packet of the base frame with the same RTP timestamp was actually transmitted **and** every transmitted base packet of that timestamp has received a real positive reception ACK through the normal `incomingStandardizedFeedback` paths. Out-of-order positive ACKs are merged; duplicate ACKs, ACKs of other SSRCs, ACKs that only advance the send window, loss verdicts, transmit-timeout clearing and tx-ring slot overwrite never confirm a frame. A blocked head frame is simply kept; later frames of the same stream may not overtake it, and a blocked stream (even with the highest credit) never starves eligible base or independent streams. If every non-empty stream is blocked, `isOkToTransmit` returns -1.
+
+### Playout deadline and time mapping
+Each enhancement frame has an absolute playout deadline in the NTP (Q16) domain:
+
+```
+deadline = anchorPlayoutNtp + floor(uint32_t(timestamp - anchorRtp) * 65536 / clockRate)
+```
+
+computed with 64-bit integers. The forward media span of all frames relative to `anchorRtp` must be < 2^31 ticks and the result must not overflow uint32_t. On every `isOkToTransmit` call, all enhancement queues are first scanned and unsent packets of head frames whose deadline is not later than the current time are released, one frame at a time, before a stream is selected. Packets that are already eligible still obey the normal pacing and congestion window rules, and querying `isOkToTransmit` never consumes credit. For streams with a configured dependency, the `maxRtpQueueDelay` whole-queue clearing is replaced by this playout-deadline based discard; the base-delay refresh clearing and the behavior of unconfigured streams are unchanged.
+
+### Ownership and bookkeeping
+* Expired unsent packets are released exactly once through `packet_free`; packets popped normally are handed back to the caller as before. Queue counters (packet count, bytes, first/last sequence numbers, delay) immediately reflect the remaining content.
+* Packets dropped before transmission never touch `bytesInFlight` and never generate fake ACKs; packets already transmitted keep flowing through the normal feedback path.
+* A base frame proof is kept at most until the playout deadlines of all its children for that frame have passed; expired proofs are removed at scheduling time so memory does not grow with the number of historical frames during continuous playout, and late feedback cannot re-enable a frame whose proof has been cleaned up.
+
 ## What is L4S ?
 L4S is short for **L**ow **L**atency **L**ow **L**oss **S**calable thorughput, L4S is specified in [4]. A network node that is L4S capable can remark packets that have the ECT(1) code point set to CE. The marking threshold is set very low (milliseconds).
 

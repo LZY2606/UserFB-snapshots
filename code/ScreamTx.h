@@ -190,6 +190,7 @@ extern "C" {
     };
 
     class RtpQueueIface;
+    class LayerDependencyManager;
     class ScreamV2Tx : public ScreamTx {
     public:
         /*
@@ -265,6 +266,34 @@ extern "C" {
         * Access the configured RtpQueue of an existing stream
         */
         RtpQueueIface* getStreamQueue(uint32_t ssrc);
+
+        /*
+        * Declare that the enhancement stream `child` depends on the base
+        *  stream `base`. Both SSRCs must be registered already and must
+        *  differ, clockRate must be positive.
+        * An enhancement frame at the head of the child RTP queue is held
+        *  back until the base frame with the same RTP timestamp has its
+        *  marker packet transmitted and every transmitted base packet of
+        *  that timestamp positively ACKed. Enhancement packets that are
+        *  still unsent at their absolute playout deadline
+        *   anchorPlayoutNtp + floor(uint32_t(timestamp-anchorRtp)*65536/clockRate)
+        *  are released instead of being transmitted.
+        * Each child can only be configured once and this must be done
+        *  before the first packet is enqueued/transmitted on either
+        *  stream. One base may have several children but chains and
+        *  cycles are not allowed. The child RTP queue must implement
+        *  RtpQueueLayerIface (see RtpQueue.h).
+        * Returns false (leaving the state unchanged) if the streams are
+        *  unknown, the dependency is already configured, the topology is
+        *  illegal or the queue does not support the needed capability.
+        * When no dependency is configured the scheduling behavior is
+        *  unchanged.
+        */
+        bool setLayerDependency(uint32_t child,
+            uint32_t base,
+            uint32_t anchorRtp,
+            uint32_t anchorPlayoutNtp,
+            uint32_t clockRate);
 
         /*
         * Call this function for each new video frame
@@ -776,6 +805,13 @@ extern "C" {
         Stream* getStream(uint32_t ssrc, int& streamId);
 
         /*
+        * Layer dependency helpers, no-ops when no dependency is configured
+        */
+        bool hasLayerDependency(uint32_t ssrc);
+        bool isLayerChildHeadBlocked(uint32_t ssrc);
+        void purgeLayerDependencyFrames(uint32_t time_ntp);
+
+        /*
         * Get the prioritized stream
         *  Return NULL if no stream with
         *  with RTP packets
@@ -967,6 +1003,8 @@ extern "C" {
 
         Stream* streams[kMaxStreams];
         int nStreams;
+
+        LayerDependencyManager* layerDependencyManager;
 
         FILE* fp_log;
         FILE* fp_txrxlog;

@@ -20,6 +20,28 @@ public:
 	virtual int getSizeOfLastFrame() = 0;
 };
 
+/*
+* Optional interface for RTP queues that support layer dependent scheduling.
+* A queue that is used for an enhancement (child) stream in
+*  ScreamV2Tx::setLayerDependency must implement this interface,
+*  existing RtpQueueIface implementations are not affected.
+*/
+class RtpQueueLayerIface {
+public:
+	/*
+	* RTP timestamp of the oldest (head) RTP packet in queue,
+	*  only valid when sizeOfQueue() > 0
+	*/
+	virtual uint32_t timeStampOfNextRtp() = 0;
+	/*
+	* Drop the unsent RTP packets of the head frame, i.e all packets
+	*  at the head of the queue that share the RTP timestamp of the
+	*  head packet. Packets are released with packet_free, exactly once each.
+	* Returns the number of dropped packets.
+	*/
+	virtual int dropHeadFrame() = 0;
+};
+
 class RtpQueueItem {
 public:
 	RtpQueueItem();
@@ -34,7 +56,7 @@ public:
 };
 
 const int kRtpQueueSize = 1024;
-class RtpQueue : public RtpQueueIface {
+class RtpQueue : public RtpQueueIface, public RtpQueueLayerIface {
 public:
 	RtpQueue();
 
@@ -46,6 +68,8 @@ public:
 	int bytesInQueue(); // Number of bytes in queue
 	int sizeOfQueue();  // Number of items in queue
 	float getDelay(float currTs);
+	uint32_t timeStampOfNextRtp();
+	int dropHeadFrame();
 	bool sendPacket(void** rtpPacket, int& size, uint32_t& ssrc, unsigned short& seqNr, bool& isMark, uint32_t& timeStamp);
 	int clear();
 	int getSizeOfLastFrame() { return sizeOfLastFrame; };

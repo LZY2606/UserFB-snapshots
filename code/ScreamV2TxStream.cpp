@@ -266,7 +266,15 @@ void ScreamV2Tx::Stream::updateTargetBitrate(uint32_t time_ntp) {
 	}
 
 	float rtpQueueDelay = rtpQueue->getDelay(time_ntp * ntp2SecScaleFactor);
-	if (rtpQueueDelay > maxRtpQueueDelay &&
+	if (parent->hasLayerDependency(ssrc)) {
+		/*
+		* For streams with a layer dependency configured, the
+		*  maxRtpQueueDelay whole-queue clearing is replaced by
+		*  playout deadline based discard of unsent head frames
+		*/
+		parent->purgeLayerDependencyFrames(time_ntp);
+	}
+	else if (rtpQueueDelay > maxRtpQueueDelay &&
 		(time_ntp - lastRtpQueueDiscardT_ntp > kMinRtpQueueDiscardInterval_ntp)) {
 		/*
 		* RTP queue is cleared as it is becoming too large,

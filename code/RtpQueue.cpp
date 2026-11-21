@@ -168,3 +168,34 @@ int RtpQueue::clear() {
 	}
 	return (freed);
 }
+
+uint32_t RtpQueue::timeStampOfNextRtp() {
+	if (!items[tail]->used) {
+		return 0;
+	}
+	return items[tail]->timeStamp;
+}
+
+int RtpQueue::dropHeadFrame() {
+	if (!items[tail]->used) {
+		return 0;
+	}
+	uint32_t frameTimeStamp = items[tail]->timeStamp;
+	int freed = 0;
+	while (sizeOfQueue() > 0 && items[tail]->used && items[tail]->timeStamp == frameTimeStamp) {
+		void* buf;
+		int size;
+		uint32_t ssrc;
+		uint16_t seqNr;
+		uint32_t timeStamp;
+		bool isMark;
+		pop(&buf, size, ssrc, seqNr, isMark, timeStamp);
+#ifndef IGNORE_PACKET
+		if (buf != NULL) {
+			packet_free(buf, ssrc);
+		}
+#endif
+		freed++;
+	}
+	return freed;
+}
