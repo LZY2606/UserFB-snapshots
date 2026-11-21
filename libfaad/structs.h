@@ -100,6 +100,54 @@ typedef struct
     real_t ctrl2;
 } drc_info;
 
+/* Fixed-size state used by the concealment entry points.  The cache holds the
+   most recent complete access unit's spectrum (after PNS/MS/IS/TNS/DRC and
+   before the inverse filter bank).  The pending copy is filled while an
+   access unit is being decoded and is only committed once the whole access
+   unit has decoded successfully. */
+#define CONCEAL_SPEC_LEN     1024
+#define CONCEAL_MAX_CHANNELS 2
+
+typedef struct
+{
+    uint8_t valid;
+    uint8_t channels;
+    uint8_t window_sequence[CONCEAL_MAX_CHANNELS];
+    uint8_t window_shape[CONCEAL_MAX_CHANNELS];
+    real_t spec[CONCEAL_MAX_CHANNELS][CONCEAL_SPEC_LEN];
+} conceal_frame_cache;
+
+typedef struct
+{
+    /* set by NeAACDecInit2, cleared by NeAACDecInit/re-initialisation */
+    uint8_t initialized;
+    /* a complete, in-scope access unit has been cached */
+    uint8_t good;
+    /* current access unit contains something concealment cannot represent */
+    uint8_t unsupported;
+    /* bit mask of channels captured in the pending frame */
+    uint8_t pending_mask;
+    uint8_t output_format;
+    uint8_t channel_configuration;
+    /* number of consecutive missing access units */
+    uint32_t lost;
+    /* window sequence actually used by the last synthesis (good or concealed) */
+    uint8_t last_window_sequence[CONCEAL_MAX_CHANNELS];
+    /* sample buffer owned by the internal NeAACDecConceal path */
+    void *conceal_sample_buffer;
+    unsigned long conceal_sample_buffer_size;
+    conceal_frame_cache cache;
+    struct
+    {
+        uint8_t window_sequence[CONCEAL_MAX_CHANNELS];
+        uint8_t window_shape[CONCEAL_MAX_CHANNELS];
+        uint8_t present;
+        real_t spec[CONCEAL_MAX_CHANNELS][CONCEAL_SPEC_LEN];
+    } pending;
+    /* scratch spectrum used when synthesising concealed frames */
+    real_t scratch[CONCEAL_MAX_CHANNELS][CONCEAL_SPEC_LEN];
+} conceal_state;
+
 typedef struct
 {
     uint8_t element_instance_tag;
@@ -381,6 +429,9 @@ typedef struct
 #endif
     fb_info *fb;
     drc_info *drc;
+
+    /* fixed-size state for NeAACDecConceal/NeAACDecConceal2 */
+    conceal_state conceal;
 
     real_t *time_out[MAX_CHANNELS];
     real_t *fb_intermed[MAX_CHANNELS];

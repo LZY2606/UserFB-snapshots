@@ -48,6 +48,7 @@
 #include "pns.h"
 #include "tns.h"
 #include "drc.h"
+#include "conceal.h"
 #include "lt_predict.h"
 #include "ic_predict.h"
 #ifdef SSR_DEC
@@ -1063,6 +1064,9 @@ uint8_t reconstruct_single_channel(NeAACDecStruct *hDecoder, ic_stream *ics,
     if (hDecoder->object_type != SSR)
     {
 #endif
+        faad_conceal_capture(hDecoder, sce->channel, ics->window_sequence,
+            ics->window_shape, spec_coef, hDecoder->frameLength);
+
         ifilter_bank(hDecoder->fb, ics->window_sequence, ics->window_shape,
             hDecoder->window_shape_prev[sce->channel], spec_coef,
             hDecoder->time_out[sce->channel], hDecoder->fb_intermed[sce->channel],
@@ -1322,6 +1326,11 @@ uint8_t reconstruct_channel_pair(NeAACDecStruct *hDecoder, ic_stream *ics1, ic_s
     if (hDecoder->object_type != SSR)
     {
 #endif
+        faad_conceal_capture(hDecoder, cpe->channel, ics1->window_sequence,
+            ics1->window_shape, spec_coef1, hDecoder->frameLength);
+        faad_conceal_capture(hDecoder, cpe->paired_channel, ics2->window_sequence,
+            ics2->window_shape, spec_coef2, hDecoder->frameLength);
+
         ifilter_bank(hDecoder->fb, ics1->window_sequence, ics1->window_shape,
             hDecoder->window_shape_prev[cpe->channel], spec_coef1,
             hDecoder->time_out[cpe->channel], hDecoder->fb_intermed[cpe->channel],

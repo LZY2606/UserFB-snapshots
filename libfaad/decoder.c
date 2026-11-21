@@ -41,6 +41,7 @@
 #include "output.h"
 #include "filtbank.h"
 #include "drc.h"
+#include "conceal.h"
 #ifdef SBR_DEC
 #include "sbr_dec.h"
 #include "sbr_syntax.h"
@@ -279,6 +280,9 @@ long NeAACDecInit(NeAACDecHandle hpDecoder,
     if ((hDecoder == NULL) || (samplerate == NULL) || (channels == NULL) || (buffer_size == 0))
         return -1;
 
+    /* Init (ADTS/ADIF) replaces any Init2 configuration */
+    faad_conceal_reset(hDecoder);
+
     adts.old_format = hDecoder->config.useOldADTSFormat;
     hDecoder->sf_index = get_sr_index(hDecoder->config.defSampleRate);
     hDecoder->object_type = hDecoder->config.defObjectType;
@@ -408,6 +412,9 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
     hDecoder->adif_header_present = 0;
     hDecoder->adts_header_present = 0;
 
+    /* re-initialisation drops any concealed history */
+    faad_conceal_reset(hDecoder);
+
     /* decode the audio specific config */
     rc = AudioSpecificConfig2(pBuffer, SizeOfDecoderSpecificInfo, &mp4ASC,
         &(hDecoder->pce), hDecoder->latm_header_present);
@@ -471,7 +478,10 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
         hDecoder->frameLength >>= 1;
 #endif
 
-    return 0;
+    if (rc == 0)
+        faad_conceal_set_initialized(hDecoder);
+
+    return rc;
 }
 
 #ifdef DRM
@@ -561,6 +571,8 @@ void NeAACDecClose(NeAACDecHandle hpDecoder)
 
     if (hDecoder->sample_buffer) faad_free(hDecoder->sample_buffer);
 
+    faad_conceal_reset(hDecoder);
+
 #ifdef SBR_DEC
     for (i = 0; i < MAX_SYNTAX_ELEMENTS; i++)
     {
@@ -578,6 +590,8 @@ void NeAACDecPostSeekReset(NeAACDecHandle hpDecoder, long frame)
     if (hDecoder)
     {
         hDecoder->postSeekResetFlag = 1;
+        /* the seek invalidates every bit of synthesis history */
+        faad_conceal_invalidate(hDecoder);
 
         if (frame != -1)
             hDecoder->frame = frame;
@@ -869,6 +883,10 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
     {
         return NULL;
     }
+
+    /* Every decode attempt starts a new access unit.  If it does not complete
+       successfully the previous concealment cache must not survive. */
+    faad_conceal_begin_au(hDecoder);
 
 #if 0
     printf("%d\n", buffer_size*8);
@@ -1186,6 +1204,11 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
     hDecoder->postSeekResetFlag = 0;
 
     hDecoder->frame++;
+
+    /* a complete access unit finished: this is the spectrum concealed frames
+       will be synthesised from (including a priming AU whose samples are
+       suppressed below). */
+    faad_conceal_commit_au(hDecoder);
 #ifdef LD_DEC
     if (hDecoder->object_type != LD)
     {
@@ -1213,6 +1236,9 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
     return sample_buffer;
 
 error:
+
+    /* a failed access unit must not leave stale concealment history */
+    faad_conceal_invalidate(hDecoder);
 
     /* reset filterbank state */
     for (i = 0; i < MAX_CHANNELS; i++)

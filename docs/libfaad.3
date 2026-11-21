@@ -56,6 +56,13 @@ libfaad \- C library for AAC Decoding
 .BI "unsigned char *" "buffer" ", unsigned long " "buffer_size" ","
 .BI "void **" "sample_buffer" ", unsigned long " "sample_buffer_size" ");"
 .HP
+.B "void NEAACDECAPI *NeAACDecConceal("
+.BI "NeAACDecHandle " "hDecoder" ", NeAACDecFrameInfo *" "hInfo" ");"
+.HP
+.B "void NEAACDECAPI *NeAACDecConceal2("
+.BI "NeAACDecHandle " "hDecoder" ", NeAACDecFrameInfo *" "hInfo" ","
+.BI "void **" "sample_buffer" ", unsigned long " "sample_buffer_size" ");"
+.HP
 .B "char NEAACDECAPI NeAACDecAudioSpecificConfig("
 .BI "unsigned char *" "pBuffer" ", unsigned long " "buffer_size" ","
 .BI "mp4AudioSpecificConfig *" "mp4ASC" ");"
@@ -226,6 +233,59 @@ void NEAACDECAPI *NeAACDecDecode2(NeAACDecHandle hDecoder,
 
 
 
+.PP
+.B NeAACDecConceal
+.PP
+void NEAACDECAPI *NeAACDecConceal(NeAACDecHandle hDecoder,
+                                  NeAACDecFrameInfo *hInfo);
+.PP
+Synthesises one missing access unit (1024 samples per channel) from the most
+recent successfully decoded access unit.  No compressed input is accepted.
+The return value and NeAACDecFrameInfo follow NeAACDecDecode: on success
+\fIbytesconsumed\fR is 0, \fIerror\fR is 0 and \fIsamples\fR is
+1024 * channels; the channel layout, samplerate and PCM lifetime are those of
+the active configuration.
+.PP
+The cache holds the spectrum of the last complete good access unit after PNS,
+M/S, intensity stereo, TNS and DRC and before the inverse filter bank.  The
+k-th consecutive missing access unit uses that spectrum times 0.75^k; from
+k = 32 the spectrum is zero.  The cached spectrum itself is never attenuated.
+The window shape follows the last good access unit, and the synthesis window
+sequence advances from the sequence actually used last (ONLY_LONG stays
+ONLY_LONG, LONG_START goes to EIGHT_SHORT, EIGHT_SHORT stays EIGHT_SHORT and
+LONG_STOP goes to ONLY_LONG).  A long-window spectrum is never reinterpreted as
+a short-window spectrum: when the geometry changes the concealed synthesis
+uses a zero spectrum while still going through the normal windowing and
+overlap-add.  PNS random numbers are not consumed and TNS/DRC are not applied
+again.
+.PP
+At least one complete good access unit must have been decoded first; the
+priming access unit whose samples are suppressed still counts.  A failed
+decode, NeAACDecPostSeekReset and any re-initialisation invalidate the cache,
+and the next good access unit re-establishes it.  If the request is out of
+range, the decoder is not initialised or no history is available, NULL is
+returned, \fIsamples\fR is 0, a non-zero error is set and no audio state is
+advanced.
+.PP
+Supported today: floating-point build, AAC-LC raw frames initialised with
+NeAACDecInit2, 44100 or 48000 Hz, a single SCE or a single CPE, 16-bit or
+float output.  PCE, SBR/PS, down-mixing and configuration changes are not
+supported.  Normal decoding, ADTS/ADIF and the existing output entry points
+are unchanged, and out-of-scope formats do not conceal automatically.
+.PP
+.B NeAACDecConceal2
+.PP
+void NEAACDECAPI *NeAACDecConceal2(NeAACDecHandle hDecoder,
+                                   NeAACDecFrameInfo *hInfo,
+                                   void **sample_buffer,
+                                   unsigned long sample_buffer_size);
+.PP
+Same as NeAACDecConceal but writes into the caller's buffer.  The capacity is
+in bytes and must hold one whole frame (1024 * channels * sample size).  A NULL
+buffer, a NULL \fI*sample_buffer\fR or a capacity smaller than one frame
+returns NULL with \fIerror\fR = 27 and \fIsamples\fR = 0; nothing changes
+(buffer, cache, loss counter, overlap, RNG or frame counter).  Retrying with a
+sufficient capacity is equivalent to a successful NeAACDecConceal call.
 .PP
 .B NeAACDecAudioSpecificConfig
 .PP

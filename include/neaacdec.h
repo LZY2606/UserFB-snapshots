@@ -244,6 +244,17 @@ NEAACDECAPI void* NeAACDecDecode2(NeAACDecHandle hDecoder,
                                   void **sample_buffer,
                                   unsigned long sample_buffer_size);
 
+/* Conceal one missing access unit (1024 samples per channel) using the most
+   recent successfully decoded access unit.  The output uses the active
+   configuration/output format; sample lifetime matches NeAACDecDecode. */
+NEAACDECAPI void* NeAACDecConceal(NeAACDecHandle hDecoder,
+                                  NeAACDecFrameInfo *hInfo);
+
+NEAACDECAPI void* NeAACDecConceal2(NeAACDecHandle hDecoder,
+                                   NeAACDecFrameInfo *hInfo,
+                                   void **sample_buffer,
+                                   unsigned long sample_buffer_size);
+
 NEAACDECAPI char NeAACDecAudioSpecificConfig(unsigned char *pBuffer,
                                              unsigned long buffer_size,
                                              mp4AudioSpecificConfig *mp4ASC);

@@ -1,0 +1,1 @@
+/usr/bin/cc -DTASK_CONCEAL_TEST -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/faad_cli.dir/frontend/audio.c.o CMakeFiles/faad_cli.dir/frontend/main.c.o CMakeFiles/faad_cli.dir/frontend/mp4read.c.o CMakeFiles/faad_cli.dir/frontend/unicode_support.c.o -o faad  libfaad.a /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libm.tbd
