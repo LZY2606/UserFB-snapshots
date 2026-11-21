@@ -52,6 +52,38 @@ Build:
      --paramLong ParameterValue
              If -paramShort or --paramLong parameters are present, then the ParameterValue will override the default settings in the configuration file.
 
+# Low-latency chunked bitstream output (optional)
+
+  By default a picture's bitstream is only available in `enc_stat_t.buf/bytes`
+  after the whole picture is encoded. Setting `output_chunk` (and optionally
+  `output_chunk_opaque`) at the end of `enc_cfg_t` enables streaming output:
+  the encoder calls the callback on its encoding worker thread as soon as a
+  prefix of the current picture's bitstream has become stable, i.e. while
+  later CTU rows are still waiting for mode search.
+
+  * The chunks of one picture, concatenated in call order, are byte-identical
+    to the `enc_stat_t.buf/bytes` returned for that picture: no byte is
+    repeated, dropped, or modified after delivery.
+  * `completed_rows` is the number of CTU rows that have finished the real
+    entropy write; it never decreases within one picture.
+  * `final` is nonzero exactly once per picture, on the last chunk; that call
+    may carry zero bytes.
+  * The callback runs synchronously on an encoder worker thread and must not
+    re-enter the encoder.
+  * Borrow period: `data` is only borrowed for the duration of the callback.
+    Consume or copy it inside the call; the encoder may reuse the storage
+    immediately after the callback returns.
+
+  Configuration scope: chunked output requires 8-bit I420, fixed QP
+  (`rc_type == RC_TYPE_NULL`), `max_b_frames == 0`, `frm_threads == 1`,
+  `wpp_threads == 1`, `adaptive_dqp == 0`, `alf_enable == 0`,
+  `sao_enable == 0` and `use_pic_sign == 0` (deblocking may stay enabled).
+  If `output_chunk` is set with any other configuration, `uavs3e_create`
+  returns NULL with `err == COM_ERR_UNSUPPORTED`; without the callback every
+  previously valid configuration keeps working unchanged. See
+  `examples/chunk_output.c` for a minimal sender that writes the chunks to a
+  file in order.
+
 
 # Contributors
 This program is originally developed by the team of Prof.Ronggang Wang (rgwang@pkusz.edu.cn) at Peking University Shenzhen Graduate School. <br>

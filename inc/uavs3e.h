@@ -195,6 +195,28 @@ typedef struct uavs3e_enc_cfg_t {
     int            chroma_dqp;
     int            adaptive_dqp;
 
+    //#======= optional low-latency streaming output ===
+    /* If not NULL, the encoder invokes this callback on the encoding worker
+     * thread as soon as a prefix of the current picture's bitstream has
+     * become stable. Chunks of one picture, concatenated in call order, are
+     * byte-identical to the enc_stat_t.buf/bytes returned for that picture:
+     * no byte is repeated, dropped or modified after delivery.
+     *   opaque         : output_chunk_opaque, passed through as-is
+     *   poc            : presentation order of the picture (== enc_stat_t.poc)
+     *   data/bytes     : borrowed chunk bytes, only valid during the call
+     *   completed_rows : CTU rows fully entropy-coded so far (never decreases
+     *                    within one picture)
+     *   final          : nonzero exactly once, on the last chunk of a picture;
+     *                    that call may carry zero bytes
+     * The callback runs synchronously on an encoder worker thread and must
+     * not re-enter the encoder. Requires: 8-bit I420, fixed QP
+     * (rc_type == RC_TYPE_NULL), max_b_frames == 0, frm_threads == 1,
+     * wpp_threads == 1, adaptive_dqp == 0, alf_enable == 0, sao_enable == 0,
+     * use_pic_sign == 0; otherwise uavs3e_create fails with
+     * COM_ERR_UNSUPPORTED. */
+    void       (*output_chunk)(void *opaque, long long poc, const unsigned char *data, int bytes, int completed_rows, int final);
+    void        *output_chunk_opaque;
+
 } enc_cfg_t;
 
 typedef    void*  (__cdecl *uavs3e_create_t)(enc_cfg_t *param, int *err);
@@ -217,6 +239,13 @@ UAVS3E_API void    __cdecl  uavs3e_find_psnr   (com_img_t *org, com_img_t *rec, 
 
 typedef    void   (__cdecl *uavs3e_find_ssim_t)(com_img_t *org, com_img_t *rec, double psnr[3], int bit_depth);
 UAVS3E_API void    __cdecl  uavs3e_find_ssim   (com_img_t *org, com_img_t *rec, double ssim[3], int bit_depth);
+
+#ifdef UAVS3E_TASK_TESTING
+/* Test observation point (test builds only): when set, the encoder calls
+ * this hook at the entry of each CTU row's mode search, on the encoding
+ * worker thread. It only observes; bitstream bytes are never affected. */
+extern void (*uavs3e_test_row_observe)(long long poc, int lcu_y);
+#endif
 
 #ifdef __cplusplus
 }

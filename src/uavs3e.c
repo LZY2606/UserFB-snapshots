@@ -40,6 +40,7 @@
 #include "define.h"
 #include "analyze.h"
 #include "com_util.h"
+#include "task_src/enc_chunk.h"
 
 #include "../version.h"
 
@@ -725,6 +726,13 @@ void *enc_lcu_row(core_t *core, enc_lcu_row_t *row)
 {
     int lcu_y                =  row->lcu_y;
     enc_pic_param_t *pic_ctx =  row->pic_info;
+
+#ifdef UAVS3E_TASK_TESTING
+    /* test observation point: report the entry of this row's mode search */
+    if (uavs3e_test_row_observe) {
+        uavs3e_test_row_observe((long long)pic_ctx->ptr, (int)lcu_y);
+    }
+#endif
     uavs3e_sem_t *sem_up     =  row->sem_up;
     uavs3e_sem_t *sem_curr   =  row->sem_curr;
     lbac_t *lbac             = &row->lbac_row;
@@ -981,6 +989,94 @@ void enc_get_pic_qp(enc_pic_t *ep, pic_thd_param_t *p)
     }
 }
 
+/*****************************************************************************
+ * Entropy re-write state shared by the whole-picture path and the streaming
+ * (chunked output) path: the slice data is always encoded row by row in
+ * raster order with exactly the same sequence of bit-writes.
+ *****************************************************************************/
+typedef struct uavs3e_enc_rewrite_t {
+    lbac_t  lbac;               /* arithmetic coder of the slice re-write */
+    int     lcu_pos;            /* raster position of the next LCU */
+    int     last_lcu_qp;
+    int     last_lcu_delta_qp;
+    u8     *map_qp;             /* per-LCU qp cursor */
+} enc_rewrite_t;
+
+static void enc_rewrite_init(enc_rewrite_t *rw, com_map_t *map, com_patch_header_t *pathdr)
+{
+    lbac_reset(&rw->lbac);
+    lbac_ctx_init(&rw->lbac.h);
+    rw->lcu_pos          = 0;
+    rw->last_lcu_qp      = pathdr->slice_qp;
+    rw->last_lcu_delta_qp = 0;
+    rw->map_qp           = map->map_qp;
+}
+
+static void enc_rewrite_core_init(enc_pic_t *ep, pic_thd_param_t *p, com_patch_header_t *pathdr)
+{
+    core_t *core = ep->main_core;
+
+    core->lcu_x           =  0;
+    core->lcu_y           =  0;
+    core->lcu_pix_x       =  0;
+    core->lcu_pix_y       =  0;
+    core->param           =  p->param;
+    core->pichdr          = &p->pichdr;
+    core->info            = &ep->info;
+    core->pic_org         = &p->pic_org;
+    core->pic_rec         =  p->pic_rec;
+    core->refp            =  p->refp;
+    core->ptr             =  p->ptr;
+    core->num_refp        =  p->num_refp;
+    core->pathdr          =  pathdr;
+    core->sao_blk_params  =  ep->sao_blk_params;
+    core->map             = &ep->map;
+    core->map_cu_data     =  ep->map_cu_data;
+    core->slice_type      =  p->pichdr.slice_type;
+}
+
+/* entropy re-write of one CTU row; identical LCU visit order and bit-writes
+ * for the whole-picture loop and the row-interleaved streaming loop */
+static void enc_rewrite_row(enc_pic_t *ep, com_patch_header_t *pathdr, bs_t *bs, enc_rewrite_t *rw, int lcu_y)
+{
+    core_t    *core = ep->main_core;
+    com_info_t *info = &ep->info;
+
+    core->lcu_y     = lcu_y;
+    core->lcu_pix_y = lcu_y << info->log2_max_cuwh;
+
+    for (core->lcu_x = 0; core->lcu_x < info->pic_width_in_lcu; core->lcu_x++) {
+        core->lcu_pix_x = core->lcu_x << info->log2_max_cuwh;
+
+        if (!pathdr->fixed_slice_qp_flag) {
+            int qp = *rw->map_qp++;
+            int dqp = qp - rw->last_lcu_qp;
+            lbac_enc_lcu_delta_qp(&rw->lbac, bs, dqp, rw->last_lcu_delta_qp);
+            rw->last_lcu_qp = qp;
+            rw->last_lcu_delta_qp = dqp;
+        }
+        if (info->sqh.sao_enable) {
+            lbac_enc_sao_param(&rw->lbac, bs, pathdr, &ep->map, info, lcu_y, core->lcu_x, ep->sao_blk_params[rw->lcu_pos], ep->sao_blk_params);
+        }
+        if (info->sqh.alf_enable) {
+            for (int compIdx = Y_C; compIdx < N_C; compIdx++) {
+                if (ep->pic_alf_on[compIdx]) {
+                    lbac_enc_alf_flag(&rw->lbac, bs, (int)ep->Enc_ALF.m_AlfLCUEnabled[rw->lcu_pos][compIdx]);
+                }
+            }
+        }
+        lbac_enc_tree(core, &rw->lbac, bs, core->lcu_pix_x, core->lcu_pix_y, 0, info->max_cuwh, info->max_cuwh, 0, NO_SPLIT, 0, 0, NO_MODE_CONS, TREE_LC);
+
+        /* end_of_picture_flag */
+        if (++rw->lcu_pos < info->f_lcu) {
+            lbac_enc_slice_end_flag(&rw->lbac, bs, 0);
+        } else {
+            lbac_enc_slice_end_flag(&rw->lbac, bs, 1);
+            lbac_finish(&rw->lbac, bs);
+        }
+    }
+}
+
 void *enc_pic_thread(enc_pic_t *ep, pic_thd_param_t *p)
 {
     enc_pic_param_t   pic_ctx;
@@ -1033,6 +1129,57 @@ void *enc_pic_thread(enc_pic_t *ep, pic_thd_param_t *p)
     lbac_reset(lbac_fst_row);
     lbac_ctx_init(&lbac_fst_row->h);
 
+    const int stream_chunks = (param->output_chunk != NULL);
+
+    bs_t               bs;
+    enc_rewrite_t      rw;
+    enc_chunk_stream_t cstream;
+    int                raw_fed = 0;
+
+    if (stream_chunks) {
+        /* Bit-stream re-writing (streaming): in the streaming configuration
+         * (fixed QP, no SAO/ALF/picture sign) the headers do not depend on
+         * the row results, so write and emit them before mode search starts */
+        pichdr->m_alfPictureParam = NULL;
+        pichdr->pic_alf_on        = NULL;
+
+        bs_init(&bs, p->bs_buf, ep->bs_buf_demulate, MAX_BS_BUF);
+
+        if (pichdr->slice_type == SLICE_I) {
+            ec_write_sqh(&bs, &info->sqh);
+            bs_flush(&bs);
+        }
+        ec_write_pichdr(&bs, pichdr, &info->sqh, pic_org);
+        bs_flush(&bs);
+
+        p->user_bytes  = 0;
+        p->total_bytes = BS_GET_BYTES(&bs);
+
+        /* emit the sequence/picture headers (no CTU row coded yet) */
+        param->output_chunk(param->output_chunk_opaque, (long long)p->ptr, bs.start, p->total_bytes, 0, 0);
+
+        bs_init(&bs, bs.cur, bs.buftmp, ((int)(bs.end - bs.cur)) + 1);
+
+        /* Encode patch header */
+        ec_write_patch_hdr(&bs, &info->sqh, pichdr, &pathdr, 0);
+
+        enc_rewrite_core_init(ep, p, &pathdr);
+
+        for (int i = 0; i < info->f_scu; i++) {
+            map->map_scu[i].coded = 0;
+        }
+
+        enc_rewrite_init(&rw, map, &pathdr);
+
+        /* start the incremental emulation-prevention transform on the patch
+         * unit; the 4-byte unit header goes out verbatim */
+        enc_chunk_stream_begin(&cstream, bs.buftmp, bs.start[3]);
+        for (int i = 4; i < BS_GET_BYTES(&bs); i++) {
+            enc_chunk_stream_feed(&cstream, bs.start[i]);
+        }
+        raw_fed = BS_GET_BYTES(&bs);
+    }
+
     if (info->wpp_threads == 1) {
         for (int lcu_y = 0; lcu_y < info->pic_height_in_lcu; lcu_y++) {
             enc_lcu_row_t *row = &ep->array_row[lcu_y];
@@ -1043,6 +1190,30 @@ void *enc_pic_thread(enc_pic_t *ep, pic_thd_param_t *p)
             row->lbac_row_next = (lcu_y == info->pic_height_in_lcu - 1) ? NULL : &ep->array_row[lcu_y + 1].lbac_row;
             enc_lcu_row(ep->main_core, row);
             p->total_qp += row->total_qp;
+
+            if (stream_chunks) {
+                /* Entropy re-write of this row while later rows still wait
+                 * for mode search. No map fix-up is needed: the estimation
+                 * pass inside enc_lcu_row() runs the same lbac_enc_unit()
+                 * code as the re-write, so the map_scu state (coded flags
+                 * included) after enc_lcu_row() is exactly the state the
+                 * whole-picture re-write would have produced for the rows
+                 * above, and the re-write itself only ever reads the coded
+                 * flags of already re-written SCUs (up/left neighbors). */
+                enc_rewrite_row(ep, &pathdr, &bs, &rw, lcu_y);
+
+                /* demulate the slice bytes that became stable and emit them */
+                int cur = BS_GET_BYTES(&bs);
+                for (int i = raw_fed; i < cur; i++) {
+                    enc_chunk_stream_feed(&cstream, bs.start[i]);
+                }
+                raw_fed = cur;
+
+                param->output_chunk(param->output_chunk_opaque, (long long)p->ptr,
+                                    cstream.out + cstream.emitted, cstream.out_len - cstream.emitted,
+                                    lcu_y + 1, 0);
+                cstream.emitted = cstream.out_len;
+            }
         }
     } else {
         if (pic_org->layer_id < 3) {
@@ -1093,7 +1264,48 @@ void *enc_pic_thread(enc_pic_t *ep, pic_thd_param_t *p)
     }
 
     /* Bit-stream re-writing (START) */
-    bs_t bs;
+
+    if (stream_chunks) {
+        /* terminate the slice data and demulate the remaining stable bytes */
+        bs_write1(&bs, 1);// stuffing bit
+
+        while (!IS_BYTE_ALIGN(&bs)) {
+            bs_write1(&bs, 0);
+        }
+        bs_flush(&bs);
+
+        int cur = BS_GET_BYTES(&bs);
+        for (int i = raw_fed; i < cur; i++) {
+            enc_chunk_stream_feed(&cstream, bs.start[i]);
+        }
+        enc_chunk_stream_finish(&cstream);
+
+        /* assemble the final picture buffer, identical to bs_demulate() */
+        memcpy(bs.start, cstream.out, cstream.out_len);
+        bs.cur      = bs.start + cstream.out_len;
+        bs.code     = 0;
+        bs.leftbits = 32;
+
+        /*encode patch end*/
+        ec_write_patch_end(&bs);
+
+        /* de-init BSW */
+        bs_flush(&bs);
+
+        /* set stat */
+        p->total_bytes +=  BS_GET_BYTES(&bs);
+        pic_rec->picture_bits = (p->total_bytes - p->user_bytes) * 8;
+
+        /* final chunk: the demulated tail plus the patch end (00 00 01 8F) */
+        memcpy(cstream.out + cstream.out_len, bs.cur - 4, 4);
+        cstream.out_len += 4;
+        param->output_chunk(param->output_chunk_opaque, (long long)p->ptr,
+                            cstream.out + cstream.emitted, cstream.out_len - cstream.emitted,
+                            info->pic_height_in_lcu, 1);
+
+        return ep;
+    }
+
     bs_init(&bs, p->bs_buf, ep->bs_buf_demulate, MAX_BS_BUF);
 
     if (pichdr->slice_type == SLICE_I) {
@@ -1119,74 +1331,17 @@ void *enc_pic_thread(enc_pic_t *ep, pic_thd_param_t *p)
     /* Encode patch header */
     ec_write_patch_hdr(&bs, &info->sqh, pichdr, &pathdr, 0);
 
-    core_t *core = ep->main_core;
-    core->lcu_x           =  0;
-    core->lcu_y           =  0;
-    core->lcu_pix_x       =  0;
-    core->lcu_pix_y       =  0;
-    core->param           =  param;
-    core->pichdr          =  pichdr;
-    core->info            =  info;
-    core->pic_org         =  pic_org;
-    core->pic_rec         =  pic_rec;
-    core->refp            =  p->refp;
-    core->ptr             =  p->ptr;
-    core->num_refp        =  p->num_refp;
-    core->pathdr          = &pathdr;
-    core->sao_blk_params  =  ep->sao_blk_params;
-    core->map             = &ep->map;
-    core->map_cu_data     =  ep->map_cu_data;
-    core->slice_type      = pichdr->slice_type;
+    enc_rewrite_core_init(ep, p, &pathdr);
 
     for (int i = 0; i < info->f_scu; i++) {
         map->map_scu[i].coded = 0;
     }
 
-    int lcu_pos = 0;
-    lbac_t lbac_enc;
-    lbac_t *lbac = &lbac_enc;
-    lbac_reset(lbac);
-    lbac_ctx_init(&lbac->h);
+    enc_rewrite_init(&rw, map, &pathdr);
 
     /* Encode slice data */
-    int last_lcu_qp = pathdr.slice_qp;
-    int last_lcu_delta_qp = 0;
-    u8 *map_qp = map->map_qp;
-
-    for (core->lcu_y = 0; core->lcu_y < info->pic_height_in_lcu; core->lcu_y++) {
-        core->lcu_pix_y = core->lcu_y << info->log2_max_cuwh;
-
-        for (core->lcu_x = 0; core->lcu_x < info->pic_width_in_lcu; core->lcu_x++) {
-            core->lcu_pix_x = core->lcu_x << info->log2_max_cuwh;
-
-            if (!pathdr.fixed_slice_qp_flag) {
-                int qp = *map_qp++;
-                int dqp = qp - last_lcu_qp;
-                lbac_enc_lcu_delta_qp(lbac, &bs, dqp, last_lcu_delta_qp);
-                last_lcu_qp = qp;
-                last_lcu_delta_qp = dqp;
-            }
-            if (info->sqh.sao_enable) {
-                lbac_enc_sao_param(lbac, &bs, &pathdr, &ep->map, info, core->lcu_y, core->lcu_x, ep->sao_blk_params[lcu_pos], ep->sao_blk_params);
-            }
-            if (info->sqh.alf_enable) {
-                for (int compIdx = Y_C; compIdx < N_C; compIdx++) {
-                    if (ep->pic_alf_on[compIdx]) {
-                        lbac_enc_alf_flag(lbac, &bs, (int)ep->Enc_ALF.m_AlfLCUEnabled[lcu_pos][compIdx]);
-                    }
-                }
-            }
-            lbac_enc_tree(core, lbac, &bs, core->lcu_pix_x, core->lcu_pix_y, 0, info->max_cuwh, info->max_cuwh, 0, NO_SPLIT, 0, 0, NO_MODE_CONS, TREE_LC);
-
-            /* end_of_picture_flag */
-            if (++lcu_pos < info->f_lcu) {
-                lbac_enc_slice_end_flag(lbac, &bs, 0);
-            } else {
-                lbac_enc_slice_end_flag(lbac, &bs, 1);
-                lbac_finish(lbac, &bs);
-                break;
-            }
-        }
+    for (int lcu_y = 0; lcu_y < info->pic_height_in_lcu; lcu_y++) {
+        enc_rewrite_row(ep, &pathdr, &bs, &rw, lcu_y);
     }
 
     bs_write1(&bs, 1);// stuffing bit
@@ -1276,6 +1431,15 @@ void *uavs3e_create(enc_cfg_t *cfg, int *err)
 
     refine_input_cfg(&h->cfg, cfg);
     memcpy(cfg, &h->cfg, sizeof(enc_cfg_t));
+
+    if (h->cfg.output_chunk && enc_chunk_cfg_supported(&h->cfg) != COM_OK) {
+        /* chunked streaming output requested with an unsupported configuration */
+        if (err) {
+            *err = COM_ERR_UNSUPPORTED;
+        }
+        com_mfree(h);
+        return NULL;
+    }
 
     pic_width  = info->pic_width  = h->cfg.pic_width;
     pic_height = info->pic_height = h->cfg.pic_height;
