@@ -16,7 +16,8 @@ srcdir=@srcdir@
 OBJS = \
 	src/resample.c.o \
 	src/resamplesubs.c.o \
-	src/filterkit.c.o
+	src/filterkit.c.o \
+	src/sparse_resample.c.o
 
 TARGETS = @TARGETS@
 DIRS=tests

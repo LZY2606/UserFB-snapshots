@@ -4,3 +4,9 @@ EXPORTS
    resample_get_filter_width
    resample_process
    resample_close
+   lrs_sparse_open
+   lrs_sparse_push
+   lrs_sparse_pull
+   lrs_sparse_finish
+   lrs_sparse_output_length
+   lrs_sparse_close

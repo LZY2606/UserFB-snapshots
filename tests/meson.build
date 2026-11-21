@@ -6,6 +6,14 @@ testresample = executable(
 )
 test('testresample', testresample)
 
+sparse_example = executable(
+  'sparse_example',
+  'sparse_example.c',
+  dependencies : [libm_dep],
+  link_with : [resample],
+)
+test('sparse_example', sparse_example)
+
 sndfile_dep = dependency(
   'sndfile',
   required : get_option('resample-sndfile'),

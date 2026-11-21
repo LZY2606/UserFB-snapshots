@@ -25,6 +25,7 @@ resample = library(
   'src/filterkit.c',
   'src/resample.c',
   'src/resamplesubs.c',
+  'src/sparse_resample.c',
   dependencies : [libm_dep],
   include_directories : [config_inc],
   vs_module_defs : 'src/resample.def',
@@ -33,7 +34,7 @@ resample = library(
   install : true,
 )
 
-install_headers('include/libresample.h')
+install_headers('include/libresample.h', 'include/sparse_resample.h')
 
 pkg = import('pkgconfig')
 pkg.generate(resample, name : 'libresample')
