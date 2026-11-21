@@ -19,15 +19,21 @@
 #include <vector>
 #include <map>
 #include <cstdint>
+#include <cstddef>
+#include <string>
 
 #include "math/algo.h"
 #include "fssr/defines.h"
 #include "fssr/hermite.h"
 #include "fssr/iso_octree.h"
+#include "fssr/memory.h"
 #include "fssr/octree.h"
 #include "fssr/voxel.h"
 
 FSSR_NAMESPACE_BEGIN
+
+struct StreamSurfaceStats;
+class StreamSurfaceImpl;
 
 /**
  * The surfacing algorithm requires the octree hierarchy and the vector
@@ -40,6 +46,26 @@ public:
     IsoSurface (IsoOctree* octree,
         InterpolationType interpolation_type = INTERPOLATION_CUBIC);
     mve::TriangleMesh::Ptr extract_mesh (void);
+
+    /**
+     * Out-of-core extraction entry point. Extracts the isosurface into a
+     * binary PLY file while keeping the working set bounded by the given
+     * byte budget. See fssr/stream_surface.h for details.
+     */
+    StreamSurfaceStats extract_stream_mesh (std::string const& ply_filename,
+        std::string const& temp_directory, std::size_t budget_bytes);
+
+    /**
+     * Returns the ordered list of edge keys that receive vertex IDs, in
+     * the order in which the streaming extractor assigns them, together
+     * with the interpolated position of each. Intended for verification.
+     */
+    void get_ordered_edge_vertices (
+        std::vector<std::pair<uint64_t, uint64_t> >* keys,
+        std::vector<math::Vec3f>* positions);
+
+    /** Grants the streaming implementation access to the geometry helpers. */
+    friend class StreamSurfaceImpl;
 
 private:
     /** The isovertex contains interpolated position and voxel data. */
@@ -58,6 +84,18 @@ private:
         Octree::Iterator iter;
         int edge_id;
     };
+
+    /** An Ingredient describes a point on a cube edge used by polygon loops. */
+    struct Ingredient
+    {
+        EdgeIndex edge;
+        Octree::Iterator iter;
+        int edge_id;
+    };
+
+    /** Callback receiving one closed polygon as an ordered ingredient list. */
+    typedef void (*PolygonVisitor) (void* context,
+        Ingredient const* vertices, std::size_t num_vertices);
 
     /** An IsoEdge is a connection between two cube edges. */
     struct IsoEdge
@@ -80,6 +118,7 @@ private:
 private:
     void sanity_checks (void);
     void compute_mc_index (Octree::Iterator const& iter);
+    void compute_mc_indices (void);
     void compute_isovertices (Octree::Iterator const& iter,
         EdgeVertexMap* edgemap, IsoVertexVector* isovertices);
     bool is_isovertex_on_edge (int mc_index, int edge_id);
@@ -91,6 +130,8 @@ private:
         int edge_id, IsoVertex* iso_vertex);
     void compute_isopolygons(Octree::Iterator const& iter,
         EdgeVertexMap const& edgemap, PolygonList* polygons);
+    void visit_leaf_isopolygons (Octree::Iterator const& iter,
+        PolygonVisitor visitor, void* context);
     void compute_triangulation(IsoVertexVector const& isovertices,
         PolygonList const& polygons, mve::TriangleMesh::Ptr mesh);
     VoxelData const* get_voxel_data (VoxelIndex const& index);

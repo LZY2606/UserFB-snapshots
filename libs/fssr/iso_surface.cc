@@ -456,9 +456,7 @@ IsoSurface::extract_mesh (void)
      * Strategy (1) is implemented, it is simpler but slightly more expensive.
      */
     std::cout << "  Computing Marching Cubes indices..." << std::flush;
-    Octree::Iterator iter = this->octree->get_iterator_for_root();
-    for (iter.first_node(); iter.current != nullptr; iter.next_node())
-        this->compute_mc_index(iter);
+    this->compute_mc_indices();
     std::cout << " took " << timer.get_elapsed() << " ms." << std::endl;
 
     /*
@@ -471,6 +469,7 @@ IsoSurface::extract_mesh (void)
     timer.reset();
     EdgeVertexMap edgemap;
     IsoVertexVector isovertices;
+    Octree::Iterator iter = this->octree->get_iterator_for_root();
     for (iter.first_leaf(); iter.current != nullptr; iter.next_leaf())
         this->compute_isovertices(iter, &edgemap, &isovertices);
     std::cout << " took " << timer.get_elapsed() << " ms." << std::endl;
@@ -502,6 +501,34 @@ IsoSurface::extract_mesh (void)
 }
 
 void
+IsoSurface::get_ordered_edge_vertices (
+    std::vector<std::pair<uint64_t, uint64_t> >* keys,
+    std::vector<math::Vec3f>* positions)
+{
+    keys->clear();
+    positions->clear();
+
+    this->compute_mc_indices();
+
+    /* Collect every isovertex keyed by edge; the map yields sorted keys,
+     * which is exactly the order in which vertex IDs are assigned. */
+    EdgeVertexMap edgemap;
+    IsoVertexVector isovertices;
+    Octree::Iterator iter = this->octree->get_iterator_for_root();
+    for (iter.first_leaf(); iter.current != nullptr; iter.next_leaf())
+        this->compute_isovertices(iter, &edgemap, &isovertices);
+
+    keys->reserve(edgemap.size());
+    positions->reserve(edgemap.size());
+    for (EdgeVertexMap::const_iterator it = edgemap.begin();
+        it != edgemap.end(); ++it)
+    {
+        keys->push_back(it->first);
+        positions->push_back(isovertices[it->second].pos);
+    }
+}
+
+void
 IsoSurface::sanity_checks (void)
 {
     if (this->voxels == nullptr || this->octree == nullptr)
@@ -509,6 +536,9 @@ IsoSurface::sanity_checks (void)
     for (std::size_t i = 1; i < this->voxels->size(); ++i)
         if (this->voxels->at(i).first < this->voxels->at(i - 1).first)
             throw std::runtime_error("sanity_checks(): Voxels unsorted");
+
+    if (this->octree->get_root_node() == nullptr)
+        return;
 
     Octree::Iterator iter = this->octree->get_iterator_for_root();
     for (iter.first_node(); iter.current != nullptr; iter.next_node())
@@ -522,6 +552,14 @@ IsoSurface::sanity_checks (void)
                 throw std::runtime_error("sanity_checks(): Wrong parent");
         }
     }
+}
+
+void
+IsoSurface::compute_mc_indices (void)
+{
+    Octree::Iterator iter = this->octree->get_iterator_for_root();
+    for (iter.first_node(); iter.current != nullptr; iter.next_node())
+        this->compute_mc_index(iter);
 }
 
 void
@@ -809,6 +847,114 @@ IsoSurface::compute_isopolygons (Octree::Iterator const& iter,
         }
 
         /* Fix successive edge. */
+        bool found_edge = false;
+        for (std::size_t j = i + 1; !found_edge && j < isoedges.size(); ++j)
+        {
+            if (isoedges[i].second == isoedges[j].first)
+            {
+                std::swap(isoedges[i + 1], isoedges[j]);
+                found_edge = true;
+            }
+        }
+
+        if (!found_edge)
+            throw std::runtime_error("Cannot find next edge");
+    }
+}
+
+void
+IsoSurface::visit_leaf_isopolygons (Octree::Iterator const& iter,
+    PolygonVisitor visitor, void* context)
+{
+    /*
+     * This is the streaming variant of compute_isopolygons(). It hands
+     * out each closed polygon as an ordered list of edge ingredients
+     * instead of resolving the loops through the global edge map. The edge
+     * order, valence bookkeeping, twin handling and polygon assembly are
+     * identical to compute_isopolygons(), so the vertex sequence of every
+     * polygon matches the reference extractor exactly.
+     */
+    IsoEdgeList isoedges;
+    for (int i = 0; i < CUBE_FACES; ++i)
+        this->get_finest_isoedges(iter, i, &isoedges, false);
+
+    if (isoedges.empty())
+        return;
+
+    std::map<EdgeIndex, int> vertex_valence;
+    for (std::size_t i = 0; i < isoedges.size(); ++i)
+    {
+        std::map<EdgeIndex, int>::iterator valence_iter;
+        valence_iter = vertex_valence.find(isoedges[i].first);
+        if (valence_iter == vertex_valence.end())
+            vertex_valence[isoedges[i].first] = 1;
+        else
+            valence_iter->second += 1;
+        valence_iter = vertex_valence.find(isoedges[i].second);
+        if (valence_iter == vertex_valence.end())
+            vertex_valence[isoedges[i].second] = -1;
+        else
+            valence_iter->second -= 1;
+    }
+
+    for (std::size_t i = 0; i < isoedges.size(); ++i)
+    {
+        IsoEdge const& isoedge = isoedges[i];
+        if (vertex_valence[isoedge.first] != 0)
+        {
+            EdgeIndex twin;
+            EdgeInfo twin_info;
+            this->find_twin_vertex(isoedge.first_info, &twin, &twin_info);
+
+            IsoEdge new_edge;
+            new_edge.first = twin;
+            new_edge.first_info = twin_info;
+            new_edge.second = isoedge.first;
+            new_edge.second_info = isoedge.first_info;
+            isoedges.push_back(new_edge);
+
+            vertex_valence[new_edge.first] += 1;
+            vertex_valence[new_edge.second] -= 1;
+        }
+
+        if (vertex_valence[isoedge.second] != 0)
+        {
+            EdgeIndex twin;
+            EdgeInfo twin_info;
+            this->find_twin_vertex(isoedge.second_info, &twin, &twin_info);
+
+            IsoEdge new_edge;
+            new_edge.first = isoedges[i].second;
+            new_edge.first_info = isoedges[i].second_info;
+            new_edge.second = twin;
+            new_edge.second_info = twin_info;
+            isoedges.push_back(new_edge);
+
+            vertex_valence[new_edge.first] += 1;
+            vertex_valence[new_edge.second] -= 1;
+        }
+    }
+
+    std::vector<Ingredient> poly;
+    std::size_t poly_start = 0;
+    for (std::size_t i = 0; i < isoedges.size(); ++i)
+    {
+        if (isoedges[i].second == isoedges[poly_start].first)
+        {
+            poly.clear();
+            for (std::size_t j = poly_start; j <= i; ++j)
+            {
+                Ingredient ing;
+                ing.edge = isoedges[j].first;
+                ing.iter = isoedges[j].first_info.iter;
+                ing.edge_id = isoedges[j].first_info.edge_id;
+                poly.push_back(ing);
+            }
+            visitor(context, poly.empty() ? nullptr : &poly[0], poly.size());
+            poly_start = i + 1;
+            continue;
+        }
+
         bool found_edge = false;
         for (std::size_t j = i + 1; !found_edge && j < isoedges.size(); ++j)
         {
