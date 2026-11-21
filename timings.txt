@@ -1,0 +1,40 @@
+Crystal Cavern - Acceleration Benchmark
+========================================
+Scene: Crystal Cavern (1,292,392 triangles)
+Hardware: 8-thread CPU (OpenMP), -O3
+
+--- Brute Force vs BVH (same scene, same camera) ---
+
+Config: Brute force, NO BVH, 20x15 (300 pixels), Whitted depth 2
+  Render time (std::chrono): 49.98 s
+  Wall clock time:           50.20 s
+  Per-pixel:                 166.6 ms
+  Build file: buildCrystalCavernNoAccel.cpp
+
+Config: BVH ON, 480x360 (172800 pixels), Whitted depth 3, Simple sampler
+  Render time (std::chrono): 6.90 s
+  Wall clock time:           19.88 s
+  Per-pixel:                 0.040 ms
+  Build file: buildCrystalCavernLow.cpp
+
+Apples-to-apples per-pixel speedup: 166.6 / 0.040 = ~4165x
+
+--- Other configurations ---
+
+Config: BVH ON, 1280x720 (921600 pixels), Whitted depth 3, Simple sampler
+  Render time (std::chrono): 57.05 s
+  Wall clock time:           1 min 10.86 s
+  Per-pixel:                 0.062 ms
+  Build file: buildCrystalCavernMid.cpp
+
+Config: BVH ON, 1920x1080 (2073600 pixels), Whitted depth 3, Jittered 2x2 (4 samples/pixel)
+  Render time (std::chrono): 528.36 s
+  Wall clock time:           9 min 13.61 s
+  Per-pixel:                 0.255 ms (total samples: 8,294,400)
+  Build file: buildCrystalCavern.cpp
+
+--- Notes ---
+- OpenMP used throughout with schedule(dynamic, 4) on the outer pixel loop
+- BVH built top-down with median split on longest axis, leaf threshold = 4 primitives
+- Shadow rays tested per-light; directional and fill lights have shadows=false
+- Jittered sampler uses thread_local RNG (seed 42 per thread)
