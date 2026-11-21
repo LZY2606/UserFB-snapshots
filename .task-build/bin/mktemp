@@ -1,0 +1,6 @@
+#!/bin/bash
+# Sandbox wrapper: macOS /usr/bin/mktemp ignores TMPDIR and uses a path outside
+# the writable sandbox, so honor TMPDIR via an explicit template instead.
+: "${TMPDIR:=/tmp}"
+mkdir -p "$TMPDIR" 2>/dev/null
+exec /usr/bin/mktemp "$TMPDIR/tmp.XXXXXX"

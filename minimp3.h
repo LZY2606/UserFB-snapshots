@@ -13,6 +13,9 @@
 typedef struct
 {
     int frame_bytes, frame_offset, channels, hz, layer, bitrate_kbps;
+#ifdef MINIMP3_CHECK_CRC
+    int crc_status;    /* 0: unchecked, 1: CRC passed, -1: CRC mismatch (MINIMP3_CHECK_CRC only) */
+#endif /* MINIMP3_CHECK_CRC */
 } mp3dec_frame_info_t;
 
 typedef struct
@@ -312,6 +315,47 @@ static int hdr_padding(const uint8_t *h)
 {
     return HDR_TEST_PADDING(h) ? (HDR_IS_LAYER_1(h) ? 4 : 1) : 0;
 }
+
+#ifdef MINIMP3_CHECK_CRC
+/* Layer III side information size in bytes, by MPEG version and channel count */
+static int L3_side_info_bytes(const uint8_t *h)
+{
+    int mono = HDR_IS_MONO(h);
+    if (HDR_TEST_MPEG1(h))
+        return mono ? 17 : 32;
+    return mono ? 9 : 17;
+}
+
+/* ISO 11172-3 CRC16: init 0xffff, polynomial 0x8005, MSB-first, no final xor.
+   Independent bit-at-a-time implementation, so it does not rely on the
+   bitstream reader's state. */
+static uint16_t mp3d_crc16_update(uint16_t crc, const uint8_t *data, int nbits)
+{
+    int b;
+    for (b = 0; b < nbits; b++)
+    {
+        int bit = (data[b >> 3] >> (7 - (b & 7))) & 1;
+        int crchi = (crc >> 15) & 1;
+        crc = (uint16_t)((crc << 1) ^ ((bit ^ crchi) ? 0x8005 : 0));
+    }
+    return crc;
+}
+
+/* Verify the Layer III error protection word. The check covers the last 16
+   bits of the frame header and the complete side information only; the stored
+   CRC word itself, main data and ancillary data are skipped. */
+static int mp3d_check_l3_crc(const uint8_t *hdr, int frame_size)
+{
+    int si_bytes = L3_side_info_bytes(hdr);
+    if (frame_size < HDR_SIZE + 2 + si_bytes)
+        return -1;
+    uint16_t crc = 0xffff;
+    crc = mp3d_crc16_update(crc, hdr + 2, 16);               /* last 16 header bits */
+    crc = mp3d_crc16_update(crc, hdr + HDR_SIZE + 2, si_bytes * 8); /* side info */
+    uint16_t stored = (uint16_t)((hdr[4] << 8) | hdr[5]);    /* CRC word, skipped above */
+    return crc == stored ? 1 : -1;
+}
+#endif /* MINIMP3_CHECK_CRC */
 
 #ifndef MINIMP3_ONLY_MP3
 static const L12_subband_alloc_t *L12_subband_alloc_table(const uint8_t *hdr, L12_scale_info *sci)
@@ -1225,6 +1269,27 @@ static void L3_save_reservoir(mp3dec_t *h, mp3dec_scratch_t *s)
     h->reserv = remains;
 }
 
+#ifdef MINIMP3_CHECK_CRC
+/* A CRC-failed frame is not dequantized, so its side information must not be
+   used to pick a back-pointer range. Its physical main-data bytes (the region
+   after the structurally known header, CRC word and side information) are
+   still appended to the rolling, bounded compression history so later correct
+   frames can reference them. */
+static void L3_save_bad_frame_reservoir(mp3dec_t *h, mp3dec_scratch_t *s, const uint8_t *hdr, int frame_size)
+{
+    int si_bytes = L3_side_info_bytes(hdr);
+    int main_bytes = frame_size - HDR_SIZE - 2 - si_bytes;
+    const uint8_t *main_data = hdr + HDR_SIZE + 2 + si_bytes;
+    int total = h->reserv + main_bytes;
+    if (total > (int)sizeof(s->maindata))
+        total = (int)sizeof(s->maindata);
+    memcpy(s->maindata, h->reserv_buf, h->reserv);
+    memcpy(s->maindata + h->reserv, main_data, main_bytes);
+    bs_init(&s->bs, s->maindata, total);
+    L3_save_reservoir(h, s);
+}
+#endif /* MINIMP3_CHECK_CRC */
+
 static int L3_restore_reservoir(mp3dec_t *h, bs_t *bs, mp3dec_scratch_t *s, int main_data_begin)
 {
     int frame_bytes = (bs->limit - bs->pos)/8;
@@ -1716,6 +1781,9 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     const uint8_t *hdr;
     bs_t bs_frame[1];
     mp3dec_scratch_t scratch;
+#ifdef MINIMP3_CHECK_CRC
+    info->crc_status = 0; /* reset on every call, including incomplete-frame cases */
+#endif /* MINIMP3_CHECK_CRC */
 
     if (mp3_bytes > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, mp3))
     {
@@ -1744,6 +1812,28 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     info->hz = hdr_sample_rate_hz(hdr);
     info->layer = 4 - HDR_GET_LAYER(hdr);
     info->bitrate_kbps = hdr_bitrate_kbps(hdr);
+
+#ifdef MINIMP3_CHECK_CRC
+    if (info->layer == 3 && HDR_IS_CRC(hdr) && !HDR_IS_FREE_FORMAT(hdr))
+    {   /* full frame confirmed: check error protection before side information is interpreted */
+        int crc_bad = mp3d_check_l3_crc(hdr, frame_size) < 0;
+        info->crc_status = crc_bad ? -1 : 1;
+        if (crc_bad)
+        {
+            int samples = hdr_frame_samples(hdr);
+            if (!pcm)
+                return samples; /* info-only call: report status, do not touch compression/audio history */
+            /* side information is untrusted: no dequantization, no back-pointer from it.
+               The physical main-data bytes still enter the bounded compression history,
+               audio history restarts from silence at this boundary. */
+            L3_save_bad_frame_reservoir(dec, &scratch, hdr, frame_size);
+            memset(dec->mdct_overlap, 0, sizeof(dec->mdct_overlap));
+            memset(dec->qmf_state, 0, sizeof(dec->qmf_state));
+            memset(pcm, 0, (size_t)samples*info->channels*sizeof(mp3d_sample_t));
+            return samples;
+        }
+    }
+#endif /* MINIMP3_CHECK_CRC */
 
     if (!pcm)
     {

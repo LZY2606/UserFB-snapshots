@@ -160,6 +160,61 @@ possible.
 High-level mp3dec_ex_seek function supports precise seek to sample (MP3D_SEEK_TO_SAMPLE)
 using index and binary search.
 
+## Layer III CRC error protection (MINIMP3_CHECK_CRC)
+
+Define ``MINIMP3_CHECK_CRC`` at compile time to enable optional Layer III error
+protection. It applies only to normal-bitrate MPEG-1/2/2.5 Layer III frames that
+carry a protection bit (CRC word present). When the macro is undefined, when the
+frame has no protection bit, or when another layer is decoded, nothing changes
+and ``mp3dec_frame_info_t`` keeps its original layout.
+
+When enabled, ``mp3dec_frame_info_t`` gains one field, initialized on every call
+(including calls that find no complete frame):
+
+```c
+int crc_status; /* 0: unchecked, 1: CRC matched, -1: CRC mismatch */
+```
+
+The check runs after a complete physical frame is confirmed and before any side
+information is interpreted. The CRC uses initial value ``0xffff``, polynomial
+``0x8005``, MSB-first bit order and no final XOR. It covers, in order, the last
+16 bits of the frame header and the complete side information; the stored CRC
+word itself is skipped, and main data / ancillary data are not covered. Side
+information length depends on version and channel count: 32 bytes for MPEG-1
+stereo, 17 for MPEG-1 mono and MPEG-2/2.5 stereo, 9 for MPEG-2/2.5 mono.
+
+When the CRC mismatches, time and decoder state are handled separately:
+
+- **Program time (timeline):** the frame still consumes its exact physical
+  ``frame_bytes`` and produces the same number of samples as a healthy frame,
+  but the PCM output is all zeros. ``frame_info`` still describes the frame,
+  and no resync search is performed inside the payload, so the stream duration
+  and every later frame position are unchanged. A truncated (half) frame keeps
+  the ordinary incomplete-frame behaviour and never fabricates silence.
+- **Compression state (bit reservoir):** the untrusted side information is
+  neither dequantized nor used to choose a ``main_data_begin`` back-pointer
+  range. The frame's physical main-data bytes are nevertheless appended to the
+  bounded (511-byte) rolling compression history, so later correct frames that
+  reference them still decode. The reservoir is never discarded wholesale.
+- **Audio state (filter history):** the fault is treated as a boundary. The
+  MDCT overlap and QMF state are cleared, the bad frame emits pure silence, and
+  the next frame continues from the cleared state, so pre-fault sound cannot
+  leak into the muted region. Consecutive bad frames advance the same way.
+- Calls with ``pcm == NULL`` still report ``crc_status`` but decode no audio and
+  advance neither the compression history nor the audio history.
+
+The high-level streaming API follows the same rules. A muted frame counts
+towards sample position and total length: it is neither EOF nor a stream error.
+``mp3dec_ex_read_frame`` keeps a frame's ``crc_status`` across several small
+reads of that same frame, and buffer and callback entry points produce
+identical output. On sample seek, pre-roll keeps the compression data the
+target needs and rebuilds audio history from the most recent bad frame instead
+of decoding from the file head; seeking inside a bad frame returns the
+corresponding zeros, and integer sample seeks on good frames stay within
+4 LSB of a continuous decode.
+
+See ``examples/crc_demo.c`` for a small C example.
+
 ## Track length detect
 
 If the file is known to be cbr, then all frames have equal size and

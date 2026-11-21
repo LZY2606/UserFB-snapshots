@@ -85,6 +85,9 @@ typedef struct
     int free_format_bytes;
     int buffer_samples, buffer_consumed, to_skip, start_delay;
     int last_error;
+#ifdef MINIMP3_CHECK_CRC
+    int crc_status; /* CRC result of the frame currently held in buffer, survives partial reads */
+#endif
 } mp3dec_ex_t;
 
 typedef int (*MP3D_ITERATE_CB)(void *user_data, const uint8_t *frame, int frame_size, int free_format_bytes, size_t buf_size, uint64_t offset, mp3dec_frame_info_t *info);
@@ -843,6 +846,16 @@ seek_zero:
                 if (HDR_IS_CRC(hdr))
                     get_bits(bs, 16);
                 i--;
+#ifdef MINIMP3_CHECK_CRC
+                if (!HDR_IS_FREE_FORMAT(hdr) && HDR_IS_CRC(hdr) && mp3d_check_l3_crc(hdr, frame_size) < 0)
+                {   /* untrusted side information: do not parse it, but its physical main-data
+                           bytes still count toward the bit-reservoir fill estimate, so the
+                           forward pre-roll can start before this frame and rebuild identical state */
+                    int bad_main_bytes = frame_size - HDR_SIZE - 2 - L3_side_info_bytes(hdr);
+                    to_fill_bytes -= MINIMP3_MIN(to_fill_bytes, bad_main_bytes);
+                    continue;
+                }
+#endif
                 if (L3_read_side_info(bs, gr_info, hdr) < 0)
                     break; /* frame not decodable, we can start from here */
                 frame_bytes = (bs->limit - bs->pos)/8;
@@ -888,6 +901,9 @@ do_exit:
     dec->input_consumed  = 0;
     dec->input_filled    = 0;
     dec->last_error      = 0;
+#ifdef MINIMP3_CHECK_CRC
+    dec->crc_status      = 0;
+#endif
     mp3dec_init(&dec->mp3d);
     return 0;
 }
@@ -943,6 +959,9 @@ size_t mp3dec_ex_read_frame(mp3dec_ex_t *dec, mp3d_sample_t **buf, mp3dec_frame_
             dec->buffer_samples = mp3dec_decode_frame(&dec->mp3d, dec_buf, MINIMP3_MIN(buf_size, (uint64_t)INT_MAX), dec->buffer, frame_info);
         }
         dec->buffer_consumed = 0;
+#ifdef MINIMP3_CHECK_CRC
+        dec->crc_status = frame_info->crc_status; /* latched: partial reads keep this frame's status */
+#endif
         if (dec->info.hz != frame_info->hz || dec->info.layer != frame_info->layer)
         {
 return_e_decode:
@@ -974,6 +993,11 @@ return_e_decode:
         }
         dec->offset += frame_info->frame_bytes;
     }
+#ifdef MINIMP3_CHECK_CRC
+    /* partial reads return the same buffered frame: keep its CRC status, never
+       a stale value left in the caller-provided frame_info */
+    frame_info->crc_status = dec->crc_status;
+#endif
     size_t out_samples = MINIMP3_MIN((size_t)(dec->buffer_samples - dec->buffer_consumed), max_samples);
     if (dec->detected_samples)
     {   /* count decoded samples to properly cut padding */
