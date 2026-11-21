@@ -17,7 +17,7 @@ bool SoftRasterizer::Scene::addGraphicObj(std::shared_ptr<Object> object,
       m_objLoaders.count(objectName)) {
     return false;
   }
-  m_loadedObjs.emplace(objectName, ObjData{std::move(object), 0});
+  m_loadedObjs.emplace(objectName, ObjData{std::move(object), 0, 0});
   m_geometryDirty = true;
   return true;
 }
@@ -45,7 +45,7 @@ bool SoftRasterizer::Scene::startLoadingMesh(const std::string &meshName) {
     return false;
   }
   auto mesh = loaderIter->second->load();
-  m_loadedObjs.emplace(meshName, ObjData{std::move(mesh), 0});
+  m_loadedObjs.emplace(meshName, ObjData{std::move(mesh), 0, 0});
   m_geometryDirty = true;
   return true;
 }
@@ -108,77 +108,130 @@ void SoftRasterizer::Scene::addLight(const std::string &name,
   m_lights[name] = std::move(light);
 }
 
-/*Load pending meshes, then update geometry caches only when objects change.*/
+std::uint64_t
+SoftRasterizer::Scene::primitiveStableId(const Object *primitive) const {
+  for (const auto &object : m_primitives) {
+    if (object.get() == primitive) {
+      return object->stableId();
+    }
+  }
+  return 0;
+}
+
+/*Load pending meshes, consume object deltas, then update acceleration
+ *structures. A full rebuild happens on structural changes; otherwise only the
+ *locally affected leaves are refit and their raster entries replaced.*/
 void SoftRasterizer::Scene::prepare() {
   for (const auto &[meshName, loader] : m_objLoaders) {
     startLoadingMesh(meshName);
   }
   m_objLoaders.clear();
-  for (const auto &[name, objData] : m_loadedObjs) {
-    if (objData.preparedRevision != objData.mesh->revision()) {
-      m_geometryDirty = true;
+
+  bool needsFullRebuild = m_geometryDirty || m_bvh.empty();
+  std::vector<ObjectDelta> deltas;
+  for (auto &[name, objData] : m_loadedObjs) {
+    /*Material emission can be edited in place without bumping the revision,
+     *so the light signature is checked for every object on every prepare.*/
+    const std::uint64_t signature = objData.mesh->lightSignature();
+    if (objData.lightSignature != signature) {
+      m_areaTreeDirty = true;
+      objData.lightSignature = signature;
+    }
+    if (objData.preparedRevision == objData.mesh->revision()) {
+      continue;
+    }
+    ObjectDelta delta = objData.mesh->consumeDelta();
+    objData.preparedRevision = objData.mesh->revision();
+    if (!delta.canUpdateIncrementally || !delta.structurePreserved ||
+        delta.dirtyPrimitives.size() != delta.dirtyRasterTriangles.size()) {
+      needsFullRebuild = true;
+      continue;
+    }
+    deltas.push_back(std::move(delta));
+  }
+
+  if (needsFullRebuild) {
+    fullRebuild();
+  } else if (!deltas.empty()) {
+    applyIncremental(deltas);
+  }
+
+  if (m_geometryDirty || needsFullRebuild) {
+    m_areaTreeDirty = true;
+  }
+  if (m_areaTreeDirty) {
+    m_areaTree.rebuild(m_primitives);
+    m_areaTreeDirty = false;
+  }
+}
+
+void SoftRasterizer::Scene::fullRebuild() {
+  m_primitives.clear();
+  m_rasterTriangles.clear();
+  for (auto &[name, objData] : m_loadedObjs) {
+    objData.mesh->validateMaterial();
+    objData.mesh->appendPrimitives(m_primitives);
+    objData.mesh->appendRasterTriangles(m_rasterTriangles);
+    objData.preparedRevision = objData.mesh->revision();
+    objData.lightSignature = objData.mesh->lightSignature();
+  }
+  m_rasterIndex.clear();
+  for (std::size_t i = 0; i < m_rasterTriangles.size(); ++i) {
+    const auto *source = m_rasterTriangles[i].source;
+    if (source) {
+      m_rasterIndex.emplace(source, i);
     }
   }
-  if (m_geometryDirty) {
-    m_primitives.clear();
-    m_rasterTriangles.clear();
-    for (auto &[name, objData] : m_loadedObjs) {
-      objData.mesh->appendPrimitives(m_primitives);
-      objData.mesh->appendRasterTriangles(m_rasterTriangles);
-      objData.preparedRevision = objData.mesh->revision();
+  m_bvh.rebuild(m_primitives);
+  m_geometryDirty = false;
+  m_areaTreeDirty = true;
+}
+
+void SoftRasterizer::Scene::applyIncremental(
+    const std::vector<ObjectDelta> &deltas) {
+  std::vector<std::shared_ptr<Object>> dirtyPrimitives;
+  for (const auto &delta : deltas) {
+    m_stats.contributionReads += delta.counters.contributionReads;
+    m_stats.vertexWrites += delta.counters.vertexWrites;
+    m_stats.triangleUpdates += delta.counters.triangleUpdates;
+    for (std::size_t i = 0; i < delta.dirtyPrimitives.size(); ++i) {
+      const auto &primitive = delta.dirtyPrimitives[i];
+      dirtyPrimitives.push_back(primitive);
+      /*Replace the cached raster entry at the primitive's stable slot.*/
+      auto indexIter = m_rasterIndex.find(primitive.get());
+      if (indexIter != m_rasterIndex.end() &&
+          indexIter->second < m_rasterTriangles.size()) {
+        m_rasterTriangles[indexIter->second] = delta.dirtyRasterTriangles[i];
+      } else {
+        /*Fall back to appending if the primitive was not previously visible
+         *in the raster stream.*/
+        if (!delta.dirtyRasterTriangles[i].vertices.empty()) {
+          m_rasterTriangles.push_back(delta.dirtyRasterTriangles[i]);
+          m_rasterIndex[primitive.get()] = m_rasterTriangles.size() - 1;
+        }
+      }
     }
-    m_bvh.rebuild(m_primitives);
-    m_geometryDirty = false;
   }
-  updateLightDistribution();
+  const auto counters = m_bvh.refit(dirtyPrimitives);
+  m_stats.bvhLeafRefits += counters.leafRefits;
+  m_stats.bvhNodeRefits += counters.nodeRefits;
+  /*A material signature change can add or remove emissive primitives, which a
+   *pure area update cannot express; defer that case to the full tree rebuild
+   *below prepare().*/
+  if (!m_areaTreeDirty) {
+    const std::uint64_t areaUpdates = m_areaTree.updateAreas(dirtyPrimitives);
+    m_stats.areaTreeUpdates += areaUpdates;
+  }
 }
 
 SoftRasterizer::SurfaceSample
 SoftRasterizer::Scene::sampleLight(Sampler &sampler) const {
-  if (m_emissiveObjs.empty() || m_lightArea <= 0) {
-    return {};
-  }
-  auto cdfIter = std::upper_bound(m_lightCdf.begin(), m_lightCdf.end(),
-                                  sampler.next() * m_lightArea);
-  auto lightIndex = std::min(std::size_t(cdfIter - m_lightCdf.begin()),
-                             m_emissiveObjs.size() - 1);
-  auto lightSample = m_emissiveObjs[lightIndex]->sample(sampler);
-  lightSample.pdfArea = 1 / m_lightArea;
-  return lightSample;
+  return m_areaTree.sample(sampler);
 }
 
-/*Refresh sampling weights because callers can edit material emission
- * directly.*/
 void SoftRasterizer::Scene::updateLightDistribution() {
-  for (const auto &[name, light] : m_lights) {
-    if (!finite(light->position) || !finite(light->intensity) ||
-        glm::any(glm::lessThan(light->intensity, glm::vec3(0)))) {
-      throw std::invalid_argument("invalid point light");
-    }
-  }
-  m_emissiveObjs.clear();
-  m_lightCdf.clear();
-  m_lightArea = 0;
-  for (const auto &object : m_primitives) {
-    const auto &material = *object->getMaterial();
-    if (!finite(material.Kd) || !finite(material.Ks) ||
-        !finite(material.emission) ||
-        glm::any(glm::lessThan(material.emission, glm::vec3(0))) ||
-        !std::isfinite(material.ior) || material.ior <= 0 ||
-        !std::isfinite(material.specularExponent) ||
-        material.specularExponent < 0) {
-      throw std::invalid_argument("invalid material");
-    }
-    if (!material.hasEmission()) {
-      continue;
-    }
-    const float area = object->getArea();
-    if (area > 0) {
-      m_lightArea += area;
-      m_emissiveObjs.push_back(object);
-      m_lightCdf.push_back(m_lightArea);
-    }
-  }
+  m_areaTree.rebuild(m_primitives);
+  m_areaTreeDirty = false;
 }
 
 void SoftRasterizer::Scene::setViewMatrix(const glm::vec3 &eye,

@@ -34,10 +34,11 @@ add_library(tinyobjloader STATIC external/tinyobjloader/tiny_obj_loader.cc)
 target_include_directories(tinyobjloader SYSTEM PUBLIC external/tinyobjloader)
 
 add_library(soft_rasterizer STATIC
-  src/BVHAcceleration.cpp src/Camera.cpp src/Cube.cpp
-  src/Material.cpp src/Mesh.cpp src/Object.cpp src/ObjLoader.cpp
-  src/PathTracing.cpp src/Rasterizer.cpp src/Render.cpp src/Scene.cpp
-  src/Sphere.cpp src/TextureLoader.cpp src/Triangle.cpp)
+  src/AreaLightTree.cpp src/BVHAcceleration.cpp src/Camera.cpp src/Cube.cpp
+  src/DisplacedMesh.cpp src/Material.cpp src/Mesh.cpp src/MicroTri.cpp
+  src/Object.cpp src/ObjLoader.cpp src/PathTracing.cpp src/Rasterizer.cpp
+  src/Render.cpp src/Scene.cpp src/Sphere.cpp src/TextureLoader.cpp
+  src/Triangle.cpp)
 
 target_include_directories(soft_rasterizer PUBLIC include)
 target_include_directories(soft_rasterizer SYSTEM PUBLIC external/glm external/simde)

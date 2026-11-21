@@ -255,6 +255,103 @@ Nearest-hit queries update the closest valid intersection and use that distance 
 
 The standalone Whitted `RayTracing` class has been removed. Mirror and dielectric transport are supported by the current path tracer.
 
+## 0x03b Incrementally Editable Displaced Meshes
+
+`include/object/DisplacedMesh.hpp` provides a persistent `DisplacedMesh` that can be
+added to a `Scene` like any other `Object` and edited between frames without
+regenerating the whole object. Construction takes shared-index model-space
+positions and unit normals, oriented manifold triangles (open boundaries are
+allowed), three independent UVs per source face, one non-null material per face,
+one height array per face, and a single subdivision count `n` in `1..64`. Every
+source face becomes exactly `n²` micro triangles.
+
+```cpp
+#include <object/DisplacedMesh.hpp>
+
+std::vector<Vertex> vertices{{{-1,-1,0},{0,0,1}}, {{1,-1,0},{0,0,1}},
+                             {{-1,1,0},{0,0,1}}, {{1,1,0},{0,0,1}}};
+std::vector<glm::uvec3> faces{{0,1,2}, {1,3,2}};
+std::vector<std::array<glm::vec2,3>> uvs{
+    {glm::vec2(0,0), glm::vec2(1,0), glm::vec2(0,1)},
+    {glm::vec2(1,0), glm::vec2(1,1), glm::vec2(0,1)}};
+auto material = std::make_shared<Material>();
+std::vector<std::shared_ptr<Material>> materials{2, material};
+const std::uint32_t n = 16;
+const std::size_t points = std::size_t(n + 1) * (n + 2) / 2;
+std::vector<std::vector<float>> heights(2, std::vector<float>(points, 0.f));
+
+auto mesh = std::make_shared<DisplacedMesh>(vertices, faces, uvs, materials,
+                                            heights, n);
+scene->addGraphicObj(mesh, "surface");
+scene->prepare();
+
+// Later, replace a batch of samples. Only the local dependency closure is
+// rebuilt; BVH leaves are refit and the area-light tree is updated in place.
+mesh->replaceHeights({{0, /*i=*/4, /*j=*/4, /*height=*/0.6f}});
+scene->prepare(); // intersect(), occluded(), triangles(), sampleLight() update
+```
+
+### Height sample layout
+
+Heights are indexed per source face on the barycentric lattice
+`(1-(i+j)/n, i/n, j/n)`. Rows are ordered by increasing `j`, and inside a row by
+increasing `i`, with `i, j >= 0` and `i + j <= n`; row `j` therefore holds
+`n - j + 1` samples. `HeightSampleRef{face, i, j, height}` and
+`FaceHeightPatch{face, heights}` address the same array. Heights are signed and
+may be negative.
+
+### Position, normal and UV semantics
+
+- **Position.** A lattice point's candidate position is the source face's linear
+  position plus its signed height times the *normalized interpolated* source
+  normal. Candidates for the same source vertex, or for the same rational point
+  on the same source edge, are averaged with equal weight over all incident
+  source faces to give one shared geometry position. Interior lattice points
+  belong only to their own face and are never welded by floating-point
+  coincidence. Only source indices and rational edge parameters drive welding,
+  so two vertices at the same position but with different indices stay
+  separate.
+- **UV.** Each micro vertex uses the current source face's three UVs,
+  interpolated linearly. The two sides of a UV seam are never averaged even
+  though their geometry positions are welded.
+- **Normal.** Micro geometry uses the true geometric normal and the true
+  world-space area. The shading normal at a geometric micro vertex is the
+  normalized sum of the world-space area normals of its adjacent micro
+  triangles. Open boundaries, different per-face materials and affine
+  non-uniform placement are all supported; non-uniform scale changes areas and
+  normals correctly because they are derived in world space.
+
+### Local editing, validation and counters
+
+`replaceHeights` validates every face/subscript index, every height value, and
+the final state of every affected micro triangle *before* committing. A rejected
+batch — including duplicate face numbers in one patch batch, non-manifold source
+edges, zero interpolated normals, or an edit that would collapse a micro triangle
+to zero area — leaves both the geometry and the pending dirty set untouched, so
+the next valid edit still works. A change to a shared edge sample propagates to
+the neighbouring faces through the persistent reverse dependency map; it never
+scans all micro triangles or rebuilds the object.
+
+Counters are recorded where the work happens and exposed via
+`mesh->lastStats()` / `totalStats()` (`contributionReads`, `vertexWrites`,
+`triangleUpdates`) and via `scene->stats()` (`bvhLeafRefits`, `bvhNodeRefits`,
+`areaTreeUpdates`). Local edits charge only the affected closure; enlarging an
+unrelated part of the scene does not change these counts. `MicroTri` primitives
+keep a stable address and `stableId()` across edits, and `Scene` exposes node and
+leaf identities so tests can confirm the tree is refit rather than rebuilt.
+
+### Scene integration
+
+`Scene::prepare()` consumes pending edits. If every changed object describes a
+local edit with a preserved primitive set, only those leaves are refit, the
+cached raster stream is patched at the affected slots, and the two-level
+emissive area tree updates the affected leaf-to-root paths. Otherwise — a new
+object, a model-matrix change, or a material/shader rebind — it falls back to
+the existing full rebuild. Accumulated area-light sampling is always in terms of
+the current transformed world areas, and `sampleLight().pdfArea` equals
+`1 / (total emissive area)`. The existing `Mesh`, `Sphere`, rasterizer and path
+tracer entry points are unchanged.
+
 ## 0x04 Path Tracing (Offline Rendering)
 
 Implements a physically based path tracer using Monte Carlo integration. Each camera sample follows a path through the scene, accumulates emitted/direct light and updates throughput at each scattering event. The integrator uses a loop; BVH build and traversal remain recursive.
@@ -290,7 +387,7 @@ The next ray intersection supplies the incoming radiance. Delta samples return a
 #### Direct Lighting Calculation
 
 - **Point lights**: evaluate each light separately using its intensity, surface cosine, inverse-square distance and a finite shadow-ray visibility test.
-- **Area lights**: select emissive primitives by world-space area, sample a surface point and account for the joint area PDF.
+- **Area lights**: an emissive sum tree selects an owning object, then a micro primitive inside it, both by current transformed world-space area (see `include/light/AreaLightTree.hpp`). The selected surface point is sampled from that primitive, and the returned joint PDF is `1 / (total emissive area)`. Emissive `DisplacedMesh` micro triangles group under their owning mesh, so both levels are sampled by real area.
 - **Visibility**: offset the endpoints, normalize the shadow-ray direction and restrict its interval to the distance between the endpoints.
 
 For a sampled area-light point $q$ at distance $r$:

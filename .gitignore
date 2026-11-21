@@ -10,3 +10,6 @@
 /build*/
 *.ppm
 .clang-format
+
+# Task harness build and scratch output
+/.task-build/

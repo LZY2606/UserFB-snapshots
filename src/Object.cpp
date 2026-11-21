@@ -1,3 +1,4 @@
+#include <cstring>
 #include <object/Object.hpp>
 
 void SoftRasterizer::Object::setModelMatrix(const glm::mat4 &modelMatrix) {
@@ -56,4 +57,37 @@ void SoftRasterizer::Object::bindShader2Mesh(std::shared_ptr<Shader> shader) {
     m_material->texture = m_shader->texture;
   }
   ++m_revision;
+}
+
+void SoftRasterizer::validateMaterialFields(const SoftRasterizer::Material &m) {
+  if (!finite(m.Kd) || !finite(m.Ks) || !finite(m.emission) ||
+      glm::any(glm::lessThan(m.emission, glm::vec3(0))) ||
+      !std::isfinite(m.ior) || m.ior <= 0 ||
+      !std::isfinite(m.specularExponent) || m.specularExponent < 0) {
+    throw std::invalid_argument("invalid material");
+  }
+}
+
+void SoftRasterizer::Object::validateMaterial() const {
+  validateMaterialFields(*m_material);
+}
+
+namespace {
+std::uint64_t hashBits(std::uint64_t h, const glm::vec3 &v) {
+  for (int i = 0; i < 3; ++i) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &v[i], sizeof(bits));
+    h ^= bits;
+    h *= 0x9e3779b97f4a7c15ULL;
+    h ^= h >> 29;
+  }
+  return h;
+}
+} // namespace
+
+std::uint64_t SoftRasterizer::Object::lightSignature() const {
+  std::uint64_t h = 0xcbf29ce484222325ULL;
+  h = hashBits(h, m_material->emission);
+  h = hashBits(h, m_material->Kd);
+  return h;
 }

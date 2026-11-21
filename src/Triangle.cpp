@@ -37,12 +37,35 @@ void SoftRasterizer::Triangle::transform() {
   }
   m_faceNormal = unit(cross);
   for (int i = 0; i < 3; ++i) {
-    m_vertices[i].normal =
-        unit(normalMatrix * m_sourceVertices[i].normal, m_faceNormal);
-    if (glm::dot(m_vertices[i].normal, m_faceNormal) < 0) {
-      m_vertices[i].normal = -m_vertices[i].normal;
+    if (m_sourceNormalsAreWorld) {
+      m_vertices[i].normal =
+          unit(m_sourceVertices[i].normal, m_faceNormal);
+    } else {
+      m_vertices[i].normal =
+          unit(normalMatrix * m_sourceVertices[i].normal, m_faceNormal);
+      if (m_alignNormalsToFace &&
+          glm::dot(m_vertices[i].normal, m_faceNormal) < 0) {
+        m_vertices[i].normal = -m_vertices[i].normal;
+      }
     }
   }
+}
+
+void SoftRasterizer::Triangle::resetSource(
+    const std::array<Vertex, 3> &vertices, std::shared_ptr<Material> material) {
+  if (!material) {
+    throw std::invalid_argument("null material");
+  }
+  for (const auto &vertex : vertices) {
+    if (!finite(vertex.position) || !finite(vertex.normal) ||
+        !finite(vertex.color) || !std::isfinite(vertex.texCoord.x) ||
+        !std::isfinite(vertex.texCoord.y)) {
+      throw std::invalid_argument("invalid triangle vertex");
+    }
+  }
+  m_sourceVertices = vertices;
+  m_material = std::move(material);
+  transform();
 }
 
 SoftRasterizer::Bounds3 SoftRasterizer::Triangle::getBounds() const {
@@ -133,6 +156,6 @@ SoftRasterizer::Triangle::sample(Sampler &rng) const {
 void SoftRasterizer::Triangle::appendRasterTriangles(
     std::vector<RasterTriangle> &stream) const {
   if (m_area > 0) {
-    stream.push_back({m_vertices, m_material, m_shader});
+    stream.push_back({m_vertices, m_material, m_shader, this});
   }
 }

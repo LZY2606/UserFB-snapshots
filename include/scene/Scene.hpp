@@ -1,5 +1,6 @@
 #pragma once
 #include <bvh/BVHAcceleration.hpp>
+#include <light/AreaLightTree.hpp>
 #include <light/Light.hpp>
 #include <loader/ObjLoader.hpp>
 #include <map>
@@ -7,6 +8,22 @@
 #include <scene/Camera.hpp>
 
 namespace SoftRasterizer {
+/*Cumulative scene counters, advanced where the work really happens.
+ *Contribution reads / vertex writes / triangle updates come from incremental
+ *object edits; BVH and area-tree counts come from Scene.prepare.*/
+struct SceneStats {
+  std::uint64_t contributionReads = 0;
+  std::uint64_t vertexWrites = 0;
+  std::uint64_t triangleUpdates = 0;
+  std::uint64_t bvhLeafRefits = 0;
+  std::uint64_t bvhNodeRefits = 0;
+  std::uint64_t areaTreeUpdates = 0;
+
+  void reset() {
+    *this = SceneStats{};
+  }
+};
+
 class Scene {
 public:
   explicit Scene(std::string sceneName = "Scene",
@@ -50,7 +67,8 @@ public:
                  SHADERS_TYPE type);
   bool bindShader2Mesh(const std::string &object, const std::string &shader);
   void addLight(const std::string &name, std::shared_ptr<light_struct> light);
-  /*Prepare geometry and lights before rendering. Do not mutate during draw().*/
+  /*Consume pending object edits. Height edits are applied locally; anything
+   *else falls back to a full geometry rebuild. Do not mutate during draw().*/
   void prepare();
 
   void buildBVHAccel();
@@ -73,28 +91,57 @@ public:
     return m_lights;
   }
 
-private:
-  void updateLightDistribution();
+  const SceneStats &stats() const {
+    return m_stats;
+  }
+  void resetStats() {
+    m_stats.reset();
+  }
+
+  /*Stable identity of a primitive currently in the acceleration structure;
+   *returns 0 when the primitive is unknown.*/
+  std::uint64_t primitiveStableId(const Object *primitive) const;
+
+  /*Identity of the BVH leaf that owns a primitive, or null if absent. The
+   *pointer is stable until the next full rebuild.*/
+  const void *primitiveLeafIdentity(const Object *primitive) const {
+    return m_bvh.leafIdentity(primitive);
+  }
+
+  /*Immutable snapshots of node/leaf identities, used by tests to verify that
+   *a local edit does not relink or reorder the tree.*/
+  std::vector<const void *> bvhNodeIdentities() const {
+    return m_bvh.nodeIdentities();
+  }
+  std::vector<const void *> bvhLeafIdentities() const {
+    return m_bvh.leafIdentities();
+  }
 
 private:
-  /*Objects and resources loaded by name, as in the original scene interface.*/
   struct ObjData {
     std::shared_ptr<Object> mesh;
     std::uint64_t preparedRevision = 0;
+    std::uint64_t lightSignature = 0;
   };
+
+  void fullRebuild();
+  void applyIncremental(const std::vector<ObjectDelta> &deltas);
+  void updateLightDistribution();
+  bool rebuildAreaTreeIfNeeded();
 
   std::map<std::string, ObjData> m_loadedObjs;
   std::map<std::string, std::unique_ptr<ObjLoader>> m_objLoaders;
   std::map<std::string, std::shared_ptr<Shader>> m_shaders;
   std::map<std::string, std::shared_ptr<light_struct>> m_lights;
-  /*World-space acceleration and cached raster triangle stream.*/
+  /*World-space acceleration, cached raster stream and area-light tree.*/
   BVHAcceleration m_bvh;
-  std::vector<std::shared_ptr<Object>> m_primitives, m_emissiveObjs;
-  std::vector<float> m_lightCdf;
+  EmissiveAreaTree m_areaTree;
+  std::vector<std::shared_ptr<Object>> m_primitives;
   std::vector<RasterTriangle> m_rasterTriangles;
-  /*Camera and scene settings.*/
+  std::map<const Object *, std::size_t> m_rasterIndex;
   bool m_geometryDirty = true;
-  float m_lightArea = 0;
+  bool m_areaTreeDirty = true;
+  SceneStats m_stats;
   Camera m_camera;
   glm::vec3 m_backgroundColor{0};
 };

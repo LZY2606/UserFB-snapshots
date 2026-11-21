@@ -8,6 +8,7 @@ void SoftRasterizer::BVHAcceleration::rebuild(
   m_objects = std::move(primitives);
   m_nodes.reset();
   m_nodeCount = 0;
+  m_leafOf.clear();
   m_objects.erase(std::remove_if(m_objects.begin(), m_objects.end(),
                                  [](const auto &object) {
                                    return !object ||
@@ -17,13 +18,15 @@ void SoftRasterizer::BVHAcceleration::rebuild(
   if (!m_objects.empty()) {
     // N primitives give at most N leaves, hence at most 2*N-1 nodes.
     m_nodes = std::make_unique<Node[]>(m_objects.size() * 2 - 1);
-    recursive(0, static_cast<std::uint32_t>(m_objects.size()));
+    recursive(0, static_cast<std::uint32_t>(m_objects.size()), nullptr, 0);
+    buildLookup();
   }
 }
 
 SoftRasterizer::BVHAcceleration::Node *
 SoftRasterizer::BVHAcceleration::recursive(std::uint32_t begin,
-                                           std::uint32_t end) {
+                                           std::uint32_t end, Node *parent,
+                                           std::uint32_t depth) {
   // Take the next node from the fixed pool; child pointers remain stable.
   Node *node = &m_nodes[m_nodeCount++];
   /*Collect primitive bounds and choose the longest centroid axis.*/
@@ -34,6 +37,8 @@ SoftRasterizer::BVHAcceleration::recursive(std::uint32_t begin,
     centroids.expand(objectBounds.centroid());
   }
   node->box = bounds;
+  node->parent = parent;
+  node->depth = depth;
   if (end - begin <= 4) {
     node->begin = begin;
     node->count = end - begin;
@@ -50,9 +55,79 @@ SoftRasterizer::BVHAcceleration::recursive(std::uint32_t begin,
                      return leftEntry->getBounds().centroid()[axis] <
                             rightEntry->getBounds().centroid()[axis];
                    });
-  node->left = recursive(begin, mid);
-  node->right = recursive(mid, end);
+  node->left = recursive(begin, mid, node, depth + 1);
+  node->right = recursive(mid, end, node, depth + 1);
   return node;
+}
+
+void SoftRasterizer::BVHAcceleration::buildLookup() {
+  m_leafOf.clear();
+  if (!m_nodes) {
+    return;
+  }
+  for (std::size_t i = 0; i < m_nodeCount; ++i) {
+    Node *node = &m_nodes[i];
+    if (!node->count) {
+      continue;
+    }
+    for (auto j = node->begin; j < node->begin + node->count; ++j) {
+      m_leafOf[m_objects[j].get()] = node;
+    }
+  }
+}
+
+SoftRasterizer::BVHAcceleration::RefitCounters
+SoftRasterizer::BVHAcceleration::refit(
+    const std::vector<std::shared_ptr<Object>> &dirtyPrimitives) {
+  RefitCounters counters;
+  if (!m_nodes || dirtyPrimitives.empty()) {
+    return counters;
+  }
+  const std::uint64_t generation = ++m_refitGeneration;
+  /*Refit each distinct owning leaf once, regardless of how many of its
+   *primitives changed.*/
+  std::vector<Node *> dirtyLeaves;
+  for (const auto &primitive : dirtyPrimitives) {
+    if (!primitive) {
+      continue;
+    }
+    auto iter = m_leafOf.find(primitive.get());
+    if (iter == m_leafOf.end()) {
+      continue;
+    }
+    Node *leaf = iter->second;
+    if (leaf->refitStamp == generation) {
+      continue;
+    }
+    leaf->refitStamp = generation;
+    Bounds3 box;
+    for (auto j = leaf->begin; j < leaf->begin + leaf->count; ++j) {
+      box.expand(m_objects[j]->getBounds());
+    }
+    leaf->box = box;
+    ++counters.leafRefits;
+    dirtyLeaves.push_back(leaf);
+  }
+  /*Walk each dirty leaf to the root. A node is recomputed at most once per
+   *batch; the union of paths is the exact affected set.*/
+  for (Node *leaf : dirtyLeaves) {
+    for (Node *node = leaf->parent; node; node = node->parent) {
+      if (node->refitStamp == generation) {
+        continue;
+      }
+      node->refitStamp = generation;
+      Bounds3 box;
+      if (node->left) {
+        box.expand(node->left->box);
+      }
+      if (node->right) {
+        box.expand(node->right->box);
+      }
+      node->box = box;
+      ++counters.nodeRefits;
+    }
+  }
+  return counters;
 }
 
 SoftRasterizer::Intersection
