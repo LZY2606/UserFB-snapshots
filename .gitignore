@@ -3,6 +3,8 @@
 /docs
 /tickets
 /scratch
+/.task-build
+/tools/bwf_join
 /external/audiovectors
 /external/flac
 /external/ogg
