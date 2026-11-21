@@ -616,6 +616,19 @@ func ttmlOutStyleAttributesFromStyleAttributes(s *StyleAttributes) TTMLOutStyleA
 	}
 }
 
+// applyCueCascade overrides the five cascade properties of an output style
+// attribute set with the values computed from the current WebVTT STYLE
+// blocks and the run's tag stack. Explicit normal/none values are exported
+// just like any other value. The input StyleAttributes are never modified:
+// the output struct only receives freshly allocated pointers.
+func applyCueCascade(attrs *TTMLOutStyleAttributes, computed cueComputedStyle) {
+	attrs.Color = astikit.StrPtr(computed.color)
+	attrs.BackgroundColor = astikit.StrPtr(computed.backgroundColor)
+	attrs.FontWeight = astikit.StrPtr(computed.fontWeight)
+	attrs.FontStyle = astikit.StrPtr(computed.fontStyle)
+	attrs.TextDecoration = astikit.StrPtr(computed.textDecoration)
+}
+
 // TTMLOutHeader represents an output TTML header
 type TTMLOutHeader struct {
 	ID    string `xml:"xml:id,attr,omitempty"`
@@ -744,12 +757,28 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 	}
 
 	// Add items
+	//
+	// When the document carries STYLE blocks with at least one supported
+	// declaration, the five cascade properties are computed from the current
+	// STYLE lines and each run's tag stack rather than from the legacy
+	// parser-derived attributes. The stylesheet is parsed once per export so
+	// repeated exports stay cheap and deterministic.
+	cueSheet, cascadeActive := s.cueStylesheetForBuild()
+	var rootComputed cueComputedStyle
+	if cascadeActive {
+		rootComputed = cueSheet.computeCueStack(cueSheet.buildRunFrames(nil))
+	}
 	for _, item := range s.Items {
 		// Init subtitle
 		var ttmlSubtitle = TTMLOutSubtitle{
 			Begin:                  TTMLOutDuration(item.StartAt),
 			End:                    TTMLOutDuration(item.EndAt),
 			TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(item.InlineStyle),
+		}
+
+		// The cue root only matches the bare ::cue selector.
+		if cascadeActive {
+			applyCueCascade(&ttmlSubtitle.TTMLOutStyleAttributes, rootComputed)
 		}
 
 		// Add region
@@ -771,6 +800,17 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 					Text:                   lineItem.Text,
 					TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(lineItem.InlineStyle),
 					XMLName:                xml.Name{Local: "span"},
+				}
+
+				// Recompute the five cascade properties from the run's
+				// current tag stack every time, so edits of either the
+				// STYLE blocks or WebVTTTags are reflected immediately.
+				if cascadeActive {
+					var tags []WebVTTTag
+					if lineItem.InlineStyle != nil {
+						tags = lineItem.InlineStyle.WebVTTTags
+					}
+					applyCueCascade(&ttmlItem.TTMLOutStyleAttributes, cueSheet.computeRunStyle(tags))
 				}
 
 				// Add style
