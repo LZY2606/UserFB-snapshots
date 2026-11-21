@@ -48,6 +48,7 @@ endif()
 
 set(CAPTION_SOURCES
   src/caption.c
+  src/cc608_decoder.c
   src/cea708.c
   src/eia608.c
   src/eia608_charmap.c
@@ -62,6 +63,7 @@ set(CAPTION_SOURCES
 
 set(CAPTION_HEADERS
   caption/caption.h
+  caption/cc608_decoder.h
   caption/cea708.h
   caption/eia608.h
   caption/eia608_charmap.h

@@ -52,6 +52,10 @@ add_executable(vttsegmenter vttsegmenter.c)
 target_link_libraries(vttsegmenter caption)
 install(TARGETS vttsegmenter DESTINATION bin)
 
+add_executable(cc608_resume cc608_resume.c)
+target_link_libraries(cc608_resume caption)
+install(TARGETS cc608_resume DESTINATION bin)
+
 #add_executable(rtmpspit rtmpspit.c  flv.c)
 #target_link_libraries(rtmpspit caption rtmp)
 #install(TARGETS rtmpspit DESTINATION bin)
