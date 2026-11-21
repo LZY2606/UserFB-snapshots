@@ -1,0 +1,28 @@
+{
+  "repo": "hunterloftis/pbr",
+  "commit": "68e04d94766d651a905baf7b1966261cd3031d2d",
+  "license": "MIT",
+  "dependency": {
+    "repo": "golang/text",
+    "commit": "f21a4dfb5e38f5895301dc265a8def02365cc3d0",
+    "license": "BSD-3-Clause",
+    "runtime_package_dirs": [
+      "feature/plural",
+      "internal",
+      "internal/catmsg",
+      "internal/format",
+      "internal/number",
+      "internal/stringset",
+      "internal/tag",
+      "language",
+      "message",
+      "message/catalog"
+    ]
+  },
+  "exclusions": [
+    "upstream examples/**",
+    ".git*",
+    "text packages outside production import closure; tests and unused generators"
+  ],
+  "scope": "render/material/surface/bsdf/rgb/geom. Original farm/format/env-panorama/cmd source retained but optional entrypoints not used."
+}
