@@ -1,0 +1,13 @@
+./cg.go
+./dense_search.go
+./gss.go
+./k_means.go
+./least_squares.go
+./matrix2.go
+./matrix3.go
+./matrix4.go
+./polynomial.go
+./qef.go
+./sparse_cholesky.go
+./sparse_matrix.go
+./vecs.go

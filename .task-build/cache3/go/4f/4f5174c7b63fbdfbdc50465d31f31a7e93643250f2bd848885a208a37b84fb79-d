@@ -1,0 +1,8 @@
+./3mf.go
+./off.go
+./ply.go
+./ply_value.go
+./segment_csv.go
+./stl.go
+./svg.go
+./wavefront_obj.go

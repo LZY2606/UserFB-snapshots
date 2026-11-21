@@ -118,6 +118,67 @@ type AreaLight interface {
 	TotalEmission() float64
 }
 
+// AreaDensityLight is an AreaLight whose sampling proposal
+// can be evaluated directly as a probability density with
+// respect to world surface area.
+//
+// This decouples the sampling guide (the proposal used by
+// bidirectional rendering) from the actual emission: the
+// density returned here describes how SampleLight chooses
+// points, and must not be derived from the emitted color.
+// Lights without emission at a point may still carry
+// positive proposal density.
+//
+// All densities are per unit of world surface area (not
+// per solid angle). To convert an area density p_A(x) at a
+// surface point x into the directional density measured
+// relative to a uniform unit sphere at a point y at
+// distance r = |x-y|, use the solid-angle Jacobian
+//
+//	p_w(omega) = p_A(x) * r^2 / |cos(theta_x)|
+//
+// where theta_x is the angle between the surface normal at
+// x and the direction from x to y. The library's material
+// densities (e.g. LambertMaterial.SourceDensity) are
+// measured relative to a uniform unit sphere, so a
+// cosine-weighted hemisphere sample with density
+// 4*cos(theta) per solid angle corresponds to
+// p_A(x) = 4*cos(theta)*|cos(theta_x)|/r^2 per unit area.
+//
+// LightDensity returns 0 for points that are not on the
+// light's surface or whose normal does not match the
+// surface normal at the point. A point counts as on the
+// surface when its distance to the supporting surface is
+// at most areaDensityEpsilon and its projection lies
+// inside the surface (expanded by areaDensityEpsilon);
+// normals match when their dot product is at least
+// 1-areaDensityNormalSlack. Points on edges shared by
+// multiple faces are assigned uniquely to the first face
+// in the light's fixed face ordering.
+type AreaDensityLight interface {
+	AreaLight
+
+	// LightDensity returns the world-area probability
+	// density of sampling (point, normal) from this
+	// light's proposal.
+	LightDensity(point, normal model3d.Coord3D) float64
+}
+
+// Geometric tolerances used by LightDensity implementations
+// to decide whether a queried point lies on a surface and
+// whether its normal matches. See the AreaDensityLight
+// documentation for the exact rules.
+const (
+	// areaDensityEpsilon is the maximum distance a query
+	// point may be from the supporting surface (or outside
+	// its boundary) while still counting as on it.
+	areaDensityEpsilon = 1e-7
+
+	// areaDensityNormalSlack bounds 1 minus the dot product
+	// between the queried normal and the surface normal.
+	areaDensityNormalSlack = 1e-6
+)
+
 // SphereAreaLight is a perfect sphere implementing an
 // area light.
 type SphereAreaLight struct {
@@ -275,13 +336,39 @@ func (m *MeshAreaLight) TotalEmission() float64 {
 
 type joinedAreaLight struct {
 	JoinedObject
-	lights     []AreaLight
+	lights []AreaLight
+
+	// active lists the indices into lights whose total
+	// emission is positive. Completely black lights are
+	// never selected by the aggregate proposal.
+	active     []int
 	cumuTotals []float64
 	totalLight float64
 }
 
+// joinedDensityAreaLight is the AreaDensityLight variant
+// of joinedAreaLight, used only when every active
+// sub-light can evaluate an area density itself.
+type joinedDensityAreaLight struct {
+	*joinedAreaLight
+
+	// densities[i] evaluates the proposal of active[i].
+	densities []AreaDensityLight
+}
+
 // JoinAreaLights creates a larger AreaLight by combining
 // smaller AreaLights.
+//
+// Sub-lights are selected with probability proportional to
+// their TotalEmission, so completely black sub-lights are
+// never selected. When every non-black sub-light
+// implements AreaDensityLight, the aggregate implements it
+// as well and LightDensity multiplies the sub-light's own
+// area density by the actual sub-light selection
+// probability. If any active sub-light only supports the
+// legacy protocol, the aggregate is an ordinary AreaLight
+// and bidirectional rendering falls back to the original
+// emission-based proposal for the whole aggregate.
 func JoinAreaLights(lights ...AreaLight) AreaLight {
 	jo := make(JoinedObject, len(lights))
 	for i, l := range lights {
@@ -290,25 +377,73 @@ func JoinAreaLights(lights ...AreaLight) AreaLight {
 	j := &joinedAreaLight{
 		JoinedObject: jo,
 		lights:       lights,
-		cumuTotals:   make([]float64, len(lights)),
 	}
+	allDensity := true
+	var densities []AreaDensityLight
 	for i, l := range lights {
-		j.totalLight += l.TotalEmission()
-		j.cumuTotals[i] = j.totalLight
+		total := l.TotalEmission()
+		if total <= 0 {
+			continue
+		}
+		j.active = append(j.active, i)
+		j.totalLight += total
+		j.cumuTotals = append(j.cumuTotals, j.totalLight)
+		if dl, ok := l.(AreaDensityLight); ok {
+			densities = append(densities, dl)
+		} else {
+			allDensity = false
+		}
+	}
+	if allDensity {
+		return &joinedDensityAreaLight{joinedAreaLight: j, densities: densities}
 	}
 	return j
 }
 
 func (j *joinedAreaLight) SampleLight(gen *rand.Rand) (point, normal model3d.Coord3D,
 	emission Color) {
-	lIdx := sort.SearchFloat64s(j.cumuTotals, gen.Float64()*j.totalLight)
-	if lIdx == len(j.cumuTotals) {
-		lIdx--
+	if len(j.lights) == 0 {
+		// An empty join has no surface to sample; return
+		// finite zero values rather than indexing into an
+		// empty slice.
+		return model3d.Coord3D{}, model3d.Coord3D{}, Color{}
 	}
-	point, normal, emission = j.lights[lIdx].SampleLight(gen)
+	if len(j.active) == 0 {
+		// Every sub-light is black. Sampling cannot happen
+		// in a working render, but the call must stay
+		// deterministic and free of out-of-bounds access.
+		point, normal, emission = j.lights[0].SampleLight(gen)
+		return
+	}
+	idx := sort.SearchFloat64s(j.cumuTotals, gen.Float64()*j.totalLight)
+	if idx == len(j.cumuTotals) {
+		idx = len(j.cumuTotals) - 1
+	}
+	point, normal, emission = j.lights[j.active[idx]].SampleLight(gen)
 	return
 }
 
 func (j *joinedAreaLight) TotalEmission() float64 {
 	return j.totalLight
+}
+
+// LightDensity evaluates the aggregate area proposal. The
+// point is attributed to at most one sub-light: the
+// active sub-lights are queried in fixed order, and the
+// first sub-light whose surface contains the point owns it
+// (shared edges are thus assigned deterministically). The
+// sub-light selection probability
+// TotalEmission/aggregateTotal is multiplied into the
+// returned density. Points off every surface or with a
+// mismatching normal return zero.
+func (j *joinedDensityAreaLight) LightDensity(point, normal model3d.Coord3D) float64 {
+	if len(j.active) == 0 || j.totalLight <= 0 {
+		return 0
+	}
+	for k, idx := range j.active {
+		if d := j.densities[k].LightDensity(point, normal); d > 0 {
+			return j.lights[idx].TotalEmission() / j.totalLight * d
+		}
+	}
+	return 0
 }

@@ -108,24 +108,40 @@ func (b *BidirPathTracer) rayColor(g *goInfo, obj Object, ray *model3d.Ray) Colo
 	b.sampleLightPath(g.Gen, obj, cache.LightPath)
 
 	var totalColor Color
-	totalEmission := b.Light.TotalEmission()
-	allPathCombinations(cache.EyePath, cache.LightPath, cache, totalEmission,
+	proposal := newLightProposal(b.Light)
+	allPathCombinations(cache.EyePath, cache.LightPath, cache, proposal,
 		func(density float64, intensity Color, p1, p2 model3d.Coord3D) {
 			if intensity.Sum() < 1e-8 {
+				return
+			}
+			// A non-positive or non-finite proposal density
+			// means this strategy could not have generated
+			// the path; it must not contribute MIS weights.
+			// This also keeps 0^(-x) out of the power
+			// heuristic when the light set is black or does
+			// not cover the emitting surface that was hit.
+			if !(density > 0) || math.IsNaN(density) || math.IsInf(density, 0) {
 				return
 			}
 
 			p := cache.JoinedPath
 			var weight float64
 			if b.PowerHeuristic == 0 {
-				p.Densities(totalEmission, b.MaxDepth, b.MaxLightDepth, func(d float64) {
-					weight += d
+				p.Densities(proposal, b.MaxDepth, b.MaxLightDepth, func(d float64) {
+					if d > 0 && !math.IsNaN(d) && !math.IsInf(d, 0) {
+						weight += d
+					}
 				})
 			} else {
 				scale := math.Pow(density, -(b.PowerHeuristic-1)/b.PowerHeuristic)
-				p.Densities(totalEmission, b.MaxDepth, b.MaxLightDepth, func(d float64) {
-					weight += math.Pow(d*scale, b.PowerHeuristic)
+				p.Densities(proposal, b.MaxDepth, b.MaxLightDepth, func(d float64) {
+					if d > 0 && !math.IsNaN(d) && !math.IsInf(d, 0) {
+						weight += math.Pow(d*scale, b.PowerHeuristic)
+					}
 				})
+			}
+			if !(weight > 0) {
+				return
 			}
 			color := intensity.Scale(1.0 / weight)
 
@@ -238,6 +254,60 @@ func (b *BidirPathTracer) maxLightDepth() int {
 		return b.MaxLightDepth
 	}
 	return b.MaxDepth
+}
+
+// lightProposal evaluates the probability density with
+// which the scene's AreaLight chooses surface points.
+//
+// Densities are measured per unit of world surface area,
+// not per solid angle. Lights implementing
+// AreaDensityLight are evaluated directly, so an
+// independent sampling guide drives the proposal while the
+// emitted colors only enter the path intensities. Legacy
+// AreaLights keep the original emission-based protocol,
+// where the (uniform) area density is the emission sum
+// divided by the total emission.
+type lightProposal struct {
+	light AreaLight
+
+	// density is non-nil exactly when the light supports
+	// direct area-density evaluation.
+	density AreaDensityLight
+	legacy  bool
+
+	totalEmission float64
+}
+
+func newLightProposal(light AreaLight) *lightProposal {
+	p := &lightProposal{
+		light:         light,
+		totalEmission: light.TotalEmission(),
+	}
+	if dl, ok := light.(AreaDensityLight); ok {
+		p.density = dl
+	} else {
+		p.legacy = true
+	}
+	return p
+}
+
+// areaDensity returns the proposal density per unit world
+// area at an emitting endpoint.
+//
+// The point and normal identify the endpoint of the
+// strategy whose density is being evaluated, and the
+// emission is the true color at that endpoint. The
+// emission is only consulted by the legacy fallback, whose
+// uniform proposal has density emission.Sum()/
+// TotalEmission at every point of the light.
+func (p *lightProposal) areaDensity(point, normal model3d.Coord3D, emission Color) float64 {
+	if p.legacy {
+		if p.totalEmission <= 0 {
+			return 0
+		}
+		return emission.Sum() / p.totalEmission
+	}
+	return p.density.LightDensity(point, normal)
 }
 
 func (b *BidirPathTracer) bounceRay(point model3d.Coord3D, dir model3d.Coord3D) *model3d.Ray {
@@ -418,7 +488,20 @@ type bptLightPath struct {
 
 // Densities computes the sampling density of the path for
 // each possible way it could have been sampled.
-func (b *bptLightPath) Densities(totalLight float64, maxDepth, maxLightDepth int, f func(float64)) {
+//
+// The light-starting strategies evaluate their root
+// density per unit world area through the proposal and
+// convert it to the library's unit-sphere directional
+// convention using p_w = p_A*4*pi*r^2/cos(theta), i.e.
+// the solid-angle Jacobian documented on
+// AreaDensityLight. Legacy lights keep the uniform
+// emission-based area density.
+//
+// The pure backward (eye-only) strategy is emitted
+// independently of the light proposal, so an unsupported
+// emitting endpoint can never erase eye-path contributions.
+func (b *bptLightPath) Densities(proposal *lightProposal, maxDepth, maxLightDepth int,
+	f func(float64)) {
 	if maxLightDepth == 0 {
 		maxLightDepth = maxDepth
 	}
@@ -435,6 +518,19 @@ func (b *bptLightPath) Densities(totalLight float64, maxDepth, maxLightDepth int
 		f(sourceDensityProduct)
 	}
 
+	if len(b.Points) <= 1 {
+		return
+	}
+
+	// Re-query the proposal at this strategy's actual
+	// emitting endpoint; a density from another sampled
+	// point must never be substituted here.
+	root := b.Points[0]
+	lightDensity := proposal.areaDensity(root.Point, root.Normal, root.Emission)
+	if !(lightDensity > 0) || math.IsInf(lightDensity, 0) {
+		return
+	}
+
 	outArea := func(i1, i2 int) float64 {
 		diff := b.Points[i1].Point.Sub(b.Points[i2].Point)
 		return 4 * math.Pi * diff.Dot(diff)
@@ -446,26 +542,22 @@ func (b *bptLightPath) Densities(totalLight float64, maxDepth, maxLightDepth int
 		return b.Points[i].DestDot()
 	}
 
-	if len(b.Points) > 1 {
-		lightDensity := b.Points[0].Emission.Sum() / totalLight
+	// Density of selecting the point on the light and
+	// connecting it to an eye path.
+	if len(b.Points)-1 <= maxDepth {
+		f(lightDensity * b.Points[1].Accumulator * outArea(0, 1) / cosOut(0))
+	}
 
-		// Density of selecting the point on the light and
-		// connecting it to an eye path.
-		if len(b.Points)-1 <= maxDepth {
-			f(lightDensity * b.Points[1].Accumulator * outArea(0, 1) / cosOut(0))
+	// Densities of starting a path on the light and
+	// connecting it to the eye path.
+	for i, p := range b.Points[2:] {
+		if i+1 >= maxLightDepth {
+			break
 		}
-
-		// Densities of starting a path on the light and
-		// connecting it to the eye path.
-		for i, p := range b.Points[2:] {
-			if i+1 >= maxLightDepth {
-				break
-			}
-			lightDensity *= b.Points[i].DestDensity
-			lightDensity *= cosIn(i+1) / cosOut(i)
-			if len(b.Points)-(i+2) <= maxDepth {
-				f(p.Accumulator * lightDensity * outArea(i+1, i+2) / cosOut(i+1))
-			}
+		lightDensity *= b.Points[i].DestDensity
+		lightDensity *= cosIn(i+1) / cosOut(i)
+		if len(b.Points)-(i+2) <= maxDepth {
+			f(p.Accumulator * lightDensity * outArea(i+1, i+2) / cosOut(i+1))
 		}
 	}
 }
@@ -473,54 +565,68 @@ func (b *bptLightPath) Densities(totalLight float64, maxDepth, maxLightDepth int
 // allPathCombinations enumerates all the ways to combine
 // the two paths, calling f for each combination along
 // with the two points whose connectivity to check.
-func allPathCombinations(eye *bptEyePath, light *bptLightPath, c *bptPathCache, totalLight float64,
+func allPathCombinations(eye *bptEyePath, light *bptLightPath, c *bptPathCache,
+	proposal *lightProposal,
 	f func(density float64, intensity Color, p1, p2 model3d.Coord3D)) {
 	out := c.JoinedPath
+
+	// Root area density of the sampled light endpoint,
+	// queried at the endpoint itself rather than at any
+	// eye-path hit point.
+	root := light.Points[0]
+	rootArea := proposal.areaDensity(root.Point, root.Normal, root.Emission)
+	hasAreaProposal := rootArea > 0 && !math.IsInf(rootArea, 0)
+
 	eyeDensity := 1.0
 	eyeBSDF := NewColor(1.0)
 	for i := 1; i <= len(eye.Points); i++ {
 		subEye := bptEyePath{bptPath{Points: eye.Points[:i]}}
 		if (subEye.Points[i-1].Emission != Color{}) {
-			// Full eye path has some contribution.
+			// Full eye path has some contribution. This
+			// term does not depend on the light proposal,
+			// so emitters outside the sampling light set
+			// still contribute through pure eye paths.
 			curIntensity := subEye.Points[i-1].Emission.Mul(eyeBSDF)
 			curIntensity = curIntensity.Scale(eye.Points[i-1].RouletteScale)
 			combinePaths(subEye, bptLightPath{}, c)
 			f(eyeDensity, curIntensity, model3d.Coord3D{}, model3d.Coord3D{})
 		}
-		density := eyeDensity * light.Points[0].Emission.Sum() / totalLight
-		lightBSDF := light.Points[0].Emission
-		for j := 1; j <= len(light.Points); j++ {
-			diff := light.Points[j-1].Point.Sub(subEye.Points[i-1].Point)
-			outArea := 4 * math.Pi * diff.Dot(diff)
+		if hasAreaProposal {
+			density := eyeDensity * rootArea
+			lightBSDF := root.Emission
+			for j := 1; j <= len(light.Points); j++ {
+				diff := light.Points[j-1].Point.Sub(subEye.Points[i-1].Point)
+				outArea := 4 * math.Pi * diff.Dot(diff)
 
-			if j > 1 {
-				density *= light.Points[j-2].DestDensity
-				density *= light.Points[j-1].SourceDot() / light.Points[j-2].DestDot()
-				if j > 2 {
-					lightBSDF = lightBSDF.Mul(light.Points[j-2].BSDF)
-				}
-				lightBSDF = lightBSDF.Scale(light.Points[j-1].SourceDot())
-			}
-
-			subLight := bptLightPath{bptPath{Points: light.Points[:j]}}
-			combinePaths(subEye, subLight, c)
-
-			// Prevent zero dot products at connection points,
-			// since the contribution will always be zero.
-			// If we don't do this check, then the power heuristic
-			// may compute infinity/infinity and yield NaNs.
-			if destDot := out.Points[j-1].DestDot(); destDot > 0 {
-				if sourceDot := out.Points[j].SourceDot(); sourceDot > 0 {
-					curDensity := density * outArea / destDot
-					intensity := eyeBSDF.Mul(lightBSDF).Scale(sourceDot)
-					intensity = intensity.Mul(out.Points[j].BSDF)
-					intensity = intensity.Scale(light.Points[j-1].RouletteScale *
-						eye.Points[i-1].RouletteScale)
-					if j > 1 {
-						intensity = intensity.Mul(out.Points[j-1].BSDF)
+				if j > 1 {
+					density *= light.Points[j-2].DestDensity
+					density *= light.Points[j-1].SourceDot() / light.Points[j-2].DestDot()
+					if j > 2 {
+						lightBSDF = lightBSDF.Mul(light.Points[j-2].BSDF)
 					}
-					f(curDensity, intensity, subEye.Points[len(subEye.Points)-1].Point,
-						subLight.Points[len(subLight.Points)-1].Point)
+					lightBSDF = lightBSDF.Scale(light.Points[j-1].SourceDot())
+				}
+
+				subLight := bptLightPath{bptPath{Points: light.Points[:j]}}
+				combinePaths(subEye, subLight, c)
+
+				// Prevent zero dot products at connection points,
+				// since the contribution will always be zero.
+				// If we don't do this check, then the power heuristic
+				// may compute infinity/infinity and yield NaNs.
+				if destDot := out.Points[j-1].DestDot(); destDot > 0 {
+					if sourceDot := out.Points[j].SourceDot(); sourceDot > 0 {
+						curDensity := density * outArea / destDot
+						intensity := eyeBSDF.Mul(lightBSDF).Scale(sourceDot)
+						intensity = intensity.Mul(out.Points[j].BSDF)
+						intensity = intensity.Scale(light.Points[j-1].RouletteScale *
+							eye.Points[i-1].RouletteScale)
+						if j > 1 {
+							intensity = intensity.Mul(out.Points[j-1].BSDF)
+						}
+						f(curDensity, intensity, subEye.Points[len(subEye.Points)-1].Point,
+							subLight.Points[len(subLight.Points)-1].Point)
+					}
 				}
 			}
 		}
