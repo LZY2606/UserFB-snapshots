@@ -125,6 +125,13 @@ type CalcTime interface {
 	CalcBaseTimestamp()
 }
 
+// PlaybackStarter is implemented by writers that were requested to start
+// from a position in the retained cache instead of the live edge. The
+// returned timestamp is in milliseconds.
+type PlaybackStarter interface {
+	PlaybackStart() (start uint32, ok bool)
+}
+
 type Info struct {
 	Key   string
 	URL   string

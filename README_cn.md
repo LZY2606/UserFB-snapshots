@@ -44,6 +44,36 @@
     - `FLV`:`http://127.0.0.1:7001/{appname}/movie.flv`
     - `HLS`:`http://127.0.0.1:7002/{appname}/movie.m3u8`
 
+#### 缓存回看（从指定位置开始播放）
+
+play 请求可以显式携带以秒为单位的 `start` 位置。服务端会从缓存窗口
+（由 `gop_num` 控制）中仍保留的、时间不晚于该位置的最近一个视频关键帧开始播放，
+缓存播完后无缝接回当前发布流。不传 `start`，或传 `-1` / `-2`，仍按原来的直播方式播放。
+
+该位置是 `play` 命令额外的 AMF0 参数，完整消息为
+`play(transactionId, commandObject, streamName, start, duration, reset)`：
+
+```text
+play(0, null, "movie", 30)   # 从缓存中第 30 秒处开始回看
+```
+
+也可以使用本仓库的 AMF 编码器构造该命令：
+
+```go
+var buf bytes.Buffer
+enc := &amf.Encoder{}
+for _, v := range []interface{}{"play", float64(0), nil, "movie", float64(30)} {
+    if _, err := enc.Encode(&buf, v, amf.AMF0); err != nil {
+        return err
+    }
+}
+// 将 buf 作为 AMF0 命令消息（type 20）发送到播放流
+```
+
+如果请求的位置早于仍保留的最早关键帧，或晚于最新的媒体时间，服务端会在输出任何媒体之前
+关闭该订阅者，并返回可区分的范围错误。
+
+
 所有配置项: 
 ```bash
 ./livego  -h

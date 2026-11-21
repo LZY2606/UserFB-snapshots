@@ -96,8 +96,11 @@ type Stream struct {
 }
 
 type PackWriterCloser struct {
-	init bool
-	w    av.WriteCloser
+	init     bool
+	w        av.WriteCloser
+	start    uint32
+	playback bool
+	offset   uint32
 }
 
 func (p *PackWriterCloser) GetWriter() av.WriteCloser {
@@ -132,6 +135,8 @@ func (s *Stream) Copy(dst *Stream) {
 		v := val.(*PackWriterCloser)
 		s.ws.Delete(key)
 		v.w.CalcBaseTimestamp()
+		// The restarted publisher starts from a fresh cache, so the new
+		// PackWriterCloser has no playback offset and continues live.
 		dst.AddWriter(v.w)
 		return true
 	})
@@ -145,7 +150,44 @@ func (s *Stream) AddReader(r av.ReadCloser) {
 func (s *Stream) AddWriter(w av.WriteCloser) {
 	info := w.Info()
 	pw := &PackWriterCloser{w: w}
+	if starter, ok := w.(av.PlaybackStarter); ok {
+		pw.start, pw.playback = starter.PlaybackStart()
+	}
 	s.ws.Store(info.UID, pw)
+}
+
+// sendCache seeds a new subscriber from the retained cache. A subscriber that
+// asked for a replay is rebased on its selected keyframe; if the requested
+// position falls outside the retained window the subscriber is closed with a
+// distinguishable range error and no media is written.
+func (s *Stream) sendCache(v *PackWriterCloser) error {
+	offset, err := s.cache.SendFrom(v.w, v.start, v.playback)
+	if err != nil {
+		return err
+	}
+	v.offset = offset
+	v.init = true
+	return nil
+}
+
+// writeLive delivers one live packet to a subscriber, applying the same
+// rebasing offset that was used for its replay so the handoff is seamless.
+// Each subscriber gets its own copy of the payload: a downstream writer that
+// rewrites its packet, or an upstream producer that reuses its input buffer,
+// must not corrupt another subscriber or the publisher's read buffer.
+func (s *Stream) writeLive(v *PackWriterCloser, p av.Packet) error {
+	newPacket := p
+	if p.Data != nil {
+		newPacket.Data = append([]byte(nil), p.Data...)
+	}
+	if v.playback {
+		if newPacket.TimeStamp >= v.offset {
+			newPacket.TimeStamp -= v.offset
+		} else {
+			newPacket.TimeStamp = 0
+		}
+	}
+	return v.w.Write(&newPacket)
 }
 
 /*检测本application下是否配置static_push,
@@ -330,30 +372,42 @@ func (s *Stream) TransStart() {
 			s.SendStaticPush(p)
 		}
 
-		s.cache.Write(p)
-
-		s.ws.Range(func(key, val interface{}) bool {
-			v := val.(*PackWriterCloser)
-			if !v.init {
-				//log.Debugf("cache.send: %v", v.w.Info())
-				if err = s.cache.Send(v.w); err != nil {
-					log.Debugf("[%s] send cache packet error: %v, remove", v.w.Info(), err)
-					s.ws.Delete(key)
-					return true
-				}
-				v.init = true
-			} else {
-				newPacket := p
-				//writeType := reflect.TypeOf(v.w)
-				//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
-				if err = v.w.Write(&newPacket); err != nil {
-					log.Debugf("[%s] write packet error: %v, remove", v.w.Info(), err)
-					s.ws.Delete(key)
-				}
-			}
-			return true
-		})
+		s.writePacket(p)
 	}
+}
+
+// writePacket appends one published packet to the cache and delivers it to all
+// subscribers, seeding subscribers that have not been initialised yet.
+func (s *Stream) writePacket(p av.Packet) {
+	s.cache.Write(p)
+
+	s.ws.Range(func(key, val interface{}) bool {
+		v := val.(*PackWriterCloser)
+		var err error
+		if !v.init {
+			//log.Debugf("cache.send: %v", v.w.Info())
+			if err = s.sendCache(v); err != nil {
+				// A playback range error is reported before any media is
+				// written and does not affect the publisher or other writers.
+				if err == cache.ErrPlaybackRange {
+					log.Infof("[%s] playback start out of retained cache range", v.w.Info())
+				} else {
+					log.Debugf("[%s] send cache packet error: %v, remove", v.w.Info(), err)
+				}
+				s.ws.Delete(key)
+				v.w.Close(err)
+				return true
+			}
+		} else {
+			//writeType := reflect.TypeOf(v.w)
+			//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
+			if err = s.writeLive(v, p); err != nil {
+				log.Debugf("[%s] write packet error: %v, remove", v.w.Info(), err)
+				s.ws.Delete(key)
+			}
+		}
+		return true
+	})
 }
 
 func (s *Stream) TransStop() {

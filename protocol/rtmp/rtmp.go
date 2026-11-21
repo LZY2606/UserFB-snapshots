@@ -194,9 +194,11 @@ type VirWriter struct {
 	Uid    string
 	closed bool
 	av.RWBaser
-	conn        StreamReadWriteCloser
-	packetQueue chan *av.Packet
-	WriteBWInfo StaticsBW
+	conn          StreamReadWriteCloser
+	packetQueue   chan *av.Packet
+	WriteBWInfo   StaticsBW
+	playbackStart uint32
+	playback      bool
 }
 
 func NewVirWriter(conn StreamReadWriteCloser) *VirWriter {
@@ -208,6 +210,10 @@ func NewVirWriter(conn StreamReadWriteCloser) *VirWriter {
 		WriteBWInfo: StaticsBW{0, 0, 0, 0, 0, 0, 0, 0},
 	}
 
+	if starter, ok := conn.(av.PlaybackStarter); ok {
+		ret.playbackStart, ret.playback = starter.PlaybackStart()
+	}
+
 	go ret.Check()
 	go func() {
 		err := ret.SendPacket()
@@ -216,6 +222,12 @@ func NewVirWriter(conn StreamReadWriteCloser) *VirWriter {
 		}
 	}()
 	return ret
+}
+
+// PlaybackStart reports the requested cached playback position in
+// milliseconds and whether the subscriber asked for a replay.
+func (v *VirWriter) PlaybackStart() (uint32, bool) {
+	return v.playbackStart, v.playback
 }
 
 func (v *VirWriter) SaveStatics(streamid uint32, length uint64, isVideoFlag bool) {

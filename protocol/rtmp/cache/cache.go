@@ -5,71 +5,29 @@ import (
 	"github.com/gwuhaolin/livego/configure"
 )
 
+// Cache keeps the rolling window of complete historical GOPs together with the
+// metadata and sequence headers that were active when each GOP started.
 type Cache struct {
-	gop      *GopCache
-	videoSeq *SpecialCache
-	audioSeq *SpecialCache
-	metadata *SpecialCache
+	gop *GopCache
 }
 
 func NewCache() *Cache {
 	return &Cache{
-		gop:      NewGopCache(configure.Config.GetInt("gop_num")),
-		videoSeq: NewSpecialCache(),
-		audioSeq: NewSpecialCache(),
-		metadata: NewSpecialCache(),
+		gop: NewGopCache(configure.Config.GetInt("gop_num")),
 	}
 }
 
 func (cache *Cache) Write(p av.Packet) {
-	if p.IsMetadata {
-		cache.metadata.Write(&p)
-		return
-	} else {
-		if !p.IsVideo {
-			ah, ok := p.Header.(av.AudioPacketHeader)
-			if ok {
-				if ah.SoundFormat() == av.SOUND_AAC &&
-					ah.AACPacketType() == av.AAC_SEQHDR {
-					cache.audioSeq.Write(&p)
-					return
-				} else {
-					return
-				}
-			}
-
-		} else {
-			vh, ok := p.Header.(av.VideoPacketHeader)
-			if ok {
-				if vh.IsSeq() {
-					cache.videoSeq.Write(&p)
-					return
-				}
-			} else {
-				return
-			}
-
-		}
-	}
 	cache.gop.Write(&p)
 }
 
+// Send writes the retained cache in live mode (no playback position).
 func (cache *Cache) Send(w av.WriteCloser) error {
-	if err := cache.metadata.Send(w); err != nil {
-		return err
-	}
+	return cache.gop.Send(w)
+}
 
-	if err := cache.videoSeq.Send(w); err != nil {
-		return err
-	}
-
-	if err := cache.audioSeq.Send(w); err != nil {
-		return err
-	}
-
-	if err := cache.gop.Send(w); err != nil {
-		return err
-	}
-
-	return nil
+// SendFrom writes the retained cache, optionally rebased on a playback start
+// position in milliseconds. It returns the offset that was applied.
+func (cache *Cache) SendFrom(w av.WriteCloser, start uint32, requested bool) (uint32, error) {
+	return cache.gop.SendFrom(w, start, requested)
 }

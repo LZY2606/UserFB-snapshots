@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/gwuhaolin/livego/av"
 	"github.com/gwuhaolin/livego/protocol/amf"
@@ -31,6 +32,11 @@ var (
 	cmdDeleteStream  = "deleteStream"
 	cmdPlay          = "play"
 )
+
+// errPlaybackStart is returned for a play start that is not a finite number,
+// is a negative value other than -1 or -2, or does not fit in a uint32 after
+// conversion to milliseconds.
+var errPlaybackStart = fmt.Errorf("invalid play start")
 
 type ConnectInfo struct {
 	App            string `amf:"app" json:"app"`
@@ -68,6 +74,8 @@ type ConnServer struct {
 	isPublisher   bool
 	conn          *Conn
 	transactionID int
+	playbackStart uint32
+	playback      bool
 	ConnInfo      ConnectInfo
 	PublishInfo   PublishInfo
 	decoder       *amf.Decoder
@@ -179,22 +187,63 @@ func (connServer *ConnServer) createStreamResp(cur *ChunkStream) error {
 	return connServer.writeMsg(cur.CSID, cur.StreamID, "_result", connServer.transactionID, nil, connServer.streamID)
 }
 
-func (connServer *ConnServer) publishOrPlay(vs []interface{}) error {
+func (connServer *ConnServer) publishOrPlay(vs []interface{}, isPlay bool) error {
 	for k, v := range vs {
-		switch v.(type) {
+		switch value := v.(type) {
 		case string:
 			if k == 2 {
-				connServer.PublishInfo.Name = v.(string)
-			} else if k == 3 {
-				connServer.PublishInfo.Type = v.(string)
+				connServer.PublishInfo.Name = value
+			} else if k == 3 && !isPlay {
+				connServer.PublishInfo.Type = value
+			} else if isPlay && k == 3 {
+				return errPlaybackStart
 			}
 		case float64:
-			id := int(v.(float64))
-			connServer.transactionID = id
-		case amf.Object:
+			if k == 0 {
+				connServer.transactionID = int(value)
+			}
+			if isPlay && k == 3 {
+				if err := connServer.setPlaybackStart(value); err != nil {
+					return err
+				}
+			}
+		case nil:
+			if isPlay && k == 3 {
+				// An explicit null / undefined start is not a finite number.
+				return errPlaybackStart
+			}
+		default:
+			if isPlay && k == 3 {
+				return errPlaybackStart
+			}
 		}
 	}
 
+	return nil
+}
+
+// setPlaybackStart records an explicit play start given in seconds. A start
+// of -1 or -2 means the regular live edge; any other negative, non-finite or
+// out-of-range value is rejected.
+func (connServer *ConnServer) setPlaybackStart(seconds float64) error {
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return errPlaybackStart
+	}
+	if seconds == -1 || seconds == -2 {
+		connServer.playback = false
+		connServer.playbackStart = 0
+		return nil
+	}
+	if seconds < 0 {
+		return errPlaybackStart
+	}
+	ms := math.Floor(seconds * 1000)
+	const maxPlaybackMillis = float64(1<<32 - 1)
+	if ms > maxPlaybackMillis {
+		return errPlaybackStart
+	}
+	connServer.playbackStart = uint32(ms)
+	connServer.playback = true
 	return nil
 }
 
@@ -270,7 +319,7 @@ func (connServer *ConnServer) handleCmdMsg(c *ChunkStream) error {
 				return err
 			}
 		case cmdPublish:
-			if err = connServer.publishOrPlay(vs[1:]); err != nil {
+			if err = connServer.publishOrPlay(vs[1:], false); err != nil {
 				return err
 			}
 			if err = connServer.publishResp(c); err != nil {
@@ -280,7 +329,7 @@ func (connServer *ConnServer) handleCmdMsg(c *ChunkStream) error {
 			connServer.isPublisher = true
 			log.Debug("handle publish req done")
 		case cmdPlay:
-			if err = connServer.publishOrPlay(vs[1:]); err != nil {
+			if err = connServer.publishOrPlay(vs[1:], true); err != nil {
 				return err
 			}
 			if err = connServer.playResp(c); err != nil {
@@ -324,6 +373,23 @@ func (connServer *ConnServer) ReadMsg() error {
 
 func (connServer *ConnServer) IsPublisher() bool {
 	return connServer.isPublisher
+}
+
+// PlaybackStart reports the explicit playback position in milliseconds,
+// rounded down, and whether the play request asked for a cached replay.
+func (connServer *ConnServer) PlaybackStart() (uint32, bool) {
+	return connServer.playbackStart, connServer.playback
+}
+
+// HandleCmdMsgForTest exposes command handling so integration tests can drive
+// real AMF play requests without a network peer.
+func (connServer *ConnServer) HandleCmdMsgForTest(c *ChunkStream) error {
+	return connServer.handleCmdMsg(c)
+}
+
+// TransactionIDForTest exposes the parsed AMF transaction id for tests.
+func (connServer *ConnServer) TransactionIDForTest() int {
+	return connServer.transactionID
 }
 
 func (connServer *ConnServer) Write(c ChunkStream) error {

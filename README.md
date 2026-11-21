@@ -48,6 +48,40 @@ Run `docker run -p 1935:1935 -p 7001:7001 -p 7002:7002 -p 8090:8090 -d gwuhaolin
     - `HLS`:`http://127.0.0.1:7002/{appname}/movie.m3u8`
 5. Use hls via https: generate ssl certificate(server.key, server.crt files), place them in directory with executable file, change "use_hls_https" option in livego.yaml to true (false by default)
 
+#### Cached playback (start from a position)
+
+A play request may carry an explicit `start` position in seconds. The server
+starts from the most recent video keyframe still in the retained cache window
+(controlled by `gop_num`), plays the cached portion, then continues with the
+live publish stream. Omit `start`, or pass `-1` / `-2`, to keep the regular
+live behavior.
+
+The position is an extra AMF0 argument of the `play` command. The full message
+is `play(transactionId, commandObject, streamName, start, duration, reset)`;
+`start` is in seconds:
+
+```text
+play(0, null, "movie", 30)   # replay from 30 seconds into the cache
+```
+
+A client can build that command with the AMF encoder shipped in this repo:
+
+```go
+var buf bytes.Buffer
+enc := &amf.Encoder{}
+for _, v := range []interface{}{"play", float64(0), nil, "movie", float64(30)} {
+    if _, err := enc.Encode(&buf, v, amf.AMF0); err != nil {
+        return err
+    }
+}
+// send buf as an AMF0 command message (type 20) on the play stream
+```
+
+If the requested position is older than the earliest retained keyframe or
+newer than the latest published media time, the subscriber is closed with a
+range error before any media is written.
+
+
 all options: 
 ```bash
 ./livego  -h
