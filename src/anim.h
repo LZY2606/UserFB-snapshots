@@ -52,6 +52,8 @@ struct anm_animation {
 	struct anm_track tracks[ANM_NUM_TRACKS];
 };
 
+struct anm_pose_graph;
+
 struct anm_node {
 	char *name;
 
@@ -84,6 +86,11 @@ struct anm_node {
 	struct anm_node *parent;
 	struct anm_node *child;
 	struct anm_node *next;
+
+	/* owning pose graph, 0 when the node is not part of one. managed by
+	 * anm_pg_create/anm_pg_destroy; do not touch from user code.
+	 */
+	struct anm_pose_graph *pg_owner;
 
 	void *data;	/* user data pointer */
 };

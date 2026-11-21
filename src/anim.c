@@ -20,6 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <limits.h>
 #include <assert.h>
 #include "anim.h"
+#include "pose_graph.h"
 #include "dynarr.h"
 
 #include "cgmath/cgmath.h"
@@ -77,6 +78,8 @@ int anm_init_node(struct anm_node *node)
 	memset(node, 0, sizeof *node);
 
 	node->cur_anim[1] = -1;
+	/* -1 means no high-level automatic transition is running */
+	node->blend_dur = -1;
 
 	if(!(node->animations = anm_dynarr_alloc(1, sizeof *node->animations))) {
 		return -1;
@@ -85,6 +88,13 @@ int anm_init_node(struct anm_node *node)
 		anm_dynarr_free(node->animations);
 		return -1;
 	}
+
+#ifndef ANIM_THREAD_SAFE
+	/* memset left cache.time at 0, which would make a first query exactly
+	 * at time 0 look cached and return a zero matrix
+	 */
+	node->cache.time = node->cache.inv_time = ANM_TIME_INVAL;
+#endif
 
 #ifdef ANIM_THREAD_SAFE
 	/* initialize thread-local matrix cache */
@@ -275,6 +285,8 @@ int anm_use_node_animations(struct anm_node *node, int aidx, int bidx, float t)
 	node->cur_anim[0] = aidx;
 	node->cur_anim[1] = bidx;
 	node->cur_mix = t;
+	/* an explicit fixed mix is not a timed automatic transition */
+	node->blend_dur = -1;
 
 	invalidate_cache(node);
 	return 0;
@@ -803,6 +815,23 @@ void anm_get_node_matrix(struct anm_node *node, float *mat, anm_time_t tm)
 	cgm_vec3 pos, scale;
 	cgm_quat rot;
 
+	/* published pose-graph result: return the local pose relative to the
+	 * final parent world pose (the world pose itself for a root node)
+	 */
+	if(anm_pg_apply(node, tm, mat)) {
+		if(node->parent) {
+			float pmat[16];
+			if(anm_pg_apply(node->parent, tm, pmat)) {
+				/* local = inverse(W_parent) * W_node; cgm_mmul(a,b)
+				 * composes as b*a in conventional column-vector order
+				 */
+				cgm_minverse(pmat);
+				cgm_mmul(mat, pmat);
+			}
+		}
+		return;
+	}
+
 	anm_get_node_position(node, &pos.x, tm);
 	anm_get_node_rotation(node, &rot.x, tm);
 	anm_get_node_scaling(node, &scale.x, tm);
@@ -840,6 +869,9 @@ void anm_get_node_inv_matrix(struct anm_node *node, float *mat, anm_time_t tm)
 
 void anm_eval_node(struct anm_node *node, anm_time_t tm)
 {
+	if(anm_pg_apply(node, tm, node->matrix)) {
+		return;
+	}
 	anm_get_node_matrix(node, node->matrix, tm);
 }
 
@@ -849,7 +881,7 @@ void anm_eval(struct anm_node *node, anm_time_t tm)
 
 	anm_eval_node(node, tm);
 
-	if(node->parent) {
+	if(node->parent && !anm_pg_apply(node, tm, 0)) {
 		/* due to post-order traversal, the parent matrix is already evaluated */
 		cgm_mmul(node->matrix, node->parent->matrix);
 	}
@@ -864,6 +896,37 @@ void anm_eval(struct anm_node *node, anm_time_t tm)
 
 float *anm_get_matrix(struct anm_node *node, float *mat, anm_time_t tm)
 {
+	/* published pose-graph world pose: feed the same W through the cache */
+	if(anm_pg_apply(node, tm, 0)) {
+#ifdef ANIM_THREAD_SAFE
+	struct mat_cache *cache = pthread_getspecific(node->cache_key);
+	if(!cache) {
+		cache = malloc(sizeof *cache);
+		assert(cache);
+
+		pthread_mutex_lock(&node->cache_list_lock);
+		cache->next = node->cache_list;
+		node->cache_list = cache;
+		pthread_mutex_unlock(&node->cache_list_lock);
+
+		cache->time = ANM_TIME_INVAL;
+		cache->inv_time = ANM_TIME_INVAL;
+		pthread_setspecific(node->cache_key, cache);
+	}
+#else
+	struct mat_cache *cache = &node->cache;
+#endif
+		if(cache->time != tm) {
+			anm_pg_apply(node, tm, cache->matrix);
+			cache->time = tm;
+		}
+
+		if(mat) {
+			cgm_mcopy(mat, cache->matrix);
+		}
+		return cache->matrix;
+	}
+
 #ifdef ANIM_THREAD_SAFE
 	struct mat_cache *cache = pthread_getspecific(node->cache_key);
 	if(!cache) {

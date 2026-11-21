@@ -1,5 +1,5 @@
 src = $(wildcard src/*.c)
-hdr = src/track.h src/anim.h src/config.h
+hdr = src/track.h src/anim.h src/pose_graph.h src/config.h
 obj = $(src:.c=.o)
 dep = $(obj:.o=.d)
 lib_a = lib$(name).a

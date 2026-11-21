@@ -76,6 +76,81 @@ The animation node interface is pretty useful for a wide range of applications,
 but if it doesn't fit your design, just ignore it altogether and use the low
 level track API directly (`track.h`).
 
+### Pose graph interface
+`pose_graph.h` adds a reusable soft relative-pose constraint layer,
+`anm_pose_graph`, on top of the node forest. It is meant for rig assembly
+problems where several mount points play separate animations and must be
+joined with tolerance: two hands and a prop forming a closed loop, contacts
+across branches, duplicate or mutually inconsistent endpoints. The existing
+parent/child edges stay a forest and are themselves treated as weighted
+observations; extra observations may connect any two nodes, so cycles are
+solved instead of rejected or overwritten in connection order.
+
+This is a soft pose constraint solver for animation assembly, **not** rigid
+body dynamics: there is no velocity, inertia or momentum, and nothing
+preserves bone segment lengths (a solution is allowed to stretch a chain).
+
+The minimized objective over the world rigid poses `W_i` is, for every
+observation between nodes i,j with target rigid transform `D_ij` and positive
+weights `wt, wr`:
+
+    wt * |translation(inv(W_i) W_j) - translation(D_ij)|^2
+  + wr * |Log(inv(rotation(D_ij)) rotation(inv(W_i) W_j))|^2
+
+`Log` is the radians axis-angle vector (a quaternion component difference is
+not used). Anchors are nodes whose world pose is pinned exactly to the
+independently sampled animation pose, and every undirected connected
+component must contain at least one anchor. The solver is Gauss-Newton with
+Levenberg damping and a backtracking line search over the joint 6D local
+rotation/translation perturbation, starting every solve at the sampled
+animation pose. It is only required to reach a local stationary point.
+
+The API is:
+
+- `anm_pg_create(nodes, num_nodes, anchors, num_anchors, parent_wt, parent_wr)`
+  builds a graph. The node array carries full ancestor chains (every parent of
+  a member is a member), the original forest is untouched, each node may belong
+  to at most one live graph, and nodes must outlive the graph. Parent edges are
+  generated at solve time with the uniform weights given here.
+- `anm_pg_replace_observations(pg, obs, num_obs)` atomically swaps the extra
+  observation table. The whole new table (node references, finiteness, rigid
+  targets, positive weights, anchored components together with the parent
+  edges) is validated before anything takes effect; on failure the previous
+  table and any published result are untouched.
+- `anm_pg_solve(pg, tm, opts)` independently re-samples the original animation
+  at `tm` through the track APIs only (no matrix caches, no previous graph
+  result), solves, and on success publishes the result for exactly that time.
+  Failure, including non-convergence, never modifies the last published pose,
+  the tracks or the caches. `opts` may be null for sensible defaults.
+- `anm_pg_clear_overrides(pg)` drops the published pose so original animation
+  queries resume at every time; the observation table is kept.
+- `anm_pg_destroy(pg)` detaches all overrides and releases the graph; member
+  nodes then behave exactly as before and may join a new graph.
+- `anm_pg_get_report(pg, report)` returns the status, final cost, inf norm of
+  the 6D local-perturbation gradient and the iteration count of the last solve.
+
+A published pose is consumed only at its exact time by `anm_get_matrix`,
+`anm_get_inv_matrix`, `anm_eval` (the `node.matrix` it writes) and
+`anm_get_node_matrix` (which returns the local pose relative to the final
+parent world pose). At every other time these functions evaluate the original
+animation. Corrections are never written back into the keyframe tracks, results
+are not accumulated between solves, and reverse-order queries, re-solving the
+same time, or re-solving after a table swap all re-sample from scratch.
+Clearing or destroying the graph invalidates the affected caches so the
+forward and inverse matrices are recomputed; nodes outside the graph and other
+graphs are unaffected.
+
+Current scope: single threaded; finite rigid body poses; unit animated
+scaling (non-unit scaling returns `ANM_PG_ESCALE`); existing node pivots, fixed
+dual-animation mixing (`anm_use_node_animations`) and animation time offsets
+are supported. An active high-level automatic transition
+(`anm_transition`/`anm_node_transition`) is explicitly rejected with
+`ANM_PG_ETRANSITION`; the rest of the animation API is unchanged. Distinct
+error codes (`ANM_PG_EINVAL`, `ANM_PG_ENODE`, `ANM_PG_EWEIGHT`,
+`ANM_PG_ERIGID`, `ANM_PG_EANCHOR`, `ANM_PG_ETRANSITION`, `ANM_PG_ESCALE`,
+`ANM_PG_ECONVERGE`, `ANM_PG_ENOMEM`) identify each failure class. A headless
+CPU example lives in `example/pose-graph-cpu.c`.
+
 Build
 -----
 To build and install libanim on UNIX, run the usual:
