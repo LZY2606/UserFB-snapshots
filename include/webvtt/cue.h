@@ -130,6 +130,29 @@ WEBVTT_EXPORT webvtt_status
 webvtt_cue_validate_set_settings( struct webvtt_parser_t *self, webvtt_cue *cue,
                                   const webvtt_string *settings );
 
+/**
+ * Replace the cue text covered by the half-open Unicode code-point range
+ * [begin, end) with 'replacement'.
+ *
+ * Positions are code-point offsets over the TEXT leaves of the cue's node
+ * tree, visited depth-first: decoded entities count as their decoded
+ * characters, a line feed counts as one code point, and time-stamp nodes and
+ * formatting nodes occupy no position. They are not UTF-8 byte offsets.
+ *
+ * 'replacement' is a length-bounded UTF-8 byte string of literal text:
+ * '<', '>' and '&' are written out as escaped text and never become tags.
+ * Line feeds (LF) are allowed; NUL, CR and malformed UTF-8 are rejected.
+ * An empty range inserts and an empty replacement deletes.
+ *
+ * On success, cue->body holds a normalized, saveable WebVTT payload and
+ * cue->node_head reflects the same edit. On any error the cue's body and
+ * node tree are left untouched. Cues containing ruby/rt or unknown node
+ * kinds are not supported and return WEBVTT_NOT_SUPPORTED.
+ */
+WEBVTT_EXPORT webvtt_status
+webvtt_cue_replace_text( webvtt_cue *cue, webvtt_uint begin, webvtt_uint end,
+                         const char *replacement, webvtt_uint length );
+
 #if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif

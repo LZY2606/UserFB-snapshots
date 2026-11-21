@@ -1,5 +1,6 @@
 *~
 *.a
+.task-build/
 *.sdf
 *.user
 *.suo

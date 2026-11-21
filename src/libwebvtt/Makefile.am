@@ -26,7 +26,7 @@
 lib_LTLIBRARIES = libwebvtt.la
 noinst_LTLIBRARIES = libwebvtt-static.la
 
-WEBVTT_SOURCES = alloc.c cue.c cuetext.c error.c lexer.c \
+WEBVTT_SOURCES = alloc.c cue.c cueselect.c cuetext.c error.c lexer.c \
 		 node.c parser.c string.c \
 		 cue_internal.h cuetext_internal.h node_internal.h \
 		 parser_internal.h string_internal.h
