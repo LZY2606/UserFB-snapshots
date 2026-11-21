@@ -1,0 +1,21 @@
+{
+  "repo": "https://github.com/signalsmith-audio/signalsmith-stretch",
+  "commit": "88061fd4eda56a2353c5d65c74aa3f4ccf76f9da",
+  "license": "MIT",
+  "dependency": {
+    "repo": "https://github.com/Signalsmith-Audio/linear",
+    "commit": "7bb1c8f36794d6980080ce817c91f8da8fe56a66",
+    "license": "MIT",
+    "path": "vendor/linear"
+  },
+  "excluded": [
+    ".gitmodules (submodule topology only)",
+    "cmd/util gitlink aeb4e31077a453566b58fff1c7e7e998ac824157 (not used by library runner)"
+  ],
+  "retained_scope": "All tracked ordinary source, README, LICENSE, NOTICE if present and modes preserved; cmd/web sources and MP3 demo retained but not used by task runner",
+  "binary_assets": [
+    "web/demo/loop.mp3"
+  ],
+  "symlinks": [],
+  "runtime_closure": "C++17 standard library and vendored Linear; direct compiler, no optional platform FFT, CMake/CLI/web tools not invoked"
+}
