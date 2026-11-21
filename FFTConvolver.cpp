@@ -44,7 +44,6 @@ FFTConvolver::FFTConvolver() :
   _preMultiplied(),
   _conv(),
   _overlap(),
-  _current(0),
   _inputBuffer(),
   _inputBufferFill(0)
 {
@@ -58,25 +57,22 @@ FFTConvolver::~FFTConvolver()
 
   
 void FFTConvolver::reset()
-{  
-  for (size_t i=0; i<_segCount; ++i)
+{
+  for (size_t i=0; i<_segmentsIR.size(); ++i)
   {
-    delete _segments[i];
     delete _segmentsIR[i];
   }
-  
+  _segments.clear();
+  _segmentsIR.clear();
   _blockSize = 0;
   _segSize = 0;
   _segCount = 0;
   _fftComplexSize = 0;
-  _segments.clear();
-  _segmentsIR.clear();
   _fftBuffer.clear();
   _fft.init(0);
   _preMultiplied.clear();
   _conv.clear();
   _overlap.clear();
-  _current = 0;
   _inputBuffer.clear();
   _inputBufferFill = 0;
 }
@@ -112,10 +108,7 @@ bool FFTConvolver::init(size_t blockSize, const Sample* ir, size_t irLen)
   _fftBuffer.resize(_segSize);
   
   // Prepare segments
-  for (size_t i=0; i<_segCount; ++i)
-  {
-    _segments.push_back(new SplitComplex(_fftComplexSize));    
-  }
+  _segments.init(_blockSize, _segCount);
   
   // Prepare IR
   for (size_t i=0; i<_segCount; ++i)
@@ -137,9 +130,6 @@ bool FFTConvolver::init(size_t blockSize, const Sample* ir, size_t irLen)
   _inputBuffer.resize(_blockSize);
   _inputBufferFill = 0;
 
-  // Reset current position
-  _current = 0;
-  
   return true;
 }
 
@@ -160,23 +150,27 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
     const size_t inputBufferPos = _inputBufferFill;
     ::memcpy(_inputBuffer.data()+inputBufferPos, input+processed, processing * sizeof(Sample));
 
-    // Forward FFT
-    CopyAndPad(_fftBuffer, &_inputBuffer[0], _blockSize); 
-    _fft.fft(_fftBuffer.data(), _segments[_current]->re(), _segments[_current]->im());
+    // Forward FFT into the slot which is going to be published when this
+    // block is complete. The slot is rewritten on every call which only
+    // partially fills the block, so the ring is advanced exactly once per
+    // block.
+    CopyAndPad(_fftBuffer, &_inputBuffer[0], _blockSize);
+    SplitComplex& currentSegment = _segments.writeNext();
+    _fft.fft(_fftBuffer.data(), currentSegment.re(), currentSegment.im());
 
-    // Complex multiplication
+    // Complex multiplication. at(0) is the most recently completed block and
+    // at(i) the block i steps older (the ring is zero initialized, so the
+    // history before the stream starts is zero).
     if (inputBufferWasEmpty)
     {
       _preMultiplied.setZero();
       for (size_t i=1; i<_segCount; ++i)
       {
-        const size_t indexIr = i;
-        const size_t indexAudio = (_current + i) % _segCount;
-        ComplexMultiplyAccumulate(_preMultiplied, *_segmentsIR[indexIr], *_segments[indexAudio]);
+        ComplexMultiplyAccumulate(_preMultiplied, *_segmentsIR[i], _segments.at(i-1));
       }
     }
     _conv.copyFrom(_preMultiplied);
-    ComplexMultiplyAccumulate(_conv, *_segments[_current], *_segmentsIR[0]);
+    ComplexMultiplyAccumulate(_conv, currentSegment, *_segmentsIR[0]);
 
     // Backward FFT
     _fft.ifft(_fftBuffer.data(), _conv.re(), _conv.im());
@@ -195,8 +189,8 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
       // Save the overlap
       ::memcpy(_overlap.data(), _fftBuffer.data()+_blockSize, _blockSize * sizeof(Sample));
 
-      // Update current segment
-      _current = (_current > 0) ? (_current - 1) : (_segCount - 1);
+      // Publish the completed block
+      _segments.commit();
     }
 
     processed += processing;
