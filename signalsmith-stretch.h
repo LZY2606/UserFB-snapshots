@@ -2,6 +2,7 @@
 #define SIGNALSMITH_STRETCH_H
 
 #include "signalsmith-linear/stft.h" // https://github.com/Signalsmith-Audio/linear
+#include "signalsmith-denoise.h"
 
 #include <vector>
 #include <array>
@@ -50,13 +51,19 @@ struct SignalsmithStretch {
 		stft.reset(0.1);
 		stashedInput = stft.input;
 		stashedOutput = stft.output;
-		
+
 		prevInputOffset = -1;
 		_channelBands.assign(_channelBands.size(), Band());
 		silenceCounter = 0;
 		didSeek = false;
 		blockProcess = {};
 		freqEstimateWeighted = freqEstimateWeight = 0;
+
+		// Drop the model, envelope and audio history, but keep denoise parameters.
+		denoiser.clearAudioState();
+		denoiseSeekArtificial = false;
+		denoiseFlushArtificial = false;
+		denoiseSourceClock = Sample(0);
 	}
 
 	// Configures using a default preset
@@ -91,6 +98,15 @@ struct SignalsmithStretch {
 
 		tmpProcessBuffer.resize(blockSamples + intervalSamples);
 		tmpPreRollBuffer.resize(outputLatency()*channels);
+
+		// Denoiser working memory: fixed by channel count and window length, and
+		// never reallocated while processing.
+		denoiser.configure(bands);
+		denoisePowers.resize(bands);
+		denoiseSourceBins.resize(bands);
+		denoiseSeekArtificial = false;
+		denoiseFlushArtificial = false;
+		denoiseSourceClock = Sample(0);
 	}
 	// For querying the existing config
 	int blockSamples() const {
@@ -133,6 +149,31 @@ struct SignalsmithStretch {
 	void setFormantBase(Sample baseFreq=0) {
 		formantBaseFreq = baseFreq;
 	}
+
+	// ---- Optional spectral denoiser (disabled by default) ----
+	// All time constants are in audio frames, not process()-call counts.
+	// Invalid parameters are rejected (returns false) and the previous valid settings are kept.
+	// Requests are latched at the start of the next synthesis hop, so a hop already
+	// running (e.g. a split-computation hop) keeps using the old settings.
+
+	/// Enables/tunes the denoiser.  strength in [0, 4], floorGain in [0, 1],
+	/// attackFrames/releaseFrames finite and > 0.
+	bool setDenoise(bool enabled, Sample strength, Sample floorGain, Sample attackFrames, Sample releaseFrames) {
+		return denoiser.setDenoise(enabled, strength, floorGain, attackFrames, releaseFrames);
+	}
+	/// Enables/tunes noise learning.  timeFrames must be finite and > 0.
+	bool setNoiseLearning(bool enabled, Sample timeFrames) {
+		return denoiser.setNoiseLearning(enabled, timeFrames);
+	}
+	/// Read-only per-source-band learned noise power N[b], one value per STFT
+	/// band (noiseBandCount(); fftSize/2 bands for the modified real STFT).
+	/// Returns nullptr before any model has been learned.
+	const Sample * noisePowerSpectrum() const {
+		return denoiser.hasLearned() ? denoiser.noisePowerSpectrum() : nullptr;
+	}
+	int noiseBandCount() const {
+		return denoiser.bandCount();
+	}
 	
 	// Provide previous input ("pre-roll") to smoothly change the input location without interrupting the output.  This doesn't do any calculation, just copies intput to a buffer.
 	// You should ideally feed it `seekLength()` frames of input, unless it's directly after a `.reset()` (in which case `.outputSeek()` might be a better choice)
@@ -162,6 +203,11 @@ struct SignalsmithStretch {
 		}
 		didSeek = true;
 		seekTimeFactor = (playbackRate*stft.defaultInterval() > 1) ? 1/playbackRate : stft.defaultInterval();
+
+		// Seek pre-roll is not learned and must not advance the learning clock;
+		// the learned model is kept and the envelope is pulled back to 1.
+		denoiser.onSeek();
+		denoiseSeekArtificial = true;
 	}
 	int seekLength() const {
 		return int(stft.blockSamples() + stft.defaultInterval());
@@ -268,6 +314,15 @@ struct SignalsmithStretch {
 
 				// Store input in history buffer
 				copyInput(inputSamples);
+				if (denoiser.isEngaged()) {
+					// Output time keeps moving, so the gain envelope keeps smoothing.
+					denoiser.advanceEnvelope(Sample(outputSamples));
+					if (!denoiseFlushArtificial) {
+						// Genuine silence advances the source-frame clock; the next
+						// real analysis therefore spans the gap in its value of d.
+						denoiseSourceClock += Sample(std::max(0, inputSamples));
+					}
+				}
 				return;
 			} else {
 				silenceCounter += inputSamples;
@@ -298,6 +353,23 @@ struct SignalsmithStretch {
 
 				blockProcess.newSpectrum = didSeek || (inputInterval > 0);
 				blockProcess.mappedFrequencies = customFreqMap || freqMultiplier != 1;
+
+				// All denoise/learning requests latch at the start of this hop;
+				// a split-computation hop already running keeps the old settings.
+				denoiser.latchRequests();
+
+				// Seek pre-roll and flush zero-padding are artificial: they are
+				// neither learned nor allowed to advance the learning clock.
+				bool hopArtificial = denoiseSeekArtificial || denoiseFlushArtificial;
+				denoiser.setArtificialInput(hopArtificial);
+
+				// Source-frame clock for the learning time constant.  Repeated
+				// synthesis of the same source centre (inputInterval == 0), seek
+				// pre-roll and flush zero-padding do not advance it.  The model
+				// derives the per-hop advance d from successive clock positions.
+				if (blockProcess.newSpectrum && !didSeek && !hopArtificial) {
+					denoiseSourceClock += Sample(std::max(1, inputInterval));
+				}
 				if (blockProcess.newSpectrum) {
 					// make sure the previous input is the correct distance in the past (give or take 1 sample)
 					blockProcess.reanalysePrev = didSeek || std::abs(inputInterval - int(stft.defaultInterval())) > 1;
@@ -310,6 +382,7 @@ struct SignalsmithStretch {
 				blockProcess.processFormants = formantMultiplier != 1 || (formantCompensation && blockProcess.mappedFrequencies);
 
 				blockProcess.timeFactor = didSeek ? seekTimeFactor : stft.defaultInterval()/static_cast<Sample>(std::max(1, inputInterval));
+				if (didSeek) denoiseSeekArtificial = false; // only the seek hop itself is artificial
 				didSeek = false;
 
 				updateProcessSpectrumSteps();
@@ -370,6 +443,7 @@ struct SignalsmithStretch {
 								channelBands[b].input = spectrumBands[b];
 							}
 						}
+						denoiseObserve();
 						continue;
 					}
 					step -= 1;
@@ -382,6 +456,8 @@ struct SignalsmithStretch {
 				step -= processSpectrumSteps;
 
 				if (step < 1) {
+					// Apply the linked spectral gain to every channel, before synthesis
+					denoiseApply();
 					// Copy band objects into spectrum
 					for (int c = 0; c < channels; ++c) {
 						auto channelBands = bandsForChannel(c);
@@ -437,7 +513,14 @@ struct SignalsmithStretch {
 		} zeros;
 		// If we're asked for more than an interval of extra output, then zero-pad the input
 		int outputBlock = std::max<int>(0, outputSamples - stft.defaultInterval());
-		if (outputBlock > 0) process(zeros, outputBlock*playbackRate, outputs, outputBlock);
+		if (outputBlock > 0) {
+			// The zero padding is artificial: never learned, never advances the clock.
+			denoiseFlushArtificial = true;
+			denoiser.setArtificialInput(true);
+			process(zeros, outputBlock*playbackRate, outputs, outputBlock);
+			denoiseFlushArtificial = false;
+			denoiser.setArtificialInput(false);
+		}
 
 		int tailSamples = outputSamples - outputBlock; // at most one interval
 		tmpProcessBuffer.resize(tailSamples);
@@ -520,6 +603,14 @@ private:
 	STFT stft;
 	typename STFT::Input stashedInput;
 	typename STFT::Output stashedOutput;
+
+	// Optional linked spectral denoiser (no-op unless a request has enabled it)
+	signalsmith::denoise::DenoiseModel<Sample> denoiser;
+	std::vector<Sample> denoisePowers;     // per-band P, averaged over channels
+	std::vector<Sample> denoiseSourceBins; // source bin picked for each output band
+	bool denoiseSeekArtificial = false;    // current hop is seek pre-roll (one hop)
+	bool denoiseFlushArtificial = false;   // current input is flush zero-padding
+	Sample denoiseSourceClock = Sample(0); // monotonic source-frame clock for learning
 	
 	std::vector<Sample> tmpProcessBuffer, tmpPreRollBuffer;
 
@@ -617,6 +708,43 @@ private:
 
 	size_t processSpectrumSteps = 0;
 	static constexpr size_t splitMainPrediction = 8; // it's just heavy, since we're blending up to 4 different phase predictions
+
+	// ---- Denoiser integration ----
+	// Compute P[b] as the mean over channels of the current (pre-denoise)
+	// analysis power, then feed the model.  Uses the same analysis the
+	// stretcher already produced; the model never sees attenuated output.
+	void denoiseObserve() {
+		if (!denoiser.isEngaged()) return;
+		for (int b = 0; b < bands; ++b) {
+			Sample sum = 0;
+			for (int c = 0; c < channels; ++c) {
+				sum += _impl::norm(bandsForChannel(c)[b].input);
+			}
+			denoisePowers[b] = sum/Sample(channels);
+		}
+		// Re-analyses and repeated synthesis of the same source centre carry
+		// d == 0, so they cannot move the learning time base.
+		denoiser.observeSpectrum(denoiseSourceClock, blockProcess.newSpectrum, denoisePowers.data());
+	}
+
+	// Compute the per-output-band gain for this hop and multiply every channel's
+	// output bin by the same real gain.  Applied after the phase vocoder and
+	// before synthesis, so its energy change cannot be undone by the normalisation.
+	void denoiseApply() {
+		if (!denoiser.isEngaged()) return;
+		for (int b = 0; b < bands; ++b) {
+			denoiseSourceBins[b] = outputMap[b].inputBin;
+		}
+		denoiser.runHop(Sample(stft.defaultInterval()), denoiseSourceBins.data());
+		const Sample *g = denoiser.gains();
+		for (int c = 0; c < channels; ++c) {
+			Band *channelBands = bandsForChannel(c);
+			for (int b = 0; b < bands; ++b) {
+				channelBands[b].output *= g[b];
+			}
+		}
+	}
+
 	void updateProcessSpectrumSteps() {
 		processSpectrumSteps = 0;
 		if (blockProcess.newSpectrum) processSpectrumSteps += channels;

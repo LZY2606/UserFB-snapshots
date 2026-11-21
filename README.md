@@ -139,6 +139,116 @@ The formant correction is not a sharp as monophonic algorithms (such such as PSO
 stretch.setFormantBase(200/sampleRate);
 ```
 
+### Spectral denoise (optional, off by default)
+
+An optional multi-channel linked spectral denoiser lives in
+[`signalsmith-denoise.h`](signalsmith-denoise.h) (public forwarding header
+`include/signalsmith-stretch/signalsmith-denoise.h`) and is wired directly into
+the existing `.process()`/`.seek()`/`.flush()` data flow — there is no separate
+"process the whole recording" wrapper. It is disabled unless you call one of the
+configuration methods, and when never enabled the audio, latency and existing
+API are unchanged (bit-for-bit identical output).
+
+It works on the same STFT the stretcher already computes. Each analysis hop the
+per-band power `P[b]` is averaged across all channels (the *pre-denoise*
+spectrum, so attenuated output is never re-learned as noise). While learning is
+enabled the first genuine new spectrum seeds the model `N[b] = P[b]`; later
+spectra update it with `N = a·N + (1−a)·P`, where
+`a = exp(−d / timeFrames)` and `d` is the number of source frames the analysis
+centre advanced since the previous genuine new analysis. Turning learning off
+freezes `N`; before anything has been learned the gain is unity. Seek pre-roll,
+repeated synthesis of the same source centre, and flush zero-padding are never
+learned and never advance the learning time base, while genuine-input silence
+still advances source-frame time.
+
+Per synthesis hop the source-band target gain is
+
+```
+T[b] = max(floorGain, sqrt(max(0, 1 − strength·N[b] / max(P[b], 1e-20))))
+```
+
+which is then linearly interpolated onto the output bins through the hop's
+actual frequency map (so pitch/formant shifts are followed), and smoothed per
+output bin with a one-pole envelope: downward moves use `attackFrames`, upward
+moves `releaseFrames`, with `q = exp(−hopFrames / timeConstant)`. Every channel
+of the same output bin is multiplied by the same **real** gain, applied after
+the phase vocoder and before synthesis, so the normalisation cannot undo it.
+Learning and denoising are independent switches; turning denoising off sets the
+target to unity and releases toward it while keeping the learned model.
+
+All time constants are in **audio frames (samples), not call counts**.
+Requests are latched at the start of the next synthesis hop, so a hop already
+running (including a split-computation hop) keeps the old settings.
+
+#### API
+
+```cpp
+// Returns true if the arguments are accepted, false (keeping the previous
+// valid settings) otherwise.
+bool setDenoise(bool enabled, Sample strength, Sample floorGain,
+                Sample attackFrames, Sample releaseFrames);
+bool setNoiseLearning(bool enabled, Sample timeFrames);
+
+// Read-only access to the learned per-source-band noise power.
+// Returns nullptr until a model has been learned.
+const Sample * noisePowerSpectrum() const; // nullptr before learning
+int noiseBandCount() const;                 // number of STFT bands (= fftSize/2 for these windows)
+```
+
+**Parameter ranges** (an out-of-range or non-finite value is rejected and the
+previous settings retained):
+
+| parameter | valid range |
+|---|---|
+| `strength` | `[0, 4]` |
+| `floorGain` | `[0, 1]` |
+| `attackFrames`, `releaseFrames`, `timeFrames` | finite and `> 0` |
+
+The standalone, independently testable pieces are the
+`signalsmith::denoise::DenoiseModel<Sample>` (the power model, gain mapping and
+envelope, FFT-free) and `signalsmith::denoise::StftPowerAnalyser<Sample>` (a
+small Hann-windowed STFT power stage built on the bundled Linear FFT). After
+`configure()` the denoiser adds no heap allocation or deallocation during
+processing.
+
+#### Lifecycle
+
+* `.reset()` clears the model, envelope and audio history but **keeps the
+  parameters** (and validators), so re-learning works without re-issuing calls.
+* `.seek()` keeps the learned noise, pulls the envelope back to unity and
+  re-anchors the learning clock for the following real input; its pre-roll is
+  not learned.
+* `.flush()` drains the tail using the existing model and never learns the
+  artificial zeros.
+
+#### Example
+
+```cpp
+#include "signalsmith-stretch.h"
+
+signalsmith::stretch::SignalsmithStretch<float> stretch;
+stretch.configure(2, 1024, 256);          // stereo, 1024 window / 256 hop
+stretch.setTransposeFactor(1.25f);       // pitch shift still supported
+stretch.setFormantFactor(1.1f, true);    // formant compensation still supported
+
+// 1) learn the background noise (feed a noise-only passage first)
+stretch.setNoiseLearning(true, /*timeFrames*/ 2048.0f);
+stretch.setDenoise(true, /*strength*/ 2.0f, /*floorGain*/ 0.1f,
+                   /*attackFrames*/ 128.0f, /*releaseFrames*/ 1024.0f);
+// ... process a noise-only section ...
+stretch.setNoiseLearning(false, 2048.0f); // freeze the learned profile
+
+// 2) denoise the rest through the normal process() stream
+const float *noiseProfile = stretch.noisePowerSpectrum(); // optional read-only N[b]
+if (noiseProfile) {
+    for (int b = 0; b < stretch.noiseBandCount(); ++b) {
+        // inspect noiseProfile[b] ...
+    }
+}
+// stretch.process(inBuffers, inSamples, outBuffers, outSamples);
+// later: stretch.seek(...), stretch.flush(...) all honour the model above
+```
+
 ## Compiling
 
 ⚠️ This has mostly been tested with AppleClang (Mac), and MSVC (Windows).  We aim to support other compilers though, so please get in touch if you have any problems.
