@@ -1,0 +1,69 @@
+{
+  "repo": "https://github.com/lieff/minimp3",
+  "commit": "ea99364f61c14656440e8d77e9c233ccf3124633",
+  "license": "CC0-1.0",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_mode": "100644",
+      "git_blob": "2c4afabdb632b5d68e60c9fe9fe0b0819676a729",
+      "sha256": "6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01"
+    },
+    {
+      "path": "README.md",
+      "git_mode": "100644",
+      "git_blob": "fbf9455a3b4ad8010d8a3d8e7b1c59f8281555c7",
+      "sha256": "ce8a219c5783d7b991070a7aca4c31f8dfcafc183925bf947b80b835ed36b45d"
+    },
+    {
+      "path": "minimp3.h",
+      "git_mode": "100644",
+      "git_blob": "9fbd4d2cc50c06cc3e63dcafdd506dc6512b2103",
+      "sha256": "57e437c5c1f0e8b243885d3929c8973b5e6c778451e0100ab4251d19915cb3ad"
+    },
+    {
+      "path": "minimp3_ex.h",
+      "git_mode": "100644",
+      "git_blob": "1b7671dc529c829a18f0f0acbbc6bb9015240e2c",
+      "sha256": "8437f3fc1d4d8ab2269a1624f5380a08df1967a048f8887789bae6e25db7db79"
+    },
+    {
+      "path": "vectors/M2L3_noise.bit",
+      "git_mode": "100644",
+      "git_blob": "bbd166d7dcc35974157d57b3573f67cd65164888",
+      "sha256": "d61b64a058f202a9d075f6c58a83b9ef88eb1aab2a7144c9ab6d788fe58fccec"
+    },
+    {
+      "path": "vectors/l3-compl.bit",
+      "git_mode": "100644",
+      "git_blob": "7f9fa87d8d9ec3410fb18354d04b2b0250d68bc5",
+      "sha256": "3b93f3675821a5af4826abcff7097fa2e42efcc46154e02c992995f7e31dbc8e"
+    },
+    {
+      "path": "vectors/l3-hecommon.bit",
+      "git_mode": "100644",
+      "git_blob": "0efa5cd8665a712b7188708a278374a0642ca942",
+      "sha256": "21999b77716aeba047c7f55c2c1ce17b54c780b6dc007912f251b7ea189676ef"
+    },
+    {
+      "path": "vectors/l3-nonstandard-sin1k0db_lame_vbrtag.bit",
+      "git_mode": "100644",
+      "git_blob": "b8f488e099b40d7025acf179fd44b4d7038ded1f",
+      "sha256": "c59cc31ed4cc3556f3c1aad35ec7860a56449a3a2ca16b6f29579f0ca7684b71"
+    },
+    {
+      "path": "vectors/l3-si_block.bit",
+      "git_mode": "100644",
+      "git_blob": "76639558bb2d1ad462f3edbf3f6f8c8a74444f08",
+      "sha256": "1d12956840638bf6b81164fc510c3e8269eeb038a51dc4548469e21a71e52b69"
+    }
+  ],
+  "gitlinks": [],
+  "symlinks": [],
+  "reference_copy": {
+    "path": "devcheck/reference/minimp3.h",
+    "source": "minimp3.h",
+    "sha256": "57e437c5c1f0e8b243885d3929c8973b5e6c778451e0100ab4251d19915cb3ad"
+  },
+  "binary_materials": "Five byte-identical upstream MP3 .bit fixtures; no binary patch; no prebuilt runtime"
+}
