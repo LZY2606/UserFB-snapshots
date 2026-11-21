@@ -167,6 +167,9 @@ static RTPErrorInfo ErrorDescriptions[]=
 	{ ERR_RTP_UDPV6TRANS_SPECIFIEDSIZETOOBIG, "The maximum packet size is too big for this transmitter"},
 	{ ERR_RTP_TRANS_BUFFERLENGTHTOOSMALL,"The hostname is larger than the specified buffer size"},
 	{ ERR_RTP_SDES_MAXPRIVITEMS,"The maximum number of SDES private item prefixes was reached"},
+	{ ERR_RTP_SOURCES_PLAYOUTALREADYSET,"The playout reference clock has already been configured"},
+	{ ERR_RTP_SOURCES_PLAYOUTQUEUESNOTEMPTY,"The playout reference clock can only be set while no receive queues contain packets"},
+	{ ERR_RTP_SOURCES_PLAYOUTBADRATE,"The specified playout clock rate is zero"},
 	{ 0,0 }
 };
 

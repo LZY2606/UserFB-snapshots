@@ -39,6 +39,7 @@
 #include "rtpkeyhashtable.h"
 #include "rtcpsdespacket.h"
 #include "rtptypes.h"
+#include <map>
 
 #define RTPSOURCES_HASHSIZE							8317
 
@@ -104,6 +105,11 @@ public:
 	bool GotEntry(u_int32_t ssrc);
 	RTPSourceData *GetOwnSourceInfo()								{ return owndata; }
 
+	// Playout based on RTCP sender reports
+	int SetPlayoutReference(const RTPNTPTime &ntp,const RTPTime &local,const RTPTime &delay);
+	int SetPlayoutClockRate(u_int32_t ssrc,u_int32_t rate);
+	RTPPacket *GetNextPlayoutPacket(const RTPTime &now);
+
 	void Timeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
 	void SenderTimeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
 	void BYETimeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
@@ -146,14 +152,23 @@ private:
 	int ObtainSourceDataInstance(u_int32_t ssrc,RTPInternalSourceData **srcdat,bool *created);
 	int GetRTCPSourceData(u_int32_t ssrc,const RTPAddress *senderaddress,RTPInternalSourceData **srcdat,bool *newsource);
 	bool CheckCollision(RTPInternalSourceData *srcdat,const RTPAddress *senderaddress,bool isrtp);
-	
+
+	void UpdatePlayoutAnchor(RTPInternalSourceData *srcdat);
+	bool GetPlayoutDeadline(RTPInternalSourceData *srcdat,const RTPTime &now,int64_t *deadlineus);
 	RTPKeyHashTable<const u_int32_t,RTPInternalSourceData*,RTPSources_GetHashIndex,RTPSOURCES_HASHSIZE> sourcelist;
-	
+
 	int sendercount;
 	int totalcount;
 	int activecount;
 
 	RTPInternalSourceData *owndata;
+
+	// Playout reference clock and per-source clock rates
+	bool playouthasreference;
+	RTPNTPTime playoutreferencentp;
+	RTPTime playoutreferencelocal;
+	RTPTime playoutdelay;
+	std::map<u_int32_t,u_int32_t> playoutrates;
 };
 
 #endif // RTPSOURCES_H

@@ -153,6 +153,13 @@ inline RTPSourceStats::RTPSourceStats():prevpacktime(0,0),lastmsgtime(0,0),lastr
 #endif // RTP_SUPPORT_PROBATION
 }
 
+inline bool RTPSourceData_NTPTimeIsGreater(const RTPNTPTime &a,const RTPNTPTime &b)
+{
+	if (a.GetMSW() != b.GetMSW())
+		return (a.GetMSW() > b.GetMSW());
+	return (a.GetLSW() > b.GetLSW());
+}
+
 class RTPSourceData
 {
 protected:
@@ -162,6 +169,31 @@ public:
 	RTPPacket *GetNextPacket();
 	void FlushPackets();
 	bool HasData() const							{ return packetlist.empty()?false:true; }
+
+	// Playout helpers. The playout anchor is the sender report information
+	// which is currently used to translate media timestamps to local time.
+	// It is kept separately from the regular SR info: an older or equal SR
+	// still updates the normal RTCP information, but must not change the
+	// playout mapping.
+	bool PlayoutHasAnchor() const						{ return playouthasanchor; }
+	RTPNTPTime PlayoutGetAnchorNTP() const					{ return playoutanchorntp; }
+	u_int32_t PlayoutGetAnchorRTP() const					{ return playoutanchorrtp; }
+	void PlayoutSetAnchor(const RTPNTPTime &ntp,u_int32_t rtpts)		{ playouthasanchor = true; playoutanchorntp = ntp; playoutanchorrtp = rtpts; }
+	bool PlayoutUpdateAnchor(const RTPNTPTime &ntp,u_int32_t rtpts)
+	{
+		if (playouthasanchor && !RTPSourceData_NTPTimeIsGreater(ntp,playoutanchorntp))
+			return false;
+		PlayoutSetAnchor(ntp,rtpts);
+		return true;
+	}
+
+	// Packets up to and including the delivered frontier have already been
+	// handed to the application and may never be returned again, even when
+	// they only arrive later (after a gap) or when a new SR moves a deadline
+	// into the past.
+	void PurgeDeliveredPackets();
+	void NoteDelivered(u_int32_t extseqnr);
+	RTPPacket *GetFrontPacket() const					{ return packetlist.empty()?(RTPPacket *)0:(*(packetlist.begin())); }
 	u_int32_t GetSSRC() const						{ return ssrc; }
 	bool IsOwnSSRC() const							{ return ownssrc; }
 	bool IsCSRC() const							{ return iscsrc; }
@@ -271,21 +303,55 @@ protected:
 	
 	bool isrtpaddrset,isrtcpaddrset;
 	RTPAddress *rtpaddr,*rtcpaddr;
-	
+
 	RTPTime byetime;
 	u_int8_t *byereason;
 	size_t byereasonlen;
+
+	// Playout state
+	bool playouthasanchor;
+	RTPNTPTime playoutanchorntp;
+	u_int32_t playoutanchorrtp;
+	bool hasdeliveredfrontier;
+	u_int32_t deliveredfrontier;
 };
 
 inline RTPPacket *RTPSourceData::GetNextPacket()
 {
 	RTPPacket *p;
 
+	// Late packets that are at or below the delivered frontier must never
+	// be handed out, not even through the regular retrieval path.
+	PurgeDeliveredPackets();
 	if (packetlist.empty())
 		return 0;
 	p = *(packetlist.begin());
 	packetlist.pop_front();
+	NoteDelivered(p->GetExtendedSequenceNumber());
 	return p;
+}
+
+inline void RTPSourceData::NoteDelivered(u_int32_t extseqnr)
+{
+	if (!hasdeliveredfrontier || extseqnr > deliveredfrontier)
+	{
+		hasdeliveredfrontier = true;
+		deliveredfrontier = extseqnr;
+	}
+}
+
+inline void RTPSourceData::PurgeDeliveredPackets()
+{
+	if (!hasdeliveredfrontier)
+		return;
+	while (!packetlist.empty())
+	{
+		RTPPacket *p = *(packetlist.begin());
+		if (p->GetExtendedSequenceNumber() > deliveredfrontier)
+			break;
+		packetlist.pop_front();
+		delete p;
+	}
 }
 
 inline void RTPSourceData::FlushPackets()

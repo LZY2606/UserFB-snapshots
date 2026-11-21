@@ -748,6 +748,31 @@ RTPPacket *RTPSession::GetNextPacket()
 	return sources.GetNextPacket();
 }
 
+int RTPSession::SetPlayoutReference(const RTPNTPTime &ntp,const RTPTime &local,const RTPTime &delay)
+{
+	if (!created)
+		return ERR_RTP_SESSION_NOTCREATED;
+
+	// Like the other source accessor functions, this is used between
+	// BeginDataAccess and EndDataAccess.
+	return sources.SetPlayoutReference(ntp,local,delay);
+}
+
+int RTPSession::SetPlayoutClockRate(u_int32_t ssrc,u_int32_t rate)
+{
+	if (!created)
+		return ERR_RTP_SESSION_NOTCREATED;
+
+	return sources.SetPlayoutClockRate(ssrc,rate);
+}
+
+RTPPacket *RTPSession::GetNextPlayoutPacket(const RTPTime &now)
+{
+	if (!created)
+		return 0;
+	return sources.GetNextPlayoutPacket(now);
+}
+
 int RTPSession::EndDataAccess()
 {
 	if (!created)

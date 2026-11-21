@@ -110,6 +110,69 @@ INSTALLATION NOTES
 		If set, IPv6 multicasting support is enabled.
 	- RTPDEBUG:
 		Enables some memory tracking functions and some debug routines.
-	
+
+------------------------------------------------------------------------------
+
+PLAYOUT BASED ON RTCP SENDER REPORTS
+====================================
+
+Besides the classic GotoFirstSource/GetNextPacket access pattern, a
+sender-report driven playout mode is available. It lets the application hand
+out received packets in the media clock of each sender, using the mapping from
+a common reference clock and the RTCP sender reports (SR).
+
+Setup, performed once while playback is not enabled yet and while all receive
+queues are empty. The session's own SSRC does not count as a receive queue.
+
+	RTPSession session;
+	// ... create and poll the session as usual ...
+
+	int status;
+	// Map the common NTP instant 'ntp' onto local time 'local'; playback is
+	// delayed by 'delay' on top of that. Returns a negative value if the
+	// reference clock was already configured.
+	status = session.SetPlayoutReference(ntp,local,delay);
+
+	// The rate is expressed in ticks per second and must be set for each
+	// source before its first RTP packet is processed. A zero rate returns a
+	// negative value and leaves the previous setting untouched.
+	status = session.SetPlayoutClockRate(videoSSRC,90000);
+	status = session.SetPlayoutClockRate(audioSSRC,48000);
+
+Then, while polling the session, ask for the next packet whose deadline has
+passed. Only the head packet of each source is considered, the earliest
+deadline wins and ties are broken by the smaller SSRC. 'now' is supplied by
+the caller and must advance monotonically; no background thread is needed.
+
+	session.BeginDataAccess();
+	RTPTime now = RTPTime::CurrentTime();
+	RTPPacket *packet;
+	while ((packet = session.GetNextPlayoutPacket(now)) != 0)
+	{
+		// Consume packet->GetPayloadData(), packet->GetPayloadLength(), ...
+		// The packet is owned by the caller and must be deleted.
+		delete packet;
+	}
+	session.EndDataAccess();
+
+Notes:
+
+	* The old and new retrieval entry points consume the same real packet
+	  queue. A packet returned by either entry point must be deleted by the
+	  caller.
+	* Packets are still delivered in extended sequence order within a source;
+	  they are never re-ordered by timestamp.
+	* A new sender report only updates the playout mapping when its NTP
+	  timestamp strictly advances. Equal or older reports still update the
+	  normal RTCP information and receive statistics, but leave the current
+	  mapping in place.
+	* Once a source has delivered an extended sequence number, that number
+	  and everything below it is never returned again, even if it arrives
+	  late or a later sender report moves deadlines into the past. The same
+	  frontier is advanced by the ordinary GetNextPacket entry point.
+	* A source that is removed after a timeout is treated as a brand new
+	  source if the same SSRC reappears. Clear() resets the reference clock,
+	  the configured clock rates and all pending playout state.
+
 ------------------------------------------------------------------------------
 

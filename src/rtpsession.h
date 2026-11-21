@@ -115,6 +115,14 @@ public:
 	RTPSourceData *GetCurrentSourceInfo();
 	RTPSourceData *GetSourceInfo(u_int32_t ssrc);
 	RTPPacket *GetNextPacket();
+
+	// Playout based on RTCP sender reports. Like the other source accessor
+	// functions these should be used between BeginDataAccess and
+	// EndDataAccess. Returned packets must still be deleted by the caller.
+	int SetPlayoutReference(const RTPNTPTime &ntp,const RTPTime &local,const RTPTime &delay);
+	int SetPlayoutClockRate(u_int32_t ssrc,u_int32_t rate);
+	RTPPacket *GetNextPlayoutPacket(const RTPTime &now);
+
 	int EndDataAccess();
 	
 	int SetReceiveMode(RTPTransmitter::ReceiveMode m);

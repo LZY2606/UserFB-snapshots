@@ -1,0 +1,19 @@
+CASE timeline dual_rate checks=20
+CASE timeline seq_wrap checks=10
+CASE timeline ts_wrap checks=11
+CASE timeline out_of_order checks=12
+CASE timeline same_timestamp checks=10
+GROUP timeline cases=5 checks=63 COMPLETE
+CASE reanchor later checks=12
+CASE reanchor earlier checks=11
+CASE reanchor equal_and_older checks=14
+CASE reanchor missing_mapping checks=15
+CASE reanchor late_after_gap checks=17
+GROUP reanchor cases=5 checks=69 COMPLETE
+CASE ownership shared_queue checks=13
+CASE ownership session_delegation checks=17
+CASE ownership clear checks=16
+CASE ownership timeout_reuse checks=12
+CASE ownership configuration checks=14
+GROUP ownership cases=5 checks=72 COMPLETE
+TARGET_COMPLETE cases=15

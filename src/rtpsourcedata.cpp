@@ -190,7 +190,7 @@ void RTPSourceStats::ProcessPacket(RTPPacket *pack,const RTPTime &receivetime,do
 	}
 }
 
-RTPSourceData::RTPSourceData(u_int32_t s) : byetime(0,0)
+RTPSourceData::RTPSourceData(u_int32_t s) : playoutanchorntp(0,0),byetime(0,0)
 {
 	ssrc = s;
 	issender = false;
@@ -203,9 +203,14 @@ RTPSourceData::RTPSourceData(u_int32_t s) : byetime(0,0)
 	rtcpaddr = 0;
 	ownssrc = false;
 	validated = false;
-	processedinrtcp = false;			
+	processedinrtcp = false;
 	isrtpaddrset = false;
 	isrtcpaddrset = false;
+	playouthasanchor = false;
+	playoutanchorntp = RTPNTPTime(0,0);
+	playoutanchorrtp = 0;
+	hasdeliveredfrontier = false;
+	deliveredfrontier = 0;
 }
 
 RTPSourceData::~RTPSourceData()

@@ -54,13 +54,13 @@
 #ifndef RTP_SUPPORT_INLINETEMPLATEPARAM
 	int RTPSources_GetHashIndex(const u_int32_t &ssrc)       { return ssrc%RTPSOURCES_HASHSIZE; }
 #endif // !RTP_SUPPORT_INLINETEMPLATEPARAM
-	
-RTPSources::RTPSources()
+RTPSources::RTPSources() : playoutreferencentp(0,0),playoutreferencelocal(0,0),playoutdelay(0,0)
 {
 	totalcount = 0;
 	sendercount = 0;
 	activecount = 0;
 	owndata = 0;
+	playouthasreference = false;
 }
 
 RTPSources::~RTPSources()
@@ -71,6 +71,11 @@ RTPSources::~RTPSources()
 void RTPSources::Clear()
 {
 	ClearSourceList();
+	playouthasreference = false;
+	playoutreferencentp = RTPNTPTime(0,0);
+	playoutreferencelocal = RTPTime(0,0);
+	playoutdelay = RTPTime(0,0);
+	playoutrates.clear();
 }
 
 void RTPSources::ClearSourceList()
@@ -630,11 +635,165 @@ RTPPacket *RTPSources::GetNextPacket()
 {
 	if (!sourcelist.HasCurrentElement())
 		return 0;
-	
+
 	RTPInternalSourceData *srcdat = sourcelist.GetCurrentElement();
 	RTPPacket *pack = srcdat->GetNextPacket();
 	return pack;
 }
+
+// Computes floor((lswdiff + tsdiff*2^32/rate) * 1000000 / 2^32) using 128 bit
+// arithmetic when available. This is the fractional part of the deadline,
+// floored as a whole together with the integer microsecond terms.
+static int64_t RTPSources_PlayoutFractionMicroSeconds(int64_t lswdiff,int32_t tsdiff,u_int32_t rate)
+{
+#ifdef __SIZEOF_INT128__
+	__int128 two32 = ((__int128)1)<<32;
+	__int128 numerator = ((__int128)lswdiff)*((__int128)rate)+((__int128)tsdiff)*two32;
+	__int128 denominator = two32*((__int128)rate);
+	__int128 value = numerator*1000000;
+	__int128 quotient = value/denominator;
+	__int128 remainder = value%denominator;
+
+	if (remainder != 0 && remainder < 0)
+		quotient--;
+	return (int64_t)quotient;
+#else
+	// Fallback: the exact intermediate values can exceed 64 bits, so use
+	// long double. This is only used on compilers without a 128 bit type.
+	long double two32 = 4294967296.0L;
+	long double numerator = ((long double)lswdiff)*((long double)rate)+((long double)tsdiff)*two32;
+	long double denominator = two32*((long double)rate);
+	long double value = numerator*1000000.0L/denominator;
+	int64_t result = (int64_t)value;
+
+	if (((long double)result) > value)
+		result--;
+	return result;
+#endif // __SIZEOF_INT128__
+}
+
+int RTPSources::SetPlayoutReference(const RTPNTPTime &ntp,const RTPTime &local,const RTPTime &delay)
+{
+	if (playouthasreference)
+		return ERR_RTP_SOURCES_PLAYOUTALREADYSET;
+
+	// The reference may only be configured while there are no queued
+	// receive packets yet. Our own SSRC is not a receive queue and is
+	// explicitly allowed.
+	sourcelist.GotoFirstElement();
+	while (sourcelist.HasCurrentElement())
+	{
+		RTPInternalSourceData *srcdat = sourcelist.GetCurrentElement();
+
+		if (srcdat != owndata && srcdat->HasData())
+			return ERR_RTP_SOURCES_PLAYOUTQUEUESNOTEMPTY;
+		sourcelist.GotoNextElement();
+	}
+
+	playoutreferencentp = ntp;
+	playoutreferencelocal = local;
+	playoutdelay = delay;
+	playouthasreference = true;
+	return 0;
+}
+
+int RTPSources::SetPlayoutClockRate(u_int32_t ssrc,u_int32_t rate)
+{
+	// A zero rate is not usable; leave any previously configured rate in
+	// place in that case.
+	if (rate == 0)
+		return ERR_RTP_SOURCES_PLAYOUTBADRATE;
+
+	playoutrates[ssrc] = rate;
+	return 0;
+}
+
+bool RTPSources::GetPlayoutDeadline(RTPInternalSourceData *srcdat,const RTPTime &now,int64_t *deadlineus)
+{
+	RTPPacket *pack = srcdat->GetFrontPacket();
+
+	if (pack == 0)
+		return false;
+	if (!srcdat->PlayoutHasAnchor())
+		return false;
+
+	std::map<u_int32_t,u_int32_t>::const_iterator it = playoutrates.find(srcdat->GetSSRC());
+	if (it == playoutrates.end())
+		return false;
+
+	u_int32_t rate = it->second;
+	if (rate == 0)
+		return false;
+
+	int64_t localus = (int64_t)playoutreferencelocal.GetSeconds()*1000000+
+	                  (int64_t)playoutreferencelocal.GetMicroSeconds();
+	int64_t delayus = (int64_t)playoutdelay.GetSeconds()*1000000+
+	                  (int64_t)playoutdelay.GetMicroSeconds();
+
+	int64_t mswdiff = (int64_t)srcdat->PlayoutGetAnchorNTP().GetMSW()-(int64_t)playoutreferencentp.GetMSW();
+	int64_t lswdiff = (int64_t)srcdat->PlayoutGetAnchorNTP().GetLSW()-(int64_t)playoutreferencentp.GetLSW();
+
+	// Split the NTP difference in whole seconds and a fractional part. Since
+	// the two timestamps are less than a day apart, the fractional part can
+	// be negative; the final deadline must still be floored as a whole.
+	int64_t mswus = mswdiff*1000000;
+	int64_t fracus = RTPSources_PlayoutFractionMicroSeconds(lswdiff,
+	                                                       (int32_t)(pack->GetTimestamp()-srcdat->PlayoutGetAnchorRTP()),
+	                                                       rate);
+
+	int64_t totalus = localus+delayus+mswus+fracus;
+
+	// The caller's current time is also expressed in whole seconds and
+	// microseconds; compare at microsecond resolution.
+	int64_t nowus = (int64_t)now.GetSeconds()*1000000+(int64_t)now.GetMicroSeconds();
+	if (nowus < totalus)
+		return false;
+
+	*deadlineus = totalus;
+	return true;
+}
+
+RTPPacket *RTPSources::GetNextPlayoutPacket(const RTPTime &now)
+{
+	if (!playouthasreference)
+		return 0;
+
+	RTPInternalSourceData *best = 0;
+	int64_t bestdeadline = 0;
+
+	sourcelist.GotoFirstElement();
+	while (sourcelist.HasCurrentElement())
+	{
+		RTPInternalSourceData *srcdat = sourcelist.GetCurrentElement();
+
+		if (srcdat != owndata)
+		{
+			// Packets at or below the delivered frontier may still be
+			// queued when they arrived late; they must never be returned.
+			srcdat->PurgeDeliveredPackets();
+
+			int64_t deadline = 0;
+			if (GetPlayoutDeadline(srcdat,now,&deadline))
+			{
+				if (best == 0 ||
+				    deadline < bestdeadline ||
+				    (deadline == bestdeadline && srcdat->GetSSRC() < best->GetSSRC()))
+				{
+					best = srcdat;
+					bestdeadline = deadline;
+				}
+			}
+		}
+		sourcelist.GotoNextElement();
+	}
+
+	if (best == 0)
+		return 0;
+
+	// GetNextPacket advances the delivered frontier for this source.
+	return best->GetNextPacket();
+}
+
 
 int RTPSources::ProcessRTCPSenderInfo(u_int32_t ssrc,const RTPNTPTime &ntptime,u_int32_t rtptime,
                           u_int32_t packetcount,u_int32_t octetcount,const RTPTime &receivetime,
@@ -651,12 +810,23 @@ int RTPSources::ProcessRTCPSenderInfo(u_int32_t ssrc,const RTPNTPTime &ntptime,u
 		return 0;
 	
 	srcdat->ProcessSenderInfo(ntptime,rtptime,packetcount,octetcount,receivetime);
-	
+	UpdatePlayoutAnchor(srcdat);
+
 	// Call the callback
 	if (created)
 		OnNewSource(srcdat);
 
 	return 0;
+}
+
+void RTPSources::UpdatePlayoutAnchor(RTPInternalSourceData *srcdat)
+{
+	// Only a strictly newer sender report may move the playout mapping.
+	// Older or equal SRs still updated the regular RTCP info in the call
+	// above, which is what we want.
+	if (!srcdat->SR_HasInfo())
+		return;
+	srcdat->PlayoutUpdateAnchor(srcdat->SR_GetNTPTimestamp(),srcdat->SR_GetRTPTimestamp());
 }
 
 int RTPSources::ProcessRTCPReportBlock(u_int32_t ssrc,u_int8_t fractionlost,int32_t lostpackets,
@@ -896,6 +1066,10 @@ void RTPSources::Timeout(const RTPTime &curtime,const RTPTime &timeoutdelay)
 			
 			sourcelist.DeleteCurrentElement();
 
+			// A timed out source is treated as a brand new source if its
+			// SSRC reappears: nothing of its playout state is inherited.
+			playoutrates.erase(srcdat->GetSSRC());
+
 			OnTimeout(srcdat);
 			OnRemoveSource(srcdat);
 			delete srcdat;
@@ -1014,6 +1188,7 @@ void RTPSources::BYETimeout(const RTPTime &curtime,const RTPTime &timeoutdelay)
 				if (srcdat->IsActive())
 					activecount--;
 				sourcelist.DeleteCurrentElement();
+				playoutrates.erase(srcdat->GetSSRC());
 				OnBYETimeout(srcdat);
 				OnRemoveSource(srcdat);
 				delete srcdat;
@@ -1220,6 +1395,7 @@ void RTPSources::MultipleTimeouts(const RTPTime &curtime,const RTPTime &senderti
 				activecount--;
 			totalcount--;
 
+			playoutrates.erase(srcdat->GetSSRC());
 			if (byetimeout)
 				OnBYETimeout(srcdat);
 			if (normaltimeout)
