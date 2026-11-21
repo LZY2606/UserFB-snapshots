@@ -5,7 +5,7 @@
 AUTOMAKE_OPTIONS = foreign 1.11 dist-zip dist-xz
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src include doc
+SUBDIRS = src include doc examples
 
 m4datadir = $(datadir)/aclocal
 m4data_DATA = ogg.m4
@@ -16,7 +16,7 @@ pkgconfig_DATA = ogg.pc
 EXTRA_DIST = README.md AUTHORS CHANGES COPYING \
 	libogg.spec libogg.spec.in \
 	ogg.m4 ogg.pc.in ogg-uninstalled.pc.in \
-	win32 CMakeLists.txt cmake
+	win32 examples CMakeLists.txt cmake
 
 dist-hook:
 	for item in $(EXTRA_DIST); do \

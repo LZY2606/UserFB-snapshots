@@ -70,11 +70,13 @@ set(OGG_HEADERS
     ${CMAKE_CURRENT_BINARY_DIR}/include/ogg/config_types.h
     include/ogg/ogg.h
     include/ogg/os_types.h
+    include/ogg/mux.h
 )
 
 set(OGG_SOURCES
     src/bitwise.c
     src/framing.c
+    src/mux.c
     src/crctable.h
 )
 
@@ -125,6 +127,11 @@ install(TARGETS ogg
 )
 
 export(EXPORT OggTargets NAMESPACE Ogg:: FILE OggTargets.cmake)
+
+# Command-line multiplexer example; built by default and installed.
+add_executable(oggmux examples/oggmux.c ${OGG_HEADERS})
+target_link_libraries(oggmux PRIVATE ogg)
+install(TARGETS oggmux RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 if(INSTALL_CMAKE_PACKAGE_MODULE)
     set(CMAKE_INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/Ogg)
@@ -194,6 +201,11 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR}/include
     )
     add_test(NAME test_framing COMMAND $<TARGET_FILE:test_framing>)
+
+    if(UNIX)
+        add_executable(mux_pipe tests/mux_pipe.c ${OGG_HEADERS})
+        target_link_libraries(mux_pipe PRIVATE ogg)
+    endif()
 endif()
 
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})

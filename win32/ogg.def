@@ -76,5 +76,15 @@ ogg_page_serialno
 ogg_page_pageno
 ogg_page_packets
 ogg_packet_clear
+;
+ogg_mux_create
+ogg_mux_destroy
+ogg_mux_submit_page
+ogg_mux_advance_frontier
+ogg_mux_set_limit
+ogg_mux_next_page
+ogg_mux_end_input
+ogg_mux_track_count
+ogg_mux_bytes
                                                         
 

@@ -23,6 +23,8 @@ Directory:
 
 - `include` Library API headers
 
+- `examples` Small command-line examples, including `oggmux`
+
 - `doc` Ogg specification and libogg API documents
 
 - `win32` Win32 projects and build automation

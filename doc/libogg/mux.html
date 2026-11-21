@@ -1,0 +1,173 @@
+<html>
+
+<head>
+<title>libogg - Multiplexing</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>Multiplexing</h1>
+<p>
+The multiplexer combines several already-framed logical Ogg bitstreams
+into one physical stream.  It operates on complete pages: it never
+re-packetizes, rewrites, or interprets page payloads, and it does not
+change the layout of any existing structure.  Pages handed to it must
+come from the regular <a href="encoding.html">encoding</a> layer, so
+their structure and CRC are already valid.
+<p>
+The public interface is declared in <b>ogg/mux.h</b>.  An instance is
+an opaque <a href="ogg_mux_init.html">ogg_mux_t</a>.  Every operation
+returns an <b>ogg_mux_result_t</b>, which is <b>OGG_MUX_OK</b> on
+success or one of the failure codes listed on the individual pages.
+<p>
+Interleaving is decided by scheduling time, never by the order in which
+pages happen to arrive.  Each track is registered with a rational time
+base (numerator and denominator, both positive); a page's scheduling
+time is granule&nbsp;&times;&nbsp;num&nbsp;/&nbsp;den, compared exactly
+in integer arithmetic without floating point.  All BOS pages are
+written first, in registration order, once every track's BOS has
+arrived.  After that, pages are written in increasing time, with ties
+broken by registration order, while each track keeps its own page
+order.
+
+<h2>Watermarks</h2>
+<p>
+A watermark <i>W</i> promises that every non-BOS page for that track
+submitted later will schedule strictly after <i>W</i>.  A pending page
+may be delivered only when every track that has not yet accepted EOS
+has committed a watermark no earlier than that page's time, and no
+track is holding an unanchored group.  A watermark only constrains
+future submissions; queued pages are unaffected.  Accepting a track's
+EOS is equivalent to committing an infinite watermark for it.
+<p>
+A page whose granule is &minus;1 is a page on which no packet
+completed.  A run of such pages is grouped with the next page of the
+same track that has a non-negative granule; all of them use that page's
+time for scheduling while keeping their original granule bytes.
+
+<h2>Ownership</h2>
+<p>
+A successful <a href="ogg_mux_submit_page.html">ogg_mux_submit_page</a>
+copies the page, so the caller may reuse its buffer immediately.  A
+page obtained from <a href="ogg_mux_next_page.html">ogg_mux_next_page</a>
+is borrowed: it stays valid until the instance is next changed.
+
+<h2>Function reference</h2>
+<table border=1 color=black width=60% cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td><b>function</b></td>
+	<td><b>purpose</b></td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_init.html">ogg_mux_create</a></td>
+	<td>Create a multiplexer with fixed track parameters.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_destroy.html">ogg_mux_destroy</a></td>
+	<td>Release an instance and everything it holds.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_submit_page.html">ogg_mux_submit_page</a></td>
+	<td>Submit one complete page for one track.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_advance_frontier.html">ogg_mux_advance_frontier</a></td>
+	<td>Advance a track's watermark.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_set_limit.html">ogg_mux_set_limit</a></td>
+	<td>Change the byte limit for held pages.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_next_page.html">ogg_mux_next_page</a></td>
+	<td>Fetch the next page that is safe to deliver.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_end_input.html">ogg_mux_end_input</a></td>
+	<td>Declare that no more input will arrive.</td>
+</tr>
+<tr valign=top>
+<td><a href="ogg_mux_query.html">ogg_mux_track_count, ogg_mux_bytes</a></td>
+	<td>Query instance properties.</td>
+</tr>
+</table>
+
+<h2>Example</h2>
+<p>
+The following fragment multiplexes two tracks page by page.  Input
+pages are assumed to have been read elsewhere; output pages are written
+to <i>out</i>.
+<pre>
+#include &lt;ogg/mux.h&gt;
+
+int serials[2] = { 101, 202 };
+ogg_int64_t num[2] = { 1, 1 };
+ogg_int64_t den[2] = { 48000, 48000 };
+ogg_mux_t *mux = ogg_mux_create(2, serials, num, den, 1 &lt;&lt; 20);
+ogg_page page;
+ogg_mux_result_t r;
+int i;
+
+if (!mux) return -1;
+
+for (i = 0; i &lt; 2; i++) {
+  /* The BOS page of each track, obtained from the caller's sync layer. */
+  ogg_page bos = next_input_page(i);
+  if (ogg_mux_submit_page(mux, &amp;bos) != OGG_MUX_OK) return -1;
+}
+
+for (;;) {
+  /* Submit a page from any track, then drain everything now safe. */
+  ogg_page in = next_input_page(-1);
+  r = ogg_mux_submit_page(mux, &amp;in);
+  if (r == OGG_MUX_CAPACITY) {
+    /* Raise the limit, then resubmit the same page unchanged. */
+    if (ogg_mux_set_limit(mux, 1 &lt;&lt; 22) != OGG_MUX_OK) return -1;
+    continue;
+  }
+  if (r != OGG_MUX_OK) break;
+
+  while ((r = ogg_mux_next_page(mux, &amp;page)) == OGG_MUX_OK) {
+    write_page(out, &amp;page);      /* page is borrowed; copy if kept */
+  }
+  if (r != OGG_MUX_AGAIN) return -1;
+
+  /* Advertise how far this track has been read.  The value is a time
+     in the track's time base, not a granule. */
+  ogg_mux_advance_frontier(mux, last_serial, last_time);
+}
+
+if (ogg_mux_end_input(mux) != OGG_MUX_OK) return -1;
+while ((r = ogg_mux_next_page(mux, &amp;page)) == OGG_MUX_OK)
+  write_page(out, &amp;page);
+
+ogg_mux_destroy(mux);
+</pre>
+
+<p>
+A complete command-line driver is built as <b>oggmux</b>; see
+<i>examples/oggmux.c</i>.  It reads page and control records on stdin
+and writes the multiplexed physical stream on stdout.
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>

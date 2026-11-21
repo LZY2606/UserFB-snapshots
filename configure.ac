@@ -229,6 +229,7 @@ Makefile
 src/Makefile
 doc/Makefile doc/libogg/Makefile
 include/Makefile include/ogg/Makefile include/ogg/config_types.h
+examples/Makefile
 libogg.spec
 ogg.pc
 ogg-uninstalled.pc

@@ -1,0 +1,76 @@
+<html>
+
+<head>
+<title>libogg - function - ogg_mux_next_page</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_mux_next_page</h1>
+
+<p><i>declared in "ogg/mux.h";</i></p>
+
+<p>Returns the next page that may safely be written.
+<p>
+All BOS pages are delivered first, in registration order, and only
+after every track has supplied one.  After that, non-BOS pages are
+delivered in increasing scheduling time; ties follow registration
+order, and each track's pages stay in their submitted order.
+Delivery requires every track that has not accepted EOS to have
+committed a watermark no earlier than the candidate page's time, and
+requires that no track is holding an unanchored group.  When no page
+is safe the function returns <b>OGG_MUX_AGAIN</b>; it never forces
+output.
+<p>
+The returned page points into instance-owned storage.  It is valid
+only until the next operation that changes the instance
+(submit_page, advance_frontier, set_limit, end_input, destroy) or the
+next successful fetch.
+<br><br>
+<table border=0 color=black cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td>
+<pre><b>
+ogg_mux_result_t ogg_mux_next_page(ogg_mux_t *mux, ogg_page *page);
+</b></pre>
+	</td>
+</tr>
+</table>
+
+<h3>Parameters</h3>
+<dl>
+<dt><i>mux</i></dt>
+<dd>The multiplexer instance.</dd>
+<dt><i>page</i></dt>
+<dd>Receives borrowed pointers to the next safe page.</dd>
+</dl>
+
+<h3>Return Values</h3>
+<blockquote>
+<li><b>OGG_MUX_OK</b>: a page was returned.</li>
+<li><b>OGG_MUX_AGAIN</b>: no page is safe yet.</li>
+<li><b>OGG_MUX_INVALID</b>: NULL argument.</li>
+</blockquote>
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>

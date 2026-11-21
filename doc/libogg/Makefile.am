@@ -2,7 +2,10 @@
 
 apidocdir = $(htmldir)/libogg
 
-dist_apidoc_DATA = bitpacking.html datastructures.html decoding.html encoding.html\
+dist_apidoc_DATA = bitpacking.html mux.html ogg_mux_init.html ogg_mux_destroy.html \
+	ogg_mux_submit_page.html ogg_mux_advance_frontier.html \
+	ogg_mux_set_limit.html ogg_mux_next_page.html ogg_mux_end_input.html \
+	ogg_mux_query.html datastructures.html decoding.html encoding.html\
 	general.html index.html ogg_iovec_t.html ogg_packet.html ogg_packet_clear.html\
 	ogg_page.html ogg_page_bos.html ogg_page_checksum_set.html\
 	ogg_page_continued.html ogg_page_eos.html ogg_page_granulepos.html\

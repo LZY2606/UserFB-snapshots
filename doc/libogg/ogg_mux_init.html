@@ -1,0 +1,76 @@
+<html>
+
+<head>
+<title>libogg - function - ogg_mux_create</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_mux_create</h1>
+
+<p><i>declared in "ogg/mux.h";</i></p>
+
+<p>Creates a multiplexer and fixes the immutable per-track parameters
+for its lifetime.  All tracks' serial numbers must be distinct.
+<i>num</i> and <i>den</i> are positive rational time bases; a page's
+scheduling time is granule&nbsp;&times;&nbsp;num&nbsp;/&nbsp;den.
+<i>limit</i> is the maximum number of bytes of page header plus body
+the instance may hold at once.
+<p>
+The instance owns no caller memory; every accepted page is copied.
+There is no thread synchronization inside the instance.
+<br><br>
+<table border=0 color=black cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td>
+<pre><b>
+ogg_mux_t *ogg_mux_create(int track_count, const int *serials,
+                          const ogg_int64_t *num, const ogg_int64_t *den,
+                          size_t limit);
+</b></pre>
+	</td>
+</tr>
+</table>
+
+<h3>Parameters</h3>
+<dl>
+<dt><i>track_count</i></dt>
+<dd>Number of tracks; must be positive.</dd>
+<dt><i>serials</i></dt>
+<dd>Array of <i>track_count</i> serial numbers, all distinct.</dd>
+<dt><i>num, den</i></dt>
+<dd>Arrays of <i>track_count</i> positive time-base numerator and
+denominator values.  Both may use the full signed 64-bit range.</dd>
+<dt><i>limit</i></dt>
+<dd>Maximum bytes of page header plus body held at once; must be
+positive.</dd>
+</dl>
+
+<h3>Return Values</h3>
+<blockquote>
+<li>A new instance, or NULL on invalid parameters or allocation
+failure.</li>
+</blockquote>
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>

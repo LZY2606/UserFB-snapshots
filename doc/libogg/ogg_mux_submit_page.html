@@ -1,0 +1,88 @@
+<html>
+
+<head>
+<title>libogg - function - ogg_mux_submit_page</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_mux_submit_page</h1>
+
+<p><i>declared in "ogg/mux.h";</i></p>
+
+<p>Hands one complete page, already framed and checksummed by the
+regular encoding layer, to the multiplexer.  On success the page is
+copied and the caller's buffer may be reused at once.  On failure
+nothing is queued and the instance's state, including watermarks and
+anchors, is unchanged.
+<p>
+A track's pages must arrive in order: its first page must be the BOS
+page numbered 0, followed by consecutive page numbers, ending with an
+EOS page.  A non-BOS page with granule &minus;1 is grouped with the
+next page of the same track that has a non-negative granule.  A track
+may not have two open groups.
+<p>
+The page size counts against the instance's byte limit.  If it does
+not fit, <b>OGG_MUX_CAPACITY</b> is returned without consuming input;
+after <a href="ogg_mux_set_limit.html">ogg_mux_set_limit</a> raises the
+limit the identical page may be resubmitted.
+<br><br>
+<table border=0 color=black cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td>
+<pre><b>
+ogg_mux_result_t ogg_mux_submit_page(ogg_mux_t *mux,
+                                     const ogg_page *page);
+</b></pre>
+	</td>
+</tr>
+</table>
+
+<h3>Parameters</h3>
+<dl>
+<dt><i>mux</i></dt>
+<dd>The multiplexer instance.</dd>
+<dt><i>page</i></dt>
+<dd>A complete page whose serial belongs to a registered track.</dd>
+</dl>
+
+<h3>Return Values</h3>
+<blockquote>
+<li><b>OGG_MUX_OK</b>: accepted and copied.</li>
+<li><b>OGG_MUX_CAPACITY</b>: the byte limit would be exceeded.</li>
+<li><b>OGG_MUX_NEED_BOS</b>: a non-BOS page arrived before this track's
+BOS.</li>
+<li><b>OGG_MUX_BAD_SERIAL</b>: the page's serial is not registered.</li>
+<li><b>OGG_MUX_BAD_PAGE</b>: malformed header, duplicate BOS, wrong page
+number, or a page after EOS.</li>
+<li><b>OGG_MUX_BAD_GRANULE</b>: a negative granule other than &minus;1,
+an EOS page without a non-negative granule, or an anchor that moves
+backwards.</li>
+<li><b>OGG_MUX_FRONTIER</b>: the page does not schedule strictly after
+its track's committed watermark.</li>
+<li><b>OGG_MUX_INVALID</b>: NULL argument, or input already ended.</li>
+<li><b>OGG_MUX_NOMEM</b>: allocation failure.</li>
+</blockquote>
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>

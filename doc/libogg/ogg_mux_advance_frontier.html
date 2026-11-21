@@ -1,0 +1,71 @@
+<html>
+
+<head>
+<title>libogg - function - ogg_mux_advance_frontier</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_mux_advance_frontier</h1>
+
+<p><i>declared in "ogg/mux.h";</i></p>
+
+<p>Raises a track's watermark.  The value is a time in that track's
+own tick units: after the call every non-BOS page subsequently
+submitted for the track must schedule strictly later than
+<i>ticks</i>.  Watermarks are monotonic; a lower value is rejected.
+Queued pages are not affected.  Once a track has accepted EOS,
+setting its watermark is a no-op because such a track is treated as an
+infinite watermark.
+<br><br>
+<table border=0 color=black cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td>
+<pre><b>
+ogg_mux_result_t ogg_mux_advance_frontier(ogg_mux_t *mux, int serial,
+                                          ogg_int64_t ticks);
+</b></pre>
+	</td>
+</tr>
+</table>
+
+<h3>Parameters</h3>
+<dl>
+<dt><i>mux</i></dt>
+<dd>The multiplexer instance.</dd>
+<dt><i>serial</i></dt>
+<dd>Serial number of the track to advance.</dd>
+<dt><i>ticks</i></dt>
+<dd>New watermark in the track's time base; non-negative.</dd>
+</dl>
+
+<h3>Return Values</h3>
+<blockquote>
+<li><b>OGG_MUX_OK</b>: accepted.</li>
+<li><b>OGG_MUX_BAD_SERIAL</b>: unknown serial number.</li>
+<li><b>OGG_MUX_INVALID</b>: negative value, a lower value than already
+committed, or input already ended.</li>
+</blockquote>
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>

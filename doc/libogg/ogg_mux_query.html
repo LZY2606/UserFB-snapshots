@@ -1,0 +1,56 @@
+<html>
+
+<head>
+<title>libogg - function - ogg_mux_track_count / ogg_mux_bytes</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_mux_track_count / ogg_mux_bytes</h1>
+
+<p><i>declared in "ogg/mux.h";</i></p>
+
+<p>Two accessors for diagnostics.  <b>ogg_mux_track_count</b> returns
+the number of registered tracks.  <b>ogg_mux_bytes</b> returns the
+number of page bytes currently held, including an unanchored group and
+a page still borrowed from the last fetch.
+<br><br>
+<table border=0 color=black cellspacing=0 cellpadding=7>
+<tr bgcolor=#cccccc>
+	<td>
+<pre><b>
+int ogg_mux_track_count(const ogg_mux_t *mux);
+size_t ogg_mux_bytes(const ogg_mux_t *mux);
+</b></pre>
+	</td>
+</tr>
+</table>
+
+<h3>Parameters</h3>
+<dl>
+<dt><i>mux</i></dt>
+<dd>The multiplexer instance; NULL yields 0.</dd>
+</dl>
+
+<br><br>
+<hr noshade>
+<table border=0 width=100%>
+<tr valign=top>
+<td><p class=tiny>copyright &copy; 2000-2021 Xiph.Org Foundation</p></td>
+<td align=right><p class=tiny><a href="http://www.xiph.org/ogg/">Ogg Container Format</a></p></td>
+</tr><tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+</body>
+
+</html>
