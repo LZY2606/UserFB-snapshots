@@ -42,6 +42,8 @@ SET(MESH_SRCS
 	param/ParameterizationQuality.cpp
 	param/SingleFaceMap.h
 	param/SingleFaceMap.cpp
+	param/InjectiveCharts.h
+	param/InjectiveCharts.cpp
 	param/Util.h
 	param/Util.cpp
 	weld/VertexWeld.h

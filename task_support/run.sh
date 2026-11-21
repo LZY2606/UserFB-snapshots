@@ -20,7 +20,7 @@ example_dir=$(mktemp -d .task-build/example.XXXXXX)
 .task-build/example "$example_dir/injective.svg"
 test -s "$example_dir/injective.svg"
 grep -q '<svg' "$example_dir/injective.svg"
-  output_log=$(mktemp)
+  output_log=$(mktemp .task-build/log.XXXXXX)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

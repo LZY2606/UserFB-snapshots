@@ -95,6 +95,15 @@ namespace nv
 
         void parameterizeCharts(bool preserve_uvs, bool pinned_boundary);
 
+        // Injective chart pipeline support.
+        // Release ownership of all charts without deleting them.
+        void releaseCharts();
+        // Take ownership of the given chart.
+        void appendChart(Chart * chart);
+        // Rebuild face chart, face index and vertex prefix arrays from the
+        // charts currently owned by this object.
+        void rebuildIndices();
+
         uint faceChartAt(uint i) const { return m_faceChart[i]; }
         uint faceIndexWithinChartAt(uint i) const { return m_faceIndex[i]; }
 

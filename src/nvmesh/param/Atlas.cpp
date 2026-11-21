@@ -640,6 +640,62 @@ void MeshCharts::computeCharts(const SegmentationSettings & settings, const Arra
 
 #include <stdio.h> // @@ tmp.
 
+void MeshCharts::releaseCharts()
+{
+    m_chartArray.clear();
+    m_faceChart.clear();
+    m_faceIndex.clear();
+    m_chartVertexCountPrefixSum.clear();
+    m_totalVertexCount = 0;
+}
+
+void MeshCharts::appendChart(Chart * chart)
+{
+    m_chartArray.append(chart);
+}
+
+void MeshCharts::rebuildIndices()
+{
+    const uint chartCount = m_chartArray.count();
+
+    // Build face indices.
+    m_faceChart.resize(m_mesh->faceCount());
+    m_faceIndex.resize(m_mesh->faceCount());
+
+    for (uint i = 0; i < chartCount; i++)
+    {
+        const Chart * chart = m_chartArray[i];
+
+        const uint faceCount = chart->faceCount();
+        for (uint f = 0; f < faceCount; f++)
+        {
+            uint idx = chart->faceAt(f);
+            m_faceChart[idx] = i;
+            m_faceIndex[idx] = f;
+        }
+    }
+
+    // Build an exclusive prefix sum of the chart vertex counts.
+    m_chartVertexCountPrefixSum.resize(chartCount);
+
+    if (chartCount > 0)
+    {
+        m_chartVertexCountPrefixSum[0] = 0;
+
+        for (uint i = 1; i < chartCount; i++)
+        {
+            const Chart * chart = m_chartArray[i - 1];
+            m_chartVertexCountPrefixSum[i] = m_chartVertexCountPrefixSum[i - 1] + chart->vertexCount();
+        }
+
+        m_totalVertexCount = m_chartVertexCountPrefixSum[chartCount - 1] + m_chartArray[chartCount - 1]->vertexCount();
+    }
+    else
+    {
+        m_totalVertexCount = 0;
+    }
+}
+
 void MeshCharts::parameterizeCharts(bool preserve_uvs, bool pinned_boundary)
 {
     ParameterizationQuality globalParameterizationQuality;

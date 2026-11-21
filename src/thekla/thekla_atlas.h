@@ -64,7 +64,7 @@ struct Atlas_Options {
         struct {
             int packing_quality;
             float texels_per_unit;      // Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
-            bool block_align;           // Align charts to 4x4 blocks. 
+            bool block_align;           // Align charts to 4x4 blocks.
             bool conservative;          // Pack charts with extra padding.
         } witness;
     } packer_options;
@@ -110,6 +110,42 @@ enum Atlas_Error {
     Atlas_Error_Invalid_Mesh,
     Atlas_Error_Invalid_Mesh_Non_Manifold,
     Atlas_Error_Not_Implemented,
+    Atlas_Error_Budget_Exceeded,
+    Atlas_Error_Uninjectable,
+};
+
+// One recursive repair cut. All face indices refer to the input mesh faces.
+struct Atlas_Injective_Split {
+    int parent_chart;           // Stable node id of the chart that was cut.
+    int child_chart[2];         // Stable node ids of the two descendants.
+    int witness_face[2];        // Overlap witness pair (or local failure face twice).
+    int cut_edge_face[2];       // Source faces at both ends of the cut tree edge.
+    int parent_face_count;
+    int * parent_face_array;    // Source faces of the parent chart.
+    int child_face_count[2];
+    int * child_face_array[2];  // Source faces of each child chart.
+};
+
+// Owned repair report. Every array is allocated with new[] and freed by
+// atlas_injective_report_free. The report stays valid after the input mesh
+// or any previously returned output mesh is released.
+struct Atlas_Injective_Report {
+    int chart_count;            // Number of final charts.
+    int node_count;             // Number of chart nodes (initial + descendants).
+    int split_count;
+
+    int * face_chart;           // Final chart index for every source face.
+    int * chart_face_count;     // Source face count per final chart.
+    int ** chart_face_array;    // Source faces per final chart.
+    int * chart_parent_node;    // Parent node id per final chart (-1 for initial charts).
+
+    int * node_face_count;      // Source face count per chart node.
+    int ** node_face_array;     // Source faces per chart node.
+    int * node_parent;          // Parent node id per chart node (-1 for initial nodes).
+
+    Atlas_Injective_Split * split_array;
+
+    long long narrow_phase_count; // Exact triangle/triangle narrow phase tests.
 };
 
 typedef void Atlas_Debug_Output(const char * output);
@@ -118,6 +154,23 @@ THEKLA_ATLAS_API void atlas_set_debug_output(Atlas_Debug_Output * output);
 THEKLA_ATLAS_API void atlas_set_default_options(Atlas_Options * options);
 
 THEKLA_ATLAS_API Atlas_Output_Mesh * atlas_generate(const Atlas_Input_Mesh * input, const Atlas_Options * options, Atlas_Error * error);
+
+// Generate an atlas whose charts are guaranteed free of positive area UV
+// self overlaps. Only Atlas_Charter_Extract with preserve_uvs and
+// preserve_boundary enabled is accepted. Input UVs are preserved for charts
+// that already map injectively; only descendants of failing charts are
+// re-parameterized. max_charts must be positive. On failure returns NULL,
+// sets a specific error, publishes no partial output and never modifies the
+// input. On success *report is allocated and owned by the caller, who frees
+// it with atlas_injective_report_free.
+THEKLA_ATLAS_API Atlas_Output_Mesh * atlas_generate_injective(
+    const Atlas_Input_Mesh * input,
+    const Atlas_Options * options,
+    int max_charts,
+    Atlas_Injective_Report ** report,
+    Atlas_Error * error);
+
+THEKLA_ATLAS_API void atlas_injective_report_free(Atlas_Injective_Report * report);
 
 THEKLA_ATLAS_API void atlas_free(Atlas_Output_Mesh * output);
 
