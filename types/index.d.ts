@@ -178,10 +178,40 @@ export interface DialogueDrawing {
     height: number;
 }
 
+/**
+ * Where the editable font size comes from. `style` follows the current slice
+ * style, `explicit` is an absolute override, `relative` multiplies its base by
+ * `factor` (`\fs+2` is 1.2, `\fs-2` is 0.8).
+ */
+export type EditableFontSizeOrigin =
+    | { origin: 'style' }
+    | { origin: 'explicit'; value: number }
+    | { origin: 'relative'; factor: number; base: EditableFontSizeOrigin };
+
+/** Where an editable primary color / alpha comes from. */
+export type EditableColorOrigin =
+    | { origin: 'style' }
+    | { origin: 'explicit'; value: string; kind?: 'color' | 'alpha'; shorthand?: boolean };
+
+export interface EditableFragmentMeta {
+    fs: EditableFontSizeOrigin;
+    c1: EditableColorOrigin;
+    a1: EditableColorOrigin;
+    /** Effective values of the last projection, used to detect direct edits. */
+    projected: {
+        fs: number;
+        c1: string;
+        a1: string;
+    };
+}
+
 export interface DialogueFragment {
     tag: CompiledTag;
     text: string;
     drawing?: DialogueDrawing;
+    /** Only present on documents compiled with `editableStyles: true`. */
+    meta?: EditableFragmentMeta;
+    alphaShorthand?: boolean;
 }
 
 export interface DialogueSlice {
@@ -200,6 +230,14 @@ export interface Dialogue {
         right: number;
         vertical: number;
     }
+    /** Only present on documents compiled with `editableStyles: true`. */
+    marginMeta?: {
+        left: boolean;
+        right: boolean;
+        vertical: boolean;
+        /** Style whose margins were inherited at the last projection. */
+        style?: string;
+    };
     effect?: EffectBanner | EffectScroll | EffectUnknown;
     alignment: number;
     q: 0 | 1 | 2 | 3;
@@ -255,8 +293,46 @@ export interface CompiledASS {
     wrapStyle: 0 | 1 | 2 | 3;
     styles: { [styleName: string]: CompiledASSStyle };
     dialogues: Dialogue[];
+    /** Present and `true` when compiled with `editableStyles: true`. */
+    editableStyles?: true;
 }
 
-export function compile(text: string, options: object): CompiledASS;
+export interface CompileOptions {
+    defaultInfo?: Partial<ScriptInfo>;
+    defaultStyle?: Partial<ParsedASSStyles['style'][number]>;
+    /**
+     * Keep the source of each editable style property (font size, primary
+     * color, alpha and dialogue margins) so `updateStyles` can edit them
+     * without re-importing the original ASS. `\t` animations are rejected.
+     */
+    editableStyles?: boolean;
+}
+
+/** Only these fields may be patched. */
+export interface StyleChanges {
+    /** Positive finite number. */
+    Fontsize?: number;
+    /** `&HAABBGGRR` or `&HAABBGGRR&`. */
+    PrimaryColour?: string;
+    /** Non-negative integer. */
+    MarginL?: number;
+    MarginR?: number;
+    MarginV?: number;
+}
+
+/** Keys are existing style names. */
+export type StyleUpdateChanges = { [styleName: string]: StyleChanges };
+
+export function compile(text: string, options?: CompileOptions): CompiledASS;
+
+/**
+ * Return a fully independent copy of `document` with the given style changes
+ * applied to the styles and to every dialogue/fragment that inherits them.
+ * Neither `document` nor `changes` is mutated.
+ */
+export function updateStyles(
+    document: CompiledASS,
+    changes: StyleUpdateChanges,
+): CompiledASS;
 
 export function decompile(obj: CompiledASS): string;

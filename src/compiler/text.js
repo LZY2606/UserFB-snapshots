@@ -1,5 +1,6 @@
 import { compileDrawing } from './drawing.js';
 import { compileTag } from './tag.js';
+import { compileTextEditable } from './editable.js';
 
 const a2an = [
   null, 1, 2, 3,
@@ -18,7 +19,10 @@ function inheritTag(pTag) {
   })));
 }
 
-export function compileText({ styles, style, parsed, start, end }) {
+export function compileText({ styles, style, parsed, start, end, editableStyles }) {
+  if (editableStyles) {
+    return compileTextEditable({ styles, style, parsed, start, end });
+  }
   let alignment;
   let q = { q: styles[style].tag.q };
   let pos;

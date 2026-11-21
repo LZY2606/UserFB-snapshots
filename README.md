@@ -22,7 +22,7 @@ npm install ass-compiler
 You can use `parse` or `compile` as your need.
 
 ```js
-import { parse, stringify, compile, decompile } from 'ass-compiler';
+import { parse, stringify, compile, decompile, updateStyles } from 'ass-compiler';
 
 // ASS file content
 const text = `
@@ -38,6 +38,54 @@ const stringifiedText = stringify(parsedASS);
 const compiledASS = compile(text, options);
 const decompiledText = decompile(compiledASS);
 ```
+
+### Editing compiled styles
+
+Pass `editableStyles: true` to keep the source of each editable style property
+(font size, primary color, alpha and dialogue margins) on the compiled document.
+You can then patch style values with `updateStyles` without re-importing the
+original ASS file:
+
+```js
+const doc = compile(text, { editableStyles: true });
+
+// Patch existing style names. Only Fontsize, PrimaryColour, MarginL, MarginR
+// and MarginV are accepted. Unknown styles, unknown fields and invalid values
+// throw; neither `doc` nor `changes` is mutated.
+const updated = updateStyles(doc, {
+  Default: { Fontsize: 40, PrimaryColour: '&HFF112233&', MarginL: 20 },
+  Alt: { Fontsize: 50 },
+});
+
+// Updates can be applied repeatedly. Relative tags keep following their base:
+// \fs+2 is 1.2x the current base, \fs-2 is 0.8x, and \fs30 cuts the dependency.
+const smaller = updateStyles(updated, { Alt: { Fontsize: 25 } });
+
+// Save and continue later: the distinction between inherited and explicit
+// values survives as ordinary ASS, so a re-compile resumes from the same state.
+const savedAgain = compile(decompile(updated), { editableStyles: true });
+const continued = updateStyles(savedAgain, { Alt: { Fontsize: 25 } });
+```
+
+Notes:
+
+- Explicit overrides are tracked separately from inherited values, even when
+  the numbers happen to be equal.
+- `\rName` switches the base style of the current slice, a bare `\r` returns to
+  the dialogue style, and unknown names also return to the dialogue style.
+- `\c`/`\1c` only clears the RGB override (an explicit `\1a` stays), while `\r`
+  clears the alpha override too.
+- Margins: an original `0` inherits from the style; a non-zero value equal to
+  the style value is explicit and does not change when the style margin does.
+- Direct edits to the document are honored: changed text/timings, reordered,
+  deleted or duplicated fragments, retargeted `slice.style`, and `tag.fs` /
+  `tag.c1` / `tag.a1` edits (a changed value becomes an absolute override, a
+  removed field inherits again). New fragments without saved sources treat
+  whatever tags they already have as absolute overrides.
+- `\t` animation tags are rejected when `editableStyles` is enabled. Other tags
+  (position, movement, fade, drawings, karaoke, ...) keep their compiled values.
+- Calling `updateStyles` with a document compiled without `editableStyles`
+  throws.
 
 ### options
 
@@ -75,6 +123,8 @@ const decompiledText = decompile(compiledASS);
     MarginV: '10',
     Encoding: '1',
   },
+  // Keep editable style sources so `updateStyles` can patch them later.
+  editableStyles: false,
 }
 ```
 

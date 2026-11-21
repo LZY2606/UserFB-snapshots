@@ -10,7 +10,18 @@ export function compile(text, options = {}) {
     style: tree.styles.style,
     defaultStyle: options.defaultStyle || {},
   });
-  return {
+  const editableStyles = !!options.editableStyles;
+  if (editableStyles) {
+    tree.events.dialogue.forEach((dialogue) => {
+      const hasAnimation = dialogue.Text.parsed.some((part) => (
+        (part.tags || []).some((tag) => tag && tag.t !== undefined)
+      ));
+      if (hasAnimation) {
+        throw new Error(`editableStyles does not support \\t animation tag in style "${dialogue.Style}"`);
+      }
+    });
+  }
+  const doc = {
     info,
     width: info.PlayResX * 1 || null,
     height: info.PlayResY * 1 || null,
@@ -20,6 +31,11 @@ export function compile(text, options = {}) {
     dialogues: compileDialogues({
       styles,
       dialogues: tree.events.dialogue,
+      editableStyles,
     }),
   };
+  if (editableStyles) {
+    doc.editableStyles = true;
+  }
+  return doc;
 }

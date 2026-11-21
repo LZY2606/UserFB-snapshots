@@ -1,5 +1,6 @@
 import { stringifyInfo, stringifyTime, stringifyEffect } from './stringifier.js';
 import { stylesFormat, eventsFormat } from './utils.js';
+import { createMeta, editableTagText, isValidMeta } from './compiler/editable.js';
 
 export function decompileStyle({ style, tag }) {
   const obj = Object.assign({}, style, {
@@ -62,6 +63,76 @@ export function decompileTag(tag) {
   }).join('');
 }
 
+const editableKeys = ['r', 'fs', 'c1', 'a1'];
+
+function marginText(dialogue, key, prop, style) {
+  const value = dialogue.margin ? dialogue.margin[key] : 0;
+  if (!value) return '0000';
+  const explicit = dialogue.marginMeta
+    ? !!dialogue.marginMeta[key]
+    : value !== style[prop];
+  return explicit ? value : '0000';
+}
+
+/**
+ * Decompile a dialogue whose fragments carry editable styles. Font sizes,
+ * primary colors and alpha are emitted from their saved sources, so relative
+ * sizes, `\c` color-only resets and explicit margins equal to the style value
+ * all survive without private annotations.
+ */
+export function decompileTextEditable(dia, style) {
+  let inherited = createMeta();
+  let currentStyle = dia.style;
+  let emitted = 0;
+  const chunks = [];
+  dia.slices.forEach((slice) => {
+    if (!slice.fragments.length) return;
+    const firstSlice = emitted === 0;
+    emitted++;
+    const baseTags = {};
+    if (slice.style !== currentStyle) {
+      baseTags.r = slice.style === dia.style ? '' : slice.style;
+      currentStyle = slice.style;
+      inherited = createMeta();
+    }
+    if (firstSlice) {
+      if (style.Alignment !== dia.alignment) {
+        baseTags.an = dia.alignment;
+      }
+      ['pos', 'org', 'move', 'fade', 'clip'].forEach((key) => {
+        if (dia[key]) baseTags[key] = dia[key];
+      });
+    }
+    let firstFragment = true;
+    slice.fragments.forEach((fragment) => {
+      const source = isValidMeta(fragment.meta) ? fragment.meta : createMeta();
+      const fragmentTag = {};
+      if (firstFragment) Object.assign(fragmentTag, baseTags);
+      Object.keys(fragment.tag).forEach((key) => {
+        if (!~editableKeys.indexOf(key)) fragmentTag[key] = fragment.tag[key];
+      });
+      let editable = editableTagText(source, inherited, currentStyle, !!fragment.alphaShorthand);
+      if (editable.reset && fragmentTag.r === undefined) {
+        // A bare `\r` may be followed by a style name; turn the reset into the
+        // style switch it needs to reproduce the saved source.
+        fragmentTag.r = currentStyle === dia.style ? '' : currentStyle;
+        inherited = createMeta();
+        editable = editableTagText(source, inherited, currentStyle, !!fragment.alphaShorthand);
+      }
+      firstFragment = false;
+      const tagText = Object.keys(fragmentTag).map((key) => {
+        const fn = tagDecompiler[key] || ((_) => `${key}${_}`);
+        return `\\${fn(fragmentTag[key])}`;
+      }).concat(editable.tags).join('');
+      chunks.push(`${tagText ? `{${tagText}}` : ''}${
+        fragment.drawing ? decompileDrawing(fragment.drawing) : fragment.text
+      }`);
+      inherited = source;
+    });
+  });
+  return chunks.join('');
+}
+
 export function decompileSlice(slice) {
   return slice.fragments.map(({ tag, text, drawing }) => {
     const tagText = decompileTag(tag);
@@ -101,17 +172,19 @@ function getMargin(margin, styleMargin) {
 }
 
 export function decompileDialogue(dia, style) {
+  const editable = dia.marginMeta !== undefined
+    || dia.slices.some((slice) => slice.fragments.some((fragment) => fragment.meta !== undefined));
   return `Dialogue: ${[
     dia.layer,
     stringifyTime(dia.start),
     stringifyTime(dia.end),
     dia.style,
     dia.name,
-    getMargin(dia.margin.left, style.MarginL),
-    getMargin(dia.margin.right, style.MarginR),
-    getMargin(dia.margin.vertical, style.MarginV),
+    editable ? marginText(dia, 'left', 'MarginL', style) : getMargin(dia.margin.left, style.MarginL),
+    editable ? marginText(dia, 'right', 'MarginR', style) : getMargin(dia.margin.right, style.MarginR),
+    editable ? marginText(dia, 'vertical', 'MarginV', style) : getMargin(dia.margin.vertical, style.MarginV),
     stringifyEffect(dia.effect),
-    decompileText(dia, style),
+    editable ? decompileTextEditable(dia, style) : decompileText(dia, style),
   ].join()}`;
 }
 
@@ -131,6 +204,7 @@ export function decompile({ info, width, height, collisions, styles, dialogues }
     '[Events]',
     `Format: ${eventsFormat.join(', ')}`,
     ...dialogues
+      .slice()
       .sort((x, y) => x.start - y.start || x.end - y.end)
       .map((dia) => decompileDialogue(dia, styles[dia.style].style)),
     '',
