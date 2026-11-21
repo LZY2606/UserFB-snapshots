@@ -1,0 +1,87 @@
+{
+  "repo": "https://github.com/wernerd/GoRTP",
+  "commit": "e9fed0e9ccf72b31cbb4b16cf38f5c9434afbf95",
+  "license": "GPL-3.0-or-later",
+  "files": [
+    {
+      "upstream": "src/net/rtp/ctrlpacket_test.go",
+      "export": "ctrlpacket_test.go",
+      "sha256": "6030800dd24b8803fae0eb4b5dc62f32c9c46deb18112ac5de476bffbd1ae7e6"
+    },
+    {
+      "upstream": "src/net/rtp/datapacket_test.go",
+      "export": "datapacket_test.go",
+      "sha256": "a5e5ddae321304be379f49cc02c5283be896932a1bc6211e664447a39c9ac0e0"
+    },
+    {
+      "upstream": "src/net/rtp/doc.go",
+      "export": "doc.go",
+      "sha256": "91e8b2ea957610513a5af1082721d493d0bcb73bed93a9c1bf34003e15f40837"
+    },
+    {
+      "upstream": "src/net/rtp/go.mod",
+      "export": "go.mod",
+      "sha256": "6bc04e547e0225c5423fc604a4043b1ee754a82e1ff324c4b1d031ff2b209c63"
+    },
+    {
+      "upstream": "src/net/rtp/packets.go",
+      "export": "packets.go",
+      "sha256": "76598e7e2c7280cef2a64e8803feec9f0c11f1d26b277c0ee93280a005f09374"
+    },
+    {
+      "upstream": "src/net/rtp/payload.go",
+      "export": "payload.go",
+      "sha256": "f527800f28808ada7a598c91937db3b37d111bf92a3abfb7571c13b0b472e8fd"
+    },
+    {
+      "upstream": "src/net/rtp/receive_test.go",
+      "export": "receive_test.go",
+      "sha256": "a48382d087d78f3c054306dc8772d8f7198c21f548c42e749c7f8b1a16b27f79"
+    },
+    {
+      "upstream": "src/net/rtp/session.go",
+      "export": "session.go",
+      "sha256": "e6e75d81ad839a878bcbfbd9bfae989224ef341c2b1adfadd135f735b7ad503d"
+    },
+    {
+      "upstream": "src/net/rtp/session_test.go",
+      "export": "session_test.go",
+      "sha256": "1a54f21fcf53fcd5d2d0105fa743ffe6f97d9bb078f9bf752a618887541ac9ab"
+    },
+    {
+      "upstream": "src/net/rtp/sessionlocal.go",
+      "export": "sessionlocal.go",
+      "sha256": "91035d0d0b0ecc53560339015b9d7bc82ee39e4822fa1671f3254c94b022e1ee"
+    },
+    {
+      "upstream": "src/net/rtp/stream.go",
+      "export": "stream.go",
+      "sha256": "08a6963536e9fe0dc8264a69bdf944baa8fed0fdc186828eab3b2c2e17e87962"
+    },
+    {
+      "upstream": "src/net/rtp/transport.go",
+      "export": "transport.go",
+      "sha256": "a72344e48697d05ff18d3605ac2f237dd812fe0b3e2a66def3f5097a92f3756f"
+    },
+    {
+      "upstream": "src/net/rtp/transportUDP.go",
+      "export": "transportUDP.go",
+      "sha256": "c4d8f8a3efd623e6728f5626b5066701f0e47fff71bae25db50669919cca01b6"
+    },
+    {
+      "upstream": "LICENSE",
+      "export": "LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "upstream": "README.md",
+      "export": "README.md",
+      "sha256": "f69ef5d6f5d6be7cf0987b3ae93781c98507bdc422d50657119bf96b14140a37"
+    }
+  ],
+  "excluded": [
+    "src/net/rtpmain/: 独立演示应用及其预编译可执行文件，不被rtp模块导入",
+    "根README/LICENSE已保留；Git元数据不属于运行闭包"
+  ],
+  "dependencies": "src/net/rtp/go.mod无require，全部标准库；生产Go源码逐文件原样导出"
+}
