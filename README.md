@@ -56,6 +56,37 @@ to the example program. The RTCP fields in the stream structures are
 accessible - however, to use them you may need to have some know-how of the
 RTCP definitions and reporting.
 
+## Measuring RTT on pure receivers (RTCP XR)
+
+Even if a session never sends RTP data itself it can measure the round trip
+time to its media peers. GoRTP implements the RFC 3611 Receiver Reference
+Time Report block (RRTR) and the DLRR answer block for this. A receiver
+enables it before starting the session:
+
+```go
+tp := rtp.NewTransportUDP(localAddr, localPort, "")
+session := rtp.NewSession(tp, tp)
+session.EnableXR(true) // add an XR packet with RRTR/DLRR to RTCP compounds
+// Optional: inject a clock (used for the NTP timestamps and RTT durations).
+// Defaults to time.Now.
+session.SetXRClock(func() time.Time { return time.Now() })
+
+// ... create an output stream (required even in receive-only mode), then
+session.StartSession()
+
+// Later, from any goroutine:
+if rtt, ok := session.XRRTT(localSSRC, peerSSRC); ok {
+    fmt.Printf("RTT to peer %x: %v\n", peerSSRC, rtt)
+}
+```
+
+Once enabled, every periodic RTCP compound carries an XR packet with a
+receiver reference timestamp, and references received from peers are answered
+with DLRR blocks. No RTP sending is required for the exchange; the usual
+SR/RR, SDES and media processing are unaffected. Associations are cleaned up
+when a peer sends BYE, when the local stream is closed, or when the session
+closes.
+
 ## The documentation
 
 After you downloaded the code you may use standard _godoc_ to get a nice
@@ -101,5 +132,6 @@ particular the package documentation (doc.go).
   - RTCP events to inform about RTCP packets and received reports
   - Error events
 
-* Currently GoRTP supports only SR, RR, SDES, and BYE RTCP packets. Inside
+* Currently GoRTP supports SR, RR, SDES, BYE, and XR (RFC 3611 receiver
+  reference time / DLRR for RTT measurement) RTCP packets. Inside
   SDES GoRTP does not support SDES Private and SDES H.323 items.

@@ -53,10 +53,21 @@ type Session struct {
 	weSent            bool // is true if an output stream sent some RTP data
 	rtcpServiceActive bool // true if an input stream received RTP packets after last RR
 	rtcpCtrlChan      rtcpCtrlChan
+	rtcpServiceDone   chan struct{} // closed when the RTCP service goroutine exits
 	transportEnd      TransportEnd
 	transportEndUpper TransportEnd
 	transportWrite    TransportWrite
 	transportRecv     TransportRecv
+
+	rtcpDataTimeout,
+	rtcpSsrcTimeout int64 // inactivity timeouts used by the RTCP report step
+
+	xrMutex    sync.Mutex // guards all XR state below
+	xrEnabled  bool
+	xrClock    func() time.Time
+	xrSentRefs map[uint32][]xrSentRef // per local SSRC: references sent in RRTR blocks
+	xrPeerRefs map[uint32]*xrPeerRef  // per reporter SSRC: newest reference received
+	xrRTTs     map[xrRTTKey]xrRTTSample
 }
 
 // Remote stores a remote addess in a transport independent way.
@@ -155,6 +166,10 @@ func NewSession(tpw TransportWrite, tpr TransportRecv) *Session {
 	rs.transportEnd = make(TransportEnd, 2)
 	rs.rtcpCtrlChan = make(rtcpCtrlChan, 1)
 
+	rs.xrSentRefs = make(map[uint32][]xrSentRef)
+	rs.xrPeerRefs = make(map[uint32]*xrPeerRef)
+	rs.xrRTTs = make(map[xrRTTKey]xrRTTSample)
+
 	tpr.SetCallUpper(rs)
 	tpr.SetEndChannel(rs.transportEnd)
 
@@ -218,6 +233,8 @@ func (rs *Session) NewSsrcStreamOut(own *Address, ssrc uint32, sequenceNo uint16
 	for _, _, exists := rs.lookupSsrcMap(str.Ssrc()); exists; _, _, exists = rs.lookupSsrcMap(str.Ssrc()) {
 		str.newSsrc()
 	}
+	// A reused SSRC must not inherit XR associations of a previous stream.
+	rs.xrLocalGone(str.Ssrc())
 	rs.streamsOut[rs.streamOutIndex] = str
 	index = rs.streamOutIndex
 	rs.streamOutIndex++
@@ -253,6 +270,7 @@ func (rs *Session) StartSession() (err error) {
 	ti, td := rtcpInterval(1, 0, rs.RtcpSessionBandwidth, rs.avrgPacketLength, false, true)
 	rs.tnext = ti + time.Now().UnixNano()
 
+	rs.rtcpServiceDone = make(chan struct{})
 	go rs.rtcpService(ti, td)
 	return
 }
@@ -267,10 +285,14 @@ func (rs *Session) CloseSession() {
 		return
 	}
 
-	rs.rtcpCtrlChan <- rtcpStopService
 	for idx := range rs.streamsOut {
 		rs.SsrcStreamCloseForIndex(idx)
 	}
+	rs.rtcpCtrlChan <- rtcpStopService
+	if rs.rtcpServiceDone != nil {
+		<-rs.rtcpServiceDone // wait until the RTCP service really stopped
+	}
+	rs.xrReset()
 	rs.CloseRecv() // de-activate the transports
 }
 
@@ -397,6 +419,7 @@ func (rs *Session) SsrcStreamCloseForIndex(streamIndex uint32) {
 		rs.WriteCtrl(rc)
 
 		str.streamStatus = isClosing
+		rs.xrLocalGone(str.Ssrc())
 	}
 }
 
@@ -519,6 +542,9 @@ func (rs *Session) OnRecvCtrl(rp *CtrlPacket) bool {
 	// Check here if SRTCP is enabled for the SSRC of the packet - a stream attribute
 
 	ctrlEvArr := make([]*CtrlEvent, 0, 10)
+
+	var xrPending []xrPacketIn // validated XR content, committed after the whole datagram was checked
+	var xrBye []uint32         // SSRCs received in BYE packets, XR cleanup after commit
 
 	offset := 0
 	for offset < rp.inUse {
@@ -643,6 +669,7 @@ func (rs *Session) OnRecvCtrl(rp *CtrlPacket) bool {
 					ctrlEvArr = append(ctrlEvArr, ctrlEv)
 					st.streamStatus = isClosing
 				}
+				xrBye = append(xrBye, byePkt.ssrc(0))
 				// Recompute time intervals, see chapter 6.3.4
 				// TODO: not len(rs.streamsIn) but get number of members with streamStatus == active
 				pmembers := float64(len(rs.streamsOut) + len(rs.streamsIn))
@@ -664,10 +691,28 @@ func (rs *Session) OnRecvCtrl(rp *CtrlPacket) bool {
 			// Advance to the next packet in the compound.
 			offset += pktLen
 		case RtcpXr:
+			if rs.xrEnabled {
+				// Validate the complete XR packet first. A corrupt block
+				// rejects the datagram without committing partial XR state.
+				xrPkt, ok := rs.parseXrPacket(rp, offset, pktLen)
+				if !ok {
+					rp.FreePacket()
+					return false
+				}
+				xrPending = append(xrPending, *xrPkt)
+			}
 			// Advance to the next packet in the compound.
 			offset += pktLen
 
 		}
+	}
+	// All packets of the datagram were valid: commit the XR state, then
+	// clear associations of peers that said good-bye in this datagram.
+	if len(xrPending) > 0 {
+		rs.xrCommit(xrPending, rs.xrNow())
+	}
+	for _, ssrc := range xrBye {
+		rs.xrPeerGone(ssrc)
 	}
 	select {
 	case rs.ctrlEventChan <- ctrlEvArr: // send control event

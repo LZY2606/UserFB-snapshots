@@ -82,8 +82,8 @@ type conflictMap map[uint32]*conflictAddr
 func (rs *Session) rtcpService(ti, td int64) {
 
 	granularity := time.Duration(250e6) // 250 ms
-	ssrcTimeout := 5 * td
-	dataTimeout := 2 * ti
+	rs.rtcpSsrcTimeout = 5 * td
+	rs.rtcpDataTimeout = 2 * ti
 
 	rs.rtcpServiceActive = true
 	ticker := time.NewTicker(granularity)
@@ -95,117 +95,7 @@ func (rs *Session) rtcpService(ti, td int64) {
 			if now < rs.tnext {
 				continue
 			}
-
-			var outActive, inActive int // Counts all members in active state
-			var inActiveSinceLastRR int
-
-			for idx, str := range rs.streamsIn {
-				switch str.streamStatus {
-				case active:
-					str.streamMutex.Lock()
-					// Manage number of active senders on input streams.
-					// Every time this stream receives a packet it updates the last packet time. If the input stream
-					// did not receive a RTP packet for 2 RTCP intervals its sender status is set to false and the
-					// number of active senders in this session is decremented if not already zero. See chapter 6.3.5
-					rtpDiff := now - str.statistics.lastPacketTime
-					if str.sender {
-						if str.dataAfterLastReport {
-							inActiveSinceLastRR++
-						}
-						if rtpDiff > dataTimeout {
-							str.sender = false
-							if rs.activeSenders > 0 {
-								rs.activeSenders--
-							}
-						}
-					}
-					// SSRC timeout processing: check for inactivity longer than 5*non-random interval time
-					// (both RTP/RTCP inactivity) chapter 6.3.5
-					rtcpDiff := now - str.statistics.lastRtcpPacketTime
-					if rtpDiff > rtcpDiff {
-						rtpDiff = rtcpDiff
-					}
-					if rtpDiff > ssrcTimeout {
-						delete(rs.streamsIn, idx)
-					}
-					str.streamMutex.Unlock()
-
-				case isClosing:
-					str.streamStatus = isClosed
-
-				case isClosed:
-					delete(rs.streamsOut, idx)
-				}
-			}
-
-			var rc *CtrlPacket
-			var streamForRR *SsrcStream
-			var outputSenders int
-
-			for idx, str := range rs.streamsOut {
-				switch str.streamStatus {
-				case active:
-					outActive++
-					streamForRR = str // remember one active stream in case there is no sending output stream
-
-					// Manage number of active senders. Every time this stream sends a packet the output stream
-					// sender updates the last packet time. If the output stream did not send RTP for 2 RTCP
-					// intervals its sender status is set to false and the number of active senders in this session
-					// is decremented if not already zero. See chapter 6.3.8
-					//
-					str.streamMutex.Lock()
-					rtpDiff := now - str.statistics.lastPacketTime
-					if str.sender {
-						outputSenders++
-						if rtpDiff > dataTimeout {
-							str.sender = false
-							outputSenders--
-							if rs.activeSenders > 0 {
-								rs.activeSenders--
-							}
-						}
-					}
-					str.streamMutex.Unlock()
-					if str.sender {
-						if rc == nil {
-							rc = rs.buildRtcpPkt(str, inActiveSinceLastRR)
-						} else {
-							rs.addSenderReport(str, rc)
-						}
-					}
-
-				case isClosing:
-					str.streamStatus = isClosed
-
-				case isClosed:
-					delete(rs.streamsOut, idx)
-				}
-			}
-			// If no active output stream is left then weSent becomes false
-			rs.weSent = outputSenders > 0
-
-			// if rc is nil then we found no sending stream and havent't build a control packet. Just use
-			// one active output stream as proxy to create at least an RR and the proxy's SDES (RR may be
-			// empty as well). If also no active output stream - don't create and send RTCP report. In this
-			// case the RTP stack in completey inactive.
-			if rc == nil && streamForRR != nil {
-				rc = rs.buildRtcpPkt(streamForRR, inActiveSinceLastRR)
-			}
-			if rc != nil {
-				rs.WriteCtrl(rc)
-				rs.tprev = now
-				size := float64(rc.InUse() + 20 + 8) // TODO: get real values for IP and transport from transport module
-				rs.avrgPacketLength = (1.0/16.0)*size + (15.0/16.0)*rs.avrgPacketLength
-
-				ti, td := rtcpInterval(outActive+inActive, int(rs.activeSenders), rs.RtcpSessionBandwidth,
-					rs.avrgPacketLength, rs.weSent, false)
-				rs.tnext = ti + now
-				dataTimeout = 2 * ti
-				ssrcTimeout = 5 * td
-				rc.FreePacket()
-			}
-			outActive = 0
-			inActive = 0
+			rs.rtcpReportStep(now)
 
 		case cmd = <-rs.rtcpCtrlChan:
 			switch cmd & rtcpCtrlCmdMask {
@@ -223,6 +113,124 @@ func (rs *Session) rtcpService(ti, td int64) {
 		}
 	}
 	rs.rtcpServiceActive = false
+	close(rs.rtcpServiceDone)
+}
+
+// rtcpReportStep performs a single RTCP report step: it maintains the stream
+// states, builds the RTCP compound for this interval and sends it. The RTCP
+// service calls this method on every due tick; tests may call it directly to
+// drive a deterministic report.
+//
+func (rs *Session) rtcpReportStep(now int64) {
+
+	var outActive, inActive int // Counts all members in active state
+	var inActiveSinceLastRR int
+
+	for idx, str := range rs.streamsIn {
+		switch str.streamStatus {
+		case active:
+			str.streamMutex.Lock()
+			// Manage number of active senders on input streams.
+			// Every time this stream receives a packet it updates the last packet time. If the input stream
+			// did not receive a RTP packet for 2 RTCP intervals its sender status is set to false and the
+			// number of active senders in this session is decremented if not already zero. See chapter 6.3.5
+			rtpDiff := now - str.statistics.lastPacketTime
+			if str.sender {
+				if str.dataAfterLastReport {
+					inActiveSinceLastRR++
+				}
+				if rtpDiff > rs.rtcpDataTimeout {
+					str.sender = false
+					if rs.activeSenders > 0 {
+						rs.activeSenders--
+					}
+				}
+			}
+			// SSRC timeout processing: check for inactivity longer than 5*non-random interval time
+			// (both RTP/RTCP inactivity) chapter 6.3.5
+			rtcpDiff := now - str.statistics.lastRtcpPacketTime
+			if rtpDiff > rtcpDiff {
+				rtpDiff = rtcpDiff
+			}
+			if rtpDiff > rs.rtcpSsrcTimeout {
+				delete(rs.streamsIn, idx)
+			}
+			str.streamMutex.Unlock()
+
+		case isClosing:
+			str.streamStatus = isClosed
+
+		case isClosed:
+			delete(rs.streamsIn, idx)
+		}
+	}
+
+	var rc *CtrlPacket
+	var streamForRR *SsrcStream
+	var outputSenders int
+
+	for idx, str := range rs.streamsOut {
+		switch str.streamStatus {
+		case active:
+			outActive++
+			streamForRR = str // remember one active stream in case there is no sending output stream
+
+			// Manage number of active senders. Every time this stream sends a packet the output stream
+			// sender updates the last packet time. If the output stream did not send RTP for 2 RTCP
+			// intervals its sender status is set to false and the number of active senders in this session
+			// is decremented if not already zero. See chapter 6.3.8
+			//
+			str.streamMutex.Lock()
+			rtpDiff := now - str.statistics.lastPacketTime
+			if str.sender {
+				outputSenders++
+				if rtpDiff > rs.rtcpDataTimeout {
+					str.sender = false
+					outputSenders--
+					if rs.activeSenders > 0 {
+						rs.activeSenders--
+					}
+				}
+			}
+			str.streamMutex.Unlock()
+			if str.sender {
+				if rc == nil {
+					rc = rs.buildRtcpPkt(str, inActiveSinceLastRR)
+				} else {
+					rs.addSenderReport(str, rc)
+				}
+			}
+
+		case isClosing:
+			str.streamStatus = isClosed
+
+		case isClosed:
+			delete(rs.streamsOut, idx)
+		}
+	}
+	// If no active output stream is left then weSent becomes false
+	rs.weSent = outputSenders > 0
+
+	// if rc is nil then we found no sending stream and havent't build a control packet. Just use
+	// one active output stream as proxy to create at least an RR and the proxy's SDES (RR may be
+	// empty as well). If also no active output stream - don't create and send RTCP report. In this
+	// case the RTP stack in completey inactive.
+	if rc == nil && streamForRR != nil {
+		rc = rs.buildRtcpPkt(streamForRR, inActiveSinceLastRR)
+	}
+	if rc != nil {
+		rs.WriteCtrl(rc)
+		rs.tprev = now
+		size := float64(rc.InUse() + 20 + 8) // TODO: get real values for IP and transport from transport module
+		rs.avrgPacketLength = (1.0/16.0)*size + (15.0/16.0)*rs.avrgPacketLength
+
+		ti, td := rtcpInterval(outActive+inActive, int(rs.activeSenders), rs.RtcpSessionBandwidth,
+			rs.avrgPacketLength, rs.weSent, false)
+		rs.tnext = ti + now
+		rs.rtcpDataTimeout = 2 * ti
+		rs.rtcpSsrcTimeout = 5 * td
+		rc.FreePacket()
+	}
 }
 
 // buildRtcpPkt creates an RTCP compound and fills it with a SR or RR packet.
@@ -270,6 +278,10 @@ func (rs *Session) buildRtcpPkt(strOut *SsrcStream, inStreamCnt int) (rc *CtrlPa
 	rc.SetCount(0, rrCnt)
 
 	rs.addSdes(strOut, rc)
+
+	if rs.xrEnabled {
+		rs.addXr(strOut, rc)
+	}
 
 	return
 }
