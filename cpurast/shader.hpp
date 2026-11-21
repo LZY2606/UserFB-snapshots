@@ -50,6 +50,29 @@ namespace cr
         // run per-fragment operation with given fragment attributes
         // returns: output normalized color, arguments: input attributes
         virtual color run(const vector<float>& in) const = 0;
+
+        // when true, the production triangle rasterizer builds one affine attribute
+        // plane per triangle (through the three integer-quantized canvas vertices) and
+        // invokes the gradient-aware run() overload below; old shaders keep returning false
+        // and keep using the legacy run(in) entry with unchanged coverage and depth logic
+        virtual bool wants_gradients() const {
+            return false;
+        }
+
+        // gradient-aware per-fragment entry, called only when wants_gradients() is true
+        // dx/dy hold per-canvas-pixel derivatives of every component of in; has_gradients
+        // is true only for a triangle plane, false for points, lines and disabled
+        // interpolation (zero gradients in all false cases, never a stale triangle plane)
+        virtual color run(const vector<float>& in,
+                          const vector<float>& dx,
+                          const vector<float>& dy,
+                          bool has_gradients) const
+        {
+            (void)dx;
+            (void)dy;
+            (void)has_gradients;
+            return run(in); // legacy fallback
+        }
     };
 
     // default vertex shader

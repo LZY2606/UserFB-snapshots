@@ -14,6 +14,9 @@ namespace cr
 
     void rasterizer::fill_point(int x, int y, float d, const vector<float>* v)
     {
+        // points carry no 2D attribute plane
+        clear_gradient_plane();
+
         // whether interpolation is enabled or not, point is rendered the same in both cases
         if (!interp_enabled)
         {
@@ -27,6 +30,9 @@ namespace cr
     void rasterizer::fill_line(int x1, int y1, float d1, const vector<float>* v1,
                                int x2, int y2, float d2, const vector<float>* v2)
     {
+        // lines carry no 2D attribute plane
+        clear_gradient_plane();
+
         if (!interp_enabled)
         {
             provoking_depth = d1;
@@ -90,6 +96,17 @@ namespace cr
         {
             provoking_depth = d1;
             provoking_attribs = v1;
+            clear_gradient_plane(); // first-vertex attributes, zero gradients
+        }
+        else if (fs->wants_gradients())
+        {
+            // one affine plane through the three integer-quantized canvas vertices,
+            // built before any vertex reordering so it follows the submitted triangle
+            init_gradient_plane(x1, y1, v1, x2, y2, v2, x3, y3, v3);
+        }
+        else
+        {
+            clear_gradient_plane();
         }
 
         // sort vertices by its y position (so that y1 <= y2 <= y3)
@@ -184,7 +201,7 @@ namespace cr
             left_dy = dy23;
             right_d = d1;
             right_attribs = v1;
-            
+
             left_dx_sign = left_dx < 0 ? -1 : 1;
             left_dx = abs(left_dx);
         }
@@ -281,8 +298,80 @@ namespace cr
         // depth test -> fragment shader -> write to framebuffer
         if (fb.depth_test(fb_index, final_d)) // early depth test before running fragment shader
         {
-            const color fb_col = fs->run(final_v);
-            fb.write(fb_index, fb_col);
+            if (fs->wants_gradients())
+            {
+                if (gradient_active)
+                {
+                    // value, dx and dy all come from the same triangle affine plane,
+                    // sampled at the covered integer canvas position
+                    sample_gradient_plane(int(x), int(y));
+                    fb.write(fb_index, fs->run(grad_value, grad_dx, grad_dy, true));
+                }
+                else
+                {
+                    // point, line or disabled interpolation: explicitly no 2D gradients
+                    grad_zero.assign(final_v.size(), 0.f);
+                    fb.write(fb_index, fs->run(final_v, grad_zero, grad_zero, false));
+                }
+            }
+            else
+            {
+                const color fb_col = fs->run(final_v);
+                fb.write(fb_index, fb_col);
+            }
+        }
+    }
+
+    void rasterizer::init_gradient_plane(int x1, int y1, const vector<float>* v1,
+                                         int x2, int y2, const vector<float>* v2,
+                                         int x3, int y3, const vector<float>* v3)
+    {
+        assert(v1->size() == v2->size() && v1->size() == v3->size());
+
+        const unsigned n = unsigned(v1->size());
+        grad_px = x1;
+        grad_py = y1;
+        grad_value0 = *v1;
+        grad_dx.assign(n, 0.f);
+        grad_dy.assign(n, 0.f);
+        grad_value.assign(n, 0.f);
+        grad_zero.assign(n, 0.f);
+
+        // solve [dx12 dy12; dx13 dy13] * (gx, gy) = (v2 - v1, v3 - v1) per component
+        const float dx12 = float(x2 - x1);
+        const float dy12 = float(y2 - y1);
+        const float dx13 = float(x3 - x1);
+        const float dy13 = float(y3 - y1);
+        const float det = dx12 * dy13 - dy12 * dx13;
+
+        if (det != 0.f) // quantized triangles are guaranteed non-degenerate
+        {
+            const float inv_det = 1.f / det;
+            for (unsigned i = 0; i < n; i++)
+            {
+                const float a = (*v2)[i] - (*v1)[i];
+                const float b = (*v3)[i] - (*v1)[i];
+                grad_dx[i] = (a * dy13 - dy12 * b) * inv_det;
+                grad_dy[i] = (dx12 * b - a * dx13) * inv_det;
+            }
+        }
+
+        gradient_active = true;
+    }
+
+    void rasterizer::clear_gradient_plane()
+    {
+        // keeps allocated storage but guarantees no stale triangle plane is visible
+        gradient_active = false;
+    }
+
+    void rasterizer::sample_gradient_plane(int x, int y)
+    {
+        const float fx = float(x - grad_px);
+        const float fy = float(y - grad_py);
+        for (unsigned i = 0; i < grad_value.size(); i++)
+        {
+            grad_value[i] = grad_value0[i] + grad_dx[i] * fx + grad_dy[i] * fy;
         }
     }
 

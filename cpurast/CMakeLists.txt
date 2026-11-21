@@ -6,6 +6,7 @@ project(cpurast CXX)
 add_library(cpurast
     cpurast.cpp
     framebuf.cpp
+    normal_moments.cpp
     renderer.cpp
     rasterizer.cpp
 )
