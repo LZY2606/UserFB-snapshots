@@ -237,6 +237,75 @@ In my tests, USB Webcams introduce about ~180ms of latency and there seems to be
 To capture webcam input on Windows or macOS using ffmpeg, see the [ffmpeg Capture/Webcam Wiki](https://trac.ffmpeg.org/wiki/Capture/Webcam).
 
 
+## Incremental In-Memory Decoding (`MPEG1Video`)
+
+For callers that receive a raw MPEG-1 video elementary stream in many small
+pieces (e.g. a network source that hands over a few hundred bytes at a time),
+`JSMpeg.Decoder.MPEG1Video` supports an `incremental` mode. It is opt-in and
+only changes behavior on the standalone decoder; the `Player`, WASM, audio and
+seek paths are untouched and an ordinary decoder keeps its exact pixel,
+callback and timing behavior.
+
+Create the decoder with `incremental: true`, feed an elementary stream that
+begins with a sequence header (fixed size/frame rate, progressive I/P
+pictures), and drive it by alternating more data with `decode()` calls:
+
+```js
+const decoder = new JSMpeg.Decoder.MPEG1Video({
+	incremental: true,
+	decodeFirstFrame: false,
+	onVideoDecode: (decoder, elapsed) => { /* one call per finished picture */ }
+});
+decoder.connect({
+	resize: (w, h) => {},
+	render: (y, cr, cb) => { /* one call per finished picture */ }
+});
+
+// Feed small chunks. The first pts is the playback origin; later pts values
+// do not re-anchor the clock and are not stored per chunk.
+decoder.write(firstPts, chunk);
+while (decoder.decode()) { /* returns true once per completed picture */ }
+
+// ...as more bytes arrive:
+decoder.write(pts, nextChunk);
+while (decoder.decode()) {}
+
+// Observe work in progress without touching internal structures.
+const {pictureType, macroblocks, bufferedBytes} = decoder.getDecodeProgress();
+// pictureType: 1 (I) or 2 (P) while a picture is open, 0 between pictures.
+// macroblocks: fully rebuilt MBs of the current picture, skipped ones
+//   included; it resets to 0 when the next picture starts.
+// bufferedBytes: compressed bytes still retained, including bytes the
+//   suspended parser may have to re-read.
+
+// End the input. finish() only marks the stream as done; the final picture
+// is still produced by decode(). The last picture does not need a trailing
+// start code, provided it ends on a complete slice.
+decoder.finish();
+while (decoder.decode()) {}
+```
+
+Notes and guarantees:
+
+- Keep each `write()` small (at most 1024 bytes) and keep calling `decode()`
+  until it returns `false` before adding more data. Under that contract the
+  compressed-data backing store never exceeds 16384 bytes; consumed prefixes
+  are reclaimed continuously and no full-picture copy is kept anywhere.
+- Decoding advances *inside* a picture: macroblocks are predicted, IDCT-ed
+  and written exactly once as soon as their bytes are complete, even while
+  later macroblocks of the same slice are still missing. A half-finished
+  macroblock only retains one parse checkpoint plus its single block's
+  temporary coefficients — never a copy of a whole working plane.
+- The renderer and `onVideoDecode` fire exactly once per whole picture, and
+  reference-frame rotation plus `decodedTime` advancement happen only after
+  the full picture is assembled — never on a partial frame. Slice DC/motion
+  predictors, quantizer scale and the block workspace are preserved across
+  chunks and reset at slice boundaries as usual.
+- `finish()` is idempotent and does not render by itself. After it, repeated
+  `decode()` calls keep returning `false`, and any further `write()` throws.
+  Ordinary truncation in the middle of a macroblock is treated as missing
+  data, not as end-of-input.
+
 ## JSMpeg Architecture and Internals
 
 This library was built in a fairly modular fashion while keeping overhead at a minimum. Implementing new Demuxers, Decoders, Outputs (Renderers, Audio Devices) or Sources should be possible without changing any other parts. However, you would still need to subclass the `JSMpeg.Player` in order to use any new modules.

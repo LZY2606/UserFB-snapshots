@@ -7,9 +7,15 @@ var MPEG1 = function(options) {
 	JSMpeg.Decoder.Base.call(this, options);
 
 	this.onDecodeCallback = options.onVideoDecode;
+	this.incremental = !!options.incremental;
 
-	var bufferSize = options.videoBufferSize || 512*1024;
-	var bufferMode = options.streaming
+	// In incremental mode the BitBuffer runs in EVICT mode with a fixed,
+	// small backing store; consumed prefixes are reclaimed instead of
+	// accumulating a whole-picture copy.
+	var bufferSize = this.incremental
+		? MPEG1.INCREMENTAL_BUFFER_SIZE
+		: (options.videoBufferSize || 512*1024);
+	var bufferMode = (this.incremental || options.streaming)
 		? JSMpeg.BitBuffer.MODE.EVICT
 		: JSMpeg.BitBuffer.MODE.EXPAND;
 
@@ -21,12 +27,63 @@ var MPEG1 = function(options) {
 
 	this.currentFrame = 0;
 	this.decodeFirstFrame = options.decodeFirstFrame !== false;
+
+	if (this.incremental) {
+		// No per-chunk timestamp accumulation; the first pts is the origin.
+		this.collectTimestamps = false;
+
+		// Incremental decoding state
+		this.incFinished = false;
+		this.incTimeInitialized = false;
+		this.incPictureActive = false;
+		this.incPictureLocated = false;
+		this.incHeaderBaseDone = false;
+		this.incSkipBody = false;
+		this.incAfterPictureHeader = false;
+		this.incScanningForSlice = false;
+		this.incInSlice = false;
+		this.incPictureType = 0;
+		this.incMacroblocks = 0;
+		this.incPhase = MPEG1.INC_PHASE.IDLE;
+		this.incCheckpoint = 0;
+		this.incCbp = 0;
+		this.incBlock = 0;
+		this.incMask = 0x20;
+		this.sliceBegin = false;
+	}
+};
+
+// Fixed backing store for incremental mode. Callers write at most 1024
+// bytes at a time and drain decode() to false, so the retained compressed
+// data (a partial start code, the unfinished syntax and a little slack)
+// always fits well within this capacity.
+MPEG1.INCREMENTAL_BUFFER_SIZE = 16384;
+
+// Status codes for the incremental picture/slice state machine
+MPEG1.INC_NEED_MORE = -1;
+MPEG1.INC_SKIP_PICTURE = -2;
+MPEG1.INC_PICTURE_READY = 0;
+MPEG1.INC_NO_PREFIX = -3;
+MPEG1.INC_NOT_A_START_CODE = -4;
+
+// Checkpoints for resuming a half-parsed macroblock/block without replaying
+// already committed work.
+MPEG1.INC_PHASE = {
+	IDLE:         0, // between macroblocks, reading the address VLC
+	SKIPS_DONE:   1, // address applied (skipped MBs built once), MB type next
+	TYPE_DONE:    2, // MB type parsed, quant/motion/cbp not done yet
+	MOTION_DONE:  3, // motion vectors parsed, prediction copy pending
+	COPY_DONE:    4  // prediction written, block loop in progress
 };
 
 MPEG1.prototype = Object.create(JSMpeg.Decoder.Base.prototype);
 MPEG1.prototype.constructor = MPEG1;
 
 MPEG1.prototype.write = function(pts, buffers) {
+	if (this.incremental) {
+		return this.incWrite(pts, buffers);
+	}
+
 	JSMpeg.Decoder.Base.prototype.write.call(this, pts, buffers);
 
 	if (!this.hasSequenceHeader) {
@@ -42,8 +99,12 @@ MPEG1.prototype.write = function(pts, buffers) {
 };
 
 MPEG1.prototype.decode = function() {
+	if (this.incremental) {
+		return this.incDecode();
+	}
+
 	var startTime = JSMpeg.Now();
-	
+
 	if (!this.hasSequenceHeader) {
 		return false;
 	}
@@ -61,6 +122,926 @@ MPEG1.prototype.decode = function() {
 		this.onDecodeCallback(this, elapsedTime);
 	}
 	return true;
+};
+
+// Marks the incremental input as ended. Does not render anything by
+// itself; a following decode() may still complete the last picture if its
+// final slice is already buffered. Repeated calls have no effect.
+MPEG1.prototype.finish = function() {
+	if (!this.incremental) {
+		return;
+	}
+	this.incFinished = true;
+};
+
+// Progress of the picture currently being assembled as a plain object.
+// pictureType: 1 (I) or 2 (P) while a picture is open, 0 between pictures.
+// macroblocks: fully reconstructed MBs of the current picture (incl. skipped).
+// bufferedBytes: compressed bytes still retained, including bytes the
+// suspended parser may have to re-read.
+MPEG1.prototype.getDecodeProgress = function() {
+	if (!this.incremental) {
+		return {pictureType: 0, macroblocks: 0, bufferedBytes: 0};
+	}
+	return {
+		pictureType: this.incPictureActive ? this.incPictureType : 0,
+		macroblocks: this.incMacroblocks,
+		bufferedBytes: this.bits.byteLength - (this.bits.index >> 3)
+	};
+};
+
+
+// Incremental entry point and resumable decode machinery
+
+MPEG1.prototype.incWrite = function(pts, buffers) {
+	if (this.incFinished) {
+		throw new Error('JSMpeg: write() after finish() on incremental decoder');
+	}
+
+	// The first pts anchors the timeline; later chunks carry no new time.
+	if (!this.incTimeInitialized) {
+		this.startTime = pts;
+		this.decodedTime = pts;
+		this.incTimeInitialized = true;
+	}
+
+	this.bytesWritten += this.bits.write(buffers);
+	this.canPlay = true;
+
+	if (!this.hasSequenceHeader) {
+		if (!this.incFindSequenceHeader()) {
+			return false;
+		}
+		this.decodeSequenceHeader();
+	}
+	return true;
+};
+
+// Finds the sequence header while keeping any trailing 00 00 01 prefix that
+// may be completed by the next chunk.
+MPEG1.prototype.incFindSequenceHeader = function() {
+	var bits = this.bits;
+	var i = bits.index >> 3;
+	var bytes = bits.bytes;
+	var limit = bits.byteLength;
+	while (i + 3 < limit) {
+		if (
+			bytes[i] === 0x00 &&
+			bytes[i+1] === 0x00 &&
+			bytes[i+2] === 0x01 &&
+			bytes[i+3] === MPEG1.START.SEQUENCE
+		) {
+			// The fixed-size part of the sequence header (including the two
+			// quant-matrix flags) is 65 bits = 9 bytes.
+			if (limit - (i + 4) < 9) {
+				bits.index = i << 3;
+				return false;
+			}
+			bits.index = (i + 4) << 3;
+			return true;
+		}
+		i++;
+	}
+	bits.index = Math.max(bits.index, (limit - 3) << 3);
+	return false;
+};
+
+MPEG1.prototype.incDecode = function() {
+	if (!this.hasSequenceHeader) {
+		return false;
+	}
+
+	var startTime = JSMpeg.Now();
+	var completed = false;
+
+	while (true) {
+		if (this.incSkipBody) {
+			// Picture header of an unsupported type was consumed; skip the
+			// body up to the next start code.
+			if (!this.incSkipToNextStart()) {
+				break;
+			}
+			this.incSkipBody = false;
+		}
+
+		if (!this.incPictureActive) {
+			// The picture start code is located at most once: a truncated
+			// picture header must not make us scan past it on retry.
+			if (!this.incPictureLocated && !this.incFindPictureStart()) {
+				break;
+			}
+			this.incPictureLocated = true;
+			var status = this.incBeginPicture();
+			if (status === MPEG1.INC_NEED_MORE) {
+				break;
+			}
+			if (status === MPEG1.INC_SKIP_PICTURE) {
+				this.incPictureLocated = false;
+				this.incHeaderBaseDone = false;
+				this.incAfterPictureHeader = false;
+				this.incSkipBody = true;
+				continue;
+			}
+		}
+
+		if (!this.incDecodeSlices()) {
+			break;
+		}
+
+		// Whole picture assembled: publish exactly once.
+		this.incPublishPicture();
+		this.advanceDecodedTime(1/this.frameRate);
+		completed = true;
+
+		var elapsedTime = JSMpeg.Now() - startTime;
+		if (this.onDecodeCallback) {
+			this.onDecodeCallback(this, elapsedTime);
+		}
+	}
+
+	return completed;
+};
+
+// Locates the next picture start code in the retained bytes. A code split
+// across chunks (00 00 01 ...) stays buffered until its fourth byte arrives.
+MPEG1.prototype.incFindPictureStart = function() {
+	var i = this.bits.index >> 3;
+	var bytes = this.bits.bytes;
+	var limit = this.bits.byteLength;
+	while (i + 3 < limit) {
+		if (
+			bytes[i] === 0x00 &&
+			bytes[i+1] === 0x00 &&
+			bytes[i+2] === 0x01 &&
+			bytes[i+3] === MPEG1.START.PICTURE
+		) {
+			this.bits.index = (i + 4) << 3;
+			return true;
+		}
+		i++;
+	}
+	// Park at the last three bytes: a start code prefix may straddle the
+	// chunk boundary, so those bytes must be retained.
+	this.bits.index = Math.max(this.bits.index, (limit - 3) << 3);
+	return false;
+};
+
+MPEG1.prototype.incBeginPicture = function() {
+	var bits = this.bits;
+
+	if (!this.incHeaderBaseDone) {
+		if (!bits.has(10 + 3 + 16)) {
+			return MPEG1.INC_NEED_MORE;
+		}
+
+		this.currentFrame++;
+		bits.skip(10); // temporal_reference
+		this.pictureType = bits.read(3);
+		bits.skip(16); // vbv_delay
+
+		// Unsupported picture types (B/D) are not part of the incremental
+		// contract; the caller skips their bodies.
+		if (this.pictureType <= 0 || this.pictureType >= MPEG1.PICTURE_TYPE.B) {
+			this.pictureType = 0;
+			return MPEG1.INC_SKIP_PICTURE;
+		}
+		this.incHeaderBaseDone = true;
+	}
+
+	if (!this.incAfterPictureHeader) {
+		if (this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE) {
+			if (!bits.has(1 + 3)) {
+				return MPEG1.INC_NEED_MORE;
+			}
+			this.fullPelForward = bits.read(1);
+			this.forwardFCode = bits.read(3);
+			if (this.forwardFCode === 0) {
+				// Ignore picture with zero forward_f_code
+				this.pictureType = 0;
+				return MPEG1.INC_SKIP_PICTURE;
+			}
+			this.forwardRSize = this.forwardFCode - 1;
+			this.forwardF = 1 << this.forwardRSize;
+		}
+		this.incAfterPictureHeader = true;
+		this.incScanningForSlice = false;
+	}
+
+	// Skip extension/user_data start codes between the picture header and
+	// the first slice, surviving truncated chunks.
+	while (true) {
+		if (this.incScanningForSlice) {
+			var found = this.incFindNextStartCode();
+			if (found === MPEG1.INC_NO_PREFIX) {
+				return MPEG1.INC_NEED_MORE;
+			}
+			this.incScanningForSlice = false;
+		}
+
+		var code = this.incPeekStartCode();
+		if (code === MPEG1.INC_NO_PREFIX) {
+			return MPEG1.INC_NEED_MORE;
+		}
+		if (code === MPEG1.START.EXTENSION || code === MPEG1.START.USER_DATA) {
+			bits.index += 32;
+			this.incScanningForSlice = true;
+			continue;
+		}
+		break;
+	}
+
+	this.incAfterPictureHeader = false;
+	this.incPictureActive = true;
+	this.incPictureType = this.pictureType;
+	this.incMacroblocks = 0;
+	this.incPhase = MPEG1.INC_PHASE.IDLE;
+	this.incCheckpoint = bits.index;
+	this.incInSlice = false;
+	this.sliceBegin = false;
+	return MPEG1.INC_PICTURE_READY;
+};
+
+MPEG1.prototype.incSkipToNextStart = function() {
+	return this.incFindNextStartCode() !== MPEG1.INC_NO_PREFIX;
+};
+
+// Prefix-aware start-code scan for skip paths. On failure parks at the last
+// three bytes (a prefix may be completed by the next chunk) and returns
+// INC_NO_PREFIX; otherwise returns the byte after the 00 00 01 prefix and
+// leaves the index at the start of that four-byte code.
+MPEG1.prototype.incFindNextStartCode = function() {
+	var bits = this.bits;
+	var i = (bits.index + 7) >> 3;
+	var bytes = bits.bytes;
+	var limit = bits.byteLength;
+	while (i + 3 < limit) {
+		if (
+			bytes[i] === 0x00 &&
+			bytes[i+1] === 0x00 &&
+			bytes[i+2] === 0x01
+		) {
+			bits.index = i << 3;
+			return bytes[i+3];
+		}
+		i++;
+	}
+	bits.index = Math.max(bits.index, (limit - 3) << 3);
+	return MPEG1.INC_NO_PREFIX;
+};
+
+// Classifies the bytes at the current byte-aligned position:
+//  INC_NO_PREFIX: fewer than four bytes buffered, a prefix may still arrive
+//  INC_NOT_A_START_CODE: ordinary slice/macroblock payload
+//  otherwise: the byte following a 00 00 01 start-code prefix
+MPEG1.prototype.incPeekStartCode = function() {
+	var i = (this.bits.index + 7) >> 3;
+	if (i + 3 >= this.bits.byteLength) {
+		return MPEG1.INC_NO_PREFIX;
+	}
+	var bytes = this.bits.bytes;
+	if (
+		bytes[i] === 0x00 &&
+		bytes[i+1] === 0x00 &&
+		bytes[i+2] === 0x01
+	) {
+		return bytes[i+3];
+	}
+	return MPEG1.INC_NOT_A_START_CODE;
+};
+
+MPEG1.prototype.incDecodeSlices = function() {
+	while (true) {
+		if (this.incInSlice) {
+			// Resume a slice header whose quantizer/extra bits were truncated.
+			if (!this.incBeginSlice(0)) {
+				return this.incAtCleanBoundary() && this.incFinished;
+			}
+		}
+
+		var code = this.incPeekStartCode();
+		if (code === MPEG1.INC_NO_PREFIX) {
+			// No complete start code ahead. If a macroblock is still open,
+			// let it consume the remaining bytes first; only a clean boundary
+			// (nothing half-parsed) may close the picture after finish().
+			if (this.incAtCleanBoundary()) {
+				return this.incFinished;
+			}
+			if (!this.incDecodeMacroblock()) {
+				return false;
+			}
+			continue;
+		}
+
+		if (code === MPEG1.INC_NOT_A_START_CODE) {
+			if (!this.incDecodeMacroblocks()) {
+				return this.incAtCleanBoundary() && this.incFinished;
+			}
+			continue;
+		}
+
+		if (code >= MPEG1.START.SLICE_FIRST && code <= MPEG1.START.SLICE_LAST) {
+			if (!this.incBeginSlice(code & 0xff)) {
+				return false;
+			}
+			if (!this.incDecodeMacroblocks()) {
+				return this.incAtCleanBoundary() && this.incFinished;
+			}
+			continue;
+		}
+
+		// Next picture, sequence end or another code ends the picture;
+		// leave the 00 00 01 xx in place for the next decode() round.
+		return true;
+	}
+};
+
+// True only when no slice header or macroblock is half-parsed, so finish()
+// can legitimately close the picture at the actual input boundary.
+MPEG1.prototype.incAtCleanBoundary = function() {
+	return !this.incInSlice &&
+		this.incPhase === MPEG1.INC_PHASE.IDLE;
+};
+
+MPEG1.prototype.incBeginSlice = function(slice) {
+	var bits = this.bits;
+
+	if (!this.incInSlice) {
+		// Re-anchor to the byte-aligned start code: the preceding picture or
+		// macroblock syntax may have left the bit index mid-byte, so adding
+		// 32 bits directly would consume the code at a wrong offset.
+		var startByte = (bits.index + 7) >> 3;
+
+		// Need the full start code plus quantizer_scale and extra_bit_slice.
+		if (!bits.has(((startByte << 3) - bits.index) + 32 + 5 + 1)) {
+			return false;
+		}
+		bits.index = (startByte + 4) << 3; // consume 00 00 01 xx
+		this.incInSlice = true;
+
+		this.sliceBegin = true;
+		this.macroblockAddress = (slice - 1) * this.mbWidth - 1;
+
+		// Reset motion vectors and DC predictors at every slice boundary
+		this.motionFwH = this.motionFwHPrev = 0;
+		this.motionFwV = this.motionFwVPrev = 0;
+		this.dcPredictorY  = 128;
+		this.dcPredictorCr = 128;
+		this.dcPredictorCb = 128;
+	}
+
+	if (!bits.has(5)) {
+		return false;
+	}
+	this.quantizerScale = bits.read(5);
+
+	// extra_bit_slice / extra_information_slice
+	while (true) {
+		if (!bits.has(1)) {
+			return false;
+		}
+		if (bits.read(1) === 0) {
+			break;
+		}
+		if (!bits.has(8)) {
+			return false;
+		}
+		bits.skip(8);
+	}
+
+	this.incInSlice = false;
+	this.incPhase = MPEG1.INC_PHASE.IDLE;
+	this.incCheckpoint = bits.index;
+	return true;
+};
+
+// Drives macroblocks until a start code is reached or bytes run out.
+MPEG1.prototype.incDecodeMacroblocks = function() {
+	while (true) {
+		var code = this.incPeekStartCode();
+		if (code === MPEG1.INC_NO_PREFIX) {
+			return false;
+		}
+		if (code !== MPEG1.INC_NOT_A_START_CODE) {
+			// A real start code: this slice is finished.
+			return true;
+		}
+
+		if (!this.incDecodeMacroblock()) {
+			return false;
+		}
+	}
+};
+
+MPEG1.prototype.incDecodeMacroblock = function() {
+	var bits = this.bits;
+	var INC = MPEG1.INC_PHASE;
+
+	if (this.incPhase === INC.IDLE) {
+		// Parse macroblock_address_increment from a resume point taken
+		// before any of its VLC bits; truncated VLCs roll back to it.
+		this.incCheckpoint = bits.index;
+		var increment = 0;
+		var t;
+		while (true) {
+			t = this.incReadHuffman(MPEG1.MACROBLOCK_ADDRESS_INCREMENT);
+			if (t === null) {
+				bits.index = this.incCheckpoint;
+				return false;
+			}
+			if (t === 34) { // macroblock_stuffing
+				continue;
+			}
+			break;
+		}
+		while (t === 35) { // macroblock_escape
+			increment += 33;
+			var again = this.incReadHuffman(MPEG1.MACROBLOCK_ADDRESS_INCREMENT);
+			if (again === null) {
+				bits.index = this.incCheckpoint;
+				return false;
+			}
+			t = again;
+		}
+		increment += t;
+
+		// Apply the increment once, including every skipped macroblock.
+		// The phase switch below guarantees this whole block (and thus the
+		// skipped-MB reconstruction) never runs again on resume.
+		if (this.sliceBegin) {
+			// The first increment of each slice is relative to the start of
+			// the previous row, not the previous macroblock.
+			this.sliceBegin = false;
+			this.macroblockAddress += increment;
+		}
+		else {
+			if (this.macroblockAddress + increment >= this.mbSize) {
+				// Illegal (too large) macroblock_address_increment
+				this.incPhase = INC.IDLE;
+				return true;
+			}
+			if (increment > 1) {
+				// Skipped macroblocks reset DC predictors
+				this.dcPredictorY  = 128;
+				this.dcPredictorCr = 128;
+				this.dcPredictorCb = 128;
+
+				// Skipped macroblocks in P-pictures reset motion vectors
+				if (this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE) {
+					this.motionFwH = this.motionFwHPrev = 0;
+					this.motionFwV = this.motionFwVPrev = 0;
+				}
+			}
+			while (increment > 1) {
+				this.macroblockAddress++;
+				this.mbRow = (this.macroblockAddress / this.mbWidth)|0;
+				this.mbCol = this.macroblockAddress % this.mbWidth;
+				this.copyMacroblock(
+					this.motionFwH, this.motionFwV,
+					this.forwardY, this.forwardCr, this.forwardCb
+				);
+				this.incMacroblocks++;
+				increment--;
+			}
+			this.macroblockAddress++;
+		}
+		this.mbRow = (this.macroblockAddress / this.mbWidth)|0;
+		this.mbCol = this.macroblockAddress % this.mbWidth;
+
+		this.incPhase = INC.SKIPS_DONE;
+	}
+
+	if (this.incPhase === INC.SKIPS_DONE) {
+		// Explicit macroblock header
+		this.incCheckpoint = bits.index;
+		var mbType = this.incReadHuffman(MPEG1.MACROBLOCK_TYPE[this.pictureType]);
+		if (mbType === null) {
+			bits.index = this.incCheckpoint;
+			return false;
+		}
+		this.macroblockType = mbType;
+		this.macroblockIntra = (mbType & 0x01);
+		this.macroblockMotFw = (mbType & 0x08);
+		this.incPhase = INC.TYPE_DONE;
+	}
+
+	if (this.incPhase === INC.TYPE_DONE) {
+		// Quantizer scale
+		if ((this.macroblockType & 0x10) !== 0) {
+			if (!bits.has(5)) {
+				return false;
+			}
+			this.quantizerScale = bits.read(5);
+		}
+
+		if (this.macroblockIntra) {
+			// Intra-coded macroblocks reset motion vectors
+			this.motionFwH = this.motionFwHPrev = 0;
+			this.motionFwV = this.motionFwVPrev = 0;
+		}
+		else {
+			// Non-intra macroblocks reset DC predictors
+			this.dcPredictorY = 128;
+			this.dcPredictorCr = 128;
+			this.dcPredictorCb = 128;
+
+			this.incCheckpoint = bits.index;
+			if (!this.incDecodeMotionVectors()) {
+				bits.index = this.incCheckpoint;
+				return false;
+			}
+		}
+		this.incPhase = INC.MOTION_DONE;
+	}
+
+	if (this.incPhase === INC.MOTION_DONE) {
+		// Resolve the coded block pattern before touching the planes, so a
+		// truncated CBP VLC cannot cause a double prediction copy on resume.
+		var cbp;
+		if ((this.macroblockType & 0x02) !== 0) {
+			this.incCheckpoint = bits.index;
+			cbp = this.incReadHuffman(MPEG1.CODE_BLOCK_PATTERN);
+			if (cbp === null) {
+				bits.index = this.incCheckpoint;
+				return false;
+			}
+		}
+		else {
+			cbp = this.macroblockIntra ? 0x3f : 0;
+		}
+
+		if (!this.macroblockIntra) {
+			this.copyMacroblock(
+				this.motionFwH, this.motionFwV,
+				this.forwardY, this.forwardCr, this.forwardCb
+			);
+		}
+
+		this.incCbp = cbp;
+		this.incBlock = 0;
+		this.incMask = 0x20;
+		this.incPhase = INC.COPY_DONE;
+	}
+
+	if (this.incPhase === INC.COPY_DONE) {
+		while (this.incBlock < 6) {
+			if ((this.incCbp & this.incMask) !== 0) {
+				this.incCheckpoint = bits.index;
+				if (!this.incDecodeBlock(this.incBlock)) {
+					// Roll the bitstream back to the block start; the block
+					// is rebuilt from scratch on the next decode() call.
+					bits.index = this.incCheckpoint;
+					return false;
+				}
+			}
+			this.incBlock++;
+			this.incMask >>= 1;
+		}
+		this.incMacroblocks++;
+		this.incPhase = INC.IDLE;
+	}
+
+	return true;
+};
+
+// Huffman read that fails cleanly on truncated input instead of walking off
+// the buffer. Returns null when not enough bits are buffered; the caller is
+// responsible for restoring the saved checkpoint.
+MPEG1.prototype.incReadHuffman = function(codeTable) {
+	var state = 0;
+	var bits = this.bits;
+	do {
+		if (!bits.has(1)) {
+			return null;
+		}
+		state = codeTable[state + bits.read(1)];
+		if (state < 0) {
+			return null;
+		}
+	} while (codeTable[state] !== 0);
+	return codeTable[state+2];
+};
+
+MPEG1.prototype.incDecodeMotionVectors = function() {
+	var code, d, r = 0;
+
+	// Compute into locals and commit only once the full syntax is present,
+	// so a truncated residual cannot leave an applied delta behind.
+	var newHPrev = this.motionFwHPrev;
+	var newVPrev = this.motionFwVPrev;
+
+	if (this.macroblockMotFw) {
+		// Horizontal forward
+		code = this.incReadHuffman(MPEG1.MOTION);
+		if (code === null) {
+			return false;
+		}
+		if ((code !== 0) && (this.forwardF !== 1)) {
+			if (!this.bits.has(this.forwardRSize)) {
+				return false;
+			}
+			r = this.bits.read(this.forwardRSize);
+			d = ((Math.abs(code) - 1) << this.forwardRSize) + r + 1;
+			if (code < 0) {
+				d = -d;
+			}
+		}
+		else {
+			d = code;
+		}
+
+		newHPrev += d;
+		if (newHPrev > (this.forwardF << 4) - 1) {
+			newHPrev -= this.forwardF << 5;
+		}
+		else if (newHPrev < ((-this.forwardF) << 4)) {
+			newHPrev += this.forwardF << 5;
+		}
+
+		// Vertical forward
+		code = this.incReadHuffman(MPEG1.MOTION);
+		if (code === null) {
+			return false;
+		}
+		if ((code !== 0) && (this.forwardF !== 1)) {
+			if (!this.bits.has(this.forwardRSize)) {
+				return false;
+			}
+			r = this.bits.read(this.forwardRSize);
+			d = ((Math.abs(code) - 1) << this.forwardRSize) + r + 1;
+			if (code < 0) {
+				d = -d;
+			}
+		}
+		else {
+			d = code;
+		}
+
+		newVPrev += d;
+		if (newVPrev > (this.forwardF << 4) - 1) {
+			newVPrev -= this.forwardF << 5;
+		}
+		else if (newVPrev < ((-this.forwardF) << 4)) {
+			newVPrev += this.forwardF << 5;
+		}
+
+		this.motionFwHPrev = newHPrev;
+		this.motionFwVPrev = newVPrev;
+		this.motionFwH = this.fullPelForward ? newHPrev << 1 : newHPrev;
+		this.motionFwV = this.fullPelForward ? newVPrev << 1 : newVPrev;
+	}
+	else if (this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE) {
+		// No motion information in P-picture, reset vectors
+		this.motionFwH = this.motionFwHPrev = 0;
+		this.motionFwV = this.motionFwVPrev = 0;
+	}
+	return true;
+};
+
+// Resumable block decode. On entry the bit position is either the start of
+// the block (fresh call) or the saved checkpoint (resume). blockData holds
+// only this one block's partial coefficients; planes stay untouched until
+// the whole block is known to be complete, so IDCT and pixel writes run
+// exactly once per block.
+MPEG1.prototype.incDecodeBlock = function(block) {
+	var bits = this.bits;
+	var n = 0, quantMatrix;
+	var newDcPredictor = 0;
+
+	JSMpeg.Fill(this.blockData, 0);
+
+	if (this.macroblockIntra) {
+		var predictor, dctSize;
+
+		// DC prediction
+
+		if (block < 4) {
+			predictor = this.dcPredictorY;
+			dctSize = this.incReadHuffman(MPEG1.DCT_DC_SIZE_LUMINANCE);
+		}
+		else {
+			predictor = (block === 4 ? this.dcPredictorCr : this.dcPredictorCb);
+			dctSize = this.incReadHuffman(MPEG1.DCT_DC_SIZE_CHROMINANCE);
+		}
+		if (dctSize === null) {
+			return false;
+		}
+
+		// Read DC coeff
+		if (dctSize > 0) {
+			if (!bits.has(dctSize)) {
+				return false;
+			}
+			var differential = bits.read(dctSize);
+			if ((differential & (1 << (dctSize - 1))) !== 0) {
+				newDcPredictor = predictor + differential;
+			}
+			else {
+				newDcPredictor = predictor + ((-1 << dctSize)|(differential+1));
+			}
+		}
+		else {
+			newDcPredictor = predictor;
+		}
+
+		// Keep the slice predictor in a local until the whole block is known
+		// to be complete; committing early would double-apply the differential
+		// if a later coefficient turns out to be truncated.
+		this.blockData[0] = newDcPredictor << (3 + 5);
+		quantMatrix = this.intraQuantMatrix;
+		n = 1;
+	}
+	else {
+		quantMatrix = this.nonIntraQuantMatrix;
+	}
+
+	// Decode AC coefficients (+DC for non-intra)
+	var level = 0;
+	while (true) {
+		var
+			run = 0,
+			coeff = this.incReadHuffman(MPEG1.DCT_COEFF);
+
+		if (coeff === null) {
+			return false;
+		}
+
+		if ((coeff === 0x0001) && (n > 0)) {
+			if (!bits.has(1)) {
+				return false;
+			}
+			if (bits.read(1) === 0) {
+				// end_of_block
+				break;
+			}
+			// Otherwise run=0, level=1, fall through
+		}
+
+		if (coeff === 0xffff) {
+			// escape
+			if (!bits.has(6 + 8)) {
+				return false;
+			}
+			run = bits.read(6);
+			level = bits.read(8);
+			if (level === 0) {
+				if (!bits.has(8)) {
+					return false;
+				}
+				level = bits.read(8);
+			}
+			else if (level === 128) {
+				if (!bits.has(8)) {
+					return false;
+				}
+				level = bits.read(8) - 256;
+			}
+			else if (level > 128) {
+				level = level - 256;
+			}
+		}
+		else {
+			run = coeff >> 8;
+			level = coeff & 0xff;
+			if (!bits.has(1)) {
+				return false;
+			}
+			if (bits.read(1)) {
+				level = -level;
+			}
+		}
+
+		n += run;
+		var dezigZagged = MPEG1.ZIG_ZAG[n];
+		n++;
+
+		// Dequantize, oddify, clip
+		level <<= 1;
+		if (!this.macroblockIntra) {
+			level += (level < 0 ? -1 : 1);
+		}
+		level = (level * this.quantizerScale * quantMatrix[dezigZagged]) >> 4;
+		if ((level & 1) === 0) {
+			level -= level > 0 ? 1 : -1;
+		}
+		if (level > 2047) {
+			level = 2047;
+		}
+		else if (level < -2048) {
+			level = -2048;
+		}
+
+		// Save premultiplied coefficient
+		this.blockData[dezigZagged] = level * MPEG1.PREMULTIPLIER_MATRIX[dezigZagged];
+	}
+
+	// The whole coefficient sequence parsed: commit the DC predictor once.
+	if (this.macroblockIntra) {
+		if (block < 4) {
+			this.dcPredictorY = newDcPredictor;
+		}
+		else if (block === 4) {
+			this.dcPredictorCr = newDcPredictor;
+		}
+		else {
+			this.dcPredictorCb = newDcPredictor;
+		}
+	}
+
+	// Move block to its place
+	var
+		destArray,
+		destIndex,
+		scan;
+
+	if (block < 4) {
+		destArray = this.currentY;
+		scan = this.codedWidth - 8;
+		destIndex = (this.mbRow * this.codedWidth + this.mbCol) << 4;
+		if ((block & 1) !== 0) {
+			destIndex += 8;
+		}
+		if ((block & 2) !== 0) {
+			destIndex += this.codedWidth << 3;
+		}
+	}
+	else {
+		destArray = (block === 4) ? this.currentCb : this.currentCr;
+		scan = (this.codedWidth >> 1) - 8;
+		destIndex = ((this.mbRow * this.codedWidth) << 2) + (this.mbCol << 3);
+	}
+
+	if (this.macroblockIntra) {
+		// Overwrite (no prediction)
+		if (n === 1) {
+			MPEG1.CopyValueToDestination((this.blockData[0] + 128) >> 8, destArray, destIndex, scan);
+			this.blockData[0] = 0;
+		}
+		else {
+			MPEG1.IDCT(this.blockData);
+			MPEG1.CopyBlockToDestination(this.blockData, destArray, destIndex, scan);
+			JSMpeg.Fill(this.blockData, 0);
+		}
+	}
+	else {
+		// Add data to the predicted macroblock
+		if (n === 1) {
+			MPEG1.AddValueToDestination((this.blockData[0] + 128) >> 8, destArray, destIndex, scan);
+			this.blockData[0] = 0;
+		}
+		else {
+			MPEG1.IDCT(this.blockData);
+			MPEG1.AddBlockToDestination(this.blockData, destArray, destIndex, scan);
+			JSMpeg.Fill(this.blockData, 0);
+		}
+	}
+
+	return true;
+};
+
+MPEG1.prototype.incPublishPicture = function() {
+	if (this.destination) {
+		this.destination.render(this.currentY, this.currentCr, this.currentCb, true);
+	}
+
+	// If this is a reference picture then rotate the prediction pointers
+	if (
+		this.pictureType === MPEG1.PICTURE_TYPE.INTRA ||
+		this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE
+	) {
+		var
+			tmpY = this.forwardY,
+			tmpY32 = this.forwardY32,
+			tmpCr = this.forwardCr,
+			tmpCr32 = this.forwardCr32,
+			tmpCb = this.forwardCb,
+			tmpCb32 = this.forwardCb32;
+
+		this.forwardY = this.currentY;
+		this.forwardY32 = this.currentY32;
+		this.forwardCr = this.currentCr;
+		this.forwardCr32 = this.currentCr32;
+		this.forwardCb = this.currentCb;
+		this.forwardCb32 = this.currentCb32;
+
+		this.currentY = tmpY;
+		this.currentY32 = tmpY32;
+		this.currentCr = tmpCr;
+		this.currentCr32 = tmpCr32;
+		this.currentCb = tmpCb;
+		this.currentCb32 = tmpCb32;
+	}
+
+	this.incPictureActive = false;
+	this.incPictureLocated = false;
+	this.incHeaderBaseDone = false;
+	this.incPictureType = 0;
+	this.incMacroblocks = 0;
+	this.incPhase = MPEG1.INC_PHASE.IDLE;
+	this.incInSlice = false;
+	this.incAfterPictureHeader = false;
+	this.incScanningForSlice = false;
+	this.sliceBegin = false;
+	this.pictureType = 0;
 };
 
 MPEG1.prototype.readHuffman = function(codeTable) {
