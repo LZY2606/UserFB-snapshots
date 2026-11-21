@@ -1,0 +1,22 @@
+# compile + run any build file from the build/ folder
+# (use -fopenmp if your compiler supports it for parallel rendering)
+
+# HW5 reference scenes
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildHelloWorld.cpp -o scene.exe
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildMvp.cpp -o scene.exe
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildChapter14.cpp -o scene.exe
+
+# Crystal Cavern - full quality 1920x1080 with jittered AA, BVH on
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildCrystalCavern.cpp -o scene.exe
+
+# Crystal Cavern - mid quality 1280x720, BVH on (~2 min)
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildCrystalCavernMid.cpp -o scene.exe
+
+# Crystal Cavern - low quality 480x360 preview, BVH on
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildCrystalCavernLow.cpp -o scene.exe
+
+# Crystal Cavern - BVH OFF (brute force) timing demo at 20x15
+g++ -O3 -fopenmp -std=c++17 raytracer.cpp world/*.cpp utilities/*.cpp geometry/*.cpp cameras/*.cpp image/*.cpp samplers/*.cpp materials/*.cpp brdf/*.cpp lights/*.cpp tracers/*.cpp acceleration/*.cpp build/buildCrystalCavernNoAccel.cpp -o scene.exe
+
+./scene.exe
+# output: scene.png in the working directory
