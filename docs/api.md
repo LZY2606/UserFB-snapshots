@@ -711,6 +711,40 @@ the chunk doesn't exist `chunk_info->datalen` will be zero, and the `id` and
 
 The function will return `SF_ERR_NO_ERROR` on success or non-zero on failure.
 
+## Cutting a CAF/ALAC window {#caf_alac_cut}
+
+```c
+int
+sf_caf_alac_cut (const char *input, const char *output, sf_count_t start, sf_count_t frames) ;
+```
+
+Copy the half-open window `[start, start + frames)` of a CAF/ALAC file into a
+new CAF file without decoding or re-encoding any audio.
+
+`start` is measured in audible frames from the start of the input. Any priming
+or remainder already described by the input `pakt` chunk is accounted for, so
+`start == 0` maps to the first audible sample. Every ALAC packet that
+intersects the window is copied byte for byte and a fresh `pakt` chunk
+describes the new priming, valid frame count and remainder. The `desc`, `kuki`
+and optional `chan` / `info` chunks are preserved; `free` chunks are dropped.
+
+The function currently supports seekable CAF files with ALAC 16 or 24 bit
+audio, one or two channels, `desc.bytes_per_packet == 0` and a fixed positive
+`frames_per_packet` of at most 4096. `start` must be non-negative and `frames`
+must be positive. The output file must not already exist and must be different
+from the input. The input is fully validated before the output is created and a
+partially written output is removed on failure.
+
+Returns 0 on success and non-zero on failure.
+
+Example invocation using the bundled `caf_alac_cut` example program:
+
+```bash
+caf_alac_cut recording.caf excerpt.caf 48000 96000
+```
+
+This copies one second of 48 kHz audio starting one second in.
+
 ## Note 1
 
 When converting between integer PCM formats of differing size (e.g. using

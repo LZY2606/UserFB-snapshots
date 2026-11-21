@@ -65,7 +65,7 @@ include_HEADERS = include/sndfile.h include/sndfile.hh
 src_libsndfile_la_CFLAGS = $(EXTERNAL_XIPH_CFLAGS) $(MPEG_CFLAGS)
 # MinGW requires -no-undefined if a DLL is to be built.
 src_libsndfile_la_LDFLAGS = -no-undefined -version-info $(SHARED_VERSION_INFO) $(SHLIB_VERSION_ARG)
-src_libsndfile_la_SOURCES = src/sndfile.c src/aiff.c src/au.c src/avr.c src/caf.c src/dwd.c src/flac.c src/g72x.c src/htk.c src/ircam.c \
+src_libsndfile_la_SOURCES = src/sndfile.c src/aiff.c src/au.c src/avr.c src/caf.c src/caf_alac_cut.c src/dwd.c src/flac.c src/g72x.c src/htk.c src/ircam.c \
 	src/macos.c src/mat4.c src/mat5.c src/nist.c src/paf.c src/pvf.c src/raw.c src/rx2.c src/sd2.c \
 	src/sds.c src/svx.c src/txw.c src/voc.c src/wve.c src/w64.c src/wavlike.c src/wav.c src/xi.c src/mpc2k.c src/rf64.c \
 	src/ogg.c src/ogg.h src/ogg_vorbis.c src/ogg_speex.c src/ogg_pcm.c src/ogg_opus.c src/ogg_vcomment.c src/ogg_vcomment.h \
@@ -175,7 +175,7 @@ endif
 #############
 
 check_PROGRAMS += examples/make_sine examples/sfprocess examples/list_formats examples/generate examples/sndfilehandle \
-	examples/sndfile-to-text examples/sndfile-loopify
+	examples/sndfile-to-text examples/sndfile-loopify examples/caf_alac_cut
 
 examples_sndfile_to_text_SOURCES = examples/sndfile-to-text.c
 examples_sndfile_to_text_LDADD = src/libsndfile.la
@@ -197,6 +197,9 @@ examples_generate_LDADD = src/libsndfile.la
 
 examples_sndfilehandle_SOURCES = examples/sndfilehandle.cc
 examples_sndfilehandle_LDADD = src/libsndfile.la
+
+examples_caf_alac_cut_SOURCES = examples/caf_alac_cut.c
+examples_caf_alac_cut_LDADD = src/libsndfile.la
 
 ##########
 # tests/ #

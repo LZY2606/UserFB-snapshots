@@ -301,6 +301,7 @@ add_library (sndfile
 	src/au.c
 	src/avr.c
 	src/caf.c
+	src/caf_alac_cut.c
 	src/dwd.c
 	src/flac.c
 	src/g72x.c
@@ -746,6 +747,11 @@ if (BUILD_EXAMPLES)
 	add_executable (sndfilehandle examples/sndfilehandle.cc)
 	target_link_libraries (sndfilehandle PUBLIC sndfile)
 
+# caf_alac_cut
+
+	add_executable (caf_alac_cut examples/caf_alac_cut.c)
+	target_link_libraries (caf_alac_cut PRIVATE sndfile)
+
 	set (SNDFILE_EXAMPLE_TARGETS
 		sndfile-to-text
 		sndfile-loopify
@@ -754,6 +760,7 @@ if (BUILD_EXAMPLES)
 		list_formats
 		generate
 		sndfilehandle
+		caf_alac_cut
 		)
 
 	set_target_properties(${SNDFILE_EXAMPLE_TARGETS} PROPERTIES FOLDER Examples)

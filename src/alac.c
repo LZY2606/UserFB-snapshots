@@ -49,6 +49,9 @@ typedef struct
 	uint32_t	frames_this_block, partial_block_frames, frames_per_block ;
 	uint32_t	bits_per_sample, kuki_size ;
 
+	/* Window into the decoded stream as described by the 'pakt' chunk. */
+	sf_count_t	priming_frames, valid_frames, position ;
+
 
 	/* Can't have a decoder and an encoder at the same time so stick
 	** them in a union.
@@ -86,6 +89,7 @@ static sf_count_t alac_write_f (SF_PRIVATE *psf, const float *ptr, sf_count_t le
 static sf_count_t alac_write_d (SF_PRIVATE *psf, const double *ptr, sf_count_t len) ;
 
 static sf_count_t	alac_seek	(SF_PRIVATE *psf, int mode, sf_count_t offset) ;
+static sf_count_t	alac_seek_decoded	(SF_PRIVATE *psf, int mode, sf_count_t offset) ;
 
 static int	alac_close		(SF_PRIVATE *psf) ;
 static int	alac_byterate	(SF_PRIVATE *psf) ;
@@ -298,6 +302,9 @@ alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 	psf->codec_close	= alac_close ;
 	psf->seek			= alac_seek ;
 
+	plac->priming_frames = info->priming_frames ;
+	plac->valid_frames = info->valid_frames ;
+	plac->position = 0 ;
 	psf->sf.frames		= alac_reader_calc_frames (psf, plac) ;
 	alac_seek (psf, SFM_READ, 0) ;
 
@@ -391,11 +398,16 @@ alac_reader_calc_frames (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
 	/* Only count full blocks. */
 	frames = plac->frames_per_block * (blocks - 1) ;
 
-	alac_seek (psf, SFM_READ, frames) ;
+	alac_seek_decoded (psf, SFM_READ, frames) ;
 	alac_decode_block (psf, plac) ;
 	frames += plac->frames_this_block ;
 
 	plac->pakt_info->current = 0 ;
+
+	/* The 'pakt' chunk describes the audible window. Trust it when it fits. */
+	if (plac->valid_frames >= 0 && plac->priming_frames >= 0
+			&& plac->priming_frames + plac->valid_frames <= frames)
+		return plac->valid_frames ;
 
 	return frames ;
 } /* alac_reader_calc_frames */
@@ -474,10 +486,14 @@ alac_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len)
 		return 0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->position >= plac->valid_frames)
+			break ;
+		if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
+		if (readcount > (plac->valid_frames - plac->position) * plac->channels)
+			readcount = (int) ((plac->valid_frames - plac->position) * plac->channels) ;
 		readcount = readcount > len ? (int) len : readcount ;
 
 		iptr = plac->buffer + plac->partial_block_frames * plac->channels ;
@@ -486,6 +502,7 @@ alac_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len)
 			ptr [total + k] = iptr [k] >> 16 ;
 
 		plac->partial_block_frames += readcount / plac->channels ;
+		plac->position += readcount / plac->channels ;
 		total += readcount ;
 		len -= readcount ;
 		} ;
@@ -504,10 +521,14 @@ alac_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len)
 		return 0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->position >= plac->valid_frames)
+			break ;
+		if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
+		if (readcount > (plac->valid_frames - plac->position) * plac->channels)
+			readcount = (int) ((plac->valid_frames - plac->position) * plac->channels) ;
 		readcount = readcount > len ? (int) len : readcount ;
 
 		iptr = plac->buffer + plac->partial_block_frames * plac->channels ;
@@ -516,6 +537,7 @@ alac_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len)
 			ptr [total + k] = iptr [k] ;
 
 		plac->partial_block_frames += readcount / plac->channels ;
+		plac->position += readcount / plac->channels ;
 		total += readcount ;
 		len -= readcount ;
 		} ;
@@ -537,10 +559,14 @@ alac_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len)
 	normfact = (psf->norm_float == SF_TRUE) ? 1.0 / ((float) 0x80000000) : 1.0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->position >= plac->valid_frames)
+			break ;
+		if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
+		if (readcount > (plac->valid_frames - plac->position) * plac->channels)
+			readcount = (int) ((plac->valid_frames - plac->position) * plac->channels) ;
 		readcount = readcount > len ? (int) len : readcount ;
 
 		iptr = plac->buffer + plac->partial_block_frames * plac->channels ;
@@ -549,6 +575,7 @@ alac_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len)
 			ptr [total + k] = normfact * iptr [k] ;
 
 		plac->partial_block_frames += readcount / plac->channels ;
+		plac->position += readcount / plac->channels ;
 		total += readcount ;
 		len -= readcount ;
 		} ;
@@ -570,10 +597,14 @@ alac_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t len)
 	normfact = (psf->norm_double == SF_TRUE) ? 1.0 / ((float) 0x80000000) : 1.0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->position >= plac->valid_frames)
+			break ;
+		if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
+		if (readcount > (plac->valid_frames - plac->position) * plac->channels)
+			readcount = (int) ((plac->valid_frames - plac->position) * plac->channels) ;
 		readcount = readcount > len ? (int) len : readcount ;
 
 		iptr = plac->buffer + plac->partial_block_frames * plac->channels ;
@@ -582,6 +613,7 @@ alac_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t len)
 			ptr [total + k] = normfact * iptr [k] ;
 
 		plac->partial_block_frames += readcount / plac->channels ;
+		plac->position += readcount / plac->channels ;
 		total += readcount ;
 		len -= readcount ;
 		} ;
@@ -594,6 +626,34 @@ alac_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t len)
 
 static sf_count_t
 alac_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
+{	ALAC_PRIVATE *plac ;
+
+	if (! psf->codec_data)
+		return 0 ;
+	plac = (ALAC_PRIVATE*) psf->codec_data ;
+
+	if (mode == SFM_READ)
+	{	sf_count_t retval ;
+
+		if (offset < 0 || offset > plac->valid_frames)
+		{	psf->error = SFE_BAD_SEEK ;
+			return PSF_SEEK_ERROR ;
+			} ;
+
+		retval = alac_seek_decoded (psf, mode, offset + plac->priming_frames) ;
+		if (retval < 0)
+			return retval ;
+
+		plac->position = offset ;
+
+		return offset ;
+		} ;
+
+	return alac_seek_decoded (psf, mode, offset) ;
+} /* alac_seek */
+
+static sf_count_t
+alac_seek_decoded (SF_PRIVATE *psf, int mode, sf_count_t offset)
 {	ALAC_PRIVATE *plac ;
 	int			newblock, newsample ;
 
@@ -636,8 +696,8 @@ alac_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		return	PSF_SEEK_ERROR ;
 		} ;
 
-	return newblock * plac->frames_per_block + newsample ;
-} /* alac_seek */
+	return offset ;
+} /* alac_seek_decoded */
 
 /*==========================================================================================
 ** ALAC Write Functions.
