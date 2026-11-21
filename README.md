@@ -141,6 +141,51 @@ The pure parse/serialize helpers (`parseSubtitles`, `serializeSubtitles`, `parse
 `parseVtt`, `detectFormat`, `convertDoc`, timestamp helpers) are re-exported for headless
 use.
 
+### Copying dialogue between ASS tracks
+
+Copying cues with the editor's own copy/paste keeps the styling: an ASS → ASS paste carries
+the referenced style *definitions* along, so a target track that happens to have a style
+with the same name does not silently restyle the pasted lines. The same two calls are
+available headlessly.
+
+```ts
+import { parseAss, serializeAss, copyCueClipboard, pasteCueClipboard } from "subedit";
+
+const source = parseAss(sourceText); // [V4+ Styles] has "Default" (72pt) and "Title" (60pt)
+const target = parseAss(targetText); // its own "Default" is 24pt, and it is missing "Title"
+
+// Copy the cue styled "Default" whose text resets to Title: {\rTitle\b1}Hello
+const clipboard = copyCueClipboard(source, [source.cues[0].id]);
+const saved = JSON.stringify(clipboard); // plain data: survives a reload / another tab
+
+const { doc, newIds, styleMap } = pasteCueClipboard(target, JSON.parse(saved), 0);
+// styleMap: { Default: "Default (paste 2)", Title: "Title (paste 2)" } — the target's
+// own same-named styles had different definitions, so the migrated copy got fresh names.
+// The pasted cue now references "Default (paste 2)" and {\rTitle (paste 2)\b1}; the
+// target's existing "Default" and its cue are untouched.
+const out = serializeAss(doc);
+```
+
+Style names are allocated up front for the whole reference closure (in source stylesheet
+order): an existing target style with an identical definition is reused, otherwise the
+original name or the first free `name (paste N)` is taken, with every target name and every
+pending source name reserved so one rename cannot steal another style's name. Pasting the
+same clipboard again reuses the styles it added. A reference with no definition in the
+source throws, leaving the source (and any partial clipboard) untouched.
+
+```ts
+import { parseAss, serializeAss, copyCueClipboard, pasteCueClipboard } from "subedit";
+
+// Second target: `Title` already exists with the *same* definition as the source's.
+const other = parseAss(otherText);
+const clip = copyCueClipboard(parseAss(sourceText), [sourceCueId]);
+const { doc, styleMap } = pasteCueClipboard(other, clip, other.cues.length - 1);
+// styleMap: { Default: "Default (paste 2)", Title: "Title" } — the identical target
+// "Title" is reused rather than duplicated, so a named {\rTitle\b1} reset in the pasted
+// text is left pointing at "Title". Only "Default" was copied in.
+```
+
+
 ## Development
 
 ```bash

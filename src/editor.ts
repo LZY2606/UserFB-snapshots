@@ -30,7 +30,9 @@ import {
   replaceAllInCues,
   autoFixTiming,
   duplicateCues,
-  pasteCues,
+  copyCueClipboard,
+  pasteCueClipboard,
+  type AssStyleClipboard,
   rangeIds,
   type ProblemKind,
 } from "./edit-ops";
@@ -218,7 +220,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private opts: SubtitleEditorOptions;
   private selectedId: string | null = null; // the primary (detail-edited) cue
   private selectedIds = new Set<string>(); // the full selection (multi-select)
-  private cueClipboard: Cue[] = []; // internal copy/paste buffer
+  // Internal copy/paste buffer: an ASS clipboard snapshots the referenced style definitions
+  // with the cues, so a paste into another track keeps the actual styling it had.
+  private cueClipboard: AssStyleClipboard | null = null;
   private playingId: string | null = null;
 
   private scrollEl!: HTMLDivElement;
@@ -2458,20 +2462,28 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.markDirty();
   }
 
-  // Copy the selected cue(s) into the internal clipboard (deep copies), in document order.
+  // Copy the selected cue(s) into the internal clipboard (a snapshot, in document order).
+  // ASS also snapshots every referenced style definition, so a paste into another track
+  // does not adopt that track's same-named style by accident.
   private copyCues(): void {
     const picked = this.doc.cues.filter((c) => this.selectedIds.has(c.id));
     if (!picked.length) return;
-    this.cueClipboard = picked.map((c) => structuredClone(c));
+    try {
+      this.cueClipboard = copyCueClipboard(this.doc, picked.map((c) => c.id));
+    } catch (err) {
+      this.toast(err instanceof Error ? err.message : String(err));
+      return;
+    }
     this.toast(t("copiedN", { n: String(picked.length) }));
   }
 
   // Paste the clipboard cues after the primary selection, rebasing their times to follow it.
+  // An ASS -> ASS paste also carries the referenced styles over under collision-free names.
   private pasteCuesFromClipboard(): void {
-    if (!this.cueClipboard.length) return;
+    if (!this.cueClipboard?.cues.length) return;
     const at = this.selectedId ? this.doc.cues.findIndex((c) => c.id === this.selectedId) : this.doc.cues.length - 1;
-    const { cues, newIds } = pasteCues(this.doc.cues, this.cueClipboard, at);
-    this.doc.cues = cues;
+    const { doc, newIds } = pasteCueClipboard(this.doc, this.cueClipboard, at);
+    this.doc = doc;
     this.rows.clear();
     this.innerEl.textContent = "";
     this.renderList();

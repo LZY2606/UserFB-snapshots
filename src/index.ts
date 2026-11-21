@@ -29,8 +29,7 @@ export {
   formatAssTime,
   sortCues,
 } from "./cue";
-export { parseSrt, serializeSrt } from "./formats/srt";
-export { parseVtt, serializeVtt } from "./formats/vtt";
+export { parseSrt, serializeSrt } from "./formats/srt";export { parseVtt, serializeVtt } from "./formats/vtt";
 export { parseAss, serializeAss } from "./formats/ass";
 export { parseMicroDvd, serializeMicroDvd } from "./formats/microdvd";
 export { parseLrc, serializeLrc } from "./formats/lrc";
@@ -48,6 +47,12 @@ export { parseDvdStudio, serializeDvdStudio } from "./formats/dvdsp";
 export { parseJsonSubs, serializeJsonSubs } from "./formats/jsonsub";
 export { parseTtxt, serializeTtxt } from "./formats/ttxt";
 export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./formats";
+export {
+  copyCueClipboard,
+  pasteCueClipboard,
+  type AssStyleClipboard,
+  type PasteCueClipboardResult,
+} from "./edit-ops";
 export { extractMp4Subtitles, type Mp4SubTrack } from "./mp4subs";
 export { muxIntoContainer, muxToFile, type MuxSubtitle, type MuxContainer, type FileWritable } from "./mux";
 // Automatic transcription (Whisper). Loaded lazily; transformers.js stays out of the base
