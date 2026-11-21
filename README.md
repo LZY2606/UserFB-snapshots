@@ -28,6 +28,7 @@ The following functionalities are covered:
 * [Singularity](#Singularity)
 * [Conversion](#Conversion)
 * [Intersection](#Intersection)
+* [Bidirectional curve network surfaces](#bidirectional-curve-network-surfaces)
 
 ### Data structure
 
@@ -509,6 +510,98 @@ std::tie(u, v, converged) = nanospline::intersect(
     num_iterations, ///< Max num iterations.
     tolerance);     ///< Convergence tolerance.
 ```
+
+## Bidirectional curve network surfaces
+
+When two intersecting families of curves are lofted independently, the
+longitudinal design curves drift away from the surface between intersection
+points.  `nanospline::CurveNetwork` builds a single Gordon surface
+`S = L_U + L_V - L_UV` that interpolates *both* families exactly.
+
+The input consists of clamped, non-periodic, non-rational
+`BSpline<double, 3, -1>` curves (two to six per family, degrees 1–3, each
+possibly on its own non-unit parameter domain):
+
+* transverse curves `C_j`, one per common v-station `V_j`,
+* longitudinal curves `D_i`, one per common u-station `U_i`.
+
+The stations run strictly from 0 to 1 with adjacent spacing at least 0.05.
+
+### Intersection tables
+
+The tables declare which parameters correspond to the same spatial point:
+
+* `a[j][i]` means `C_j(a[j][i])` lies on `D_i`,
+* `b[i][j]` means `D_i(b[i][j])` is the same point.
+
+Every table row is strictly monotone and its first and last entries are
+exactly the two domain endpoints of its curve.  A descending row describes a
+reversed parameterization and is handled automatically.  The declared
+intersections must coincide in space within `1e-10`.
+
+### Parameter mapping
+
+Before lofting, every curve is reparameterized from the common stations onto
+its own parameters by a C1 monotone piecewise cubic map (`phi_j` for the
+transverse family, `psi_i` for the longitudinal one).  The rule is fixed:
+
+1. descending rows are negated so the values increase, then built on the
+   negated data;
+2. each segment secant slope is `delta = delta_t / delta_s`;
+3. endpoint slopes are the adjacent secant slopes, interior slopes are the
+   harmonic mean `2 / (1/delta_left + 1/delta_right)`;
+4. on each segment, if `alpha = m_left/delta` and `beta = m_right/delta`
+   satisfy `alpha^2 + beta^2 > 9`, both endpoint slopes are multiplied by
+   `3 / sqrt(alpha^2 + beta^2)`;
+5. the segment cubics are Hermite interpolants; the sign of reversed rows is
+   restored afterwards.
+
+`ReparameterizedBSpline` composes this map with the source curve as a native
+dynamic-degree B-spline.  The composition is polynomial: when a reparameter
+piece crosses an internal source knot, the piece is split at the exact
+inverse image of that knot (knots landing on stations are detected rather
+than re-solved).  No evaluation closure is stored, so the source curves can
+be released or modified after construction.  The maps and their first
+derivatives are exposed through `PiecewiseCubicReparam::evaluate` and
+`PiecewiseCubicReparam::derivative`.
+
+### Gordon combination and control net layout
+
+* `L_U` interpolates the reparameterized transverse curves at the V
+  stations,
+* `L_V` interpolates the reparameterized longitudinal curves at the U
+  stations,
+* `L_UV` interpolates the per-intersection average of the two families in
+  both directions.
+
+Interpolation is a natural cubic spline (interpolating, internally C2, zero
+second derivative at both ends); an axis with only two stations degenerates
+to linear interpolation.  All three terms are refined onto one common knot
+space per axis and added as native tensor-product splines.  Piecewise
+Bezier-style repeated knots are retained, so the result is one
+`BSplinePatch<double, 3, -1, -1>` that owns its control grid and both knot
+vectors; geometry and first derivatives are continuous across every inserted
+breakline.
+
+The control grid is stored v-major: control point `(i, j)` (u-index `i`,
+v-index `j`) lives at linear index `i * num_control_points_v() + j`.  The
+returned patch supports the existing evaluation, iso-curve, derivative and
+split interfaces unchanged.
+
+```cpp
+using nanospline::CurveNetwork;
+CurveNetwork network(transverse_curves, longitudinal_curves,
+                     v_stations, u_stations, a_table, b_table);
+const auto& patch = network.get_patch();                 // native Gordon patch
+const auto& phi   = network.get_transverse_reparam(0);   // map and derivative
+double t = phi.evaluate(u), dphi = phi.derivative(u);
+```
+
+Structural problems (family size, duplicated or too-close stations,
+non-finite data, non-monotone parameter rows, wrong row endpoints,
+non-periodicity violations, incompatible intersections) are rejected with
+`invalid_setting_error` before any output is produced; a previously built
+network is never overwritten by a failed attempt.
 
 [The NURBS Book]: https://www.springer.com/gp/book/9783642973857
 

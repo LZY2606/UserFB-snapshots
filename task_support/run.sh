@@ -19,7 +19,7 @@ test -s .task-build/network.obj
 grep -q '^v ' .task-build/network.obj
 grep -q '^vn ' .task-build/network.obj
 grep -q '^f ' .task-build/network.obj
-  output_log=$(mktemp)
+  output_log=$(mktemp 2>/dev/null || mktemp .task-build/tasklog.XXXXXX)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

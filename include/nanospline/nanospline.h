@@ -12,6 +12,10 @@
 #include <nanospline/NURBSPatch.h>
 #include <nanospline/RationalBezierPatch.h>
 
+// Curve network construction.
+#include <nanospline/CurveNetwork.h>
+#include <nanospline/ReparameterizedBSpline.h>
+
 // Curve primitive types.
 #include <nanospline/Circle.h>
 #include <nanospline/Ellipse.h>
