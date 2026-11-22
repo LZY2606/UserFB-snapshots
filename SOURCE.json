@@ -1,0 +1,15 @@
+{
+  "repo": "https://github.com/taglib/taglib",
+  "commit": "c840222a391439285478820b4477d5fa6b78d63d",
+  "license": "LGPL-2.1-or-later OR MPL-1.1",
+  "export": "git archive HEAD; unmodified tracked files, modes preserved",
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "excluded_paths": [],
+  "runtime_dependencies": [
+    "C++ compiler",
+    "CMake",
+    "C/C++ platform standard libraries; zlib and CppUnit disabled"
+  ]
+}
