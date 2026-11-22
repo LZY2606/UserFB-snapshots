@@ -4,6 +4,18 @@ Zita-resampler is a C++ library for sample rate conversion of
 audio signals. Full documentation is available in HTML format,
 see the 'docs' directory.
 
+Per-channel source position offsets
+-----------------------------------
+`VResampler` and `CResampler` can fold a known inter-channel time
+difference directly into the resampling instead of applying a separate
+fractional delay first. Call `prepare_channel_alignment()` once after
+`setup()` / `reset()`, then `set_channel_offsets()` with one offset per
+channel, in input frames. A positive offset reads later than the nominal
+source position. All channels still share one ratio, one fractional clock
+and one set of counters; the offset is applied inside the real filter
+sampling. See `docs/resampler.html` and `examples/channel_export.cc`
+(built with `-DZITA_BUILD_EXAMPLES=ON`).
+
 
 Release 1.8.0  (30/12/2020)
 ---------------------------

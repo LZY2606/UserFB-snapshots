@@ -10,16 +10,26 @@ set(CMAKE_CXXFLAGS_FLAGS "${CMAKE_CXXFLAGS_FLAGS} -Wall -fPIC -O2 -ffast-math -m
 set(SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/source/resampler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/source/vresampler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/source/resampler-table.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/cresampler.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/cresampler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/channel-alignment.cc)
 set(HEADER_LIST ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/resampler.h
         ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/resampler-table.h
         ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/vresampler.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/cresampler.h)
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/cresampler.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/zita-resampler/channel-alignment.h)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/source)
 
 
 # make
 add_library(zita-resampler ${SOURCES} ${HEADER_LIST})
+
+# Optional C++ example: exporting a multichannel track with per-channel
+# source position offsets folded into the sample rate conversion.
+option(ZITA_BUILD_EXAMPLES "Build the example programs" OFF)
+if(ZITA_BUILD_EXAMPLES)
+    add_executable(channel_export examples/channel_export.cc)
+    target_link_libraries(channel_export zita-resampler)
+endif()
 
 
 # CMake package config

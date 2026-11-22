@@ -23,6 +23,7 @@
 
 
 #include "zita-resampler/resampler-table.h"
+#include "zita-resampler/channel-alignment.h"
 
 
 class VResampler
@@ -47,10 +48,15 @@ public:
     int    inpsize (void) const;
     double inpdist (void) const;
     int    process (void);
-    
+
+    // Per-channel source position offsets, see zita-resampler/channel-alignment.h.
+    int prepare_channel_alignment (unsigned int max_shift);
+    int set_channel_offsets (const double *offsets, unsigned int count);
+    int channel_inpdist (unsigned int channel, double *distance) const;
+
     void set_phase (double p);
     void set_rrfilt (double t);
-    void set_rratio (double r);    
+    void set_rratio (double r);
 
     unsigned int         inp_count;
     unsigned int         out_count;
@@ -62,6 +68,9 @@ public:
 private:
 
     enum { NPHASE = 120 };
+
+    int  process_unaligned (void);
+    int  process_aligned (void);
 
     Resampler_table     *_table;
     unsigned int         _nchan;
@@ -77,6 +86,9 @@ private:
     float               *_buff;
     float               *_c1;
     float               *_c2;
+    ChannelAlignment     _align;
+    unsigned int         _maxshift;  // per-side input frame support
+    bool                 _touched;   // input/output committed since reset
     void                *_dummy [8];
 };
 

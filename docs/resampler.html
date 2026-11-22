@@ -311,6 +311,46 @@ examples of how to use both classes. For an another example using
 <b>VResampler</b> you can have a look at zita_ajbridge or zita_njbridge.
 </p>
 
+<a name = "alignment"></a>
+<h3>Per-channel source position offsets</h3>
+<p>
+When the relative timing between the channels of a multichannel signal is
+known (for example the time differences between the channels of a microphone
+array), it may be desirable to fold that correction directly into the sample
+rate conversion instead of applying a separate fractional delay and then
+resampling. Both <b>VResampler</b> and <b>CResampler</b> support this with an
+optional per-channel source position offset.
+</p>
+<p>
+The nominal source position is a single shared coordinate: at output sample
+<b>t</b>, channel <b>c</b> computes the input signal at <b>t + offset [c]</b>
+input frames. A positive offset reads later, a negative one earlier; the unit
+is always input frames. The offsets are supplied by the caller. The library
+does not estimate any delay, does not invert polarity, and never mixes
+channels. All channels still share one ratio, one fractional clock and one
+set of consume / produce counters; no complete resampler runs per channel.
+</p>
+<p>
+The offset is applied inside the real filter sampling: the fractional source
+coordinate is split with <b>floor()</b> into an integer frame shift and a
+fraction. When the integer part moves across a whole frame, <b>VResampler</b>
+selects the left and right half-window and the interpolation phase again,
+and <b>CResampler</b> selects its four cubic points again. The internal input
+window always keeps the support needed for the full allowed offset range,
+even while the current offsets are small, so a larger offset introduced later
+still has the required history. A silent input does not clear a window that
+still carries sound for a non-zero offset.
+</p>
+<p>
+Without a call to <b>prepare_channel_alignment ()</b> the behaviour and the
+interface are exactly as before. Once prepared, <b>inpsize ()</b> grows by
+<b>2 * max_shift</b>. The caller still has to add the initial silence: feeding
+<b>inpsize () / 2 - 1</b> zero frames aligns the nominal source position with
+the first input sample. <b>inpdist ()</b> keeps describing the common nominal
+position, while <b>channel_inpdist ()</b> returns <b>inpdist () - offset [c]</b>.
+The extra waiting caused by a positive offset is not reported as time drift.
+</p>
+
 <br>
 <a name = "reference"></a>
 <h2>API reference</h2>
@@ -333,6 +373,9 @@ Functions listed without a class prefix are available for both classes.
 <li><a href = "#inpdist">inpdist ()</a>
 <li><a href = "#vres_set_rratio">VResampler::set_rratio ()</a>
 <li><a href = "#vres_set_rrfilt">VResampler::set_rrfilt ()</a>
+<li><a href = "#chan_prepare">prepare_channel_alignment ()</a>
+<li><a href = "#chan_set">set_channel_offsets ()</a>
+<li><a href = "#chan_dist">channel_inpdist ()</a>
 </ul>
 <p>
 Public data members of the <b>Resampler</b> and <b>VResampler</b> classes.
@@ -535,6 +578,84 @@ means changes are applied instantly.
 <b>time:</b> The filter time constant.
 </p>
 <p>
+<b>RT-safe:</b> Yes
+</p>
+
+<a name="chan_prepare"></a>
+<br><p class="apihdr">int &nbsp prepare_channel_alignment (unsigned int max_shift);</p>
+<p>
+<b>Description:</b> Enables per-channel source position offsets for the
+resampler and reserves support for offsets in the range <b>-max_shift</b> to
+<b>+max_shift</b> input frames on both sides of the common nominal source
+position. The offsets are initialised to zero. This may allocate memory, so
+it may only be called after a successful <a href="#res_setup">setup ()</a> or
+<a href="#reset">reset ()</a>, and before any input has been consumed or any
+output produced. <a href="#clear">clear ()</a> or a new <i>setup ()</i>
+revokes the preparation. <a href="#reset">reset ()</a> keeps it and clears the
+audio state.
+<br><br>
+After a successful call, <a href="#inpsize">inpsize ()</a> returns the
+original value plus <b>2 * max_shift</b>. Pre-filling
+<b>inpsize () / 2 - 1</b> zero frames still aligns the nominal source position
+with the first input sample. The first output still requires its full window.
+<br><br>
+<b>Parameters:</b>
+</p>
+<p class="indent">
+<b>max_shift:</b> Largest absolute offset in input frames, <b>1 &le;
+max_shift &le; 32</b>.
+</p>
+<p>
+<b>Returns:</b> Zero on success, non-zero otherwise.
+<br><br>
+<b>RT-safe:</b> No
+</p>
+
+<a name="chan_set"></a>
+<br><p class="apihdr">int &nbsp set_channel_offsets (const double *offsets,
+unsigned int count);</p>
+<p>
+<b>Description:</b> Sets the per-channel source position offsets. A positive
+offset makes the channel read its input later than the common nominal position,
+a negative one earlier; the unit is always input frames. The array is copied.
+The whole call is validated before anything is committed, so a failing call
+leaves the current offsets unchanged. It may also be called while processing:
+the new values take effect from the next output frame, without moving the
+common sample position, the variable-ratio smoothing state, or the sound
+already delivered. This call never allocates.
+<br><br>
+<b>Parameters:</b>
+</p>
+<p class="indent">
+<b>offsets:</b> Array of <b>count</b> finite values, each in
+<b>[-max_shift, max_shift]</b>.<br>
+<b>count:</b> Must equal the number of channels.
+</p>
+<p>
+<b>Returns:</b> Zero on success, non-zero if the resampler is not prepared,
+the count is wrong, or any value is non-finite or out of range.
+<br><br>
+<b>RT-safe:</b> Yes
+</p>
+
+<a name="chan_dist"></a>
+<br><p class="apihdr">int &nbsp channel_inpdist (unsigned int channel, double *distance) const;</p>
+<p>
+<b>Description:</b> Accessor. Reports the source distance for one channel as
+<a href="#inpdist">inpdist ()</a> minus that channel's offset. <a href="#inpdist">
+inpdist ()</a> itself always describes the common nominal position; the extra
+wait introduced by a positive offset is not reported as drift.
+<br><br>
+<b>Parameters:</b>
+</p>
+<p class="indent">
+<b>channel:</b> Channel index, less than <a href="#nchan">nchan ()</a>.<br>
+<b>distance:</b> Receives the distance in input sample periods.
+</p>
+<p>
+<b>Returns:</b> Zero on success, non-zero if the resampler is not prepared,
+the channel is out of range, or <b>distance</b> is NULL.
+<br><br>
 <b>RT-safe:</b> Yes
 </p>
 

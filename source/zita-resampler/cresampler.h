@@ -22,6 +22,9 @@
 #define __CRESAMPLER_H
 
 
+#include "zita-resampler/channel-alignment.h"
+
+
 class CResampler
 {
 public:
@@ -38,8 +41,13 @@ public:
     int    inpsize (void) const;
     double inpdist (void) const;
     int    process (void);
-    
-    void set_ratio (double r);    
+
+    // Per-channel source position offsets, see zita-resampler/channel-alignment.h.
+    int prepare_channel_alignment (unsigned int max_shift);
+    int set_channel_offsets (const double *offsets, unsigned int count);
+    int channel_inpdist (unsigned int channel, double *distance) const;
+
+    void set_ratio (double r);
     void set_phase (double p);
 
     unsigned int         inp_count;
@@ -51,6 +59,9 @@ public:
 
 private:
 
+    int  process_unaligned (void);
+    int  process_aligned (void);
+
     unsigned int         _nchan;
     unsigned int         _inmax;
     unsigned int         _index;
@@ -59,6 +70,9 @@ private:
     double               _phase;
     double               _pstep;
     float               *_buff;
+    ChannelAlignment     _align;
+    unsigned int         _maxshift;  // per-side input frame support
+    bool                 _touched;   // input/output committed since reset
 };
 
 
