@@ -42,4 +42,7 @@
 {
 	global:
 		src_clone ;
+		src_checkpoint_size ;
+		src_checkpoint_write ;
+		src_checkpoint_read ;
 } @PACKAGE@.so.0.1;

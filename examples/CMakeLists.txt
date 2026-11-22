@@ -17,6 +17,10 @@ target_link_libraries(timewarp-file
     samplerate
     $<$<BOOL:${SndFile_FOUND}>:${SNDFILE_TARGET}>)
 
+# The checkpoint example only uses raw float files and the core library.
+add_executable(checkpoint-transcode checkpoint-transcode.c)
+target_link_libraries(checkpoint-transcode PRIVATE samplerate)
+
 add_executable(varispeed-play varispeed-play.c audio_out.c audio_out.h)
 target_link_libraries(varispeed-play
   PRIVATE

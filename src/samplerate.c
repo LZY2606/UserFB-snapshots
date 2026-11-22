@@ -179,6 +179,9 @@ src_callback_read (SRC_STATE *state, double src_ratio, long frames, float *data)
 	src_data.data_out = data ;
 	src_data.output_frames = frames ;
 
+	/* Frames left over from a previous callback call live in state owned
+	** storage; the caller's old callback buffer may already be gone.
+	*/
 	src_data.data_in = state->saved_data ;
 	src_data.input_frames = state->saved_frames ;
 
@@ -223,8 +226,37 @@ src_callback_read (SRC_STATE *state, double src_ratio, long frames, float *data)
 			break ;
 		} ;
 
-	state->saved_data = src_data.data_in ;
-	state->saved_frames = src_data.input_frames ;
+	/* Any frames the callback delivered but the converter has not consumed
+	** yet are copied into state owned storage so that the caller may free or
+	** reuse its callback buffer immediately. On the next call they are fed
+	** back in before the callback is asked for more data.
+	*/
+	if (error == 0 && src_data.input_frames > 0)
+	{
+		size_t sample_bytes = (size_t) src_data.input_frames * (size_t) state->channels * sizeof (float) ;
+
+		/* Allocate fresh storage first: src_data.data_in may itself point
+		** inside the old pending_data block, which realloc could move.
+		*/
+		float *copied = (float *) malloc (sample_bytes) ;
+
+		if (copied == NULL)
+		{	state->error = SRC_ERR_MALLOC_FAILED ;
+			src_state_free_pending (state) ;
+			return 0 ;
+			} ;
+
+		memcpy (copied, src_data.data_in, sample_bytes) ;
+		free (state->pending_data) ;
+		state->pending_data = copied ;
+		state->pending_frames = src_data.input_frames ;
+		state->saved_data = state->pending_data ;
+		state->saved_frames = state->pending_frames ;
+		}
+	else
+	{
+		src_state_free_pending (state) ;
+		} ;
 
 	if (error != 0)
 	{	state->error = (SRC_ERROR) error ;
@@ -271,8 +303,7 @@ src_reset (SRC_STATE *state)
 	state->last_position = 0.0 ;
 	state->last_ratio = 0.0 ;
 
-	state->saved_data = NULL ;
-	state->saved_frames = 0 ;
+	src_state_free_pending (state) ;
 
 	state->error = SRC_ERR_NO_ERROR ;
 
@@ -392,6 +423,14 @@ src_strerror (int error)
 				return "Internal error : Bad length in prepare_data ()." ;
 		case SRC_ERR_BAD_INTERNAL_STATE :
 				return "Error : Someone is trampling on my internal state." ;
+		case SRC_ERR_CHECKPOINT_UNSUPPORTED :
+				return "This converter does not support persistent checkpoints." ;
+		case SRC_ERR_CHECKPOINT_TRUNCATED :
+				return "Checkpoint buffer is too small or the checkpoint data is truncated." ;
+		case SRC_ERR_CHECKPOINT_BAD_VERSION :
+				return "Checkpoint data uses an unsupported format version." ;
+		case SRC_ERR_CHECKPOINT_BAD_FORMAT :
+				return "Checkpoint data is malformed or self-contradictory." ;
 
 		case SRC_ERR_MAX_ERROR :
 				return "Placeholder. No error defined for this error number." ;

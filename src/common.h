@@ -45,6 +45,7 @@
 #endif /* HAVE_SSE2_INTRINSICS */
 
 #include <math.h>
+#include <stdlib.h>
 
 #ifdef HAVE_VISIBILITY
   #define LIBSAMPLERATE_DLL_PRIVATE __attribute__ ((visibility ("hidden")))
@@ -129,10 +130,17 @@ typedef enum SRC_ERROR
 	SRC_ERR_NO_VARIABLE_RATIO,
 	SRC_ERR_SINC_PREPARE_DATA_BAD_LEN,
 	SRC_ERR_BAD_INTERNAL_STATE,
+	SRC_ERR_CHECKPOINT_UNSUPPORTED,
+	SRC_ERR_CHECKPOINT_TRUNCATED,
+	SRC_ERR_CHECKPOINT_BAD_VERSION,
+	SRC_ERR_CHECKPOINT_BAD_FORMAT,
 
 	/* This must be the last error number. */
 	SRC_ERR_MAX_ERROR
 } SRC_ERROR ;
+
+struct SRC_CP_WRITER ;
+struct SRC_CP_READER ;
 
 typedef struct SRC_STATE_VT_tag
 {
@@ -150,6 +158,16 @@ typedef struct SRC_STATE_VT_tag
 
 	/* State close. */
 	void			(*close) (SRC_STATE *state) ;
+
+	/* Persistent checkpoint support. NULL means the converter cannot be
+	** checkpointed (SRC_LINEAR and SRC_ZERO_ORDER_HOLD).
+	** checkpoint_size returns the number of converter specific payload bytes.
+	** checkpoint_write appends the payload to the given byte writer.
+	** checkpoint_read restores a freshly created state from a byte reader.
+	*/
+	size_t			(*checkpoint_size) (SRC_STATE *state) ;
+	SRC_ERROR		(*checkpoint_write) (SRC_STATE *state, struct SRC_CP_WRITER *writer) ;
+	SRC_ERROR		(*checkpoint_read) (SRC_STATE *state, struct SRC_CP_READER *reader) ;
 } SRC_STATE_VT ;
 
 struct SRC_STATE_tag
@@ -161,6 +179,9 @@ struct SRC_STATE_tag
 	SRC_ERROR	error ;
 	int		channels ;
 
+	/* Converter number (SRC_SINC_* etc.) used when this state was created. */
+	int		converter_type ;
+
 	/* SRC_MODE_PROCESS or SRC_MODE_CALLBACK */
 	enum SRC_MODE	mode ;
 
@@ -170,15 +191,73 @@ struct SRC_STATE_tag
 	long			saved_frames ;
 	const float		*saved_data ;
 
+	/* Callback frames already fetched but not yet fed into the converter.
+	** Owned by the state; the saved_data/saved_frames pair points into it
+	** (or is NULL/zero while the converter owns the data during a read).
+	*/
+	float			*pending_data ;
+	long			pending_frames ;
+
 	/* Pointer to data to converter specific data. */
 	void	*private_data ;
 } ;
+
+/* In src_checkpoint.c */
+typedef struct SRC_CP_WRITER
+{	unsigned char	*data ;
+	size_t			offset, capacity ;
+} SRC_CP_WRITER ;
+
+typedef struct SRC_CP_READER
+{	const unsigned char	*data ;
+	size_t				offset, length ;
+} SRC_CP_READER ;
+void src_cp_writer_init (SRC_CP_WRITER *writer, void *buffer, size_t bytes) ;
+SRC_ERROR src_cp_write_u16 (SRC_CP_WRITER *writer, uint16_t value) ;
+SRC_ERROR src_cp_write_u32 (SRC_CP_WRITER *writer, uint32_t value) ;
+SRC_ERROR src_cp_write_u64 (SRC_CP_WRITER *writer, uint64_t value) ;
+SRC_ERROR src_cp_write_f32 (SRC_CP_WRITER *writer, float value) ;
+SRC_ERROR src_cp_write_f64 (SRC_CP_WRITER *writer, double value) ;
+SRC_ERROR src_cp_write_bytes (SRC_CP_WRITER *writer, const void *data, size_t bytes) ;
+
+void src_cp_reader_init (SRC_CP_READER *reader, const void *buffer, size_t bytes) ;
+SRC_ERROR src_cp_read_u16 (SRC_CP_READER *reader, uint16_t *value) ;
+SRC_ERROR src_cp_read_u32 (SRC_CP_READER *reader, uint32_t *value) ;
+SRC_ERROR src_cp_read_u64 (SRC_CP_READER *reader, uint64_t *value) ;
+SRC_ERROR src_cp_read_f32 (SRC_CP_READER *reader, float *value) ;
+SRC_ERROR src_cp_read_f64 (SRC_CP_READER *reader, double *value) ;
+SRC_ERROR src_cp_read_bytes (SRC_CP_READER *reader, void *data, size_t bytes) ;
+
+/* Free the callback remainder buffer held by a state. Safe on process mode
+** states and freshly initialised storage.
+*/
+static inline void
+src_state_free_pending (SRC_STATE *state)
+{
+	if (state->pending_data != NULL)
+	{	free (state->pending_data) ;
+		state->pending_data = NULL ;
+		} ;
+	state->pending_frames = 0 ;
+	state->saved_data = NULL ;
+	state->saved_frames = 0 ;
+} /* src_state_free_pending */
+
+/* In src_checkpoint.c: deep copy the callback remainder buffer while cloning
+** a state. Returns SRC_ERR_MALLOC_FAILED on allocation failure, SRC_ERR_NO_ERROR
+** otherwise (including when there is nothing to copy).
+*/
+SRC_ERROR src_state_copy_pending (SRC_STATE *to, const SRC_STATE *from) ;
 
 /* In src_sinc.c */
 const char* sinc_get_name (int src_enum) ;
 const char* sinc_get_description (int src_enum) ;
 
 SRC_STATE *sinc_state_new (int converter_type, int channels, SRC_ERROR *error) ;
+
+size_t sinc_checkpoint_size (SRC_STATE *state) ;
+SRC_ERROR sinc_checkpoint_write (SRC_STATE *state, SRC_CP_WRITER *writer) ;
+SRC_ERROR sinc_checkpoint_read (SRC_STATE *state, SRC_CP_READER *reader) ;
 
 /* In src_linear.c */
 const char* linear_get_name (int src_enum) ;

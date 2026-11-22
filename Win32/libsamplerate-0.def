@@ -11,6 +11,9 @@ src_process				@20
 src_reset				@21
 src_set_ratio			@22
 src_clone				@23
+src_checkpoint_size		@24
+src_checkpoint_write	@25
+src_checkpoint_read		@26
 
 src_error				@30
 src_strerror			@31

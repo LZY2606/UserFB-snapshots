@@ -126,6 +126,23 @@ applications.
 If an error occurs the function returns a NULL pointer and fills in the
 error value pointed to by the **error** pointer supplied by the caller.
 
+## Checkpoints
+
+```c
+size_t src_checkpoint_size (SRC_STATE *state) ;
+int src_checkpoint_write (SRC_STATE *state, void *buffer, size_t bytes) ;
+SRC_STATE* src_checkpoint_read (const void *buffer, size_t bytes,
+                                src_callback_t callback, void *cb_data,
+                                int *error) ;
+```
+
+The checkpoint functions serialise a sinc converter into a flat byte buffer
+which can be written to disk and restored in another process, then continue
+conversion at the same resampling position with bit identical output. The
+wire format and all validation rules are documented
+[here](api_checkpoint.md). The zero order hold and linear converters do not
+support checkpoints.
+
 ## Set Ratio
 
 ```c

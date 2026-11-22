@@ -1,7 +1,8 @@
 install(
-  FILES 
+  FILES
     api.md
     api_callback.md
+    api_checkpoint.md
     api_full.md
     api_misc.md
     api_simple.md

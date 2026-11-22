@@ -10,7 +10,7 @@ cc -std=c99 -Iinclude -Isrc task_support/baseline.c .task-build/cmake/src/libsam
 if [[ $mode == target ]]; then
   cc -std=c99 -I. -Iinclude -Isrc tests/checkpoint_test.c task_support/driver.c .task-build/cmake/src/libsamplerate.a -lm -o .task-build/target
   if [[ -s tests/checkpoint_child.c ]]; then cc -std=c99 -I. -Iinclude -Isrc tests/checkpoint_child.c .task-build/cmake/src/libsamplerate.a -lm -o .task-build/checkpoint-child; fi
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/task-output.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

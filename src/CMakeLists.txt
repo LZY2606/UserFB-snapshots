@@ -35,6 +35,7 @@ add_library(samplerate
   mid_qual_coeffs.h
   samplerate.c
   ${PROJECT_SOURCE_DIR}/include/samplerate.h
+  src_checkpoint.c
   src_linear.c
   src_sinc.c
   src_zoh.c

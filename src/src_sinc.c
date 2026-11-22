@@ -91,7 +91,10 @@ static SRC_STATE_VT sinc_multichan_state_vt =
 	sinc_multichan_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	sinc_checkpoint_size,
+	sinc_checkpoint_write,
+	sinc_checkpoint_read
 } ;
 
 static SRC_STATE_VT sinc_hex_state_vt =
@@ -100,7 +103,10 @@ static SRC_STATE_VT sinc_hex_state_vt =
 	sinc_hex_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	sinc_checkpoint_size,
+	sinc_checkpoint_write,
+	sinc_checkpoint_read
 } ;
 
 static SRC_STATE_VT sinc_quad_state_vt =
@@ -109,7 +115,10 @@ static SRC_STATE_VT sinc_quad_state_vt =
 	sinc_quad_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	sinc_checkpoint_size,
+	sinc_checkpoint_write,
+	sinc_checkpoint_read
 } ;
 
 static SRC_STATE_VT sinc_stereo_state_vt =
@@ -118,7 +127,10 @@ static SRC_STATE_VT sinc_stereo_state_vt =
 	sinc_stereo_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	sinc_checkpoint_size,
+	sinc_checkpoint_write,
+	sinc_checkpoint_read
 } ;
 
 static SRC_STATE_VT sinc_mono_state_vt =
@@ -127,7 +139,10 @@ static SRC_STATE_VT sinc_mono_state_vt =
 	sinc_mono_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	sinc_checkpoint_size,
+	sinc_checkpoint_write,
+	sinc_checkpoint_read
 } ;
 
 static inline increment_t
@@ -281,6 +296,7 @@ sinc_state_new (int converter_type, int channels, SRC_ERROR *error)
 
 	state->channels = channels ;
 	state->mode = SRC_MODE_PROCESS ;
+	state->converter_type = converter_type ;
 
 	if (state->channels == 1)
 		state->vt = &sinc_mono_state_vt ;
@@ -359,6 +375,17 @@ sinc_copy (SRC_STATE *state)
 	memcpy (to_filter->buffer, from_filter->buffer, sizeof (float) * (from_filter->b_len + state->channels)) ;
 
 	to->private_data = to_filter ;
+
+	/* The memcpy above aliased the owned callback remainder; give the clone
+	** its own copy.
+	*/
+	if (src_state_copy_pending (to, state) != 0)
+	{
+		free (to_filter->buffer) ;
+		free (to_filter) ;
+		free (to) ;
+		return NULL ;
+	} ;
 
 	return to ;
 } /* sinc_copy */
@@ -1246,7 +1273,144 @@ sinc_close (SRC_STATE *state)
 			free (sinc) ;
 			sinc = NULL ;
 		}
+		src_state_free_pending (state) ;
 		free (state) ;
 		state = NULL ;
 	}
 } /* sinc_close */
+/*========================================================================================
+**	Persistent checkpoint payload for the sinc converters.
+**
+**	The converter payload is stored after the common header documented in
+**	src_checkpoint.c. All integers are fixed width, little endian and all
+**	floats use their IEEE-754 bit pattern. Ring indices are sample
+**	(not frame) counts; C is the channel count from the common header.
+**
+**	offset	size	field
+**	0	4	uint32 b_current, ring read position, always a multiple of C
+**	4	4	uint32 b_end, ring write position (<= b_len)
+**	8	4	int32  b_real_end, -1 if end_of_input has not been announced,
+**				otherwise the ring position of the last real sample
+**	12	4	uint32 ring length b_len, must match the converter/channel pair
+**	16	4*L	float  complete ring buffer of L = b_len samples in storage
+**				order, holding the FIR delay history and the samples not
+**				yet consumed. Its size is fixed by the converter/channel
+**				count, independently of the stream length; the consumed
+**				input stream itself is never stored.
+**
+**	The left_calc/right_calc arrays and the in/out counters are per-call
+**	scratch and are restored as zero. The filter coefficients are derived
+**	from the converter number. The guard pattern past b_len is recreated.
+*/
+
+LIBSAMPLERATE_DLL_PRIVATE size_t
+sinc_checkpoint_size (SRC_STATE *state)
+{
+	SINC_FILTER *filter ;
+
+	if (state == NULL || state->private_data == NULL)
+		return 0 ;
+
+	filter = (SINC_FILTER *) state->private_data ;
+
+	return 4 * sizeof (uint32_t) + (size_t) filter->b_len * sizeof (float) ;
+} /* sinc_checkpoint_size */
+
+LIBSAMPLERATE_DLL_PRIVATE SRC_ERROR
+sinc_checkpoint_write (SRC_STATE *state, SRC_CP_WRITER *writer)
+{
+	SINC_FILTER *filter ;
+	SRC_ERROR error ;
+
+	if (state == NULL || state->private_data == NULL)
+		return SRC_ERR_BAD_PRIV_PTR ;
+
+	filter = (SINC_FILTER *) state->private_data ;
+
+	if (filter->sinc_magic_marker != SINC_MAGIC_MARKER)
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
+	if (filter->b_current < 0 || filter->b_end < 0 || filter->b_len <= 0 ||
+			filter->b_current >= filter->b_len || filter->b_end > filter->b_len)
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
+	if (filter->b_current % state->channels != 0 || filter->b_end % state->channels != 0)
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
+	if (filter->b_real_end < -1 || filter->b_real_end >= filter->b_len)
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
+	if ((error = src_cp_write_u32 (writer, (uint32_t) filter->b_current)) != 0)
+		return error ;
+	if ((error = src_cp_write_u32 (writer, (uint32_t) filter->b_end)) != 0)
+		return error ;
+	if ((error = src_cp_write_u32 (writer, (uint32_t) (int32_t) filter->b_real_end)) != 0)
+		return error ;
+	if ((error = src_cp_write_u32 (writer, (uint32_t) filter->b_len)) != 0)
+		return error ;
+
+	/* Full ring: the FIR reads samples both ahead of and behind b_current,
+	** and the required history depth depends on future ratios.
+	*/
+	return src_cp_write_bytes (writer, filter->buffer, (size_t) filter->b_len * sizeof (float)) ;
+} /* sinc_checkpoint_write */
+
+LIBSAMPLERATE_DLL_PRIVATE SRC_ERROR
+sinc_checkpoint_read (SRC_STATE *state, SRC_CP_READER *reader)
+{
+	SINC_FILTER *filter ;
+	SRC_ERROR error ;
+	uint32_t b_current, b_end, stored_len, real_end_bits ;
+	int32_t b_real_end ;
+
+	if (state == NULL || state->private_data == NULL)
+		return SRC_ERR_BAD_PRIV_PTR ;
+
+	filter = (SINC_FILTER *) state->private_data ;
+
+	if ((error = src_cp_read_u32 (reader, &b_current)) != 0)
+		return error ;
+	if ((error = src_cp_read_u32 (reader, &b_end)) != 0)
+		return error ;
+	if ((error = src_cp_read_u32 (reader, &real_end_bits)) != 0)
+		return error ;
+	if ((error = src_cp_read_u32 (reader, &stored_len)) != 0)
+		return error ;
+
+	/* Reinterpret the stored bits as signed without a type-punning cast. */
+	memcpy (&b_real_end, &real_end_bits, sizeof (b_real_end)) ;
+
+	/* Reject contradictory fields rather than trying to repair them. */
+	if (stored_len != (uint32_t) filter->b_len)
+		return SRC_ERR_CHECKPOINT_BAD_FORMAT ;
+
+	if (b_current >= stored_len || b_end > stored_len)
+		return SRC_ERR_CHECKPOINT_BAD_FORMAT ;
+
+	if (b_current % (uint32_t) state->channels != 0 || b_end % (uint32_t) state->channels != 0)
+		return SRC_ERR_CHECKPOINT_BAD_FORMAT ;
+
+	if (b_real_end != -1 && (b_real_end < 0 || (uint32_t) b_real_end >= stored_len))
+		return SRC_ERR_CHECKPOINT_BAD_FORMAT ;
+
+	/* Overwrite the whole ring, including FIR history slots. */
+	if ((error = src_cp_read_bytes (reader, filter->buffer,
+					(size_t) stored_len * sizeof (float))) != 0)
+		return error ;
+
+	filter->b_current = (int) b_current ;
+	filter->b_end = (int) b_end ;
+	filter->b_real_end = (int) b_real_end ;
+
+	/* Scratch fields start clean. */
+	filter->in_count = filter->in_used = 0 ;
+	filter->out_count = filter->out_gen = 0 ;
+	filter->src_ratio = filter->input_index = 0.0 ;
+	memset (filter->left_calc, 0, sizeof (filter->left_calc)) ;
+	memset (filter->right_calc, 0, sizeof (filter->right_calc)) ;
+
+	/* Recreate the post-reset guard pattern past the usable buffer. */
+	memset (filter->buffer + filter->b_len, 0xAA, state->channels * sizeof (filter->buffer [0])) ;
+
+	return SRC_ERR_NO_ERROR ;
+} /* sinc_checkpoint_read */

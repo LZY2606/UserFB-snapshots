@@ -197,6 +197,7 @@ zoh_state_new (int channels, SRC_ERROR *error)
 
 	state->channels = channels ;
 	state->mode = SRC_MODE_PROCESS ;
+	state->converter_type = SRC_ZERO_ORDER_HOLD ;
 
 	state->private_data = zoh_data_new (state->channels) ;
 	if (!state->private_data)
@@ -265,6 +266,14 @@ zoh_copy (SRC_STATE *state)
 
 	to->private_data = to_priv ;
 
+	if (src_state_copy_pending (to, state) != 0)
+	{
+		free (to_priv->last_value) ;
+		free (to_priv) ;
+		free (to) ;
+		return NULL ;
+	} ;
+
 	return to ;
 } /* zoh_copy */
 
@@ -284,6 +293,7 @@ zoh_close (SRC_STATE *state)
 			free (zoh) ;
 			zoh = NULL ;
 		}
+		src_state_free_pending (state) ;
 		free (state) ;
 		state = NULL ;
 	}

@@ -32,6 +32,11 @@ The API allows three methods for accessing the capabilities of the library:
 **NB :** All three access methods are able to process multi channel interleaved
 data.
 
+A fourth interface provides [persistent checkpoints](api_checkpoint.md): a
+sinc converter can be serialised to a byte buffer, stored in a file and
+restored in another process so that conversion resumes at the exact same
+resampling position.
+
 The parts of the API which are common to all three interfaces are:
 
 - The [error reporting](api_misc.md#error-reporting) mechanisim.

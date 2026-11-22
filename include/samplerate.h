@@ -14,6 +14,8 @@
 #ifndef SAMPLERATE_H
 #define SAMPLERATE_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif	/* __cplusplus */
@@ -59,6 +61,33 @@ SRC_STATE* src_new (int converter_type, int channels, int *error) ;
 ** containing the same internal state as orig. Error returned in *error.
 */
 SRC_STATE* src_clone (SRC_STATE* orig, int *error) ;
+
+/*
+**	Persistent checkpoints, usable across processes. Only the three sinc
+**	converters (SRC_SINC_BEST_QUALITY, SRC_SINC_MEDIUM_QUALITY and
+**	SRC_SINC_FASTEST) support checkpointing; SRC_ZERO_ORDER_HOLD and
+**	SRC_LINEAR do not.
+**
+**	src_checkpoint_size returns the number of bytes required to hold a
+**	checkpoint of the given state. It returns zero if the argument is NULL
+**	or if the converter does not support checkpointing.
+**
+**	src_checkpoint_write serialises the state into the supplied buffer and
+**	returns SRC_ERR_NO_ERROR on success. The source instance is not
+**	modified. It returns a non-zero error code if the buffer is too small
+**	or the state cannot be checkpointed.
+**
+**	src_checkpoint_read deserialises a checkpoint and returns a new,
+**	independently owned instance. A checkpoint written from a process mode
+**	instance can only be restored with a NULL callback; a checkpoint written
+**	from a callback mode instance requires a non-NULL callback and its
+**	context. On failure it returns NULL and stores a non-zero error in *error.
+*/
+
+size_t src_checkpoint_size (SRC_STATE *state) ;
+int src_checkpoint_write (SRC_STATE *state, void *buffer, size_t bytes) ;
+SRC_STATE* src_checkpoint_read (const void *buffer, size_t bytes,
+				src_callback_t callback, void *cb_data, int *error) ;
 
 /*
 **	Initilisation for callback based API : return an anonymous pointer to the
