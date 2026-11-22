@@ -1,2 +1,2 @@
 all:
-	gcc main.c -o sfotool
+	gcc main.c sf2subset.c -o sfotool

@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sf2subset.h"
+
 typedef char sfo_fourcc[4];
 #define SFO_FourCCEquals(a, b) (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3])
 struct sfo_riffchunk { sfo_fourcc id; unsigned int size; };
@@ -55,6 +57,23 @@ int main(int argc, const char** argv)
 	struct sfo_riffchunk chunkHead, chunkList, chunk;
 	FILE* f_sf_in = NULL, *f_smpl = NULL, *f_sf_out = NULL;
 
+	if (argc > 1 && !strcmp(argv[1], "--subset"))
+	{
+		char subset_err[256];
+		if (argc != 5)
+		{
+			fprintf(stderr, "Usage: %s --subset <SF2> <SF2> <bank:preset[,bank:preset...]>\n", argv[0]);
+			return 1;
+		}
+		if (sfo_subset_file(argv[2], argv[3], argv[4], subset_err, sizeof(subset_err)))
+		{
+			fprintf(stderr, "Error: %s\n", subset_err);
+			return 1;
+		}
+		printf("Wrote subset soundfont '%s'\n", argv[3]);
+		return 0;
+	}
+
 	if (argc < 2 || argc > 4)
 	{
 		print_usage:
@@ -64,6 +83,7 @@ int main(int argc, const char** argv)
 		fprintf(stderr, "%s <SFO> <OGG>: Dump OGG sample stream to .OGG file\n", argv[0]);
 		fprintf(stderr, "%s <SF2/SFO> <WAV> <SF2>: Write new .SF2 soundfont file using PCM sample stream from .WAV file\n", argv[0]);
 		fprintf(stderr, "%s <SF2/SFO> <OGG> <SFO>: Write new .SFO soundfont file using OGG sample stream from .OGG file\n", argv[0]);
+		fprintf(stderr, "%s --subset <SF2> <SF2> <bank:preset[,bank:preset...]>: Write new .SF2 keeping only the selected presets\n", argv[0]);
 		if (f_sf_in)  fclose(f_sf_in);
 		if (f_smpl)   fclose(f_smpl);
 		if (f_sf_out) fclose(f_sf_out);

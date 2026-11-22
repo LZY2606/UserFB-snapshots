@@ -93,5 +93,9 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup>
     <ClCompile Include="main.c" />
+    <ClCompile Include="sf2subset.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="sf2subset.h" />
   </ItemGroup>
 </Project>

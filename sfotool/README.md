@@ -15,7 +15,37 @@ sfotool <SF2> <WAV>: Dump PCM sample stream to .WAV file
 sfotool <SFO> <OGG>: Dump OGG sample stream to .OGG file
 sfotool <SF2/SFO> <WAV> <SF2>: Write new .SF2 soundfont file using PCM sample stream from .WAV file
 sfotool <SF2/SFO> <OGG> <SFO>: Write new .SFO soundfont file using OGG sample stream from .OGG file
+sfotool --subset <SF2> <SF2> <bank:preset[,bank:preset...]>: Write new .SF2 keeping only the selected presets
 ```
+
+## Removing unused samples with --subset
+If a game only uses a handful of presets from a large soundfont, the unused
+sample data can be stripped for real:
+
+```sh
+sfotool --subset input.sf2 output.sf2 0:0,0:5,128:0
+```
+
+The list selects presets by their `bank:preset` identity (presets are not
+renumbered, duplicates are merged, output keeps the original preset order).
+The subset is computed from the original hydra records: every selected preset
+keeps all of its global and local zones, the instrument/sample closure is
+taken along instrument and sampleID references, and the linked partner of a
+kept left/right sample is kept as well. Instruments and samples that become
+unreachable are dropped.
+
+The sample pool is repacked: every kept sample contributes its `[start,end)`
+window plus the 46 guard sample points after it. Overlapping or touching
+windows are merged so shared PCM is copied only once, and the sample addresses
+(start/end/loop points) are translated accordingly, keeping the relative
+meaning of loop and address offset generators intact. INFO and other unknown
+chunks are preserved verbatim.
+
+Only plain 16-bit PCM SF2 files are supported; `smpo` (Ogg) streams, `sm24`
+chunks and ROM samples are rejected. Invalid references, out-of-order bag
+indices, broken sample links or samples reaching past the `smpl` chunk are
+rejected as well — in any error case the output file is left untouched.
+
 
 ## Making a .SFO file from a .SF2 file
 1. Dump the PCM data of a .SF2 file to a .WAV file  
