@@ -1,0 +1,7 @@
+{
+  "repo": "https://github.com/xiph/speexdsp",
+  "commit": "7a158783df74efe7c2d1c6ee8363c1e695c71226",
+  "license": "BSD-3-Clause",
+  "archive_sha256": "3c8383563f7fb3db6b740e26b1eee812399cc7927c3e375eae7c239af7b28f0c",
+  "description": "Pinned upstream source exported without target implementation. Added files under task_support provide the baseline and C test driver."
+}
