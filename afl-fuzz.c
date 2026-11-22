@@ -42,6 +42,9 @@
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
+#ifdef AFL_TASK_PROBE
+#include "checks/hooks.h"
+#endif
 
 #include <stdio.h>
 #include <unistd.h>
@@ -4648,6 +4651,9 @@ abort_trimming:
    a helper function for fuzz_one(). */
 
 EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
+#ifdef AFL_TASK_PROBE
+  if (afl_task_execute_hook) return afl_task_execute_hook(argv, out_buf, len);
+#endif
 
   u8 fault;
 
@@ -5487,6 +5493,12 @@ static u8 fuzz_one(char** argv) {
   stage_cycles[STAGE_FLIP32] += stage_max;
 
 skip_bitflip:
+#ifdef AFL_TASK_PROBE
+  if (afl_task_boundary_hook) {
+    afl_task_boundary_hook(eff_map, EFF_ALEN(len));
+    goto abandon_entry;
+  }
+#endif
 
   if (no_arith) goto skip_arith;
 
