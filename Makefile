@@ -75,11 +75,11 @@ afl-fuzz: afl-fuzz.c $(COMM_HDR) | test_x86
 afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 
-afl-tmin: afl-tmin.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-tmin: afl-tmin.c afl-tool-runner.c afl-tool-runner.h $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) afl-tmin.c afl-tool-runner.c -o $@ $(LDFLAGS)
 
-afl-analyze: afl-analyze.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-analyze: afl-analyze.c afl-tool-runner.c afl-tool-runner.h $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) afl-analyze.c afl-tool-runner.c -o $@ $(LDFLAGS)
 
 afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)

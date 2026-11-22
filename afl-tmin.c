@@ -52,7 +52,18 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 
+#include "afl-tool-runner.h"
+
 static s32 child_pid;                 /* PID of the tested program         */
+
+static struct tool_runner fsrv;       /* -F forkserver backend             */
+static u8 forkserver_mode;            /* Reuse the in-target forkserver?   */
+
+static void fsrv_cleanup(void) {
+
+  tool_runner_destroy(&fsrv);
+
+}
 
 static u8 *trace_bits,                /* SHM with instrumentation bitmap   */
           *mask_bitmap;               /* Mask for trace bits (-B)          */
@@ -249,8 +260,17 @@ static s32 write_to_file(u8* path, u8* mem, u32 len) {
 
 static void handle_timeout(int sig) {
 
-  child_timed_out = 1;
-  if (child_pid > 0) kill(child_pid, SIGKILL);
+  if (forkserver_mode) {
+
+    tool_runner_on_alarm(sig);
+    child_timed_out = fsrv.child_timed_out;
+
+  } else {
+
+    child_timed_out = 1;
+    if (child_pid > 0) kill(child_pid, SIGKILL);
+
+  }
 
 }
 
@@ -265,6 +285,24 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 
   s32 prog_in_fd;
   u32 cksum;
+
+  /* Forkserver (-F) path: one target startup, many candidates. */
+
+  if (forkserver_mode) {
+
+    u8 rc = tool_runner_run(&fsrv, mem, len, &status);
+
+    child_timed_out = fsrv.child_timed_out;
+    child_pid       = fsrv.child_pid;
+
+    if (fsrv.stopped) stop_soon = 1;
+
+    if (rc == ATR_RUN_ERROR && !stop_soon)
+      FATAL("Fork server protocol error while executing '%s'", argv[0]);
+
+    goto classify_run;
+
+  }
 
   memset(trace_bits, 0, MAP_SIZE);
   MEM_BARRIER();
@@ -338,6 +376,8 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
   setitimer(ITIMER_REAL, &it, NULL);
 
   MEM_BARRIER();
+
+classify_run:
 
   /* Clean up bitmap, analyze exit condition, etc. */
 
@@ -666,6 +706,13 @@ static void handle_stop_sig(int sig) {
 
   stop_soon = 1;
 
+  if (forkserver_mode) {
+
+    tool_runner_on_stop(sig);
+    return;
+
+  }
+
   if (child_pid > 0) kill(child_pid, SIGKILL);
 
 }
@@ -826,6 +873,7 @@ static void usage(u8* argv0) {
        "  -f file       - input file read by the tested program (stdin)\n"
        "  -t msec       - timeout for each run (%u ms)\n"
        "  -m megs       - memory limit for child process (%u MB)\n"
+       "  -F            - drive the in-target fork server (LLVM mode)\n"
        "  -Q            - use binary-only instrumentation (QEMU mode)\n\n"
 
        "Minimization settings:\n\n"
@@ -990,7 +1038,7 @@ int main(int argc, char** argv) {
 
   SAYF(cCYA "afl-tmin " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
 
-  while ((opt = getopt(argc,argv,"+i:o:f:m:t:B:xeQV")) > 0)
+  while ((opt = getopt(argc,argv,"+i:o:f:m:t:B:xeQFV")) > 0)
 
     switch (opt) {
 
@@ -1077,9 +1125,24 @@ int main(int argc, char** argv) {
       case 'Q':
 
         if (qemu_mode) FATAL("Multiple -Q options not supported");
+        if (forkserver_mode) FATAL("-F and -Q cannot be combined");
         if (!mem_limit_given) mem_limit = MEM_LIMIT_QEMU;
 
         qemu_mode = 1;
+        break;
+
+      case 'F':
+
+        if (!tool_runner_present()) {
+
+          SAYF("illegal option -- F\n");
+          usage(argv[0]);
+
+        }
+
+        if (forkserver_mode) FATAL("Multiple -F options not supported");
+        if (qemu_mode) FATAL("-F and -Q cannot be combined");
+        forkserver_mode = 1;
         break;
 
       case 'B': /* load bitmap */
@@ -1129,6 +1192,25 @@ int main(int argc, char** argv) {
     use_argv = argv + optind;
 
   exact_mode = !!getenv("AFL_TMIN_EXACT");
+
+  if (forkserver_mode) {
+
+    fsrv.argv        = use_argv;
+    fsrv.target_path = target_path;
+    fsrv.trace_bits  = trace_bits;
+    fsrv.prog_in     = prog_in;
+    fsrv.dev_null_fd = dev_null_fd;
+    fsrv.prog_in_fd  = -1;
+    fsrv.mem_limit   = mem_limit;
+    fsrv.exec_tmout  = exec_tmout;
+    fsrv.use_stdin   = use_stdin;
+
+    atexit(fsrv_cleanup);
+
+    if (tool_runner_start(&fsrv))
+      FATAL("Failed to start fork server for '%s'", target_path);
+
+  }
 
   SAYF("\n");
 
