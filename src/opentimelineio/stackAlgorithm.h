@@ -18,4 +18,15 @@ OTIO_API Track* flatten_stack(
     std::vector<Track*> const& tracks,
     ErrorStatus*               error_status = nullptr);
 
+/// @brief Recursively flatten nested stacks, tracks, clips and gaps down to
+/// a single editable track of Clips and Gaps.
+///
+/// The returned track is owned by the caller under the usual Retainer rules.
+/// On failure (unsupported child type, time effect, transition, invalid
+/// time) nullptr is returned and error_status is set; no partial result is
+/// produced.
+OTIO_API Track* flatten_stack_recursive(
+    Stack*       input,
+    ErrorStatus* error_status = nullptr);
+
 }} // namespace opentimelineio::OPENTIMELINEIO_VERSION_NS

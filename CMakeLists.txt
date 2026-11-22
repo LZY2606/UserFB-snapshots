@@ -332,4 +332,5 @@ if(OTIO_CXX_EXAMPLES)
 endif()
 
 # Offline support: no production semantics changed.
+add_subdirectory(examples)
 add_subdirectory(task_support)
