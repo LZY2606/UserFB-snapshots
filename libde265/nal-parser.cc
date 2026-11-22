@@ -186,12 +186,15 @@ void NAL_Parser::free_NAL_unit(std::unique_ptr<NAL_unit> /*nal*/)
 
 std::unique_ptr<NAL_unit> NAL_Parser::pop_from_NAL_queue()
 {
-  if (NAL_queue.empty()) {
+  // A boundary marker at the head is not a NAL and must be consumed
+  // separately (pop_boundary()); leave it in place and signal emptiness to
+  // NAL-only callers.
+  if (NAL_queue.empty() || NAL_queue.front().is_boundary) {
     return nullptr;
   }
   else {
-    std::unique_ptr<NAL_unit> nal = std::move(NAL_queue.front());
-    NAL_queue.pop();
+    std::unique_ptr<NAL_unit> nal = std::move(NAL_queue.front().nal);
+    NAL_queue.pop_front();
 
     nBytes_in_NAL_queue -= nal->size();
 
@@ -202,7 +205,47 @@ std::unique_ptr<NAL_unit> NAL_Parser::pop_from_NAL_queue()
 void NAL_Parser::push_to_NAL_queue(std::unique_ptr<NAL_unit> nal)
 {
   nBytes_in_NAL_queue += nal->size();
-  NAL_queue.push(std::move(nal));
+
+  queue_entry entry;
+  entry.nal = std::move(nal);
+  NAL_queue.push_back(std::move(entry));
+}
+
+void NAL_Parser::push_picture_boundary(uint64_t tag)
+{
+  queue_entry entry;
+  entry.is_boundary = true;
+  entry.boundary_tag = tag;
+  NAL_queue.push_back(std::move(entry));
+}
+
+bool NAL_Parser::head_is_boundary() const
+{
+  return !NAL_queue.empty() && NAL_queue.front().is_boundary;
+}
+
+uint64_t NAL_Parser::pop_boundary()
+{
+  assert(head_is_boundary());
+  uint64_t tag = NAL_queue.front().boundary_tag;
+  NAL_queue.pop_front();
+  return tag;
+}
+
+int NAL_Parser::get_NAL_queue_length() const
+{
+  int count = 0;
+  for (const queue_entry& entry : NAL_queue) {
+    if (!entry.is_boundary) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+int NAL_Parser::number_of_complete_NAL_units_pending() const
+{
+  return get_NAL_queue_length();
 }
 
 de265_error NAL_Parser::push_data(const unsigned char* data, int len,
@@ -425,10 +468,14 @@ void NAL_Parser::remove_pending_input_data()
     free_NAL_unit(std::move(pending_input_NAL));
   }
 
-  for (;;) {
-    std::unique_ptr<NAL_unit> nal = pop_from_NAL_queue();
-    if (nal) { free_NAL_unit(std::move(nal)); }
-    else break;
+  while (!NAL_queue.empty()) {
+    queue_entry entry = std::move(NAL_queue.front());
+    NAL_queue.pop_front();
+    if (entry.nal) {
+      nBytes_in_NAL_queue -= entry.nal->size();
+      free_NAL_unit(std::move(entry.nal));
+    }
+    // boundary markers carry no owned data and are simply dropped
   }
 
   input_push_state = 0;

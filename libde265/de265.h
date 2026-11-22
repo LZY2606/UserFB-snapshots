@@ -275,6 +275,30 @@ LIBDE265_API void        de265_push_end_of_frame(de265_decoder_context*);
 LIBDE265_API de265_error de265_push_NAL(de265_decoder_context*, const void* data, int length,
                                         de265_PTS pts, void* user_data);
 
+/* Close the input span of one coded picture without decoding or flushing the
+   decoded-picture buffer. All Annex-B bytes or complete NAL units pushed since
+   the previous boundary are assumed to be the NAL units of exactly one picture
+   (any number of slices, prefix/suffix SEIs and non-VCL NALs). The function
+   first finalizes a still pending Annex-B NAL (as de265_push_end_of_NAL does)
+   and then queues a boundary marker carrying 'tag' behind every NAL already
+   queued; it never performs decoding itself.
+
+   When all slices of the picture, its deblocking/SAO post-processing and its
+   suffix SEIs have been processed and the reference picture is in place, the
+   picture's tag is published once and can be retrieved with
+   de265_get_completed_picture(). Notifications follow decoding order and are
+   independent of display (POC) order; reference pictures and the output/reorder
+   queues are neither released nor forced out. A boundary whose span contained no
+   VCL NAL unit produces no notification. Tags may repeat and may be 0.
+*/
+LIBDE265_API de265_error de265_push_picture_boundary(de265_decoder_context*, uint64_t tag);
+
+/* Pop the oldest picture-completion notification. Returns 1 and writes the
+   tag to '*tag' when a completed picture is available. Returns 0 and leaves
+   '*tag' untouched when there is no notification. NULL is accepted for 'tag'.
+*/
+LIBDE265_API int de265_get_completed_picture(de265_decoder_context*, uint64_t* tag);
+
 /* Indicate the end-of-stream. All data pending at the decoder input will be
    pushed into the decoder and the decoded picture queue will be completely emptied.
  */

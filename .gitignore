@@ -6,6 +6,7 @@
 # cmake
 /build
 /_build
+/.task-build
 
 # MSVC
 *.sln

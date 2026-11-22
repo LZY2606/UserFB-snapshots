@@ -28,8 +28,8 @@
 #include "libde265/de265.h"
 
 #include <vector>
-#include <queue>
 #include <memory>
+#include <deque>
 
 
 class NAL_unit {
@@ -103,6 +103,17 @@ class NAL_Parser
   void        mark_end_of_frame() { end_of_frame=true; }
   void  remove_pending_input_data();
 
+  // Enqueue a picture-boundary marker after all currently queued NAL units.
+  // Markers stay in the same FIFO and therefore in the same relative order
+  // as the NAL units; they do not participate in byte/NAL counting.
+  void push_picture_boundary(uint64_t tag);
+
+  // True when the next queue entry is a boundary marker rather than a NAL.
+  bool head_is_boundary() const;
+
+  // Remove and return the boundary marker at the head of the queue.
+  uint64_t pop_boundary();
+
   int bytes_in_input_queue() const {
     int size = nBytes_in_NAL_queue;
     if (pending_input_NAL) { size += pending_input_NAL->size(); }
@@ -110,14 +121,12 @@ class NAL_Parser
   }
 
   int number_of_NAL_units_pending() const {
-    int size = NAL_queue.size();
+    int size = number_of_complete_NAL_units_pending();
     if (pending_input_NAL) { size++; }
     return size;
   }
 
-  int number_of_complete_NAL_units_pending() const {
-    return NAL_queue.size();
-  }
+  int number_of_complete_NAL_units_pending() const;
 
   // Release a NAL. Takes ownership by value, so a move transfers the object here
   // and leaves the caller holding nullptr; a redundant release therefore passes
@@ -126,11 +135,20 @@ class NAL_Parser
   void free_NAL_unit(std::unique_ptr<NAL_unit> nal);
 
 
-  int get_NAL_queue_length() const { return NAL_queue.size(); }
+  int get_NAL_queue_length() const;
   bool is_end_of_stream() const { return end_of_stream; }
   bool is_end_of_frame() const { return end_of_frame; }
 
  private:
+  // One entry of the ordered input FIFO. It is either a NAL unit or a
+  // picture-boundary marker; mixing both in one queue guarantees that a
+  // marker is consumed only after the NAL units of its picture.
+  struct queue_entry {
+    std::unique_ptr<NAL_unit> nal;     // non-null for a NAL entry
+    bool is_boundary = false;          // true for a boundary marker
+    uint64_t boundary_tag = 0;         // valid when is_boundary
+  };
+
   // byte-stream level
 
   bool end_of_stream = false; // data in pending_input_data is end of stream
@@ -144,8 +162,10 @@ class NAL_Parser
 
   // NAL level
 
-  std::queue<std::unique_ptr<NAL_unit>> NAL_queue;  // enqueued NALs have suffing bytes removed
-  int nBytes_in_NAL_queue = 0; // data bytes currently in NAL_queue
+  // NAL units (stuffing bytes removed) and picture-boundary markers, kept in
+  // the order in which they were pushed.
+  std::deque<queue_entry> NAL_queue;
+  int nBytes_in_NAL_queue = 0; // data bytes currently held by NAL entries
 
   void push_to_NAL_queue(std::unique_ptr<NAL_unit>);
 

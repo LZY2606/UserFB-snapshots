@@ -166,6 +166,67 @@ Libde265 has been integrated into these applications:
 [![libde265 packaging status](https://repology.org/badge/vertical-allrepos/libde265.svg?exclude_unsupported=1&columns=3&exclude_sources=modules,site&header=libde265%20packaging%20status)](https://repology.org/project/libde265/versions)
 
 
+Picture completion notifications
+================================
+
+When the receiver already knows the transport boundary of each HEVC picture,
+it does not need `de265_push_end_of_frame()`, which also forces every picture
+out of the reorder buffer. Instead, close the NAL units of one picture with
+`de265_push_picture_boundary()` and poll `de265_get_completed_picture()` for a
+completion tag.
+
+The notification fires once the picture's slices, deblocking, SAO and suffix
+SEIs have all been processed and its reference picture is ready. It only
+signals that the *input-side* resources of that picture can be reclaimed: it
+neither releases reference pictures nor drains the display queue, which keeps
+delivering pictures in POC order through `de265_peek_next_picture()`. Tags are
+reported in decoding order (independent of PTS/display order), may repeat and
+may be zero, and a boundary whose span contains no VCL NAL unit stays silent.
+
+```cpp
+#include "libde265/de265.h"
+#include <cstdint>
+#include <vector>
+
+void feed_stream(de265_decoder_context* ctx,
+                 const std::vector<std::vector<uint8_t>>& access_units)
+{
+  for (uint64_t picture = 0; picture < access_units.size(); ++picture) {
+    // Push every NAL unit of this picture (slices, parameter sets, SEIs).
+    // Annex-B users can de265_push_data() instead; the boundary call below
+    // also finalizes a pending Annex-B NAL.
+    for (const auto& nal : access_units[picture]) {
+      de265_push_NAL(ctx, nal.data(), (int)nal.size(),
+                     (de265_PTS)picture, nullptr);
+    }
+
+    // Close the picture's input span. This never decodes or flushes the DPB.
+    de265_push_picture_boundary(ctx, picture);
+
+    int more = 0;
+    while (de265_decode(ctx, &more) == DE265_OK && more) {
+      // Poll completion notifications and reclaim the input resources of the
+      // pictures that are fully decoded, regardless of display order.
+      uint64_t completed_tag = 0;
+      while (de265_get_completed_picture(ctx, &completed_tag) == 1) {
+        // e.g. return the transport buffer carrying 'completed_tag' to its pool.
+      }
+
+      // Display output still follows POC order and is consumed separately.
+      while (const de265_image* img = de265_peek_next_picture(ctx)) {
+        // present img ...
+        de265_release_next_picture(ctx);
+      }
+    }
+  }
+}
+```
+
+`de265_reset()` removes queued boundaries and any notifications not yet
+retrieved; `de265_flush_data()` still drains the display output but never
+re-reports an already consumed tag.
+
+
 License
 =======
 

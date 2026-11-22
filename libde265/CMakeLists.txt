@@ -21,6 +21,7 @@ set (libde265_sources
   motion.cc
   nal-parser.cc
   nal.cc
+  picture-boundary.cc
   pps.cc
   quality.cc
   refpic.cc
@@ -59,6 +60,7 @@ set (libde265_headers
   motion.h
   nal-parser.h
   nal.h
+  picture-boundary.h
   pps.h
   quality.h
   refpic.h

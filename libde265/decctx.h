@@ -34,6 +34,7 @@
 #include "libde265/threads.h"
 #include "libde265/acceleration.h"
 #include "libde265/nal-parser.h"
+#include "libde265/picture-boundary.h"
 
 #include <array>
 #include <memory>
@@ -195,6 +196,11 @@ public:
 
   de265_image* img = nullptr;
   de265_image  sao_output; // if SAO is used, this is allocated and used as SAO output buffer
+
+  // Sequential number assigned when the picture's first slice is pushed,
+  // used to correlate the picture with its de265_push_picture_boundary()
+  // marker. 0 means the unit predates the boundary API.
+  unsigned picture_number = 0;
 
   std::vector<slice_unit*> slice_units;
   std::vector<sei_message> suffix_SEIs;
@@ -386,6 +392,10 @@ class decoder_context : public base_context {
   // --- input stream data ---
 
   NAL_Parser nal_parser;
+
+  // Picture-boundary markers (de265_push_picture_boundary) and the completion
+  // notifications produced for them.
+  picture_boundary_tracker picture_boundaries;
 
 
   int get_num_worker_threads() const { return num_worker_threads; }

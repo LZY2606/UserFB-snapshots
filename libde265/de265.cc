@@ -378,6 +378,36 @@ LIBDE265_API de265_error de265_push_NAL(de265_decoder_context* de265ctx,
 }
 
 
+LIBDE265_API de265_error de265_push_picture_boundary(de265_decoder_context* de265ctx,
+                                                     uint64_t tag)
+{
+  decoder_context* ctx = reinterpret_cast<decoder_context*>(de265ctx);
+
+  // Finalize an Annex-B NAL whose bytes are still pending in the byte-stream
+  // parser, exactly like de265_push_end_of_NAL(). This does not decode
+  // anything.
+  de265_error err = ctx->nal_parser.flush_data();
+  if (err != DE265_OK) {
+    return err;
+  }
+
+  // Queue the marker behind every NAL already in the input FIFO, preserving
+  // the push order. No decoding is performed.
+  ctx->nal_parser.push_picture_boundary(tag);
+
+  return DE265_OK;
+}
+
+
+LIBDE265_API int de265_get_completed_picture(de265_decoder_context* de265ctx,
+                                             uint64_t* tag)
+{
+  decoder_context* ctx = reinterpret_cast<decoder_context*>(de265ctx);
+
+  return ctx->picture_boundaries.pop_completed(tag);
+}
+
+
 LIBDE265_API de265_error de265_decode(de265_decoder_context* de265ctx, int* more)
 {
   decoder_context* ctx = reinterpret_cast<decoder_context*>(de265ctx);

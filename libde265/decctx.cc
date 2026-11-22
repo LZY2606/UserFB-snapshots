@@ -235,6 +235,10 @@ void decoder_context::reset()
 
   nal_parser.remove_pending_input_data();
 
+  // Drop queued picture-boundary markers and every completion notification
+  // that the caller has not retrieved yet.
+  picture_boundaries.reset();
+
 
   while (!image_units.empty()) {
     delete image_units.back();
@@ -560,6 +564,7 @@ de265_error decoder_context::read_slice_NAL(bitreader& reader, std::unique_ptr<N
   if (shdr->first_slice_segment_in_pic_flag) {
     image_unit* imgunit = new image_unit;
     imgunit->img = this->img;
+    imgunit->picture_number = picture_boundaries.note_first_slice();
     image_units.push_back(imgunit);
 
     // A new picture starts here. Drop the reference to the previous picture's
@@ -659,10 +664,17 @@ de265_error decoder_context::decode_some(bool* did_work)
   // if we decoded all slices of the current image and there will not
   // be added any more slices to the image, output the image
 
+  image_unit* head_unit = image_units[0];
+  bool head_complete = head_unit->all_slice_segments_processed() &&
+                       ( picture_boundaries.is_picture_closed(head_unit->picture_number) ||
+                         !picture_boundaries.is_active() );
+
   if ( ( image_units.size()>=2 && image_units[0]->all_slice_segments_processed()) ||
        ( image_units.size()>=1 && image_units[0]->all_slice_segments_processed() &&
          nal_parser.number_of_NAL_units_pending()==0 &&
-         (nal_parser.is_end_of_stream() || nal_parser.is_end_of_frame()) )) {
+         (nal_parser.is_end_of_stream() || nal_parser.is_end_of_frame()) ) ||
+       ( picture_boundaries.is_active() && head_complete &&
+         nal_parser.get_NAL_queue_length()==0 ) ) {
 
     image_unit* imgunit = image_units[0];
 
@@ -699,11 +711,18 @@ de265_error decoder_context::decode_some(bool* did_work)
 
     push_picture_to_output_queue(imgunit);
 
+    // The picture is fully decoded (slices, deblocking, SAO, suffix SEIs) and
+    // its reference image is in the DPB, so its boundary tag, if any, becomes
+    // due. This does not touch the reorder/output queues.
+    unsigned finished_picture_number = imgunit->picture_number;
+
     // remove just decoded image unit from queue
 
     delete imgunit;
 
     pop_front(image_units);
+
+    picture_boundaries.note_picture_finished(finished_picture_number);
   }
 
   return err;
@@ -1233,6 +1252,16 @@ de265_error decoder_context::decode(int* more)
 {
   decoder_context* ctx = this;
 
+  // Consume picture-boundary markers that have reached the head of the
+  // input queue. Markers share the FIFO with NAL units, so a marker is only
+  // reached after every NAL of its picture has been dequeued. Consuming a
+  // marker never decodes anything; it only records that the picture's input
+  // span is closed.
+  while (ctx->nal_parser.head_is_boundary()) {
+    uint64_t tag = ctx->nal_parser.pop_boundary();
+    ctx->picture_boundaries.note_boundary(tag);
+  }
+
   // if the stream has ended, and no more NALs are to be decoded, flush all pictures
 
   if (ctx->nal_parser.get_NAL_queue_length() == 0 &&
@@ -1251,14 +1280,21 @@ de265_error decoder_context::decode(int* more)
 
 
   // if NAL-queue is empty, we need more data
-  // -> input stalled
+  // -> input stalled. When picture boundaries are in use, a picture whose
+  // input span is already closed can be finished from image_units without
+  // any more input, so in that case keep going instead of stalling.
 
   if (ctx->nal_parser.is_end_of_stream() == false &&
       ctx->nal_parser.is_end_of_frame() == false &&
       ctx->nal_parser.get_NAL_queue_length() == 0) {
-    if (more) { *more=1; }
 
-    return DE265_ERROR_WAITING_FOR_INPUT_DATA;
+    bool boundary_work_pending = ctx->picture_boundaries.is_active() &&
+                                 !ctx->image_units.empty();
+    if (!boundary_work_pending) {
+      if (more) { *more=1; }
+
+      return DE265_ERROR_WAITING_FOR_INPUT_DATA;
+    }
   }
 
 
