@@ -5,6 +5,11 @@ func main(){
  p,e:=m.NewMediaPlaylist(0,4);if e!=nil{log.Fatal(e)};if e=p.DecodeFrom(strings.NewReader(raw),true);e!=nil{log.Fatal(e)}
  if p.Count()!=2 || p.Segments[1].Map.URI!="init-b.mp4" || p.Segments[1].ProgramDateTime.IsZero(){log.Fatal("production parse mismatch")}
  encoded:=p.Encode().String();q,e:=m.NewMediaPlaylist(0,4);if e!=nil{log.Fatal(e)};if e=q.DecodeFrom(strings.NewReader(encoded),true);e!=nil{log.Fatal(e)}
+ // Omitted byterange offset is resolved against the preceding same-URI
+ // ranged segment: first range covers bytes 10..14, so the next starts
+ // at 14. Explicit zero and an omitted offset are different things.
+ if p.Segments[1].Offset!=14{log.Fatalf("implicit offset not resolved: got %d",p.Segments[1].Offset)}
+ if !strings.Contains(encoded,"init-b.mp4"){log.Fatal("later MAP switch swallowed by default MAP")}
  fmt.Printf("decode count=%d seq=%d pdt=%s\n",p.Count(),p.SeqNo,p.Segments[1].ProgramDateTime.UTC().Format("15:04:05"))
  fmt.Printf("implicit_offset=%d encoded_second_map=%t reread_count=%d\n",p.Segments[1].Offset,strings.Contains(encoded,"init-b.mp4"),q.Count())
  r,e:=m.NewMediaPlaylist(0,3);if e!=nil{log.Fatal(e)};for i:=0;i<3;i++{if e=r.Append(fmt.Sprintf("s%d",i),1,"");e!=nil{log.Fatal(e)}}

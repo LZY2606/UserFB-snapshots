@@ -349,7 +349,8 @@ test01.ts`
 // Create new media playlist
 // Set default map
 // Add segment to media playlist
-// Set map on segment (should be ignored when encoding)
+// Set a different map on segment (must be encoded: a default MAP must
+// never swallow a later MAP switch)
 func TestEncodeMediaPlaylistWithDefaultMap(t *testing.T) {
 	p, e := NewMediaPlaylist(3, 5)
 	if e != nil {
@@ -367,14 +368,14 @@ func TestEncodeMediaPlaylistWithDefaultMap(t *testing.T) {
 	}
 
 	encoded := p.String()
-	expected := `EXT-X-MAP:URI="https://example.com",BYTERANGE=1024000@1048576`
-	if !strings.Contains(encoded, expected) {
-		t.Fatalf("Media playlist did not contain: %s\nMedia Playlist:\n%v", expected, encoded)
+	defaultTag := `EXT-X-MAP:URI="https://example.com",BYTERANGE=1024000@1048576`
+	if !strings.Contains(encoded, defaultTag) {
+		t.Fatalf("Media playlist did not contain: %s\nMedia Playlist:\n%v", defaultTag, encoded)
 	}
 
-	ignored := `EXT-X-MAP:URI="https://notencoded.com"`
-	if strings.Contains(encoded, ignored) {
-		t.Fatalf("Media playlist contains non default map: %s\nMedia Playlist:\n%v", ignored, encoded)
+	switchedTag := `EXT-X-MAP:URI="https://notencoded.com",BYTERANGE=1024000@1048576`
+	if !strings.Contains(encoded, switchedTag) {
+		t.Fatalf("Media playlist did not preserve the segment MAP switch: %s\nMedia Playlist:\n%v", switchedTag, encoded)
 	}
 }
 

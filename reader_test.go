@@ -181,9 +181,11 @@ func TestDecodeMediaPlaylistByteRange(t *testing.T) {
 	p, _ := NewMediaPlaylist(3, 3)
 	_ = p.DecodeFrom(bufio.NewReader(f), true)
 	expected := []*MediaSegment{
-		{URI: "video.ts", Duration: 10, Limit: 75232, SeqId: 0},
+		{URI: "video.ts", Duration: 10, Limit: 75232, Offset: 0, SeqId: 0},
 		{URI: "video.ts", Duration: 10, Limit: 82112, Offset: 752321, SeqId: 1},
-		{URI: "video.ts", Duration: 10, Limit: 69864, SeqId: 2},
+		// Omitted offset is resolved against the preceding same-URI ranged
+		// segment: 752321 + 82112 = 834433.
+		{URI: "video.ts", Duration: 10, Limit: 69864, Offset: 834433, SeqId: 2},
 	}
 	for i, seg := range p.Segments {
 		if !reflect.DeepEqual(*seg, *expected[i]) {

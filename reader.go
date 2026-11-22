@@ -16,11 +16,35 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// implicitRangeOffset resolves an omitted BYTERANGE offset of the media
+// segment that was just appended. Per HLS the range starts immediately
+// after the preceding media segment's range, which must reference the same
+// URI and already carry a range itself.
+func (p *MediaPlaylist) implicitRangeOffset(uri string) (int64, error) {
+	if p.count < 2 {
+		return 0, errors.New("implicit byterange offset without a preceding media segment")
+	}
+	cur := p.last()
+	prev := (p.capacity + cur - 1) % p.capacity
+	prevSeg := p.Segments[prev]
+	if prevSeg == nil || prevSeg.Limit <= 0 {
+		return 0, errors.New("implicit byterange offset requires a preceding ranged segment")
+	}
+	if prevSeg.URI != uri {
+		return 0, fmt.Errorf("implicit byterange offset follows a different URI: %q != %q", uri, prevSeg.URI)
+	}
+	if prevSeg.Offset > math.MaxInt64-prevSeg.Limit {
+		return 0, errors.New("implicit byterange offset overflows int64")
+	}
+	return prevSeg.Offset + prevSeg.Limit, nil
+}
 
 var reKeyValue = regexp.MustCompile(`([a-zA-Z0-9_-]+)=("[^"]+"|[^",]+)`)
 
@@ -514,6 +538,7 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 			state.title = line[sepIndex+1:]
 		}
 	case !strings.HasPrefix(line, "#"):
+		appended := false
 		if state.tagInf {
 			err := p.Append(line, state.duration, state.title)
 			if err == ErrPlaylistFull {
@@ -531,12 +556,30 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 				return err
 			}
 			state.tagInf = false
+			appended = true
 		}
 		if state.tagRange {
-			if err = p.SetRange(state.limit, state.offset); strict && err != nil {
+			offset := state.offset
+			if state.rangeImplicit {
+				offset, err = p.implicitRangeOffset(line)
+				if err != nil {
+					return err
+				}
+			}
+			if state.limit <= 0 {
+				return fmt.Errorf("byterange length must be positive, got %d", state.limit)
+			}
+			if offset < 0 {
+				return fmt.Errorf("byterange offset must not be negative, got %d", offset)
+			}
+			if offset > math.MaxInt64-state.limit {
+				return errors.New("byterange offset plus length overflows int64")
+			}
+			if err = p.SetRange(state.limit, offset); strict && err != nil {
 				return err
 			}
 			state.tagRange = false
+			state.rangeImplicit = false
 		}
 		if state.tagSCTE35 {
 			state.tagSCTE35 = false
@@ -568,13 +611,32 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		}
 		// If EXT-X-MAP appeared before reference to segment (EXTINF) then it linked to this segment
 		if state.tagMap {
-			p.Segments[p.last()].Map = &Map{state.xmap.URI, state.xmap.Limit, state.xmap.Offset}
+			// A playlist that once carried an EXT-X-MAP may not switch back to
+			// segments without an initialization section.
+			if p.Map != nil && state.xmap == nil {
+				return errors.New("media segment without EXT-X-MAP after an initialization section was already in effect")
+			}
+			p.Segments[p.last()].Map = state.xmap
 			// First EXT-X-MAP may appeared in the header of the playlist and linked to first segment
 			// but for convenient playlist generation it also linked as default playlist map
 			if p.Map == nil {
 				p.Map = state.xmap
 			}
 			state.tagMap = false
+			state.mapImplicit = false
+		} else if appended && p.Map != nil {
+			// The tag stays in effect until the next EXT-X-MAP, so a segment
+			// without its own MAP inherits the initialization section in
+			// effect for the immediately preceding segment (which may be a
+			// later MAP switch, not the playlist default). A trailing blank
+			// line is not a segment and must not rewrite the last segment.
+			cur := p.last()
+			prev := (p.capacity + cur - 1) % p.capacity
+			if p.count >= 2 && p.Segments[prev] != nil && p.Segments[prev].Map != nil {
+				p.Segments[cur].Map = p.Segments[prev].Map
+			} else {
+				p.Segments[cur].Map = p.Map
+			}
 		}
 
 		// if segment custom tag appeared before EXTINF then it links to this segment
@@ -660,15 +722,47 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 	case strings.HasPrefix(line, "#EXT-X-MAP:"):
 		state.listType = MEDIA
 		state.xmap = new(Map)
+		state.mapImplicit = false
 		for k, v := range decodeParamsLine(line[11:]) {
 			switch k {
 			case "URI":
 				state.xmap.URI = v
 			case "BYTERANGE":
-				if _, err = fmt.Sscanf(v, "%d@%d", &state.xmap.Limit, &state.xmap.Offset); strict && err != nil {
+				params := strings.SplitN(v, "@", 2)
+				state.xmap.Limit, err = strconv.ParseInt(params[0], 10, 64)
+				if strict && err != nil {
 					return fmt.Errorf("Byterange sub-range length value parsing error: %s", err)
 				}
+				if state.xmap.Limit <= 0 {
+					return fmt.Errorf("map byterange length must be positive, got %d", state.xmap.Limit)
+				}
+				if len(params) > 1 {
+					state.xmap.Offset, err = strconv.ParseInt(params[1], 10, 64)
+					if strict && err != nil {
+						return fmt.Errorf("Byterange sub-range offset value parsing error: %s", err)
+					}
+					if state.xmap.Offset < 0 {
+						return fmt.Errorf("map byterange offset must not be negative, got %d", state.xmap.Offset)
+					}
+					if state.xmap.Offset > math.MaxInt64-state.xmap.Limit {
+						return errors.New("map byterange offset plus length overflows int64")
+					}
+				} else {
+					state.mapImplicit = true
+				}
 			}
+		}
+		if state.mapImplicit {
+			if p.Map == nil || p.Map.Limit <= 0 {
+				return errors.New("implicit map byterange offset without a preceding ranged initialization section")
+			}
+			if state.xmap.URI != p.Map.URI {
+				return fmt.Errorf("implicit map byterange offset follows a different URI: %q != %q", state.xmap.URI, p.Map.URI)
+			}
+			if p.Map.Offset > math.MaxInt64-p.Map.Limit {
+				return errors.New("implicit map byterange offset overflows int64")
+			}
+			state.xmap.Offset = p.Map.Offset + p.Map.Limit
 		}
 		state.tagMap = true
 	case !state.tagProgramDateTime && strings.HasPrefix(line, "#EXT-X-PROGRAM-DATE-TIME:"):
@@ -679,16 +773,27 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		}
 	case !state.tagRange && strings.HasPrefix(line, "#EXT-X-BYTERANGE:"):
 		state.tagRange = true
+		state.rangeImplicit = false
 		state.listType = MEDIA
-		state.offset = 0
 		params := strings.SplitN(line[17:], "@", 2)
 		if state.limit, err = strconv.ParseInt(params[0], 10, 64); strict && err != nil {
 			return fmt.Errorf("Byterange sub-range length value parsing error: %s", err)
 		}
+		if state.limit <= 0 {
+			return fmt.Errorf("byterange length must be positive, got %d", state.limit)
+		}
+		state.offset = 0
 		if len(params) > 1 {
 			if state.offset, err = strconv.ParseInt(params[1], 10, 64); strict && err != nil {
 				return fmt.Errorf("Byterange sub-range offset value parsing error: %s", err)
 			}
+			if state.offset < 0 {
+				return fmt.Errorf("byterange offset must not be negative, got %d", state.offset)
+			}
+		} else {
+			// An omitted offset is not the same as an explicit zero: it must be
+			// resolved against the preceding segment once the URI is known.
+			state.rangeImplicit = true
 		}
 	case !state.tagSCTE35 && strings.HasPrefix(line, "#EXT-SCTE35:"):
 		state.tagSCTE35 = true

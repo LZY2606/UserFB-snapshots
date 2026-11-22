@@ -31,6 +31,31 @@ func version(ver *uint8, newver uint8) {
 	}
 }
 
+// mapEqual reports whether two initialization sections describe the same
+// URI and byte range.
+func mapEqual(a, b *Map) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.URI == b.URI && a.Limit == b.Limit && a.Offset == b.Offset
+}
+
+// writeMapTag emits one EXT-X-MAP tag. Byte ranges always carry an
+// explicit offset.
+func writeMapTag(buf *bytes.Buffer, m *Map) {
+	buf.WriteString("#EXT-X-MAP:")
+	buf.WriteString("URI=\"")
+	buf.WriteString(m.URI)
+	buf.WriteRune('"')
+	if m.Limit > 0 {
+		buf.WriteString(",BYTERANGE=")
+		buf.WriteString(strconv.FormatInt(m.Limit, 10))
+		buf.WriteRune('@')
+		buf.WriteString(strconv.FormatInt(m.Offset, 10))
+	}
+	buf.WriteRune('\n')
+}
+
 func strver(ver uint8) string {
 	return strconv.FormatUint(uint64(ver), 10)
 }
@@ -444,17 +469,7 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		p.buf.WriteRune('\n')
 	}
 	if p.Map != nil {
-		p.buf.WriteString("#EXT-X-MAP:")
-		p.buf.WriteString("URI=\"")
-		p.buf.WriteString(p.Map.URI)
-		p.buf.WriteRune('"')
-		if p.Map.Limit > 0 {
-			p.buf.WriteString(",BYTERANGE=")
-			p.buf.WriteString(strconv.FormatInt(p.Map.Limit, 10))
-			p.buf.WriteRune('@')
-			p.buf.WriteString(strconv.FormatInt(p.Map.Offset, 10))
-		}
-		p.buf.WriteRune('\n')
+		writeMapTag(&p.buf, p.Map)
 	}
 	if p.MediaType > 0 {
 		p.buf.WriteString("#EXT-X-PLAYLIST-TYPE:")
@@ -560,6 +575,7 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 	var (
 		seg           *MediaSegment
 		durationCache = make(map[float64]string)
+		lastMap       = p.Map
 	)
 
 	head := p.head
@@ -645,19 +661,12 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		if seg.Discontinuity {
 			p.buf.WriteString("#EXT-X-DISCONTINUITY\n")
 		}
-		// ignore segment Map if default playlist Map is present
-		if p.Map == nil && seg.Map != nil {
-			p.buf.WriteString("#EXT-X-MAP:")
-			p.buf.WriteString("URI=\"")
-			p.buf.WriteString(seg.Map.URI)
-			p.buf.WriteRune('"')
-			if seg.Map.Limit > 0 {
-				p.buf.WriteString(",BYTERANGE=")
-				p.buf.WriteString(strconv.FormatInt(seg.Map.Limit, 10))
-				p.buf.WriteRune('@')
-				p.buf.WriteString(strconv.FormatInt(seg.Map.Offset, 10))
-			}
-			p.buf.WriteRune('\n')
+		// Emit the segment's initialization section whenever it differs from
+		// the one currently in effect (the playlist default or the last MAP
+		// written). A default MAP must never swallow a later MAP switch.
+		if seg.Map != nil && !mapEqual(seg.Map, lastMap) {
+			writeMapTag(&p.buf, seg.Map)
+			lastMap = seg.Map
 		}
 		if !seg.ProgramDateTime.IsZero() {
 			p.buf.WriteString("#EXT-X-PROGRAM-DATE-TIME:")

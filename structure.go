@@ -316,10 +316,12 @@ type decodingState struct {
 	tagInf             bool
 	tagSCTE35          bool
 	tagRange           bool
+	rangeImplicit      bool // EXT-X-BYTERANGE without an explicit offset
 	tagDiscontinuity   bool
 	tagProgramDateTime bool
 	tagKey             bool
 	tagMap             bool
+	mapImplicit        bool // EXT-X-MAP BYTERANGE without an explicit offset
 	tagCustom          bool
 	programDateTime    time.Time
 	limit              int64
