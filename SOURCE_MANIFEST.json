@@ -1,0 +1,1004 @@
+{
+  "commit": "f9c127fd35975a0494b9e187589501ee984dc4b6",
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "source_files": [
+    {
+      "path": ".gitattributes",
+      "mode": "100644",
+      "git_blob": "09c2594db046b4e1842f420e679d1472d000d2be",
+      "sha256": "cdbb74c080399ccb88396eacb46ab7ecfb5b855c34c7e846adcaa3eca0a914d1"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "git_blob": "8567b961d7866d7bbecc6908104a32089ef34930",
+      "sha256": "3b19e289e73c0a56ba080e6719c6b58d51e19d503dfe95f4563740c1fe73a7fe"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "mode": "100644",
+      "git_blob": "6272489dae31495b5936919ce0e8a8937f191620",
+      "sha256": "55745c813dc4c92a9a69a6888d7a764c8e5f226d67a35c21a035649cb8168a76"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "Makefile",
+      "mode": "100644",
+      "git_blob": "50100bcd86bf97badb0f7ef8c6ff88617f203640",
+      "sha256": "53ff4cb0d7384805f831dd10bee2ba02d1f8a6dd72bf475c20e98aa2c02a9ec0"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "git_blob": "6cb2a7e3f505f05d08f8e22f7ca46b51b3f461c4",
+      "sha256": "71ef012ea6625cea2690f579582a66960a02270641cb01ba6ad80a0da59dba3d"
+    },
+    {
+      "path": "include/lc3.h",
+      "mode": "100644",
+      "git_blob": "c5a444db179792be68fa99e21ff36835aa6358d7",
+      "sha256": "95f7684efdc4fbd183cbf6692dcc8fed18e1d8bad98855c929f4272640b76098"
+    },
+    {
+      "path": "include/lc3_cpp.h",
+      "mode": "100644",
+      "git_blob": "31002ec602511a4d8999a5fc4210ac56631fa4ba",
+      "sha256": "ee746a6926d71735a3e99c139565a6262fee8f8601da67b6cd36daef3a1f9760"
+    },
+    {
+      "path": "include/lc3_private.h",
+      "mode": "100644",
+      "git_blob": "a0fe01bb5924d56f12b2692b3ccf0d76bc5c437d",
+      "sha256": "73a532324b286469a8cd5380614c9d0dc4ed1507fef51ec3dd440c1bf1ad50fd"
+    },
+    {
+      "path": "meson.build",
+      "mode": "100644",
+      "git_blob": "0fa0904e5ec9f6cf0681b219e8a69476917996d7",
+      "sha256": "af6a46b12372b5ac78242e29470c1ce7f560bea321919af0466f085165ce0871"
+    },
+    {
+      "path": "meson_options.txt",
+      "mode": "100644",
+      "git_blob": "d840d1c031cdfbf5284a7510c7da341a34fbcf39",
+      "sha256": "ed0a12acba863aca41ed917a3de55553fef796a626ffde4744f46cd73c6146a2"
+    },
+    {
+      "path": "src/attdet.c",
+      "mode": "100644",
+      "git_blob": "b498ef9ba265136ca34d7d08cb2d289b6a8cf799",
+      "sha256": "fa109979931fb72119f962807e4b9d5fcf2c62113df6c778ad724d04db10f7f6"
+    },
+    {
+      "path": "src/attdet.h",
+      "mode": "100644",
+      "git_blob": "4d4ee170e8c18f5866330734372914099d9176ae",
+      "sha256": "e6cba23dea78d694405a26448ef1dfba48e433db6ea631ecf344f10c42aeb2d3"
+    },
+    {
+      "path": "src/bits.c",
+      "mode": "100644",
+      "git_blob": "881258bf52b05a8415b0f6dfbb67792abf904158",
+      "sha256": "79d0ea8984a6be7b99ea0025a19dae216cfc29de417a649b1683de74854256e8"
+    },
+    {
+      "path": "src/bits.h",
+      "mode": "100644",
+      "git_blob": "de65c9313c16eba645a4c1b7ca4e5e318a7017b8",
+      "sha256": "b9080b1b60d368848e744f3a7855d4852b9ab6bbefa8d1e5fb035a20e90a0488"
+    },
+    {
+      "path": "src/bwdet.c",
+      "mode": "100644",
+      "git_blob": "0c4893972508610a36f2d7e44727baafd5760c30",
+      "sha256": "c31af798bb75dec645625778dc30b860e96b22c726c477a1538b928758ddd249"
+    },
+    {
+      "path": "src/bwdet.h",
+      "mode": "100644",
+      "git_blob": "773e6bb635064dea365313fcef25079142afea10",
+      "sha256": "3abaefbc286145a25157b95ab419a7f2d0ef2193c5b259c81900cc2811a3964f"
+    },
+    {
+      "path": "src/common.h",
+      "mode": "100644",
+      "git_blob": "2b23a8d3fe5801282710fad543ac83f5c20822b6",
+      "sha256": "a4949ea1a026137532f47873a20732a30bc62d600e31060affc8296d3db78a1c"
+    },
+    {
+      "path": "src/energy.c",
+      "mode": "100644",
+      "git_blob": "ffa3f786cf54764e895368d452fccbde7ce37aab",
+      "sha256": "bee68f82d47ce860f7bebae0a12b2a98c54242248af72cd8e41426317c4d8f2e"
+    },
+    {
+      "path": "src/energy.h",
+      "mode": "100644",
+      "git_blob": "8ebd726bae29677627a5fd249a281d0153f728a5",
+      "sha256": "1e59bccba0ac1c601605ee823788f50f63eb85a34652ecf5636b8560907fcb47"
+    },
+    {
+      "path": "src/fastmath.h",
+      "mode": "100644",
+      "git_blob": "86cbdfa2c817e997a1bb0a98067e5853a3e90181",
+      "sha256": "d216042352a370d1cd0b219220d92f6ee6e32f99074b193caff7c4696f3a69f0"
+    },
+    {
+      "path": "src/lc3.c",
+      "mode": "100644",
+      "git_blob": "fe73d691dd6e218992c3520da62c15e470944aa7",
+      "sha256": "6223c150f2c651137004df992cc52a894f2982617bae96f5ee85f0a6d29ee36b"
+    },
+    {
+      "path": "src/ltpf.c",
+      "mode": "100644",
+      "git_blob": "5b5fd59ed415991dd5bb90c4ec84ff47770b7ca1",
+      "sha256": "0eac5d3b6394aabd581d2618263f29a6fd7c36012736165d3df7e0669feb30a6"
+    },
+    {
+      "path": "src/ltpf.h",
+      "mode": "100644",
+      "git_blob": "42cedc6abb01f17a78c84e46d575097241251259",
+      "sha256": "5be7d1c5977198840917ec0689986cd87028ad912e17052e23cf9d11bd6434ff"
+    },
+    {
+      "path": "src/ltpf_arm.h",
+      "mode": "100644",
+      "git_blob": "fab352901469c24cf4bbd2c0e2efc118384db9a2",
+      "sha256": "25f962dfad0f19bf89759c6b85a1e2de09f231c23f83edc6a2e90c9469051f69"
+    },
+    {
+      "path": "src/ltpf_mve.h",
+      "mode": "100644",
+      "git_blob": "390b5fe719d734d290ec41242fe5039ad7f71630",
+      "sha256": "379c5d893b7ccfabb83f85f82ef80060f9b7d784a229dc20b7a1af6755159c34"
+    },
+    {
+      "path": "src/ltpf_neon.h",
+      "mode": "100644",
+      "git_blob": "27ba5d8e32c1560a275f6b3029351584bab29578",
+      "sha256": "4a4c2e11585e99c1a58f1bc875277f7d1de20ea369223d051020b2dfd7a0097c"
+    },
+    {
+      "path": "src/makefile.mk",
+      "mode": "100644",
+      "git_blob": "968ec43a68332ef62b83aca6ea2f2ca62e1b87db",
+      "sha256": "0b94f1c3fb7994e7f0dd18d8dd1a23e83eeb07ea1d05528f05de27de69694f84"
+    },
+    {
+      "path": "src/mdct.c",
+      "mode": "100644",
+      "git_blob": "51d9579cc9493e2ba10ac90d0ad6efa497c1ecc2",
+      "sha256": "57eddd5597c5a5b3ec547eb32e517ec7a2c0fda186aac98cf38bf65959fa7ca3"
+    },
+    {
+      "path": "src/mdct.h",
+      "mode": "100644",
+      "git_blob": "18d08b99b2f21a45c1c357401aa716050f126c5e",
+      "sha256": "7ebe6ae187489bf1d076a88d31c11315e47ca93fa2ba2da3355dd411495184bf"
+    },
+    {
+      "path": "src/mdct_neon.h",
+      "mode": "100644",
+      "git_blob": "a970d4ade3ad95f640105a9173c30ac4fba8ca34",
+      "sha256": "6c23af2bfd363889b51c5cf0ad6ffdd7058df5d9a24630050e184e4316467885"
+    },
+    {
+      "path": "src/meson.build",
+      "mode": "100644",
+      "git_blob": "026f4eec142ba9dbcef282b735ecacac6aa631a3",
+      "sha256": "8ee72d5b7551068f021f0f736534840313c0279db045ac5453b0508e970f2063"
+    },
+    {
+      "path": "src/plc.c",
+      "mode": "100644",
+      "git_blob": "f225ca666b389e8d2cfbd44087a610cb2bf77930",
+      "sha256": "b307cbcde8dadfa39b00f8a3227efd088a034701f9119e53dd5d8e06c226300c"
+    },
+    {
+      "path": "src/plc.h",
+      "mode": "100644",
+      "git_blob": "a7990bd69d2417969315a3d86d5e54c415856240",
+      "sha256": "703cefdaa9355e10597cb107a1d75400b78c0ec84363509475def8f21fcbe455"
+    },
+    {
+      "path": "src/sns.c",
+      "mode": "100644",
+      "git_blob": "85660d009112d7d848ccf67bd0a1175fc612600b",
+      "sha256": "2eada2a454df085ac9451cde4fd8c01136d8d958758f406327105cac1ecc511b"
+    },
+    {
+      "path": "src/sns.h",
+      "mode": "100644",
+      "git_blob": "ecb80efbdd6d6e7d3a375360aad06cb94d9a4206",
+      "sha256": "46a1978bfc2426e3739381006fb81f04c64f9a9ac6274d6f6550c3e8d1a5358e"
+    },
+    {
+      "path": "src/spec.c",
+      "mode": "100644",
+      "git_blob": "25a28d4380f5df729ff4143b5c6b11238ed3078c",
+      "sha256": "a4fd35a2b7a80ef39cb9c3fe1c2822b9f8842d69c7df6158607aa74472208c70"
+    },
+    {
+      "path": "src/spec.h",
+      "mode": "100644",
+      "git_blob": "92843638f917ec73ffb7f31b9ec938f0a5113cd9",
+      "sha256": "43631212c0eee627bdb55612af8d68183235e308b3ba602bdc50cc64b07e03fd"
+    },
+    {
+      "path": "src/tables.c",
+      "mode": "100644",
+      "git_blob": "947813d5fbb225ad140574cb85b559b056e31498",
+      "sha256": "8f325e60f185472eaef727a6dc7adb23a322f7dea2f2b607784e097adfa5c828"
+    },
+    {
+      "path": "src/tables.h",
+      "mode": "100644",
+      "git_blob": "2dc7810c948aec989b8b8ea06e16c4593335ed55",
+      "sha256": "c6ca665cac2b4e55ed83fd63a934840f74ea26ef3dbb4e558524616624b66e41"
+    },
+    {
+      "path": "src/tns.c",
+      "mode": "100644",
+      "git_blob": "b2b9305ec01da607edd881967f801b7917cbddf9",
+      "sha256": "b6f2a8e2677c527ee96d83b843d581c0a6890d6cc4aec7eeaf5dcef3d477797c"
+    },
+    {
+      "path": "src/tns.h",
+      "mode": "100644",
+      "git_blob": "95d4e6723f1820a1019cfa9632abe019d9037440",
+      "sha256": "7175ac02efd0cc2201eee69e2f318a8e858317751e1653a8e64765ba85e9e459"
+    },
+    {
+      "path": "tables/fastmath.py",
+      "mode": "100755",
+      "git_blob": "832bd609f97d8a9b7ae84bd8204fcecd22699a03",
+      "sha256": "d0a36c65d477c83297205b335a5b5ce4f2e519a1736da52362fc95bafe4090e7"
+    },
+    {
+      "path": "tables/mktables.py",
+      "mode": "100755",
+      "git_blob": "3b53ea846dd10c624f54017f950abd2580da1aa8",
+      "sha256": "d3d094aebeab162a4c1909dc8c88806aaa90add87c257262a16ba5b3f9ec2143"
+    },
+    {
+      "path": "tools/dlc3.c",
+      "mode": "100644",
+      "git_blob": "8c22ba188976aadd80046db94ae7d03ba7ad532b",
+      "sha256": "0700eeda07ab94eb722d55b2b5255a61097e3f454cff76869c01338ecd267811"
+    },
+    {
+      "path": "tools/elc3.c",
+      "mode": "100644",
+      "git_blob": "dec8bb09988a2708b0e8f493536b76e06e2e85e6",
+      "sha256": "c73f1c2d34a6c0533afc817abf80d46e4f3ec2537f4e0fce2805a86568dcbe68"
+    },
+    {
+      "path": "tools/lc3bin.c",
+      "mode": "100644",
+      "git_blob": "97ae82bf28768e2a9399f224a16443b9d5ad9065",
+      "sha256": "24e280904837764a16b289dc1fd3c4a8c7f5dfcab48a9112d254c3fdc902b39e"
+    },
+    {
+      "path": "tools/lc3bin.h",
+      "mode": "100644",
+      "git_blob": "3eccb37986971c4d175362a9907dec13a211df41",
+      "sha256": "96359da91fc0468d436ed15b5d19ccb0381c27b55e2ec9934d256ea682da3d54"
+    },
+    {
+      "path": "tools/makefile.mk",
+      "mode": "100644",
+      "git_blob": "61d1f97d6db55b018476f8a870938e9a524be05c",
+      "sha256": "ba1087f1fb60ac41b6b42c552bd01e0f04df48476f5ff785fb2078e4a8c36946"
+    },
+    {
+      "path": "tools/meson.build",
+      "mode": "100644",
+      "git_blob": "5da77e7e440a7bde5b6eb9b9b04ba1a167540a02",
+      "sha256": "c5b30ebeaa0ad718c938f85a8bb3f4fd1e707564bf2b2d86a3aba4081882f1b9"
+    },
+    {
+      "path": "tools/wave.c",
+      "mode": "100644",
+      "git_blob": "126f9139f82bcde3db179acc8846e721e9802422",
+      "sha256": "0b21aa1292501b539b8632c58d17b5e1921f4b73557ee34ecee4690ae31f1c2d"
+    },
+    {
+      "path": "tools/wave.h",
+      "mode": "100644",
+      "git_blob": "87e8186e4a5ef820346e4db4b40704a4bfd92749",
+      "sha256": "032507b2de96ccaebdcdf4e7314b58544480da1317938e4e630c5b8deab751bf"
+    },
+    {
+      "path": "wasm/math.h",
+      "mode": "100644",
+      "git_blob": "f004338500f80d8c60590be2198120ba819e6677",
+      "sha256": "f548f49731a28bfb6d0fe7b7e678138d398b15356a4083d5ec5fb7e28b6f2d71"
+    },
+    {
+      "path": "wasm/string.h",
+      "mode": "100644",
+      "git_blob": "bab773c400cb2f93579f72ec9d462779882dde50",
+      "sha256": "453f741a2ef58886b7b6065f828d715f46d4908feeabc26e4c960a32e24da23a"
+    },
+    {
+      "path": "zephyr/module.yml",
+      "mode": "100644",
+      "git_blob": "7874832a9264783ab1f21d279e7f75c75a8fc564",
+      "sha256": "ffbe1551e802e12aa108640f9588bcb2daa008ef7ea5d40a363cddbf640b7777"
+    }
+  ],
+  "excluded": [
+    {
+      "path": ".github/workflows/ci.yaml",
+      "mode": "100644",
+      "git_blob": "927749ffeef6785adf131c890e7e19d66c2038f8",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": ".github/workflows/pypi.yaml",
+      "mode": "100644",
+      "git_blob": "86f554ded2b8909c6e60a12caaf39838e0ddb3dc",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/README.md",
+      "mode": "100644",
+      "git_blob": "2e8a14b896fa2d9dfb40bdea48637bac87cc06a8",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_decode.html",
+      "mode": "100644",
+      "git_blob": "268e77c71eca66f67a1248a613683deba8b8994b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_encdec.html",
+      "mode": "100644",
+      "git_blob": "48a9cb1677d98861ab36e4aebb966203a53040b6",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_encode.html",
+      "mode": "100644",
+      "git_blob": "6ff20d2c38dd1f89b9e3b98682f753e3184d557f",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_hr_decode.html",
+      "mode": "100644",
+      "git_blob": "87d55d66dc49bdb57dc35c4034178fe67db570c2",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_hr_encdec.html",
+      "mode": "100644",
+      "git_blob": "1bd3ecf580ddb9ac92346c46245c9af8d3d0cdc0",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_hr_encode.html",
+      "mode": "100644",
+      "git_blob": "c7d38d0293f947e70ce534265a74b5485f66fd14",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_hr_fallback.html",
+      "mode": "100644",
+      "git_blob": "6dc6da5e85d3d6382200f5c5aae35f4746638b2e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/lc3plus_hr_precision.html",
+      "mode": "100644",
+      "git_blob": "ae846205ce837400ad1a9eb832e81c0f00169243",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_decode_10m.html",
+      "mode": "100644",
+      "git_blob": "40ac135fd670e03d16f780556aec6e5853b7d1a5",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_decode_7m5.html",
+      "mode": "100644",
+      "git_blob": "689485e6e084f054dbe76a3592cb7b4f108e1991",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_encdec_10m.html",
+      "mode": "100644",
+      "git_blob": "36b8301ccea9f4f819d573811ef657c01c1c216d",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_encdec_7m5.html",
+      "mode": "100644",
+      "git_blob": "715cbd69632df317d97d650a67b4362cc4c4df1a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_encode_10m.html",
+      "mode": "100644",
+      "git_blob": "1f8622f03bc7f6b75329e0fd98fe3bd17a205183",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/music_encode_7m5.html",
+      "mode": "100644",
+      "git_blob": "c8589b4e7b9c2d9124462584c9f9b37642f93086",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_10.0ms_48kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "f85d12f0972b0f3edbbd1d3703286266ea7e0f18",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_10.0ms_48kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "cecc4ac79d67109130db85168c697a652b4c3bf9",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_10.0ms_96kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "5242f5e16aef4e40de96629c64cbfd82a0e69c54",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_10.0ms_96kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "2150daae56eedbff20a54f6bf29b5220d11902af",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_2.5ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "a6c593cdadc6aa093f4df965faa645e085c17a1b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_2.5ms_48kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "03af17513f1110785196950030f5a76af315921f",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_2.5ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "5406b66a67a4019b2885ccb216da8c21488e2b91",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_2.5ms_96kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "298557d84115c666d6b4c0f1fd167d10acec3934",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_5.0ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "530b42c0e99568a8c1a521053e9cb7a932014de8",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_5.0ms_48kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "2f35bdfcf85f398f0ea785591f049d1ada65bf9b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_5.0ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "df4cf78f95b111662490391516b2f3b19ac6e251",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_decode_5.0ms_96kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "3c7373b8a194be45ea165f2420db4024f3443376",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_10.0ms_48kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "21c674173064202aba8e5ec6d0745bf20e0bad32",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_10.0ms_48kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "b51362788e6ebb5725e33ffd3455becb23124067",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_10.0ms_96kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "164992a343ccd7500340718b7131b0b42c9d2ac0",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_10.0ms_96kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "dcfa3a39fc0126c43e51872a04b0bf9f6688a09e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_2.5ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "ce0117f5dad6fc8c4a40412aeda8c7969b146f2e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_2.5ms_48kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "a734ab20e85adf07993df6843d4f95201d4e20b4",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_2.5ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "94ba5c00d46a9ade3dd0ae12e537fb0c5f67a221",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_2.5ms_96kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "50649ff2f71dc146ac2da85d96d36148991d4335",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_5.0ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "462d399817facc3e8b347e8a5369f96fae9ddda3",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_5.0ms_48kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "848352b9d862623d3da3fb7ce34b533870ab61eb",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_5.0ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "e665b8c237b524fe6a7d9643529eba9cc5078ce3",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encdec_5.0ms_96kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "be943869669b38a389a024df018154bb98c22f3b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_10.0ms_48kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "cf67673f78cd7e2c0936fcb892a4eaaf476e44c7",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_10.0ms_48kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "28ab7213570fc2600fbd4f94372aa1e9f691d8c5",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_10.0ms_96kHz_300.0kbps.png",
+      "mode": "100644",
+      "git_blob": "327f3f2aaa6bf3cfa772da96df7c31e699e9658a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_10.0ms_96kHz_500.0kbps.png",
+      "mode": "100644",
+      "git_blob": "756665fc089e51593f91106f9d1f1fe70b3ce566",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_2.5ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "d380ed10c539a76649a4833de02d1945c6aed662",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_2.5ms_48kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "bc151cdb7b16d5c53bee87c473651e4707c3b8f4",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_2.5ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "483791b50b67c1b7e8b8f45c8747ce5250f99814",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_2.5ms_96kHz_672.0kbps.png",
+      "mode": "100644",
+      "git_blob": "9dbb80bacbc08a6e5c5e82e66e1551820a1b72ec",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_5.0ms_48kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "fe792bf5405862f9bd2a26971508af056490d64d",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_5.0ms_48kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "8295f31861344a623a1d11761699b21e62b38974",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_5.0ms_96kHz_400.0kbps.png",
+      "mode": "100644",
+      "git_blob": "c8b52f6e00f44470294a4694542c22e98376199c",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/png_liblc3-hr-precision/thd+n_encode_5.0ms_96kHz_600.0kbps.png",
+      "mode": "100644",
+      "git_blob": "3428255cb7a6cf27f516e7a02df58e8f16101303",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_decode_10m.html",
+      "mode": "100644",
+      "git_blob": "661c94eca65878742ce251829c2183ac5fd1d7d3",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_decode_7m5.html",
+      "mode": "100644",
+      "git_blob": "491635ae23763dd9e27263cc1f6645a2483cb531",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_encdec_10m.html",
+      "mode": "100644",
+      "git_blob": "e48a08014a5d8904e126396942882fcc72920305",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_encdec_7m5.html",
+      "mode": "100644",
+      "git_blob": "b502cf8c7906b5fd3505ebeca7d1ac5cd62cc746",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_encode_10m.html",
+      "mode": "100644",
+      "git_blob": "fa5d5ddff0a4266c4bab7f8c41e37f1313e58e86",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "conformance/speech_encode_7m5.html",
+      "mode": "100644",
+      "git_blob": "49ae3035b1c715c4f912694ca01bde8e57eb0dbb",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "fuzz/dfuzz.cc",
+      "mode": "100644",
+      "git_blob": "29e6b5706eb263964ef2e8be418d638b2313c347",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "fuzz/efuzz.cc",
+      "mode": "100644",
+      "git_blob": "be68b9cc25544070f8386df31afe6857205fbcd1",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "fuzz/makefile.mk",
+      "mode": "100644",
+      "git_blob": "a8f53118e6105004edca306fd06a070851668158",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "pyproject.toml",
+      "mode": "100644",
+      "git_blob": "46f544094864df5a88fcc785792453a62c724afe",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/LICENSE",
+      "mode": "100644",
+      "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/lc3.py",
+      "mode": "100644",
+      "git_blob": "a5a938b94e86599426c7ef8583a4c70d66d0f131",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/meson.build",
+      "mode": "100644",
+      "git_blob": "e63c7685845f5a85ad0176824cd2c60d51e86f30",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/tests/basic_test.py",
+      "mode": "100644",
+      "git_blob": "82336e94507557a5cf3afdcfa397ba1f9aa74e6a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/tools/decoder.py",
+      "mode": "100755",
+      "git_blob": "7cc5127e0310fab38c69216af30c0cf57fa2af53",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/tools/encoder.py",
+      "mode": "100755",
+      "git_blob": "3246c4ca5f401d540b48fb2866e7ada07286d76e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "python/tools/specgram.py",
+      "mode": "100755",
+      "git_blob": "42781d410a7ee25a987634ba535041d3c344256d",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/appendix_c.py",
+      "mode": "100644",
+      "git_blob": "66b6e04bac9b4351b79e15c1f7808588c38da33f",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/arm/ltpf_arm.c",
+      "mode": "100644",
+      "git_blob": "e7b8bfc8f7e554b570e29c1c70a9be73974c50e2",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/arm/makefile.mk",
+      "mode": "100644",
+      "git_blob": "91d11d20125d50519f8d01318d825f102f1baea2",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/arm/simd32.h",
+      "mode": "100644",
+      "git_blob": "ae002f480b6b77b2e4397e48ad34380e3f0c78e9",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/arm/test_arm.c",
+      "mode": "100644",
+      "git_blob": "1e5c15bea4483c71fa04ef0af0dab19836fc6f6e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/attdet.py",
+      "mode": "100644",
+      "git_blob": "389b547f7e80fa1a45d0e8aebff6ceb942d935b6",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/attdet_py.c",
+      "mode": "100644",
+      "git_blob": "95da0ef9d134c92fb94d14eb7c2f58542e0b6481",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/bitstream.py",
+      "mode": "100644",
+      "git_blob": "8d46329df7ef5653a958d612620766b07759c569",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/bwdet.py",
+      "mode": "100644",
+      "git_blob": "d56d039ac0b7d6cbda358da9350c96563070b6b9",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/bwdet_py.c",
+      "mode": "100644",
+      "git_blob": "c02999771e230868cdaca07c0d221f877cc5639b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/ctypes.h",
+      "mode": "100644",
+      "git_blob": "c619c78ac405ff2c3fbef0148b85cbf1ab9b1744",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/decoder.py",
+      "mode": "100644",
+      "git_blob": "4dd8486065086b37e2a8294a0785a6ea37793b4d",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/encoder.py",
+      "mode": "100644",
+      "git_blob": "913420ee7d726b25231edeb7569bf01bd2d62058",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/energy.py",
+      "mode": "100644",
+      "git_blob": "6d754878bc0864c1efc6f8c2fb82a62adbce84b4",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/energy_py.c",
+      "mode": "100644",
+      "git_blob": "98b7fba69bebfff2c70993e505968d1e7a1bebc5",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/lc3_py.c",
+      "mode": "100644",
+      "git_blob": "0528d048648dd15f2858f0aa24cb5e857c006979",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/ltpf.py",
+      "mode": "100644",
+      "git_blob": "ec07c1a5eeb727df4d9cdd16a3cb930fc7e3590f",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/ltpf_py.c",
+      "mode": "100644",
+      "git_blob": "a8e8bfd92d8792329c6647c0fb42504d4127fb4f",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/makefile.mk",
+      "mode": "100644",
+      "git_blob": "d689ccb9195f0ab769cf5e50e059c1a00a4f5628",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mdct.py",
+      "mode": "100644",
+      "git_blob": "835af9e10ee747004bbff793fd5ea37071ac762e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mdct_py.c",
+      "mode": "100644",
+      "git_blob": "792937ec29afa7abff1b7d3254f407631899940a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/module_py.c",
+      "mode": "100644",
+      "git_blob": "6163a9c72b04c7d6c4097bec6d18fa0ef58543ed",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mve/ltpf_mve.c",
+      "mode": "100644",
+      "git_blob": "bb461020125ad2ae45952833642c12a163bed72b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mve/makefile.mk",
+      "mode": "100644",
+      "git_blob": "1bd39e256274070f2d1432068112beb903a05a0e",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mve/mve.h",
+      "mode": "100644",
+      "git_blob": "cc78dfc1c9eda0d1e1b8abb17c4be77686dc4035",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/mve/test_mve.c",
+      "mode": "100644",
+      "git_blob": "eb4ba1395a573469594e35794b9f05f71ff39410",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/neon/ltpf_neon.c",
+      "mode": "100644",
+      "git_blob": "0577bd135bf0f429fa5ab708181403003d43db8a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/neon/makefile.mk",
+      "mode": "100644",
+      "git_blob": "18fc35106c05fa35eae154e2fb24863321b2bdea",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/neon/mdct_neon.c",
+      "mode": "100644",
+      "git_blob": "d5f3888755bc2e16a2da27fea526c09d436b8733",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/neon/neon.h",
+      "mode": "100644",
+      "git_blob": "aaca818ef6c451382695a06b787f500361bc9243",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/neon/test_neon.c",
+      "mode": "100644",
+      "git_blob": "50622c71a6168f15e32137a1a8f7715d91dc2f2a",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/run.py",
+      "mode": "100755",
+      "git_blob": "293527f63f53c93d24a130eb8e9447933a35f052",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/setup.py",
+      "mode": "100755",
+      "git_blob": "b64f83e7ee4a7f81386021db15613aad8692887b",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/sns.py",
+      "mode": "100644",
+      "git_blob": "641d99fbea9020bda35ab3d6a4cd0fac11d65849",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/sns_py.c",
+      "mode": "100644",
+      "git_blob": "29015e7f0247aa3aa78ec2199f505a0fc68c53c1",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/spec.py",
+      "mode": "100644",
+      "git_blob": "341f3d5aa7e8e2f9eab935c767e344f3da9efdaa",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/spec_py.c",
+      "mode": "100644",
+      "git_blob": "5ef3731c41e735bff56b2353e40f42532eb882df",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/tables.py",
+      "mode": "100644",
+      "git_blob": "5df36ea5ca0fd51418b07fa8d4e8a60cc20da7de",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/tns.py",
+      "mode": "100644",
+      "git_blob": "a44019f244740c17085c012e11337164de72dfd3",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    },
+    {
+      "path": "test/tns_py.c",
+      "mode": "100644",
+      "git_blob": "04752cc8b82f0350cf6992d4c7396fdc19f92b85",
+      "reason": "unused optional upstream automation/tests; no production dependency"
+    }
+  ],
+  "binary_files": [],
+  "secret_scan": "filename and credential-prefix checks passed; no sensitive values printed",
+  "dependencies": "C standard library + system libm; no downloaded dependencies",
+  "repo": "https://github.com/google/liblc3"
+}

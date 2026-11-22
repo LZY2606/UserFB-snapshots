@@ -1,0 +1,8 @@
+.*
+!.gitignore
+!.github
+bin
+build
+test/build
+*__pycache__
+wheelhouse
