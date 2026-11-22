@@ -46,6 +46,34 @@ typedef void ServerRequestAlternativeByteHandler(void* instance, u_int8_t reques
 // the same TCP connection.  A RTSP server implementation would supply a function like this - as a parameter to
 // "ServerMediaSubsession::startStream()".
 
+// ---- Optional deadline-aware, per-connection TCP send queue ("queued send mode") ----
+//
+// When enabled for a TCP socket, every RTPInterface that interleaves RTP/RTCP frames onto that
+// socket shares ONE FIFO queue instead of sending inline. sendPacket() then means "copied and
+// taken over"; the caller may reuse its buffer immediately. Complete RFC 2326 sec 10.12 frames
+// ('$'+channel+uint16 size+payload) are handed to a non-blocking underlying writer, one segment at
+// a time, and frames whose play deadline has passed before their first byte is sent are dropped.
+//
+// Applicability (the application is responsible for honouring this): plaintext, application-managed
+// TCP connections that carry RTP/RTCP only. It is NOT extended to TLS, SRTP or RTSP control
+// responses, and a connection that has a server-request alternative-byte handler is refused.
+
+// Replaceable monotonic clock: microseconds on an unspecified monotonic timeline. The default reads
+// CLOCK_MONOTONIC; tests substitute a manually advanceable clock.
+typedef long long RTPQueueClockFunc(void* clientData);
+
+// Replaceable underlying write entry point. MUST be non-blocking. Semantics mirror send():
+//   bytesAccepted > 0: that many leading bytes were taken (a short write is retried at the offset);
+//   bytesAccepted = 0 / err = EAGAIN or EWOULDBLOCK: no progress, wait for writability;
+//   err = EINTR: no bytes consumed, retried;
+//   any other err: terminal error for THIS connection's queue only.
+struct RTPQueueWriteResult {
+  ssize_t bytesAccepted;
+  int err;
+};
+typedef RTPQueueWriteResult RTPQueueWriteFunc(void* clientData, int socketNum,
+					      unsigned char const* data, unsigned dataSize);
+
 class RTPInterface {
 public:
   RTPInterface(Medium* owner, Groupsock* gs);
@@ -59,6 +87,38 @@ public:
   static void setServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum,
 						     ServerRequestAlternativeByteHandler* handler, void* clientData);
   static void clearServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum);
+
+  // ---- Queued send mode (explicit opt-in; see the comment above) ----
+  // Enable the shared send queue for "socketNum" with a non-zero byte budget. Returns False and
+  // changes nothing when the socket is unknown, already queued, has zero budget, has an
+  // alternative-byte handler, or carries TLS. The queue is shared by every RTPInterface using this
+  // socket and owns its own scheduler state (background-writable handler + deadline timer).
+  static Boolean enableQueuedSendMode(UsageEnvironment& env, int socketNum,
+				      unsigned long long byteLimit);
+  // Replace the clock/underlying writer used by one queued connection (must be called right after
+  // enableQueuedSendMode(), before any packet is queued). Passing NULL restores the default.
+  static Boolean setQueuedSendHooks(UsageEnvironment& env, int socketNum,
+				    RTPQueueClockFunc* clockFunc, void* clockClientData,
+				    RTPQueueWriteFunc* writeFunc, void* writeClientData);
+  // Single-step pump for memory replay/tests: expire due deadlines, then attempt as many
+  // non-blocking writes as the writer accepts. The production path calls this from the scheduler
+  // (writable handler and deadline timer); tests call it directly. Returns False if the
+  // connection's queue has terminated (hard error).
+  static Boolean pumpQueuedSend(UsageEnvironment& env, int socketNum);
+  // True while the connection's queue exists and has not been killed by a hard error.
+  static Boolean queuedSendIsActive(UsageEnvironment& env, int socketNum);
+  // True while the queue has a frame waiting on the underlying writer (i.e. the writable callback
+  // is armed). False once the FIFO drains or after termination.
+  static Boolean queuedSendHasPending(UsageEnvironment& env, int socketNum);
+  // Bytes currently held by the queue and not yet fully handed to the underlying writer.
+  static unsigned long long queuedSendPendingBytes(UsageEnvironment& env, int socketNum);
+
+  // Per-interface media clock, set BEFORE the first packet. An interface without it still shares
+  // the FIFO (for RTCP) but its frames have no play deadline. "clockRate" must be positive.
+  //   deadlineUs = localBaseUs + playBufferUs
+  //              + floor((int32_t)(rtpTimestamp - baseRtpTimestamp) * 1000000 / clockRate)
+  Boolean setPlaybackTiming(unsigned clockRate, u_int32_t baseRtpTimestamp,
+			    long long localBaseUs, long long playBufferUs);
 
   Boolean sendPacket(unsigned char* packet, unsigned packetSize);
   void startNetworkReading(TaskScheduler::BackgroundHandlerProc*
@@ -161,6 +221,16 @@ private:
   struct timeval fSendRateWindowStart;
   unsigned fSendRateAccumBytes;
   double fSendBytesPerSec;
+
+  // Per-interface media clock for queued send mode (setPlaybackTiming()). fHasPlaybackTiming stays
+  // False on RTCP-only interfaces, whose frames carry no deadline but still share the FIFO.
+  Boolean fHasPlaybackTiming;
+  unsigned fPlaybackClockRate;     // Hz, always positive when configured
+  u_int32_t fBaseRtpTimestamp;
+  long long fLocalBaseUs;          // monotonic microseconds at fBaseRtpTimestamp
+  long long fPlayBufferUs;         // playback buffer in microseconds
+
+  friend class QueuedTCPConnection;
 };
 
 #endif

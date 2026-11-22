@@ -125,6 +125,7 @@ public:
 
   MediaLookupTable* mediaTable;
   void* socketTable;
+  void* queuedSendTable; // socket number -> QueuedTCPConnection (optional deadline-aware RTP-over-TCP send queues)
 
 protected:
   _Tables(UsageEnvironment& env);

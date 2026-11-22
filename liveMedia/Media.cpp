@@ -103,14 +103,14 @@ _Tables* _Tables::getOurTables(UsageEnvironment& env, Boolean createIfNotPresent
 }
 
 void _Tables::reclaimIfPossible() {
-  if (mediaTable == NULL && socketTable == NULL) {
+  if (mediaTable == NULL && socketTable == NULL && queuedSendTable == NULL) {
     fEnv.liveMediaPriv = NULL;
     delete this;
   }
 }
 
 _Tables::_Tables(UsageEnvironment& env)
-  : mediaTable(NULL), socketTable(NULL), fEnv(env) {
+  : mediaTable(NULL), socketTable(NULL), queuedSendTable(NULL), fEnv(env) {
 }
 
 _Tables::~_Tables() {

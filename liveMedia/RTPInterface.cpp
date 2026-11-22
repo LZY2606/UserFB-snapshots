@@ -42,6 +42,8 @@ using RTPInterleavedFraming::SKIPPING_UNHANDLED_PAYLOAD;
 #include <GroupsockHelper.hh>
 #include <stdio.h>
 #include <errno.h>
+#include <string.h>
+#include <time.h>
 #if defined(__linux__)
 #include <sys/ioctl.h>   // TIOCOUTQ: bytes still queued in a socket's kernel send buffer
 #endif
@@ -222,6 +224,8 @@ private:
 
 unsigned PeerProbe::fInFlight = 0;
 
+class QueuedTCPConnection; // defined below; per-socket shared deadline-aware send FIFO
+
 class SocketDescriptor {
 public:
   SocketDescriptor(UsageEnvironment& env, int socketNum, TLSState* tlsState);
@@ -233,8 +237,17 @@ public:
   void deregisterRTPInterface(unsigned char streamChannelId);
 
   void setServerRequestAlternativeByteHandler(ServerRequestAlternativeByteHandler* handler, void* clientData) {
+    // Queued send mode and the RTSP alternative-byte handler are mutually exclusive: the queue
+    // assumes the connection carries '$'-framed RTP/RTCP only, while this handler exists precisely
+    // to demux RTSP control bytes on the same fd. Refuse to mix them rather than silently
+    // interleaving both kinds of traffic. The caller (a static RTPInterface entry point) logs.
+    if (handler != NULL && fQueuedConnection != NULL) return;
     fServerRequestAlternativeByteHandler = handler;
     fServerRequestAlternativeByteHandlerClientData = clientData;
+  }
+
+  Boolean hasServerRequestAlternativeByteHandler() const {
+    return fServerRequestAlternativeByteHandler != NULL;
   }
 
   // Disconnect an evicted downstream consumer for real.
@@ -261,6 +274,15 @@ public:
 
 private:
   static void tcpReadHandler(SocketDescriptor*, int mask);
+  // Single background-handler entry point for the fd. The scheduler allows only ONE handler per
+  // socket number, so the read path (RTP/RTCP interleaved frames) and the queued-send writable path
+  // share this thunk, which routes each fired mask to the right owner.
+  static void socketBackgroundHandler(SocketDescriptor*, int mask);
+  // (Re)register the fd's background handler with the exact condition set it currently needs:
+  // always READABLE|EXCEPTION for the interleaved reader, plus WRITABLE only while the queued-send
+  // connection is explicitly waiting for drain (a permanently-armed writable bit would busy-loop,
+  // a writable socket is almost always ready).
+  void refreshBackgroundHandler();
   Boolean tcpReadHandler1(int mask);
   // Flag this TCP connection as broken and stop handling it: the caller should `return` this so the
   // read loop unwinds and the descriptor is torn down (its background read handler removed) instead
@@ -351,6 +373,9 @@ private:
   StreamRole fStreamRole;
   void noteStreamRole(StreamRole role);
 
+  friend class QueuedTCPConnection;
+  friend class RTPInterface;
+
   // ---- TIME-based stream-stall detector (distinct from the busy-loop guard above) ----
   //
   // fPacketStallCount is a CPU BUSY-LOOP guard: it counts read DISPATCHES, so it only works while the
@@ -372,6 +397,15 @@ private:
   // monotonicSeconds(), never time(NULL): this feeds an ELAPSED-TIME stall check, and an NTP step
   // would otherwise hide a real stall (backward) or fabricate one on every stream at once (forward).
   void noteProgress() { fLastProgressSec = monotonicSeconds(); fStallReported = False; }
+
+  // ---- deadline-aware queued send state (declared last to match the ctor initializer order) ----
+  // The queued-send connection object when this socket is in queued send mode, else NULL. Owned by
+  // the environment-wide queue table; destroyed when the last interface leaves the socket.
+  QueuedTCPConnection* fQueuedConnection;
+  // Cached scheduler registration state, so refreshBackgroundHandler() re-registers the fd only on
+  // an actual condition change (the read+exception bits are constant for the socket's life).
+  Boolean fBackgroundHandlerRegistered;
+  Boolean fWritableArmed;
 };
 
 static SocketDescriptor*
@@ -413,6 +447,361 @@ static void removeSocketDescription(UsageEnvironment& env, int sockNum) {
 }
 
 
+////////// Deadline-aware per-connection queued send ("queued send mode") //////////
+
+// One complete RFC 2326 sec 10.12 frame held in the FIFO: '$'+channel+uint16 size+payload in a
+// single owned buffer, so a short write is continued from fSentOffset and no partial frame can ever
+// have another frame concatenated onto its remnant.
+class QueuedFrame {
+public:
+  QueuedFrame(u_int8_t channel, unsigned char const* packet, unsigned packetSize,
+	      Boolean hasDeadline, long long deadlineUs, RTPInterface* owner, QueuedFrame* next)
+    : fChannel(channel), fPayloadSize(packetSize),
+      fHasDeadline(hasDeadline), fDeadlineUs(deadlineUs), fOwner(owner),
+      fSentOffset(0), fNext(next) {
+    fData = new unsigned char[RTP_TCP_FRAMING_HEADER_BYTES + packetSize];
+    fData[0] = '$';
+    fData[1] = channel;
+    fData[2] = (u_int8_t)((packetSize&0xFF00)>>8);
+    fData[3] = (u_int8_t)(packetSize&0xFF);
+    if (packetSize > 0) memmove(&fData[RTP_TCP_FRAMING_HEADER_BYTES], packet, packetSize);
+  }
+  ~QueuedFrame() { delete[] fData; }
+
+  unsigned totalSize() const { return RTP_TCP_FRAMING_HEADER_BYTES + fPayloadSize; }
+  unsigned remaining() const { return totalSize() - fSentOffset; }
+  Boolean started() const { return fSentOffset > 0; }
+
+  u_int8_t fChannel;
+  unsigned char* fData;
+  unsigned fPayloadSize;
+  Boolean fHasDeadline;
+  long long fDeadlineUs; // monotonic microseconds; only meaningful when fHasDeadline
+  RTPInterface* fOwner;
+  unsigned fSentOffset; // bytes already handed to the underlying writer; 0 == not yet started
+  QueuedFrame* fNext;
+};
+
+// floor(a/b) for b > 0. C/C++ integer division truncates toward zero, which is NOT floor for a
+// negative numerator -- and RTP timestamp deltas are signed (a frame can precede the base, and the
+// 32-bit counter wraps through zero). The deadline formula mandates floor(), so implement it
+// explicitly rather than trusting truncation.
+static long long floorDiv(long long a, long long b) {
+  long long q = a / b;
+  long long r = a % b;
+  if (r != 0 && (r < 0) != (b < 0)) --q;
+  return q;
+}
+
+// Default hooks: real CLOCK_MONOTONIC microseconds and a plain non-blocking send().
+static long long queuedSendDefaultClock(void* /*clientData*/) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+  return (long long)ts.tv_sec*1000000LL + ts.tv_nsec/1000;
+}
+
+static RTPQueueWriteResult queuedSendDefaultWrite(void* /*clientData*/, int socketNum,
+						  unsigned char const* data, unsigned dataSize) {
+  RTPQueueWriteResult result;
+  ssize_t n = send(socketNum, (char const*)data, dataSize, MSG_NOSIGNAL);
+  if (n >= 0) { result.bytesAccepted = n; result.err = 0; }
+  else { result.bytesAccepted = 0; result.err = errno; }
+  return result;
+}
+
+class QueuedTCPConnection {
+public:
+  QueuedTCPConnection(UsageEnvironment& env, SocketDescriptor* descriptor, int socketNum,
+		      unsigned long long byteLimit)
+    : fEnv(env), fDescriptor(descriptor), fSocketNum(socketNum), fByteLimit(byteLimit),
+      fQueueHead(NULL), fQueueTail(NULL), fQueuedBytes(0), fTerminated(False),
+      fClockFunc(queuedSendDefaultClock), fClockClientData(NULL),
+      fWriteFunc(queuedSendDefaultWrite), fWriteClientData(NULL),
+      fDeadlineTask(NULL), fArmedDeadlineUs(0), fArmedDeadlineValid(False), fHooksFrozen(False) {}
+
+  ~QueuedTCPConnection() {
+    // Defensive: the owner (SocketDescriptor destructor) normally detaches us first. A timer still
+    // armed here would fire on freed memory after an fd is reused.
+    if (fDeadlineTask != NULL) fEnv.taskScheduler().unscheduleDelayedTask(fDeadlineTask);
+    while (fQueueHead != NULL) { QueuedFrame* next = fQueueHead->fNext; delete fQueueHead; fQueueHead = next; }
+  }
+
+  int socketNum() const { return fSocketNum; }
+  Boolean isActive() const { return !fTerminated; }
+  Boolean wantsWritable() const { return !fTerminated && fQueueHead != NULL; }
+  unsigned long long queuedBytes() const { return fQueuedBytes; }
+
+  void setHooks(RTPQueueClockFunc* clockFunc, void* clockClientData,
+		RTPQueueWriteFunc* writeFunc, void* writeClientData) {
+    if (fHooksFrozen) return; // packets already flowed through this queue: wiring a replay writer late would corrupt a run
+    fClockFunc = clockFunc != NULL ? clockFunc : queuedSendDefaultClock;
+    fClockClientData = clockClientData;
+    fWriteFunc = writeFunc != NULL ? writeFunc : queuedSendDefaultWrite;
+    fWriteClientData = writeClientData;
+  }
+
+  long long now() const { return (*fClockFunc)(fClockClientData); }
+
+  // Compute a frame's play deadline from the owning interface's media clock. RTCP-only interfaces
+  // (no media clock configured) get no deadline and share the FIFO unconditionally.
+  long long deadlineFor(RTPInterface* owner, unsigned char const* packet, unsigned packetSize,
+			Boolean& hasDeadline) const {
+    hasDeadline = owner->fHasPlaybackTiming;
+    if (!hasDeadline) return 0;
+    u_int32_t const rtpTimestamp = (packetSize >= 8)
+      ? ((u_int32_t)packet[4]<<24 | (u_int32_t)packet[5]<<16
+	 | (u_int32_t)packet[6]<<8 | (u_int32_t)packet[7])
+      : 0;
+    // Reinterpret the unsigned wrap-around difference as signed32: inputs are one continuous
+    // timeline less than half a cycle apart, so int32_t gives the correct signed delta ACROSS zero.
+    int32_t const delta = (int32_t)(rtpTimestamp - owner->fBaseRtpTimestamp);
+    long long const mediaUs = floorDiv((long long)delta*1000000LL,
+				       (long long)owner->fPlaybackClockRate);
+    return owner->fLocalBaseUs + owner->fPlayBufferUs + mediaUs;
+  }
+
+  // Take over (copy) one frame. False means rejected: oversized, already expired, or over the
+  // connection byte budget. On success the caller may immediately reuse its own buffer.
+  Boolean enqueue(RTPInterface* owner, u_int8_t channel,
+		  unsigned char const* packet, unsigned packetSize) {
+    if (fTerminated) return False;
+    // The 16-bit size field cannot represent a payload this large; refuse rather than emitting a
+    // truncated length header and permanently desyncing the stream.
+    if (packetSize > 0xFFFF) return False;
+
+    Boolean hasDeadline;
+    long long const deadlineUs = deadlineFor(owner, packet, packetSize, hasDeadline);
+    long long const nowUs = now();
+    // Past its play time before it even enters the queue: drop, do not take capacity.
+    if (hasDeadline && nowUs >= deadlineUs) return False;
+
+    unsigned const frameSize = RTP_TCP_FRAMING_HEADER_BYTES + packetSize;
+    // Hard per-connection budget on bytes not yet handed to the underlying writer. Over-limit
+    // packets are rejected; earlier, fresher packets are never evicted to make room.
+    if ((unsigned long long)frameSize > fByteLimit - fQueuedBytes) return False;
+
+    QueuedFrame* frame = new QueuedFrame(channel, packet, packetSize,
+					 hasDeadline, deadlineUs, owner, NULL);
+    if (fQueueTail == NULL) fQueueHead = fQueueTail = frame;
+    else { fQueueTail->fNext = frame; fQueueTail = frame; }
+    fQueuedBytes += frameSize;
+    fHooksFrozen = True;
+
+    // Production gets woken via the scheduler (the fd is writable while its buffer has room);
+    // memory-replay tests drive pumpQueuedSend() explicitly. No blocking send anywhere on this path.
+    rescheduleDeadlineTimer(nowUs);
+    if (fDescriptor != NULL) fDescriptor->refreshBackgroundHandler();
+    return True;
+  }
+
+  // Remove every not-yet-started frame owned by "owner" on "channel" (channel teardown). Frames
+  // whose first byte has already been written stay and are completed, no matter how stale. The
+  // started() check comes first so a completed-in-flight frame never even reads its (possibly
+  // freed) owner pointer.
+  void removeUnstarted(RTPInterface* owner, u_int8_t channel) {
+    QueuedFrame** link = &fQueueHead;
+    while (*link != NULL) {
+      QueuedFrame* frame = *link;
+      if (!frame->started() && frame->fOwner == owner && frame->fChannel == channel) {
+	*link = frame->fNext;
+	if (frame == fQueueTail) fQueueTail = *link;
+	fQueuedBytes -= frame->totalSize();
+	delete frame;
+      } else {
+	link = &frame->fNext;
+      }
+    }
+    if (fQueueHead == NULL) fQueueTail = NULL;
+    rescheduleDeadlineTimer(now());
+    if (fDescriptor != NULL) fDescriptor->refreshBackgroundHandler();
+  }
+
+  // Drop whole, unstarted frames whose deadline has arrived. A blocked head does not protect the
+  // packets behind it: each frame is judged on its own started-flag, so expired queued packets
+  // release their capacity even while the head is waiting on EAGAIN.
+  void expireDueFrames(long long nowUs) {
+    QueuedFrame** link = &fQueueHead;
+    while (*link != NULL) {
+      QueuedFrame* frame = *link;
+      if (!frame->started() && frame->fHasDeadline && nowUs >= frame->fDeadlineUs) {
+	*link = frame->fNext;
+	if (frame == fQueueTail) fQueueTail = *link;
+	fQueuedBytes -= frame->totalSize();
+	delete frame;
+      } else {
+	link = &frame->fNext;
+      }
+    }
+    if (fQueueHead == NULL) fQueueTail = NULL;
+  }
+
+  // Single-step pump: expire due frames, then keep writing while the underlying writer accepts
+  // bytes. Short writes continue at the offset; EINTR consumes nothing and is retried; EAGAIN parks
+  // on the writable handler; a hard error terminates this connection's queue only.
+  Boolean pump() {
+    if (fTerminated) return False;
+
+    long long nowUs = now();
+    expireDueFrames(nowUs);
+
+    unsigned eintrRetries = 0;
+    while (fQueueHead != NULL) {
+      QueuedFrame* frame = fQueueHead;
+      RTPQueueWriteResult r = (*fWriteFunc)(fWriteClientData, fSocketNum,
+					    frame->fData + frame->fSentOffset,
+					    frame->remaining());
+      if (r.bytesAccepted > 0) {
+	unsigned accepted = (unsigned)r.bytesAccepted;
+	if (accepted > frame->remaining()) accepted = frame->remaining(); // defend against a misbehaving writer
+	frame->fSentOffset += accepted;
+	fQueuedBytes -= accepted;
+	eintrRetries = 0;
+	if (frame->fSentOffset >= frame->totalSize()) {
+	  // Whole frame out; unlink and keep draining the FIFO within this same step.
+	  fQueueHead = frame->fNext;
+	  if (fQueueHead == NULL) fQueueTail = NULL;
+	  delete frame;
+	}
+	continue;
+      }
+      if (r.err == EINTR) {
+	// No bytes consumed; retry without state change. Bound the retry count so a writer that
+	// returns EINTR forever cannot pin the event loop.
+	if (++eintrRetries >= RTP_QUEUE_MAX_EINTR_RETRIES) break;
+	continue;
+      }
+      if (r.err == EAGAIN || r.err == EWOULDBLOCK) {
+	// Park: writability is already armed (or is armed below); no polling sleep.
+	break;
+      }
+      // Hard error: kill THIS connection's queue and its callbacks; other sockets are untouched.
+      fEnv << TX_CODE_UNEXPECTED << " RTPInterface: queued TCP send on socket " << fSocketNum
+	   << " failed with errno " << r.err
+	   << "; terminating this connection's send queue (its frames are discarded; other sockets unaffected).\n";
+      terminate();
+      return False;
+    }
+
+    rescheduleDeadlineTimer(now());
+    if (fDescriptor != NULL) fDescriptor->refreshBackgroundHandler();
+    return True;
+  }
+
+  void onWritable(int /*mask*/) { pump(); }
+  static void deadlineTask(void* clientData) {
+    QueuedTCPConnection* conn = (QueuedTCPConnection*)clientData;
+    conn->fDeadlineTask = NULL; // one-shot; re-armed inside pump()
+    conn->pump();
+  }
+
+  // Stop everything: free queued frames, disarm timer and writable callback. The table entry and
+  // object live on until the last interface leaves (so further enqueues fail deterministically).
+  void terminate() {
+    if (fTerminated) return;
+    fTerminated = True;
+    if (fDeadlineTask != NULL) {
+      fEnv.taskScheduler().unscheduleDelayedTask(fDeadlineTask);
+      fDeadlineTask = NULL;
+    }
+    fArmedDeadlineValid = False;
+    while (fQueueHead != NULL) {
+      QueuedFrame* next = fQueueHead->fNext;
+      fQueuedBytes -= fQueueHead->remaining(); // a started frame has already had its sent bytes accounted
+      delete fQueueHead;
+      fQueueHead = next;
+    }
+    fQueueTail = NULL;
+    fQueuedBytes = 0;
+    if (fDescriptor != NULL) fDescriptor->refreshBackgroundHandler();
+  }
+
+  // Final teardown when the SocketDescriptor goes away (last interface left): cancel every task and
+  // release all state so nothing can fire on a subsequently reused fd.
+  void detachAndDestroy(HashTable* table) {
+    if (fDeadlineTask != NULL) fEnv.taskScheduler().unscheduleDelayedTask(fDeadlineTask);
+    fDeadlineTask = NULL;
+    fArmedDeadlineValid = False;
+    if (fDescriptor != NULL) fDescriptor->fQueuedConnection = NULL;
+    fDescriptor = NULL;
+    table->Remove((char const*)(long)fSocketNum);
+    if (table->IsEmpty()) {
+      // Mirror the socket table: drop the empty hash table so _Tables can reclaim itself.
+      _Tables* ourTables = _Tables::getOurTables(fEnv);
+      delete table;
+      ourTables->queuedSendTable = NULL;
+      ourTables->reclaimIfPossible();
+    }
+    delete this;
+  }
+
+private:
+  static unsigned const RTP_QUEUE_MAX_EINTR_RETRIES = 1000;
+
+  void rescheduleDeadlineTimer(long long nowUs) {
+    long long nearest = 0;
+    Boolean haveDeadline = False;
+    for (QueuedFrame* frame = fQueueHead; frame != NULL; frame = frame->fNext) {
+      // Started frames are immune to expiry; no need to wake for their deadlines.
+      if (frame->fHasDeadline && !frame->started()
+	  && (!haveDeadline || frame->fDeadlineUs < nearest)) {
+	nearest = frame->fDeadlineUs; haveDeadline = True;
+      }
+    }
+    // Keep the armed task when it already fires at the nearest deadline: re-arming on every
+    // enqueue would churn the delay queue even though media timestamps (and thus deadlines) arrive
+    // in non-decreasing order, so the common case is "nothing moved earlier".
+    if (haveDeadline && fDeadlineTask != NULL && fArmedDeadlineValid
+	&& fArmedDeadlineUs == nearest) {
+      return;
+    }
+    if (fDeadlineTask != NULL) {
+      fEnv.taskScheduler().unscheduleDelayedTask(fDeadlineTask);
+      fDeadlineTask = NULL;
+    }
+    fArmedDeadlineValid = False;
+    if (fTerminated || !haveDeadline) return;
+    long long delay = nearest - nowUs;
+    if (delay < 0) delay = 0;
+    fDeadlineTask = fEnv.taskScheduler().scheduleDelayedTask((int64_t)delay, deadlineTask, this);
+    fArmedDeadlineUs = nearest;
+    fArmedDeadlineValid = True;
+  }
+
+  UsageEnvironment& fEnv;
+  SocketDescriptor* fDescriptor;
+  int fSocketNum;
+  unsigned long long fByteLimit;
+  QueuedFrame* fQueueHead;
+  QueuedFrame* fQueueTail;
+  unsigned long long fQueuedBytes; // bytes not yet handed to the underlying writer (all frames)
+  Boolean fTerminated;
+  RTPQueueClockFunc* fClockFunc;
+  void* fClockClientData;
+  RTPQueueWriteFunc* fWriteFunc;
+  void* fWriteClientData;
+  TaskToken fDeadlineTask;
+  long long fArmedDeadlineUs;      // absolute deadline the current task is armed for
+  Boolean fArmedDeadlineValid;
+  Boolean fHooksFrozen; // once a frame flowed, test hooks can no longer be swapped
+};
+
+// Environment-wide socket number -> QueuedTCPConnection table.
+static HashTable* queuedSendTable(UsageEnvironment& env, Boolean createIfNotPresent = False) {
+  _Tables* ourTables = _Tables::getOurTables(env, createIfNotPresent);
+  if (ourTables == NULL) return NULL;
+  if (ourTables->queuedSendTable == NULL && createIfNotPresent) {
+    ourTables->queuedSendTable = HashTable::create(ONE_WORD_HASH_KEYS);
+  }
+  return (HashTable*)(ourTables->queuedSendTable);
+}
+
+static QueuedTCPConnection* lookupQueuedConnection(UsageEnvironment& env, int socketNum) {
+  HashTable* table = queuedSendTable(env);
+  if (table == NULL) return NULL;
+  return (QueuedTCPConnection*)table->Lookup((char const*)(long)socketNum);
+}
+
+
 ////////// RTPInterface - Implementation //////////
 
 RTPInterface::RTPInterface(Medium* owner, Groupsock* gs)
@@ -429,7 +818,9 @@ RTPInterface::RTPInterface(Medium* owner, Groupsock* gs)
     fStoredReadFd(-1),
     fAuxReadHandlerFunc(NULL), fAuxReadHandlerClientData(NULL),
     fFarEndCloseProven(False),
-    fSendRateAccumBytes(0), fSendBytesPerSec(0.0) {
+    fSendRateAccumBytes(0), fSendBytesPerSec(0.0),
+    fHasPlaybackTiming(False), fPlaybackClockRate(0), fBaseRtpTimestamp(0),
+    fLocalBaseUs(0), fPlayBufferUs(0) {
   fSendRateWindowStart.tv_sec = 0; fSendRateWindowStart.tv_usec = 0;
   // Make the socket non-blocking, even though it will be read from only asynchronously, when packets arrive.
   // The reason for this is that, in some OSs, reads on a blocking socket can (allegedly) sometimes block,
@@ -517,13 +908,21 @@ void RTPInterface::removeStreamSocket(int sockNum,
 	  && (streamChannelId == 0xFF || streamChannelId == (*streamsPtr)->fStreamChannelId)) {
 	// Delete the record pointed to by *streamsPtr :
 	unsigned char streamChannelIdToRemove = (*streamsPtr)->fStreamChannelId;
+	int socketNumToRemove = (*streamsPtr)->fStreamSocketNum;
 	tcpStreamRecord* next = (*streamsPtr)->fNext;
 	(*streamsPtr)->fNext = NULL;
 	delete (*streamsPtr);
 	*streamsPtr = next;
 
+	// Queued mode: a channel removal withdraws only its frames that never started. Frames with
+	// any byte already on the wire are completed so the stream never gets a second frame
+	// concatenated onto a truncated body. Done BEFORE deregisterSocket(), which may delete the
+	// SocketDescriptor (and thus the queue) when this was the last channel.
+	QueuedTCPConnection* queued = lookupQueuedConnection(envir(), socketNumToRemove);
+	if (queued != NULL) queued->removeUnstarted(this, streamChannelIdToRemove);
+
 	// And 'deregister' this socket,channelId pair:
-	deregisterSocket(envir(), sockNum, streamChannelIdToRemove);
+	deregisterSocket(envir(), socketNumToRemove, streamChannelIdToRemove);
 
 	if (streamChannelId != 0xFF) return; // we're done
 	break; // start again from the beginning of the list, in case the list has changed
@@ -538,12 +937,95 @@ void RTPInterface::removeStreamSocket(int sockNum,
 void RTPInterface::setServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum,
 							  ServerRequestAlternativeByteHandler* handler, void* clientData) {
   SocketDescriptor* socketDescriptor = lookupSocketDescriptor(env, socketNum, NULL, False);
+  if (socketDescriptor == NULL) return;
 
-  if (socketDescriptor != NULL) socketDescriptor->setServerRequestAlternativeByteHandler(handler, clientData);
+  // Mutual exclusion with queued send mode: a socket whose '$' framing we own for the RTP/RTCP-only
+  // queue cannot simultaneously demux RTSP control bytes. Refuse and log rather than mixing the two
+  // traffic kinds silently. Clearing an existing handler (handler == NULL) is always allowed.
+  if (handler != NULL && socketDescriptor->fQueuedConnection != NULL) {
+    env << TX_CODE_UNEXPECTED << " RTPInterface: refusing to register an alternative-byte handler on socket "
+	<< socketNum << " because queued send mode is enabled on it; the connection stays under queue"
+	   " control (RTP/RTCP only).\n";
+    return;
+  }
+  socketDescriptor->setServerRequestAlternativeByteHandler(handler, clientData);
 }
 
 void RTPInterface::clearServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum) {
   setServerRequestAlternativeByteHandler(env, socketNum, NULL, NULL);
+}
+
+Boolean RTPInterface::enableQueuedSendMode(UsageEnvironment& env, int socketNum,
+					   unsigned long long byteLimit) {
+  if (byteLimit == 0) return False; // a zero budget would reject every packet; the caller must pick a real one
+  SocketDescriptor* descriptor = lookupSocketDescriptor(env, socketNum, NULL, False);
+  if (descriptor == NULL) return False; // nothing is using this socket yet
+  if (descriptor->fQueuedConnection != NULL) return False; // already enabled; state unchanged
+  if (descriptor->hasServerRequestAlternativeByteHandler()) {
+    env << TX_CODE_UNEXPECTED << " RTPInterface: refusing queued send mode on socket " << socketNum
+	<< " because it has an alternative-byte (RTSP control) handler; the two are mutually exclusive.\n";
+    return False;
+  }
+  if (descriptor->fTLSState != NULL && descriptor->fTLSState->isNeeded) {
+    // Queued mode is specified for plaintext, application-managed RTP/RTCP connections only; TLS
+    // writes go through TLSState and keep the existing path.
+    env << TX_CODE_UNEXPECTED << " RTPInterface: refusing queued send mode on TLS socket "
+	<< socketNum << "; queued mode supports plaintext RTP/RTCP connections only.\n";
+    return False;
+  }
+
+  HashTable* table = queuedSendTable(env, True);
+  if (table == NULL || table->Lookup((char const*)(long)socketNum) != NULL) return False;
+
+  QueuedTCPConnection* connection = new QueuedTCPConnection(env, descriptor, socketNum, byteLimit);
+  table->Add((char const*)(long)socketNum, connection);
+  descriptor->fQueuedConnection = connection;
+  // The default writer is a plain send(), so the fd MUST be non-blocking: the queued path is
+  // contractually forbidden from stalling the event loop (EAGAIN parks on the writable handler).
+  makeSocketNonBlocking(socketNum);
+  descriptor->refreshBackgroundHandler();
+  return True;
+}
+
+Boolean RTPInterface::setQueuedSendHooks(UsageEnvironment& env, int socketNum,
+					 RTPQueueClockFunc* clockFunc, void* clockClientData,
+					 RTPQueueWriteFunc* writeFunc, void* writeClientData) {
+  QueuedTCPConnection* connection = lookupQueuedConnection(env, socketNum);
+  if (connection == NULL) return False;
+  connection->setHooks(clockFunc, clockClientData, writeFunc, writeClientData);
+  return True;
+}
+
+Boolean RTPInterface::pumpQueuedSend(UsageEnvironment& env, int socketNum) {
+  QueuedTCPConnection* connection = lookupQueuedConnection(env, socketNum);
+  if (connection == NULL) return False;
+  return connection->pump();
+}
+
+Boolean RTPInterface::queuedSendIsActive(UsageEnvironment& env, int socketNum) {
+  QueuedTCPConnection* connection = lookupQueuedConnection(env, socketNum);
+  return connection != NULL && connection->isActive();
+}
+
+Boolean RTPInterface::queuedSendHasPending(UsageEnvironment& env, int socketNum) {
+  QueuedTCPConnection* connection = lookupQueuedConnection(env, socketNum);
+  return connection != NULL && connection->wantsWritable();
+}
+
+unsigned long long RTPInterface::queuedSendPendingBytes(UsageEnvironment& env, int socketNum) {
+  QueuedTCPConnection* connection = lookupQueuedConnection(env, socketNum);
+  return connection == NULL ? 0ULL : connection->queuedBytes();
+}
+
+Boolean RTPInterface::setPlaybackTiming(unsigned clockRate, u_int32_t baseRtpTimestamp,
+					long long localBaseUs, long long playBufferUs) {
+  if (clockRate == 0) return False; // media-clock rate must be positive
+  fHasPlaybackTiming = True;
+  fPlaybackClockRate = clockRate;
+  fBaseRtpTimestamp = baseRtpTimestamp;
+  fLocalBaseUs = localBaseUs;
+  fPlayBufferUs = playBufferUs;
+  return True;
 }
 
 Boolean RTPInterface::sendPacket(unsigned char* packet, unsigned packetSize) {
@@ -600,6 +1082,16 @@ Boolean RTPInterface::sendPacket(unsigned char* packet, unsigned packetSize) {
   tcpStreamRecord* nextStream;
   for (tcpStreamRecord* stream = fTCPStreams; stream != NULL; stream = nextStream) {
     nextStream = stream->fNext; // Set this now, in case the following deletes "stream":
+
+    // Queued send mode: the shared per-connection FIFO takes a COPY of the complete interleaved
+    // frame and owns all back-pressure/deadline work. Success here means "copied and taken over";
+    // the caller may overwrite its buffer as soon as we return. The whole legacy fan-out policy
+    // below (kernel send-buffer probes, drop/evict, blocking fallback) is bypassed for this socket.
+    QueuedTCPConnection* queued = lookupQueuedConnection(envir(), stream->fStreamSocketNum);
+    if (queued != NULL) {
+      if (!queued->enqueue(this, stream->fStreamChannelId, packet, packetSize)) success = False;
+      continue;
+    }
 
     // Per-consumer non-blocking decision (TLS consumers buffer inside the TLS layer, so the
     // socket-level check doesn't apply — they take the normal send path). The policy lives in the
@@ -841,6 +1333,12 @@ void RTPInterface::stopNetworkReading() {
 
   // Also turn off read handling on each of our TCP connections:
   for (tcpStreamRecord* streams = fTCPStreams; streams != NULL; streams = streams->fNext) {
+    // We are going away: pull our unstarted frames out of any shared queue first, or their fOwner
+    // back-pointers would dangle while another interface keeps the SocketDescriptor alive. Frames
+    // already started stay behind and are completed by the queue (the pointer is never used once a
+    // frame is in flight -- only removal/expiry consult fOwner, and both skip started frames).
+    QueuedTCPConnection* queued = lookupQueuedConnection(envir(), streams->fStreamSocketNum);
+    if (queued != NULL) queued->removeUnstarted(this, streams->fStreamChannelId);
     deregisterSocket(envir(), streams->fStreamSocketNum, streams->fStreamChannelId);
   }
 }
@@ -1013,7 +1511,8 @@ SocketDescriptor::SocketDescriptor(UsageEnvironment& env, int socketNum, TLSStat
    fSkipBytesRemaining(0), fFrameChannelRegistered(False),
    fBytesSinceFrame(0), fEverSawFrame(False), fPacketStallCount(0), fStallPeek(TCP_PEEK_NONE),
    fStreamStartSec(monotonicSeconds()), fStreamRole(STREAM_ROLE_UNKNOWN),
-   fLastProgressSec(monotonicSeconds()), fStallReported(False), fStallCheckTask(NULL) {
+   fLastProgressSec(monotonicSeconds()), fStallReported(False), fStallCheckTask(NULL),
+   fQueuedConnection(NULL), fBackgroundHandlerRegistered(False), fWritableArmed(False) {
   describeTcpPeer(socketNum, fPeerDesc, sizeof(fPeerDesc));
   capturePeerAddress(socketNum, fPeerIp, sizeof(fPeerIp), fPeerPort);
   scheduleStallCheck();
@@ -1062,6 +1561,17 @@ SocketDescriptor::~SocketDescriptor() {
   // reason the stall detector deliberately does not also perform teardown.
   fEnv.taskScheduler().unscheduleDelayedTask(fStallCheckTask);
   fStallCheckTask = NULL;
+
+  // Last interface is leaving this socket. The queued-send connection (if any) cancels its own
+  // timer/writable callback and frees every queued frame HERE, so no stale task can fire on the fd
+  // number after it is closed and reused. Must precede turnOffBackgroundReadHandling().
+  if (fQueuedConnection != NULL) {
+    HashTable* table = queuedSendTable(fEnv);
+    QueuedTCPConnection* connection = fQueuedConnection;
+    fQueuedConnection = NULL;
+    if (table != NULL) connection->detachAndDestroy(table);
+    else delete connection;
+  }
 
   fDeleteMyselfNext = False;
   fEnv.taskScheduler().turnOffBackgroundReadHandling(fOurSocketNum);
@@ -1139,11 +1649,10 @@ void SocketDescriptor::registerRTPInterface(unsigned char streamChannelId,
   }
 
   if (isFirstRegistration) {
-    // Arrange to handle reads on this TCP socket:
-    TaskScheduler::BackgroundHandlerProc* handler
-      = (TaskScheduler::BackgroundHandlerProc*)&tcpReadHandler;
-    fEnv.taskScheduler().
-      setBackgroundHandling(fOurSocketNum, SOCKET_READABLE|SOCKET_EXCEPTION, handler, this);
+    // Arrange to handle reads on this TCP socket. The exact condition set is owned by
+    // refreshBackgroundHandler() so that enabling queued send mode can add SOCKET_WRITABLE without
+    // clobbering this reader (the scheduler keeps only one handler descriptor per fd).
+    refreshBackgroundHandler();
   }
 }
 
@@ -1168,6 +1677,33 @@ void SocketDescriptor
       delete this;
     }
   }
+}
+
+void SocketDescriptor::socketBackgroundHandler(SocketDescriptor* socketDescriptor, int mask) {
+  // One fd, one scheduler handler: route writability to the queued-send pump, everything else to
+  // the interleaved-frame reader. Both may fire in the same dispatch (e.g. a blocked queue drains
+  // while incoming frames are buffered); handle them independently.
+  if ((mask & SOCKET_WRITABLE) != 0 && socketDescriptor->fQueuedConnection != NULL
+      && socketDescriptor->fQueuedConnection->isActive()) {
+    socketDescriptor->fQueuedConnection->onWritable(mask);
+  }
+  if (mask & (SOCKET_READABLE|SOCKET_EXCEPTION)) {
+    tcpReadHandler(socketDescriptor, mask);
+  }
+}
+
+void SocketDescriptor::refreshBackgroundHandler() {
+  // WRITABLE only while there is an unsent frame: an always-armed writable bit would make select()
+  // return immediately on every loop (a healthy socket is usually writable) and pin a CPU.
+  Boolean const wantsWritable = fQueuedConnection != NULL && fQueuedConnection->wantsWritable();
+  if (fBackgroundHandlerRegistered && wantsWritable == fWritableArmed) return; // no change
+  fBackgroundHandlerRegistered = True;
+  fWritableArmed = wantsWritable;
+
+  int conditionSet = SOCKET_READABLE|SOCKET_EXCEPTION;
+  if (wantsWritable) conditionSet |= SOCKET_WRITABLE;
+  fEnv.taskScheduler().setBackgroundHandling(fOurSocketNum, conditionSet,
+					     (TaskScheduler::BackgroundHandlerProc*)&socketBackgroundHandler, this);
 }
 
 void SocketDescriptor::tcpReadHandler(SocketDescriptor* socketDescriptor, int mask) {

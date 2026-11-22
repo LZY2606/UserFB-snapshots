@@ -8,3 +8,92 @@ Old versions of the code, and versions of the code from other sites
 (including 'GitHub' repositories) are NOT SUPPORTED, and should not be used.
 For more information, see:
     http://live555.com/liveMedia/faq.html#latest-version
+
+
+---------------------------------------------------------------------------
+Optional deadline-aware queued RTP-over-TCP send mode (RTPInterface)
+---------------------------------------------------------------------------
+
+What it is
+~~~~~~~~~~
+By default an RTPInterface sends each RTP/RTCP packet inline. For a low-latency
+player that multiplexes several audio/video channels over one plaintext TCP
+connection, back pressure (a slow reader) can make that a problem. An explicit
+opt-in "queued send mode" replaces the inline send with a per-connection FIFO
+that is SHARED by every RTPInterface interleaving onto the same socket.
+
+In queued mode sendPacket() copies the complete RFC 2326 section 10.12 frame
+  '$' + channel + uint16 length + payload
+into the queue and returns success meaning "copied and taken over"; the caller
+may immediately overwrite its own buffer. Frames are emitted in submission
+order through a non-blocking writer. A frame whose play deadline has passed
+before its FIRST byte is sent is dropped. Once even one byte (header or body)
+of a frame has been written, that frame is always completed: a later frame is
+never concatenated onto a truncated body, regardless of expiry, channel
+removal, or newer packets.
+
+Connection applicability (the application owns this contract)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Use queued mode ONLY for an application-managed, plaintext TCP connection that
+carries RTP/RTCP only. It is deliberately NOT extended to:
+  * TLS connections (enableQueuedSendMode() refuses a TLSState-marked socket),
+  * SRTP (the queue sees already-encrypted packets; do not enable it there),
+  * RTSP control responses / any connection using a server-request
+    alternative-byte handler. Enabling queued mode on such a socket, or
+    registering an alternative-byte handler after queued mode is enabled, is
+    refused (and logged) so the two traffic kinds are never silently mixed.
+UDP and sockets for which the mode was not enabled keep the existing behaviour.
+
+How to enable
+~~~~~~~~~~~~~
+1. Attach the channel(s) to the socket first:
+       rtpInterface.addStreamSocket(sockNum, rtpChannel, NULL /*tlsState*/);
+       rtcpInterface.addStreamSocket(sockNum, rtcpChannel, NULL);
+2. Enable the shared queue with a NON-ZERO byte budget (bytes not yet handed
+   to the underlying writer):
+       RTPInterface::enableQueuedSendMode(env, sockNum, byteLimit);
+   It fails (state unchanged) when the socket is unknown, already queued, has
+   a zero budget, has an alternative-byte handler, or is TLS. Over-budget
+   packets are rejected (sendPacket() returns False); earlier fresh packets are
+   never evicted to make room. A payload larger than 65535 bytes is rejected so
+   no truncated 16-bit length header is ever emitted.
+3. Optionally give each MEDIA interface a media clock before its first packet:
+       rtpInterface.setPlaybackTiming(clockRate, baseRtpTimestamp,
+                                      localBaseUs, playBufferUs);
+   clockRate must be positive. An interface left unconfigured (e.g. RTCP) has
+   no play deadline but still shares the same FIFO.
+
+Clock units and the deadline formula
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+All local time values are MONOTONIC MICROSECONDS (the default clock reads
+CLOCK_MONOTONIC). The media clockRate is in Hz. A frame's deadline is
+       localBaseUs + playBufferUs
+         + floor( int32_t(rtpTimestamp - baseRtpTimestamp) * 1000000 / clockRate )
+The timestamp difference is reinterpreted as a SIGNED 32-bit value, so a single
+continuous segment less than half a cycle apart is handled correctly across the
+32-bit wrap, including negative deltas (floor, not truncation). Fragments with
+the same RTP timestamp get the same deadline. A frame already at or past its
+deadline when submitted is rejected and never takes queue capacity.
+
+Scheduling and the replaceable test hooks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The queue plugs into the existing TaskScheduler, not a polling sleep: the
+socket's background handler gains SOCKET_WRITABLE only while a frame is queued,
+and a one-shot delayed task is armed for the nearest unstarted frame's deadline.
+There is no blocking send on this path; short writes continue at the offset,
+EINTR consumes nothing and is retried, EAGAIN parks until writable, and any
+other error terminates only this connection's queue and removes its callbacks
+(other sockets are unaffected). Removing a channel withdraws only its frames
+that have not started; in-flight frames are completed. When the last interface
+leaves the socket, all tasks and state are released so a reused fd cannot be
+reached by stale callbacks.
+
+For deterministic memory replay, three entry points are replaceable:
+  * setQueuedSendHooks(): a clock function (monotonic microseconds) and an
+    underlying non-blocking write function, both with client data;
+  * pumpQueuedSend(): the single-step pump (expire due frames, then write);
+  * the default implementations use the real monotonic clock and a
+    non-blocking send().
+See task_tests/queued_send_example.cpp for a compilable end-to-end example and
+task_tests/deadline_tcp.cpp for the scripted short-write/EAGAIN/EINTR/hard-error
+replay tests (framing, deadlines and lifecycle groups).
