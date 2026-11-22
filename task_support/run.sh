@@ -11,7 +11,8 @@ done
 ar rcs .task-build/libspeex-resample.a .task-build/obj/*.o
 if [[ $mode == target ]]; then
   cc -std=c99 -O2 -DOUTSIDE_SPEEX -DRANDOM_PREFIX=taskseed -DFLOATING_POINT -Iinclude/speex -Ilibspeexdsp -I. tests/precise_clock_test.c task_support/driver.c .task-build/libspeex-resample.a -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=.task-build/target-output.log
+  : >"$output_log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

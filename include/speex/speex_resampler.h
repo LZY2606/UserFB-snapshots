@@ -39,6 +39,8 @@
 #ifndef SPEEX_RESAMPLER_H
 #define SPEEX_RESAMPLER_H
 
+#include <stdint.h>
+
 #ifdef OUTSIDE_SPEEX
 
 /********* WARNING: MENTAL SANITY ENDS HERE *************/
@@ -75,6 +77,8 @@
 #define speex_resampler_get_output_latency CAT_PREFIX(RANDOM_PREFIX,_resampler_get_output_latency)
 #define speex_resampler_skip_zeros CAT_PREFIX(RANDOM_PREFIX,_resampler_skip_zeros)
 #define speex_resampler_reset_mem CAT_PREFIX(RANDOM_PREFIX,_resampler_reset_mem)
+#define speex_resampler_enable_precise_clock CAT_PREFIX(RANDOM_PREFIX,_resampler_enable_precise_clock)
+#define speex_resampler_get_precise_clock CAT_PREFIX(RANDOM_PREFIX,_resampler_get_precise_clock)
 #define speex_resampler_strerror CAT_PREFIX(RANDOM_PREFIX,_resampler_strerror)
 
 #define spx_int16_t short
@@ -329,6 +333,65 @@ int speex_resampler_skip_zeros(SpeexResamplerState *st);
  * @param st Resampler state
  */
 int speex_resampler_reset_mem(SpeexResamplerState *st);
+
+/** Enable the precise rational clock mode (FLOATING_POINT builds only).
+ *
+ * In the default mode the fractional source position is stored on the
+ * current ratio's denominator, so changing the ratio rescales and truncates
+ * the position that has already accumulated.  In precise clock mode the
+ * nominal source cursor U is kept as a denominator-independent 64.64 fixed
+ * point number.  Setting a new ratio then only changes the advance applied
+ * to the next produced frame; already accumulated fractional positions are
+ * neither rescaled nor lost, so an A -> B -> A round trip with no output
+ * frame in between is exactly equivalent to never changing the ratio.
+ *
+ * The same clock drives the FIR integer read point and the fractional
+ * interpolation, not just a queryable counter.  Precise mode always uses the
+ * oversampled sinc table with cubic interpolation, so its memory footprint
+ * does not grow with the ratio denominator.  Its output is not required to
+ * be bit identical to the legacy direct-table path.
+ *
+ * Precise mode may only be enabled on a newly created state, or after
+ * speex_resampler_reset_mem(), before any input has been processed.  Once
+ * enabled it cannot be disabled.  Quality may only be changed after another
+ * reset_mem().  speex_resampler_set_rate_frac() accepts, in this mode, only
+ * reduced ratios whose numerator and denominator are each no greater than
+ * 1000000 and whose value lies in [1/2, 2]; other ratios are rejected with
+ * RESAMPLER_ERR_INVALID_ARG and the live state is left untouched.
+ *
+ * Fixed-point builds reject this call with RESAMPLER_ERR_BAD_STATE.
+ *
+ * @param st Resampler state
+ * @return RESAMPLER_ERR_SUCCESS on success, an error code otherwise
+ */
+int speex_resampler_enable_precise_clock(SpeexResamplerState *st);
+
+/** Query the precise nominal source cursor U of the next output frame.
+ *
+ * U = whole + fraction * 2^-64 input frames.  U is zero after creation and
+ * after speex_resampler_reset_mem(), and advances by the frame's current
+ * ratio_num/ratio_den for every output frame actually produced.  Querying,
+ * changing the ratio, zero output capacity and calls that produce no output
+ * do not advance U.  U excludes the startup filter delay;
+ * speex_resampler_skip_zeros() only removes the leading zero outputs caused
+ * by that delay and never moves U.  Each channel advances independently;
+ * the interleaved entry points advance every channel by the same output
+ * frame count.
+ *
+ * The cursor is the nominal read position, which is distinct from the
+ * filter latency reported by speex_resampler_get_input_latency() and
+ * speex_resampler_get_output_latency().
+ *
+ * @param st Resampler state (precise clock mode must be enabled)
+ * @param channel_index Channel to query
+ * @param whole Receives the integer part of U in input frames
+ * @param fraction Receives the fractional part of U, in units of 2^-64 frames
+ * @return RESAMPLER_ERR_SUCCESS, RESAMPLER_ERR_BAD_STATE when precise mode is
+ * not enabled, RESAMPLER_ERR_INVALID_ARG on a bad channel or NULL pointer
+ */
+int speex_resampler_get_precise_clock(SpeexResamplerState *st,
+                                      spx_uint32_t channel_index,
+                                      uint64_t *whole, uint64_t *fraction);
 
 /** Returns the English meaning for an error code
  * @param err Error code

@@ -1,3 +1,104 @@
 See INSTALL file for instructions on how to install SpeexDSP.
 
 SpeexDSP is a patent-free, Open Source/Free Software DSP library.
+
+Precise rational clock mode (floating-point builds)
+====================================================
+
+The resampler normally keeps its fractional source position on the current
+ratio's denominator (samp_frac_num/den_rate).  When the ratio changes, that
+position has to be rescaled onto the new grid and is truncated in the
+process; several A -> B -> A rate changes in a row therefore move the read
+point even when no output frame was produced in between.  There is no way to
+undo a rate change that has not produced any sound yet.
+
+The optional precise clock mode removes that coupling.  The nominal source
+cursor U of the next output frame is stored as a denominator-independent
+64.64 fixed-point number (an integer part plus a fraction counted in units of
+2^-64 input frames), one cursor per channel.  Setting a new ratio then only
+changes the advance applied to the next frame that is actually produced; the
+position already accumulated is never rescaled or truncated.  An A -> B -> A
+round trip with no generated frame in between is exactly equivalent to never
+changing the ratio, including the subsequent audio.
+
+The clock is not a separate query-only ledger: the same 64.64 position drives
+the FIR integer read point and the fractional cubic interpolation.  Precise
+mode always uses the oversampled sinc table with cubic interpolation, so the
+table size does not grow with the ratio denominator.  Its output is not
+required to be bit identical to the legacy direct-table path; the filter
+window, cutoff and integer interface quantization conventions are unchanged.
+
+Rules:
+  * Only FLOATING_POINT builds support it; fixed-point builds reject
+    speex_resampler_enable_precise_clock() with RESAMPLER_ERR_BAD_STATE.
+  * Enable only on a freshly created state, or after
+    speex_resampler_reset_mem(), before any input has been processed.  Once
+    enabled it cannot be disabled.
+  * speex_resampler_set_rate_frac() then accepts only reduced fractions whose
+    numerator and denominator are each <= 1000000 and whose value is in
+    [1/2, 2].  Anything else is rejected with RESAMPLER_ERR_INVALID_ARG and
+    the live ratio, history and cursor are left untouched.
+  * Quality may only be re-selected after speex_resampler_reset_mem();
+    changing it mid-stream returns RESAMPLER_ERR_BAD_STATE.
+  * reset_mem() clears the filter history and every channel cursor (U = 0),
+    but keeps precise mode enabled and keeps the current ratio.
+
+Cursor versus latency
+---------------------
+U is the nominal read position of the next output frame.  It is zero after
+creation and after reset_mem(), and advances by ratio_num/ratio_den for every
+output frame actually generated.  Querying the cursor, changing the ratio, a
+zero output capacity and calls that produce no output do not advance it.
+
+U deliberately excludes the startup filter delay.
+speex_resampler_skip_zeros() only suppresses the leading zero outputs caused
+by that delay; it never moves U.  The filter delay is reported separately by
+speex_resampler_get_input_latency() and speex_resampler_get_output_latency().
+Do not add the latency to U when locating the source sample of an output
+frame: U already is that nominal position, while the latency describes how
+many frames the filter buffers internally.
+
+For any run of up to 2^20 generated frames the cursor differs from exact
+rational accumulation by at most 2^-40 input frames.  Each channel advances
+independently through the per-channel entry points; the interleaved entry
+points advance every channel by the same output frame count.
+
+C example
+---------
+
+    #include <speex/speex_resampler.h>
+    #include <stdint.h>
+    #include <stdio.h>
+
+    int main(void)
+    {
+       int err = 0;
+       SpeexResamplerState *st = speex_resampler_init_frac(
+             1, 2, 3, 32000, 48000,
+             SPEEX_RESAMPLER_QUALITY_DESKTOP, &err);
+       if (!st) return 1;
+
+       if (speex_resampler_enable_precise_clock(st) != RESAMPLER_ERR_SUCCESS)
+       {
+          speex_resampler_destroy(st);
+          return 1;
+       }
+
+       /* Changing the ratio before any frame is produced is reversible. */
+       speex_resampler_set_rate_frac(st, 5, 7, 32000, 48000);
+       speex_resampler_set_rate_frac(st, 2, 3, 32000, 48000);
+
+       /* ... feed frames with speex_resampler_process_float() ... */
+
+       spx_uint64_t whole, fraction;
+       if (speex_resampler_get_precise_clock(st, 0, &whole, &fraction)
+             == RESAMPLER_ERR_SUCCESS)
+       {
+          double U = (double)whole + (double)fraction / 18446744073709551616.0;
+          printf("nominal source cursor of next frame: %.9f input frames\n", U);
+       }
+
+       speex_resampler_destroy(st);
+       return 0;
+    }
+

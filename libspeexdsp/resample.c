@@ -78,6 +78,8 @@ static void speex_free(void *ptr) {free(ptr);}
 #include "os_support.h"
 #endif /* OUTSIDE_SPEEX */
 
+#include "resample_clock.h"
+
 #include <math.h>
 #include <limits.h>
 
@@ -95,6 +97,20 @@ static void speex_free(void *ptr) {free(ptr);}
 #ifndef UINT32_MAX
 #define UINT32_MAX 4294967295U
 #endif
+
+/* Precise clock mode accepts reduced ratios whose numerator and denominator
+   are each no larger than this, and whose value is within [1/2, 2]. */
+#define SPEEX_PRECISE_RATIO_LIMIT 1000000u
+
+/* num and den must already be reduced. */
+static int precise_ratio_acceptable(spx_uint32_t num, spx_uint32_t den)
+{
+   if (num == 0 || den == 0
+       || num > SPEEX_PRECISE_RATIO_LIMIT || den > SPEEX_PRECISE_RATIO_LIMIT)
+      return 0;
+   /* 1/2 <= num/den <= 2, compared without floating point. */
+   return (uint64_t)num * 2u >= den && num <= (uint64_t)den * 2u;
+}
 
 #ifdef USE_SSE
 #include "resample_sse.h"
@@ -143,6 +159,16 @@ struct SpeexResamplerState_ {
 
    int    in_stride;
    int    out_stride;
+
+   /* Precise rational clock mode (FLOATING_POINT only).  When non-zero the
+      clock below drives the integer read point and the interpolation phase;
+      samp_frac_num is then only a per-frame cache derived from the clock. */
+   int          precise_clock;
+   int          input_seen;
+   SpeexResampleClock *clock;
+   /* Per-channel offset between the legacy last_sample counter and the
+      clock's integer cursor, captured when precise mode is enabled. */
+   spx_int32_t  *clock_last_sample_bias;
 } ;
 
 static const double kaiser12_table[68] = {
@@ -590,6 +616,96 @@ static int resampler_basic_zero(SpeexResamplerState *st, spx_uint32_t channel_in
    return out_sample;
 }
 
+#ifndef FIXED_POINT
+/* Precise-clock kernels.  The cursor (integer read point plus fractional
+   interpolation phase) comes from the denominator-independent 64.64 clock,
+   so changing the ratio between calls never rescales an already accumulated
+   fractional position.  The FIR read point and the cubic interpolation are
+   driven directly by that clock; these are not a separate bookkeeping path.
+   The filter window, cutoff and oversampled sinc table are the regular ones. */
+
+static int resampler_basic_precise_interpolate_single(SpeexResamplerState *st, spx_uint32_t channel_index, const spx_word16_t *in, spx_uint32_t *in_len, spx_word16_t *out, spx_uint32_t *out_len)
+{
+   const int N = st->filt_len;
+   int out_sample = 0;
+   int last_sample = st->last_sample[channel_index];
+   const int out_stride = st->out_stride;
+   spx_word32_t sum;
+
+   while (!(last_sample >= (spx_int32_t)*in_len || out_sample >= (spx_int32_t)*out_len))
+   {
+      const spx_word16_t *iptr = & in[last_sample];
+      const spx_uint32_t oversample = st->oversample;
+      const double phase = speex_resample_clock_phase_one(st->clock, channel_index);
+      double scaled = phase * oversample;
+      const int offset = (int)scaled;
+      const spx_word16_t frac = (spx_word16_t)(scaled - offset);
+      spx_word16_t interp[4];
+      int j;
+      spx_word32_t accum[4] = {0,0,0,0};
+
+      for(j=0;j<N;j++) {
+        const spx_word16_t curr_in=iptr[j];
+        accum[0] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset-2]);
+        accum[1] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset-1]);
+        accum[2] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset]);
+        accum[3] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset+1]);
+      }
+
+      cubic_coef(frac, interp);
+      sum = MULT16_32_Q15(interp[0],accum[0]) + MULT16_32_Q15(interp[1],accum[1]) + MULT16_32_Q15(interp[2],accum[2]) + MULT16_32_Q15(interp[3],accum[3]);
+      sum = SATURATE32PSHR(sum, 15, 32767);
+
+      out[out_stride * out_sample++] = sum;
+      last_sample += (int)speex_resample_clock_advance(st->clock, channel_index);
+   }
+
+   st->last_sample[channel_index] = last_sample;
+   return out_sample;
+}
+
+/* Same kernel with a double-precision accumulator, selected for quality > 8
+   exactly like the legacy interpolating path. */
+static int resampler_basic_precise_interpolate_double(SpeexResamplerState *st, spx_uint32_t channel_index, const spx_word16_t *in, spx_uint32_t *in_len, spx_word16_t *out, spx_uint32_t *out_len)
+{
+   const int N = st->filt_len;
+   int out_sample = 0;
+   int last_sample = st->last_sample[channel_index];
+   const int out_stride = st->out_stride;
+   spx_word32_t sum;
+
+   while (!(last_sample >= (spx_int32_t)*in_len || out_sample >= (spx_int32_t)*out_len))
+   {
+      const spx_word16_t *iptr = & in[last_sample];
+      const spx_uint32_t oversample = st->oversample;
+      const double phase = speex_resample_clock_phase_one(st->clock, channel_index);
+      double scaled = phase * oversample;
+      const int offset = (int)scaled;
+      const spx_word16_t frac = (spx_word16_t)(scaled - offset);
+      spx_word16_t interp[4];
+      int j;
+      double accum[4] = {0,0,0,0};
+
+      for(j=0;j<N;j++) {
+        const double curr_in=iptr[j];
+        accum[0] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset-2]);
+        accum[1] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset-1]);
+        accum[2] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset]);
+        accum[3] += MULT16_16(curr_in,st->sinc_table[4+(j+1)*oversample-offset+1]);
+      }
+
+      cubic_coef(frac, interp);
+      sum = MULT16_32_Q15(interp[0],accum[0]) + MULT16_32_Q15(interp[1],accum[1]) + MULT16_32_Q15(interp[2],accum[2]) + MULT16_32_Q15(interp[3],accum[3]);
+
+      out[out_stride * out_sample++] = PSHR32(sum,15);
+      last_sample += (int)speex_resample_clock_advance(st->clock, channel_index);
+   }
+
+   st->last_sample[channel_index] = last_sample;
+   return out_sample;
+}
+#endif /* !FIXED_POINT */
+
 static int multiply_frac(spx_uint32_t *result, spx_uint32_t value, spx_uint32_t num, spx_uint32_t den)
 {
    spx_uint32_t major = value / den;
@@ -639,12 +755,17 @@ static int update_filter(SpeexResamplerState *st)
    }
 
 #ifdef RESAMPLE_FULL_SINC_TABLE
-   use_direct = 1;
-   if (INT_MAX/sizeof(spx_word16_t)/st->den_rate < st->filt_len)
+   use_direct = !st->precise_clock;
+   if (use_direct && INT_MAX/sizeof(spx_word16_t)/st->den_rate < st->filt_len)
       goto fail;
 #else
-   /* Choose the resampling type that requires the least amount of memory */
-   use_direct = st->filt_len*st->den_rate <= st->filt_len*st->oversample+8
+   /* Choose the resampling type that requires the least amount of memory.
+      In precise clock mode the phase is held as a denominator-independent
+      64-bit fraction, so the direct per-denominator table cannot index it.
+      Always use the oversampled table with cubic interpolation instead; the
+      table size therefore does not grow with the ratio denominator. */
+   use_direct = !st->precise_clock
+                && st->filt_len*st->den_rate <= st->filt_len*st->oversample+8
                 && INT_MAX/sizeof(spx_word16_t)/st->den_rate >= st->filt_len;
 #endif
    if (use_direct)
@@ -679,7 +800,10 @@ static int update_filter(SpeexResamplerState *st)
 #ifdef FIXED_POINT
       st->resampler_ptr = resampler_basic_direct_single;
 #else
-      if (st->quality>8)
+      if (st->precise_clock)
+         st->resampler_ptr = (st->quality>8) ? resampler_basic_precise_interpolate_double
+                                             : resampler_basic_precise_interpolate_single;
+      else if (st->quality>8)
          st->resampler_ptr = resampler_basic_direct_double;
       else
          st->resampler_ptr = resampler_basic_direct_single;
@@ -692,7 +816,10 @@ static int update_filter(SpeexResamplerState *st)
 #ifdef FIXED_POINT
       st->resampler_ptr = resampler_basic_interpolate_single;
 #else
-      if (st->quality>8)
+      if (st->precise_clock)
+         st->resampler_ptr = (st->quality>8) ? resampler_basic_precise_interpolate_double
+                                             : resampler_basic_precise_interpolate_single;
+      else if (st->quality>8)
          st->resampler_ptr = resampler_basic_interpolate_double;
       else
          st->resampler_ptr = resampler_basic_interpolate_single;
@@ -758,6 +885,8 @@ static int update_filter(SpeexResamplerState *st)
                st->mem[start+(st->filt_len-2-j)] = 0;
             /* Adjust last_sample */
             st->last_sample[i] += (st->filt_len - olen)/2;
+            if (st->precise_clock)
+               st->clock_last_sample_bias[i] += (spx_int32_t)((st->filt_len - olen)/2);
          } else {
             /* Put back some of the magic! */
             magic_samples = (olen - st->filt_len)/2;
@@ -819,6 +948,10 @@ EXPORT SpeexResamplerState *speex_resampler_init_frac(spx_uint32_t nb_channels, 
    }
    st->initialised = 0;
    st->started = 0;
+   st->precise_clock = 0;
+   st->input_seen = 0;
+   st->clock = NULL;
+   st->clock_last_sample_bias = NULL;
    st->in_rate = 0;
    st->out_rate = 0;
    st->num_rate = 0;
@@ -875,6 +1008,8 @@ EXPORT void speex_resampler_destroy(SpeexResamplerState *st)
    speex_free(st->last_sample);
    speex_free(st->magic_samples);
    speex_free(st->samp_frac_num);
+   speex_free(st->clock_last_sample_bias);
+   speex_resample_clock_destroy(st->clock);
    speex_free(st);
 }
 
@@ -887,6 +1022,15 @@ static int speex_resampler_process_native(SpeexResamplerState *st, spx_uint32_t 
    spx_uint32_t ilen;
 
    st->started = 1;
+   st->input_seen = 1;
+
+   /* In precise mode the clock owns the absolute integer cursor.  The
+      kernel below addresses the filter memory through last_sample, which is
+      relative to the current mem window; reconstruct it from the clock and
+      the bias captured at enable/filter-window changes. */
+   if (st->precise_clock)
+      st->last_sample[channel_index] = speex_resample_clock_whole(st->clock, channel_index)
+                                       + st->clock_last_sample_bias[channel_index];
 
    /* Call the right resampler through the function ptr */
    out_sample = st->resampler_ptr(st, channel_index, mem, in_len, out, out_len);
@@ -895,6 +1039,9 @@ static int speex_resampler_process_native(SpeexResamplerState *st, spx_uint32_t 
       *in_len = st->last_sample[channel_index];
    *out_len = out_sample;
    st->last_sample[channel_index] -= *in_len;
+   if (st->precise_clock)
+      st->clock_last_sample_bias[channel_index] =
+         st->last_sample[channel_index] - speex_resample_clock_whole(st->clock, channel_index);
 
    ilen = *in_len;
 
@@ -1112,9 +1259,39 @@ EXPORT int speex_resampler_set_rate_frac(SpeexResamplerState *st, spx_uint32_t r
    spx_uint32_t fact;
    spx_uint32_t old_den;
    spx_uint32_t i;
+   spx_uint32_t new_num;
+   spx_uint32_t new_den;
 
    if (ratio_num == 0 || ratio_den == 0)
       return RESAMPLER_ERR_INVALID_ARG;
+
+   if (st->precise_clock)
+   {
+      /* Precise mode only accepts reduced fractions whose numerator and
+         denominator each fit in 1e6 and whose value lies in [1/2, 2].
+         Reject everything else without touching the live state. */
+      fact = compute_gcd(ratio_num, ratio_den);
+      new_num = ratio_num / fact;
+      new_den = ratio_den / fact;
+      if (!precise_ratio_acceptable(new_num, new_den))
+         return RESAMPLER_ERR_INVALID_ARG;
+
+      if (st->in_rate == in_rate && st->out_rate == out_rate
+          && st->num_rate == new_num && st->den_rate == new_den)
+         return RESAMPLER_ERR_SUCCESS;
+
+      /* The accumulated cursor stays on its denominator-independent grid;
+         only the next-frame advance changes.  No samp_frac_num conversion. */
+      st->in_rate = in_rate;
+      st->out_rate = out_rate;
+      st->num_rate = new_num;
+      st->den_rate = new_den;
+      speex_resample_clock_set_ratio(st->clock, new_num, new_den);
+
+      if (st->initialised)
+         return update_filter(st);
+      return RESAMPLER_ERR_SUCCESS;
+   }
 
    if (st->in_rate == in_rate && st->out_rate == out_rate && st->num_rate == ratio_num && st->den_rate == ratio_den)
       return RESAMPLER_ERR_SUCCESS;
@@ -1157,6 +1334,9 @@ EXPORT int speex_resampler_set_quality(SpeexResamplerState *st, int quality)
 {
    if (quality > 10 || quality < 0)
       return RESAMPLER_ERR_INVALID_ARG;
+   /* In precise mode the quality may only be re-selected on a reset stream. */
+   if (st->precise_clock && st->input_seen && st->quality != quality)
+      return RESAMPLER_ERR_BAD_STATE;
    if (st->quality == quality)
       return RESAMPLER_ERR_SUCCESS;
    st->quality = quality;
@@ -1205,6 +1385,15 @@ EXPORT int speex_resampler_skip_zeros(SpeexResamplerState *st)
    spx_uint32_t i;
    for (i=0;i<st->nb_channels;i++)
       st->last_sample[i] = st->filt_len/2;
+   /* skip_zeros only suppresses the leading zero outputs of the startup
+      filter delay; it must not move the nominal cursor U.  Fold the changed
+      read point into the bias instead. */
+   if (st->precise_clock)
+   {
+      for (i=0;i<st->nb_channels;i++)
+         st->clock_last_sample_bias[i] =
+            st->last_sample[i] - speex_resample_clock_whole(st->clock, i);
+   }
    return RESAMPLER_ERR_SUCCESS;
 }
 
@@ -1219,8 +1408,104 @@ EXPORT int speex_resampler_reset_mem(SpeexResamplerState *st)
    }
    for (i=0;i<st->nb_channels*(st->filt_len-1);i++)
       st->mem[i] = 0;
+   /* A reset makes the state eligible again for enabling precise mode or
+      re-selecting quality, even if the previous stream had been processed. */
+   st->input_seen = 0;
+   if (st->precise_clock)
+   {
+      /* History and per-channel cursors are cleared; the enabled state and
+         the current ratio are retained. */
+      speex_resample_clock_reset(st->clock);
+      for (i=0;i<st->nb_channels;i++)
+         st->clock_last_sample_bias[i] = 0;
+   }
    return RESAMPLER_ERR_SUCCESS;
 }
+
+#ifndef FIXED_POINT
+EXPORT int speex_resampler_enable_precise_clock(SpeexResamplerState *st)
+{
+   spx_uint32_t i;
+   SpeexResampleClock *clock;
+   spx_int32_t *bias;
+
+   if (!st)
+      return RESAMPLER_ERR_BAD_STATE;
+   if (st->precise_clock)
+      return RESAMPLER_ERR_SUCCESS;
+   /* Only allowed on a fresh instance, or after reset_mem, before any input
+      has been processed.  Once enabled it cannot be switched off. */
+   if (st->input_seen)
+      return RESAMPLER_ERR_BAD_STATE;
+   /* The ratio inherited at creation must itself satisfy the precise-mode
+      limits; reject rather than silently running outside the contract. */
+   if (!precise_ratio_acceptable(st->num_rate, st->den_rate))
+      return RESAMPLER_ERR_INVALID_ARG;
+
+   clock = speex_resample_clock_init(st->nb_channels);
+   if (!clock)
+      return RESAMPLER_ERR_ALLOC_FAILED;
+   bias = (spx_int32_t *)speex_alloc(st->nb_channels*sizeof(spx_int32_t));
+   if (!bias)
+   {
+      speex_resample_clock_destroy(clock);
+      return RESAMPLER_ERR_ALLOC_FAILED;
+   }
+
+   speex_resample_clock_set_ratio(clock, st->num_rate, st->den_rate);
+   /* The clock starts at U = 0; preserve whatever read point the legacy
+      state currently has (e.g. a skip_zeros offset) through the bias. */
+   for (i=0;i<st->nb_channels;i++)
+      bias[i] = st->last_sample[i];
+
+   st->clock = clock;
+   st->clock_last_sample_bias = bias;
+   st->precise_clock = 1;
+
+   /* Rebuild the filter so the oversampled interpolation table and the
+      precise kernels are selected.  On failure roll back to legacy mode. */
+   if (update_filter(st) != RESAMPLER_ERR_SUCCESS)
+   {
+      st->precise_clock = 0;
+      st->clock = NULL;
+      st->clock_last_sample_bias = NULL;
+      speex_resample_clock_destroy(clock);
+      speex_free(bias);
+      return RESAMPLER_ERR_ALLOC_FAILED;
+   }
+   return RESAMPLER_ERR_SUCCESS;
+}
+
+EXPORT int speex_resampler_get_precise_clock(SpeexResamplerState *st,
+                                             spx_uint32_t channel_index,
+                                             uint64_t *whole, uint64_t *fraction)
+{
+   if (!st || !st->precise_clock)
+      return RESAMPLER_ERR_BAD_STATE;
+   if (channel_index >= st->nb_channels || !whole || !fraction)
+      return RESAMPLER_ERR_INVALID_ARG;
+   speex_resample_clock_get(st->clock, (unsigned)channel_index, whole, fraction);
+   return RESAMPLER_ERR_SUCCESS;
+}
+#else  /* FIXED_POINT */
+/* Precise clock mode is only supported in FLOATING_POINT builds. */
+EXPORT int speex_resampler_enable_precise_clock(SpeexResamplerState *st)
+{
+   (void)st;
+   return RESAMPLER_ERR_BAD_STATE;
+}
+
+EXPORT int speex_resampler_get_precise_clock(SpeexResamplerState *st,
+                                             spx_uint32_t channel_index,
+                                             uint64_t *whole, uint64_t *fraction)
+{
+   (void)st;
+   (void)channel_index;
+   (void)whole;
+   (void)fraction;
+   return RESAMPLER_ERR_BAD_STATE;
+}
+#endif /* !FIXED_POINT */
 
 EXPORT const char *speex_resampler_strerror(int err)
 {
