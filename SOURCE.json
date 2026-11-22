@@ -1,0 +1,29 @@
+{
+  "repo": "https://github.com/xiph/flac",
+  "commit": "59fa3402cb19b6b7c85b916f138cfb03c7b27504",
+  "license": "BSD-3-Clause (libFLAC); GPL-2.0-or-later tools; other retained components see COPYING.*",
+  "export": "git archive HEAD; all tracked files and modes retained",
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "excluded_paths": [],
+  "runtime_dependencies": [
+    "C standard library",
+    "platform math library"
+  ],
+  "build_dependencies": [
+    "CMake",
+    "C compiler"
+  ],
+  "disabled_dependencies": [
+    "Ogg",
+    "Iconv",
+    "C++ library",
+    "threads",
+    "ASM",
+    "programs",
+    "examples",
+    "upstream test suite",
+    "documentation"
+  ]
+}
