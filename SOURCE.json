@@ -1,0 +1,28 @@
+{
+  "repo": "https://github.com/enzo1982/mp4v2",
+  "commit": "86b5aaf13d03291873608af559fe0399efe898f4",
+  "license": "MPL-1.1",
+  "method": "git archive HEAD; production files unchanged; two unused documentation generators excluded",
+  "excluded": [
+    {
+      "path": "project/htmlcombine.py",
+      "mode": "100755",
+      "git_blob": "a883f69352482ccaa0ad02d76b34bbfe8027fbc9",
+      "sha256": "c0eea4a4ace17ef2db3c43c78e281c327c2c5c09055ebc4c8cc9c065552381cd",
+      "reason": "未使用的上游文档生成工具；CMake静态库、基线和目标包装均不引用，不属于生产运行闭包。"
+    },
+    {
+      "path": "project/xml2wiki.py",
+      "mode": "100755",
+      "git_blob": "c788df43b35b9ead93b5f68e618af5be89585865",
+      "sha256": "4163c245617e9ae3d918498158a2f521d9f65431fc49823737c1c400e3f4a9d2",
+      "reason": "未使用的上游文档生成工具；CMake静态库、基线和目标包装均不引用，不属于生产运行闭包。"
+    }
+  ],
+  "gitlinks": [],
+  "gitmodules": false,
+  "binary_files": [
+    "doc/html/banner.png"
+  ],
+  "symlinks": []
+}
