@@ -643,6 +643,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="bdshemu.c" />
+    <ClCompile Include="bdshemu_graph.c" />
     <ClCompile Include="bdshemu_x86.c" />
   </ItemGroup>
   <ItemGroup>

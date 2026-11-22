@@ -4,6 +4,7 @@ option(BDD_INCLUDE_TOOL "Include the disasmtool executable" ON)
 option(BDD_INCLUDE_ISAGENERATOR_X86 "Include the x86 isagenerator target (if a python interpreter is found)" ON)
 option(BDD_INCLUDE_TESTS "Include decoder & emulator tests" OFF)
 option(BDD_INCLUDE_FUZZERS "Include the bdshemu fuzzer" OFF)
+option(BDD_INCLUDE_EXAMPLES "Include the bdshemu examples" OFF)
 option(BDD_USE_EXTERNAL_VSNPRINTF "Expect nd_vsnprintf_s implementation from the integrator" OFF)
 option(BDD_USE_EXTERNAL_MEMSET "Expect nd_memset implementation from the integrator" OFF)
 option(BDD_NO_MNEMONIC "Exclude mnemonics - this option involves setting the BDDISASM_NO_FORMAT flag" OFF)
@@ -209,6 +210,7 @@ add_library(
     bdshemu STATIC
     bdshemu/bdshemu.c
     bdshemu/bdshemu_x86.c
+    bdshemu/bdshemu_graph.c
     # Add the headers so they will show up in IDEs.
     bdshemu/include/bdshemu_common.h
     "${BDSHEMU_PUBLIC_HEADERS}")
@@ -252,6 +254,12 @@ endif ()
 # If this is the master project (and if the user requested it) add disasmtool.
 if ((${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME}) AND BDD_INCLUDE_TOOL)
     add_subdirectory(disasmtool)
+endif ()
+
+# If this is the master project (and if the user requested it) add the examples.
+if ((${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME}) AND BDD_INCLUDE_EXAMPLES)
+    add_executable(shemu_graph_example examples/shemu_graph_example.c)
+    target_link_libraries(shemu_graph_example PRIVATE bdshemu)
 endif ()
 
 # If this is the master project (and if the user requested it) add isagenerator.

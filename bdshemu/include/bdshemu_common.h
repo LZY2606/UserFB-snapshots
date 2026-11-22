@@ -170,4 +170,30 @@ ShemuDisplayMemValue(
     ND_BOOL Load
     );
 
+//
+// Dynamic instruction graph recording hooks. These are called from inside the emulation loop, and
+// are no-ops unless Context->GraphBuilder has been set up by ShemuEmulateGraph.
+//
+
+// Notes that a new instruction dispatch is being attempted at the current RIP.
+void
+ShemuGraphAttempt(
+    SHEMU_CONTEXT *Context
+    );
+
+// Captures the decoded instruction that is about to be emulated. Called after a successful decode,
+// before the instruction is emulated (and before RIP is incremented).
+void
+ShemuGraphPrepare(
+    SHEMU_CONTEXT *Context
+    );
+
+// Commits a successfully emulated instruction to the graph, together with the edge that links it
+// to the previously emulated instruction. Taken is the dynamic outcome for conditional branches.
+void
+ShemuGraphCommit(
+    SHEMU_CONTEXT *Context,
+    ND_BOOL Taken
+    );
+
 #endif // BDSHEMU_COMMON_H_

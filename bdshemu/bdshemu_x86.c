@@ -1967,6 +1967,10 @@ ShemuX86Emulate(
         nd_memzero(&dst, sizeof(dst));
         nd_memzero(&src, sizeof(src));
 
+        // If dynamic instruction graph recording is enabled, note that a dispatch is being
+        // attempted at the current RIP.
+        ShemuGraphAttempt(Context);
+
         // If we already have a detection and we wish to stop on detections, do so now.
         if ((0 != Context->Flags) && (0 != (Context->Options & SHEMU_OPT_STOP_ON_EXPLOIT)))
         {
@@ -2018,6 +2022,10 @@ ShemuX86Emulate(
         {
             return SHEMU_ABORT_RIP_OUTSIDE;
         }
+
+        // If dynamic instruction graph recording is enabled, capture the instruction version that
+        // is about to execute (the bytes are copied, so later self-modifications cannot alter it).
+        ShemuGraphPrepare(Context);
 
         // Check if this is a new, unique, address being executed.
         if (!ShemuShellBmpStateCheck(Context, rip, 1, SHELL_BYTE_FETCHED))
@@ -3770,6 +3778,10 @@ post_emulate:
         {
             return SHEMU_ABORT_CANT_EMULATE;
         }
+
+        // If dynamic instruction graph recording is enabled, commit the successfully emulated
+        // instruction, together with the edge that links it to the previous one.
+        ShemuGraphCommit(Context, taken);
     }
 
     // Minimum percent of the instructions were NOPs => consider we have a NOP sled. Note that we get here only if

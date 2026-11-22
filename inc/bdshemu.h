@@ -250,6 +250,11 @@ typedef struct _SHEMU_CONTEXT
     // Optional context to be passed to Log. Can be NULL.
     void                *LogContext;
 
+    // Internal use. When non-NULL, points to an opaque dynamic instruction graph builder which records
+    // the executed instructions. Must be NULL on input; ShemuEmulateGraph sets it up internally for the
+    // duration of the emulation. Integrators must not use this field in any way.
+    void                *GraphBuilder;
+
 } SHEMU_CONTEXT, *PSHEMU_CONTEXT;
 
 
@@ -468,6 +473,187 @@ typedef enum SHEMU_FLAG_ID
 
 
 
+//
+// Dynamic instruction graph, as recorded by ShemuEmulateGraph. The graph reflects the paths that were
+// actually executed during one emulation; paths that were not taken are not present, and no static
+// exploration is attempted.
+//
+
+// Maximum number of bytes a single x86 instruction can have.
+#define SHEMU_GRAPH_MAX_INSTR_BYTES     16
+
+
+//
+// Transfer class of an executed instruction.
+//
+typedef enum _SHEMU_GRAPH_TRANSFER
+{
+    // The instruction falls through to the next one.
+    SHEMU_GRAPH_TRANSFER_SEQUENTIAL = 0,
+
+    // Conditional branch: Jcc, JrCXZ, LOOP, LOOPZ, LOOPNZ.
+    SHEMU_GRAPH_TRANSFER_CONDITIONAL,
+
+    // Unconditional near jump.
+    SHEMU_GRAPH_TRANSFER_JUMP,
+
+    // Near call.
+    SHEMU_GRAPH_TRANSFER_CALL,
+
+    // Near return.
+    SHEMU_GRAPH_TRANSFER_RETURN,
+
+} SHEMU_GRAPH_TRANSFER;
+
+
+//
+// Kind of an edge that was actually executed. Note that the kind reflects the dynamic outcome of the
+// instruction, not the relation between the source and destination addresses: a conditional branch
+// whose target happens to be the next sequential address still yields SHEMU_GRAPH_EDGE_COND_TAKEN.
+//
+typedef enum _SHEMU_GRAPH_EDGE_KIND
+{
+    // Sequential fall-through.
+    SHEMU_GRAPH_EDGE_SEQUENTIAL = 0,
+
+    // A conditional branch was taken.
+    SHEMU_GRAPH_EDGE_COND_TAKEN,
+
+    // A conditional branch was not taken.
+    SHEMU_GRAPH_EDGE_COND_NOT_TAKEN,
+
+    // An unconditional near jump.
+    SHEMU_GRAPH_EDGE_JUMP,
+
+    // A near call.
+    SHEMU_GRAPH_EDGE_CALL,
+
+    // A near return.
+    SHEMU_GRAPH_EDGE_RETURN,
+
+} SHEMU_GRAPH_EDGE_KIND;
+
+
+//
+// Reason the emulation stopped.
+//
+typedef enum _SHEMU_GRAPH_STOP
+{
+    // No termination was recorded.
+    SHEMU_GRAPH_STOP_NONE = 0,
+
+    // The emulation stopped normally, by reaching MaxInstructionsCount. Status is SHEMU_SUCCESS.
+    SHEMU_GRAPH_STOP_LIMIT,
+
+    // The emulation aborted in the middle of a dispatch (unsupported or invalid instruction, denied
+    // memory access, RIP outside the shellcode, etc). Status holds the original abort code.
+    SHEMU_GRAPH_STOP_ABORT,
+
+} SHEMU_GRAPH_STOP;
+
+
+//
+// A graph node. A node is identified by the original RIP, the decoded instruction length and the full
+// instruction bytes as fetched before execution. Executions of the same address with the same bytes
+// are merged into a single node; if the bytes differ (self-modifying code), each version is a distinct
+// node, even if the length is unchanged.
+//
+typedef struct _SHEMU_GRAPH_NODE
+{
+    // Linear address the instruction was fetched from.
+    ND_UINT64               Rip;
+
+    // Decoded instruction length, in bytes.
+    ND_UINT32               Length;
+
+    // The complete instruction bytes, copied at fetch time. Later self-modifications of the shellcode
+    // do not alter this snapshot. Only the first Length bytes are valid.
+    ND_UINT8                Bytes[SHEMU_GRAPH_MAX_INSTR_BYTES];
+
+    // The transfer class of the instruction.
+    SHEMU_GRAPH_TRANSFER    Transfer;
+
+    // Number of times this exact instruction version was executed.
+    ND_UINT64               ExecCount;
+
+} SHEMU_GRAPH_NODE;
+
+
+//
+// A graph edge. Connects two successfully emulated instructions. Edges are recorded per outer
+// instruction dispatch; the internal iterations of a repeated (REP) string instruction do not
+// create nodes or edges.
+//
+typedef struct _SHEMU_GRAPH_EDGE
+{
+    // Index of the source node inside the Nodes array.
+    ND_UINT64               From;
+
+    // Index of the destination node inside the Nodes array.
+    ND_UINT64               To;
+
+    // The kind of the transition, as produced by the execution of the source (From) instruction.
+    SHEMU_GRAPH_EDGE_KIND   Kind;
+
+    // Number of times this exact transition was executed.
+    ND_UINT64               Count;
+
+} SHEMU_GRAPH_EDGE;
+
+
+//
+// Termination record. Describes how the emulation ended. No successful successor is fabricated for
+// a dispatch that did not complete.
+//
+typedef struct _SHEMU_GRAPH_TERMINATION
+{
+    // Why the emulation stopped.
+    SHEMU_GRAPH_STOP        Reason;
+
+    // The status returned by the emulation itself.
+    SHEMU_STATUS            Status;
+
+    // The address of the dispatch that was being attempted when the emulation stopped. If the
+    // emulation stopped normally (SHEMU_GRAPH_STOP_LIMIT), this is the address that would have
+    // been dispatched next.
+    ND_UINT64               Address;
+
+    // The next RIP as left behind by the last successfully emulated instruction.
+    ND_UINT64               NextRip;
+
+} SHEMU_GRAPH_TERMINATION;
+
+
+//
+// The dynamic instruction graph of one emulation. The report independently owns its storage: it
+// remains valid after the emulation context, the shellcode and the stack buffers are released.
+// Must be freed with ShemuGraphFree.
+//
+typedef struct _SHEMU_GRAPH
+{
+    // The executed instruction versions.
+    SHEMU_GRAPH_NODE        *Nodes;
+
+    // Number of entries inside Nodes.
+    ND_SIZET                NodeCount;
+
+    // The executed transitions.
+    SHEMU_GRAPH_EDGE        *Edges;
+
+    // Number of entries inside Edges.
+    ND_SIZET                EdgeCount;
+
+    // Total number of successfully emulated instructions (sum of all ExecCount values). This is
+    // tracked by the graph recorder itself, not derived from the context InstructionsCount.
+    ND_UINT64               ExecutedCount;
+
+    // How the emulation ended.
+    SHEMU_GRAPH_TERMINATION Termination;
+
+} SHEMU_GRAPH;
+
+
+
 
 #ifdef __cplusplus 
 extern "C" {
@@ -484,6 +670,30 @@ ShemuX86Emulate(
 SHEMU_STATUS
 ShemuEmulate(
     SHEMU_CONTEXT *Context
+    );
+
+//
+// ShemuEmulateGraph - emulates the shellcode exactly like ShemuEmulate (same executor, same context
+// side-effects, same returned status), and additionally records the dynamic instruction graph of the
+// emulation. On return, Graph points to a newly allocated report that is owned by the caller and is
+// independent of the context and of the input buffers; it must be released with ShemuGraphFree.
+// The successfully emulated prefix of the graph is available even if the emulation aborts. If the
+// graph cannot be recorded (for example, out of memory), *Graph is set to NULL, but the emulation
+// still proceeds normally and its status is returned.
+//
+SHEMU_STATUS
+ShemuEmulateGraph(
+    SHEMU_CONTEXT *Context,
+    SHEMU_GRAPH **Graph
+    );
+
+//
+// ShemuGraphFree - releases a graph report obtained from ShemuEmulateGraph. A NULL report is
+// accepted, and is simply ignored.
+//
+void
+ShemuGraphFree(
+    SHEMU_GRAPH *Graph
     );
 
 #ifdef __cplusplus 

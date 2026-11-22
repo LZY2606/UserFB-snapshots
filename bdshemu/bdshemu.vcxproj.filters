@@ -44,6 +44,9 @@
     <ClCompile Include="bdshemu.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="bdshemu_graph.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="bdshemu_x86.c">
       <Filter>Source Files\x86</Filter>
     </ClCompile>
