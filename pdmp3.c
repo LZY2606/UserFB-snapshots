@@ -143,7 +143,16 @@ typedef struct
   unsigned *side_info_ptr;  /* Pointer into the reservoir */
   unsigned side_info_idx;  /* Index into the current byte(0-7) */
 
-  char new_header;
+  /* Per-handle decode history (was function-local static data) */
+  float hsynth_store[2][32][18]; /* IMDCT overlap-add */
+  float synth_v[2][1024];        /* polyphase synthesis */
+
+  /* Output format barrier */
+  long fmt_rate;      /* Active output sample rate in Hz,0 if none */
+  int  fmt_channels;  /* Active output channels,0 if none */
+  long pend_rate;     /* Announced format awaiting confirmation */
+  int  pend_channels;
+  int  fmt_pending;   /* Nonzero while a NEW_FORMAT event is unconfirmed */
 }
 pdmp3_handle;
 
@@ -1064,7 +1073,9 @@ static unsigned Get_Inbuf_Filled(pdmp3_handle *id) {
 }
 
 static unsigned Get_Inbuf_Free(pdmp3_handle *id) {
-  return  (id->iend<id->istart)?(id->istart-id->iend):(INBUF_SIZE-id->iend+id->istart);
+  /* Keep one byte of slack so that a full ring cannot be confused
+   * with an empty one(istart == iend means empty). */
+  return (INBUF_SIZE - 1) - Get_Inbuf_Filled(id);
 }
 
 
@@ -1315,7 +1326,6 @@ static int Read_Header(pdmp3_handle *id) {
   }
   id->g_frame_header.layer = 4 - id->g_frame_header.layer;
   /* DBG("Header         =   0x%08x\n",header); */
-  if(!id->new_header) id->new_header = 1;
   return(PDMP3_OK);  /* Done */
 }
 
@@ -1752,13 +1762,12 @@ static void L3_Frequency_Inversion(pdmp3_handle *id,unsigned gr,unsigned ch){
 static void L3_Hybrid_Synthesis(pdmp3_handle *id,unsigned gr,unsigned ch){
   unsigned sb,i,j,bt;
   float rawout[36];
-  static float store[2][32][18];
 
   if(id->hsynth_init) { /* Clear stored samples vector. OPT? use memset */
     for(j = 0; j < 2; j++) {
       for(sb = 0; sb < 32; sb++) {
         for(i = 0; i < 18; i++) {
-          store[j][sb][i] = 0.0;
+          id->hsynth_store[j][sb][i] = 0.0;
         }
       }
     }
@@ -1772,8 +1781,8 @@ static void L3_Hybrid_Synthesis(pdmp3_handle *id,unsigned gr,unsigned ch){
     /* Do the inverse modified DCT and windowing */
     IMDCT_Win(&(id->g_main_data.is[gr][ch][sb*18]),rawout,bt);
     for(i = 0; i < 18; i++) { /* Overlapp add with stored vector into main_data vector */
-      id->g_main_data.is[gr][ch][sb*18 + i] = rawout[i] + store[ch][sb][i];
-      store[ch][sb][i] = rawout[i + 18];
+      id->g_main_data.is[gr][ch][sb*18 + i] = rawout[i] + id->hsynth_store[ch][sb][i];
+      id->hsynth_store[ch][sb][i] = rawout[i + 18];
     } /* end for(i... */
   } /* end for(sb... */
   return; /* Done */
@@ -1980,42 +1989,40 @@ static void L3_Subband_Synthesis(pdmp3_handle *id,unsigned gr,unsigned ch,unsign
   int32_t samp;
   static unsigned init = 1;
   unsigned i,j,ss,nch;
-  static float g_synth_n_win[64][32],v_vec[2 /* ch */][1024];
+  static float g_synth_n_win[64][32];
 
   /* Number of channels(1 for mono and 2 for stereo) */
   nch =(id->g_frame_header.mode == mpeg1_mode_single_channel) ? 1 : 2 ;
-  /* Setup the n_win windowing vector and the v_vec intermediate vector */
+  /* Setup the n_win windowing vector */
 
   if(init) {
     for(i = 0; i < 64; i++) {
       for(j = 0; j < 32; j++) /*TODO: put in lookup table*/
         g_synth_n_win[i][j] = cos(((float)(16+i)*(2*j+1)) *(C_PI/64.0));
     }
-    for(i = 0; i < 2; i++) /* Setup the v_vec intermediate vector */
-      for(j = 0; j < 1024; j++) v_vec[i][j] = 0.0; /*TODO: memset */
     init = 0;
   } /* end if(init) */
 
   if(id->synth_init) {
     for(i = 0; i < 2; i++) /* Setup the v_vec intermediate vector */
-      for(j = 0; j < 1024; j++) v_vec[i][j] = 0.0; /*TODO: memset*/
+      for(j = 0; j < 1024; j++) id->synth_v[i][j] = 0.0; /*TODO: memset*/
     id->synth_init = 0;
   } /* end if(synth_init) */
 
   for(ss = 0; ss < 18; ss++){ /* Loop through 18 samples in 32 subbands */
     for(i = 1023; i > 63; i--)  /* Shift up the V vector */
-      v_vec[ch][i] = v_vec[ch][i-64];
+      id->synth_v[ch][i] = id->synth_v[ch][i-64];
     for(i = 0; i < 32; i++) /* Copy next 32 time samples to a temp vector */
       s_vec[i] =((float) id->g_main_data.is[gr][ch][i*18 + ss]);
     for(i = 0; i < 64; i++){ /* Matrix multiply input with n_win[][] matrix */
       sum = 0.0;
       for(j = 0; j < 32; j++) sum += g_synth_n_win[i][j] * s_vec[j];
-      v_vec[ch][i] = sum;
+      id->synth_v[ch][i] = sum;
     } /* end for(i... */
     for(i = 0; i < 8; i++) { /* Build the U vector */
       for(j = 0; j < 32; j++) { /* <<7 == *128 */
-        u_vec[(i << 6) + j]      = v_vec[ch][(i << 7) + j];
-        u_vec[(i << 6) + j + 32] = v_vec[ch][(i << 7) + j + 96];
+        u_vec[(i << 6) + j]      = id->synth_v[ch][(i << 7) + j];
+        u_vec[(i << 6) + j + 32] = id->synth_v[ch][(i << 7) + j + 96];
       }
     } /* end for(i... */
     for(i = 0; i < 512; i++) /* Window by u_vec[i] with g_synth_dtbl[i] */
@@ -2344,12 +2351,89 @@ static void Convert_Frame_S16(pdmp3_handle *id,unsigned char *outbuf,size_t bufl
   }
 }
 
+/**Description: Scan the input ring for the next MPEG-1 Layer III header
+*               without consuming input or changing any decoder state.
+* Parameters: Stream handle,header output,number of junk bytes preceding it.
+* Return value: PDMP3_OK when a header was found,PDMP3_NEED_MORE when more
+*               input is needed,PDMP3_ERR when no header shows up.
+**/
+static int Peek_Frame_Header(pdmp3_handle *id,t_mpeg1_header *hdr,unsigned *skip){
+  unsigned filled = Get_Inbuf_Filled(id);
+  unsigned pos = id->istart;
+  unsigned n = 0;
+
+  while(n + 4 <= filled) {
+    unsigned b1 = id->in[(pos + 0) % INBUF_SIZE];
+    unsigned b2 = id->in[(pos + 1) % INBUF_SIZE];
+    unsigned b3 = id->in[(pos + 2) % INBUF_SIZE];
+    unsigned b4 = id->in[(pos + 3) % INBUF_SIZE];
+    unsigned header =(b1 << 24) |(b2 << 16) |(b3 << 8) | b4;
+    if((header & 0xfff00000) == C_SYNC) {
+      unsigned id_bit        =(header & 0x00080000) >> 19;
+      unsigned layer         =(header & 0x00060000) >> 17;
+      unsigned bitrate_index =(header & 0x0000f000) >> 12;
+      unsigned sfreq         =(header & 0x00000c00) >> 10;
+      if((id_bit == 1) &&(layer == mpeg1_layer_3) &&
+         (bitrate_index != 0) &&(bitrate_index != 15) &&(sfreq != 3)) {
+        hdr->id                 = id_bit;
+        hdr->layer              = 4 - layer;
+        hdr->protection_bit     =(header & 0x00010000) >> 16;
+        hdr->bitrate_index      = bitrate_index;
+        hdr->sampling_frequency = sfreq;
+        hdr->padding_bit        =(header & 0x00000200) >> 9;
+        hdr->private_bit        =(header & 0x00000100) >> 8;
+        hdr->mode               =(header & 0x000000c0) >> 6;
+        hdr->mode_extension     =(header & 0x00000030) >> 4;
+        hdr->copyright          =(header & 0x00000008) >> 3;
+        hdr->original_or_copy   =(header & 0x00000004) >> 2;
+        hdr->emphasis           =(header & 0x00000003);
+        *skip = n;
+        return(PDMP3_OK);
+      }
+    }
+    if(++n > (2*576)) return(PDMP3_ERR); /* no header within one frame */
+    if(++pos == INBUF_SIZE) pos = 0;
+  }
+  return(PDMP3_NEED_MORE);
+}
+
+/**Description: Size in bytes of the physical frame described by a header. **/
+static unsigned Frame_Size_Bytes(t_mpeg1_header *hdr){
+  return (144 *
+    g_mpeg1_bitrates[hdr->layer-1][hdr->bitrate_index]) /
+    g_sampling_frequency[hdr->sampling_frequency] +
+    hdr->padding_bit;
+}
+
+/**Description: Announce the format of the next frame as a pending event. **/
+static void Set_Pending_Format(pdmp3_handle *id,t_mpeg1_header *hdr){
+  id->pend_rate     = g_sampling_frequency[hdr->sampling_frequency];
+  id->pend_channels =(hdr->mode == mpeg1_mode_single_channel) ? 1 : 2;
+  id->fmt_pending   = 1;
+}
+
+/**Description: Turn a complete first frame into a pending format event.
+* Return value: PDMP3_OK if a complete frame is available,PDMP3_NEED_MORE
+*               otherwise(no state is changed in that case). **/
+static int Detect_First_Format(pdmp3_handle *id){
+  t_mpeg1_header hdr;
+  unsigned skip = 0,framesize;
+
+  if(Peek_Frame_Header(id,&hdr,&skip) != PDMP3_OK) return(PDMP3_NEED_MORE);
+  framesize = Frame_Size_Bytes(&hdr);
+  if(Get_Inbuf_Filled(id) < skip + framesize) return(PDMP3_NEED_MORE);
+  Set_Pending_Format(id,&hdr);
+  return(PDMP3_OK);
+}
+
 /**Description: Create a new streaming handle
 * Parameters: None
 * Return value: Stream handle
 * Author: Erik Hofman(erik@ehofman.com) **/
 pdmp3_handle* pdmp3_new(const char *decoder,int *error){
-  return malloc(sizeof(pdmp3_handle));
+  pdmp3_handle *id = malloc(sizeof(pdmp3_handle));
+  if(id) memset(id,0,sizeof(pdmp3_handle));
+  return id;
 }
 
 
@@ -2372,11 +2456,17 @@ int pdmp3_open_feed(pdmp3_handle *id){
     id->istart = 0;
     id->iend = 0;
     id->processed = 0;
-    id->new_header = 0;
 
     id->hsynth_init = 1;
     id->synth_init = 1;
     id->g_main_data_top = 0;
+
+    /* Start a new stream: no active format,no pending event. */
+    id->fmt_rate = 0;
+    id->fmt_channels = 0;
+    id->pend_rate = 0;
+    id->pend_channels = 0;
+    id->fmt_pending = 0;
 
     return(PDMP3_OK);
   }
@@ -2389,11 +2479,12 @@ int pdmp3_open_feed(pdmp3_handle *id){
 * Return value: PDMP3_OK or an error
 * Author: Erik Hofman(erik@ehofman.com) **/
 int pdmp3_feed(pdmp3_handle *id,const unsigned char *in,size_t size){
-  if(id && in && size) {
+  if(id && (in || !size)) {
     int free = Get_Inbuf_Free(id);
     if(size<=free)
     {
       int res;
+      if(!size) return(PDMP3_OK);
       if(id->iend<id->istart)
       {
          res = id->istart-id->iend;
@@ -2426,56 +2517,79 @@ int pdmp3_feed(pdmp3_handle *id,const unsigned char *in,size_t size){
 * Parameters: Stream handle,a pointer to a buffer for the PCM data,the size of
               the PCM buffer in bytes,a pointer to return the number of
               converted bytes.
-* Return value: PDMP3_OK or an error.
+* Return value: PDMP3_OK when PCM was delivered,PDMP3_NEW_FORMAT(done == 0)
+              when a complete frame of a new output format is next in line,
+              PDMP3_NEED_MORE when input runs out,PDMP3_NO_SPACE when not
+              even one sample frame of the active format fits,or PDMP3_ERR.
 * Author: Erik Hofman(erik@ehofman.com) **/
 int pdmp3_read(pdmp3_handle *id,unsigned char *outmemory,size_t outsize,size_t *done){
   if(id && outmemory && outsize && done) {
     *done = 0;
-    if(outsize) {
-      int res = PDMP3_ERR;
 
-      if (id->ostart) {
-        Convert_Frame_S16(id,outmemory,outsize,done);
-        outmemory += *done;
-        outsize -= *done;
-        res = PDMP3_OK;
+    /* Deliver PCM left over from a previously decoded frame first. */
+    if(id->ostart) {
+      unsigned framesz = sizeof(short) *
+        (id->g_frame_header.mode == mpeg1_mode_single_channel ? 1 : 2);
+      if(outsize < framesz) return(PDMP3_NO_SPACE);
+      Convert_Frame_S16(id,outmemory,outsize,done);
+      outmemory += *done;
+      outsize   -= *done;
+      if(id->ostart) return(PDMP3_OK);      /* more old PCM remains */
+      if(id->fmt_pending) return(PDMP3_OK); /* notify on the next read */
+    }
+
+    /* A format switch is published only when no old-format PCM remains;
+       PDMP3_NEW_FORMAT is always reported with *done == 0. */
+    if(id->fmt_pending) return(PDMP3_NEW_FORMAT);
+
+    /* With an active format,refuse calls that cannot hold even a single
+       sample frame instead of spinning without progress. */
+    if(id->fmt_channels && outsize < (size_t)(2*id->fmt_channels))
+      return(*done) ? PDMP3_OK : PDMP3_NO_SPACE;
+
+    for(;;) {
+      t_mpeg1_header hdr;
+      unsigned skip = 0,framesize;
+      int res = Peek_Frame_Header(id,&hdr,&skip);
+      if(res != PDMP3_OK) return(*done) ? PDMP3_OK : res;
+      while(skip--) (void)Get_Byte(id); /* discard junk before the header */
+
+      /* A complete physical frame must be present before anything is
+         decoded or announced; fragments wait for the next feed and leave
+         format,decode history and PCM untouched. */
+      framesize = Frame_Size_Bytes(&hdr);
+      if(Get_Inbuf_Filled(id) < framesize)
+        return(*done) ? PDMP3_OK : PDMP3_NEED_MORE;
+
+      if(!id->fmt_channels ||
+         (long)g_sampling_frequency[hdr.sampling_frequency] != id->fmt_rate ||
+         ((hdr.mode == mpeg1_mode_single_channel) ? 1 : 2) != id->fmt_channels) {
+        /* First frame of the stream or a segment boundary. */
+        Set_Pending_Format(id,&hdr);
+        return(*done) ? PDMP3_OK : PDMP3_NEW_FORMAT;
       }
 
-      while(outsize) {
-        if (Get_Inbuf_Filled(id) >= (2*576)) {
-          size_t pos = id->processed;
-          unsigned mark = id->istart;
+      /* Same format as the active one: decode,keeping the history. */
+      {
+        size_t pos = id->processed;
+        unsigned mark = id->istart;
+        size_t batch = 0;
 
-          res = Read_Frame(id);
-          if(res == PDMP3_OK || res == PDMP3_NEW_FORMAT) {
-            size_t batch;
-
-            Decode_L3(id);
-            Convert_Frame_S16(id,outmemory,outsize,&batch);
-            outmemory += batch;
-            outsize -= batch;
-            *done += batch;
-          }
-          else {
-            id->processed = pos;
-            id->istart = mark;
-            break;
-          }
+        res = Read_Frame(id);
+        if(res != PDMP3_OK) { /* cannot happen for a complete,valid frame */
+          id->processed = pos;
+          id->istart = mark;
+          return(*done) ? PDMP3_OK : PDMP3_ERR;
         }
-        else {
-          res = PDMP3_NEED_MORE;
-          break;
-        }
-      } /* outsize */
-      if(id->new_header == 1 && res == PDMP3_OK) {
-        res = PDMP3_NEW_FORMAT;
+        Decode_L3(id);
+        Convert_Frame_S16(id,outmemory,outsize,&batch);
+        outmemory += batch;
+        outsize   -= batch;
+        *done     += batch;
+        if(id->ostart || outsize < (size_t)(2*id->fmt_channels))
+          return(PDMP3_OK);
       }
-      return(res);
     }
-    else if(outsize < (2*576)) {
-      return(PDMP3_NO_SPACE);
-    }
-    return(PDMP3_NEED_MORE);
   }
   return(PDMP3_ERR);
 }
@@ -2490,45 +2604,61 @@ int pdmp3_read(pdmp3_handle *id,unsigned char *outmemory,size_t outsize,size_t *
 * Author: Erik Hofman(erik@ehofman.com) **/
 int pdmp3_decode(pdmp3_handle *id,const unsigned char *in,size_t insize,unsigned char *out,size_t outsize,size_t *done)
 {
-  int free = Get_Inbuf_Free(id);
-  int res;
+  int res = PDMP3_OK;
 
+  if(!id || !done) return(PDMP3_ERR);
   *done = 0;
-  if(free > insize) free = insize;
-  res = pdmp3_feed(id,in,free);
 
-  if(res == PDMP3_OK)
-  {
-    size_t avail;
-    if(out && outsize) {
-      res = pdmp3_read(id,out,outsize,&avail);
-      *done = avail;
-    }
-    else if(Get_Filepos(id) == 0) {
-      unsigned pos = id->processed;
-      unsigned mark = id->istart;
-      res = Search_Header(id);
-      id->processed = pos;
-      id->istart = mark;
-
-      if(id->new_header == 1) {
-          res = PDMP3_NEW_FORMAT;
-      }
-    }
+  if(insize) {
+    size_t space = Get_Inbuf_Free(id);
+    if(space > insize) space = insize;
+    res = pdmp3_feed(id,in,space);
+    if(res != PDMP3_OK) return(res);
   }
-  return res;
+
+  if(out && outsize) {
+    size_t avail = 0;
+    res = pdmp3_read(id,out,outsize,&avail);
+    *done = avail;
+    return(res);
+  }
+
+  /* No output buffer: surface format events without decoding. */
+  if(id->fmt_pending) return(PDMP3_NEW_FORMAT);
+  if(!id->fmt_channels) {
+    if(Detect_First_Format(id) != PDMP3_OK) return(PDMP3_NEED_MORE);
+    return(PDMP3_NEW_FORMAT);
+  }
+  return(PDMP3_OK);
 }
 
 /**Description: Get the current output format written to the addresses given.
+*               With a pending format event this reports the announced format
+*               and confirms it: the format becomes active and the bit
+*               reservoir,IMDCT overlap and synthesis history of this handle
+*               are reset so the new segment decodes like a stream of its own.
+*               Without a pending event the active format is only queried;
+*               before the first complete frame PDMP3_NEED_MORE is returned
+*               and the output parameters are left untouched.
 * Parameters: Stream handle,pointers to store rate, channels and encoding.
-* Return value: PDMP3_OK or an error
+* Return value: PDMP3_OK,PDMP3_NEED_MORE or PDMP3_ERR
 * Author: Erik Hofman(erik@ehofman.com) **/
 int pdmp3_getformat(pdmp3_handle *id,long *rate,int *channels,int *encoding){
   if(id && rate && channels && encoding) {
+    if(!id->fmt_pending && !id->fmt_channels) {
+      if(Detect_First_Format(id) != PDMP3_OK) return(PDMP3_NEED_MORE);
+    }
+    if(id->fmt_pending) {
+      id->fmt_rate        = id->pend_rate;
+      id->fmt_channels    = id->pend_channels;
+      id->fmt_pending     = 0;
+      id->g_main_data_top = 0; /* bit reservoir */
+      id->hsynth_init     = 1; /* IMDCT overlap-add */
+      id->synth_init      = 1; /* polyphase synthesis */
+    }
+    *rate     = id->fmt_rate;
+    *channels = id->fmt_channels;
     *encoding = PDMP3_ENC_SIGNED_16;
-    *rate = g_sampling_frequency[id->g_frame_header.sampling_frequency];
-    *channels = (id->g_frame_header.mode == mpeg1_mode_single_channel ? 1 : 2);
-    id->new_header = -1;
     return(PDMP3_OK);
   }
   return(PDMP3_ERR);
