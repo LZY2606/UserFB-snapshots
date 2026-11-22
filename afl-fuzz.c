@@ -42,6 +42,7 @@
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
+#include "bitflip_session.h"
 #ifdef AFL_TASK_PROBE
 #include "checks/hooks.h"
 #endif
@@ -267,6 +268,12 @@ struct queue_entry {
 
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
+
+  /* Paused deterministic bitflip session for this entry, if a budgeted
+     fuzz_one_budget() stopped mid-prelude. NULL when no prelude is in
+     flight; the session owns its own input and work buffers. */
+
+  struct bitflip_session *bitflip_sess;
 
 };
 
@@ -5006,49 +5013,197 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
 
+/* ------------------------------------------------------------------ */
+/* Resumable bitflip prelude wiring                                   */
+/* ------------------------------------------------------------------ */
+
+/* The six deterministic bitflip stages run inside a bitflip_session, so
+   they can be driven in bounded chunks, checkpointed and resumed. The
+   callbacks below are the only bridge to fuzzer-global state; the session
+   itself stays re-entrant. */
+
+static u8 *bf_stage_short[BFS_STAGES] = {
+
+  (u8 *)"flip1", (u8 *)"flip2", (u8 *)"flip4",
+  (u8 *)"flip8", (u8 *)"flip16", (u8 *)"flip32"
+
+};
+
+static u8 *bf_stage_name[BFS_STAGES] = {
+
+  (u8 *)"bitflip 1/1",  (u8 *)"bitflip 2/1",  (u8 *)"bitflip 4/1",
+  (u8 *)"bitflip 8/8",  (u8 *)"bitflip 16/8", (u8 *)"bitflip 32/8"
+
+};
+
+/* argv for the prelude execution callback. */
+
+static char **bf_argv;
+
+/* Session currently being driven; the execution callback reads its stage
+   position to keep the legacy stage_cur statistics current. */
+
+static struct bitflip_session *bf_active;
+
+/* queued_paths + unique_crashes captured when each prelude stage starts, so
+   stage_finds keeps its original meaning across chunked runs. */
+
+static u64 bf_stage_hit_base[BFS_STAGES];
+
+/* Session execution callback: submit one candidate through the normal
+   pipeline and report the trace checksum back to the session. */
+
+static u8 bf_exec_cb(int stage, u32 byte_pos, const u8 *cand, u32 len,
+                     u32 *cksum_out, void *userdata) {
+
+  u8 res;
+
+  (void)userdata;
+
+  stage_short     = bf_stage_short[stage];
+  stage_cur_byte  = byte_pos;
+
+  /* Keep the legacy progress counter current for show_stats() inside the
+     common pipeline. It counts actually submitted candidates only. */
+
+  if (bf_active)
+    stage_cur = (s32)bitflip_session_stage_execs(bf_active, stage);
+
+  res = common_fuzz_stuff(bf_argv, (u8 *)cand, len);
+
+  if (res) return 1;
+
+  /* common_fuzz_stuff leaves the observed trace in trace_bits; the session
+     needs the checksum for token construction and the effector map. */
+
+  *cksum_out = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+  return 0;
+
+}
+
+/* Token proposals are delivered in original order once the whole prelude is
+   done; the filtering/dedup/sorting stays inside maybe_add_auto(). */
+
+static void bf_token_cb(const u8 *token, u32 len, void *userdata) {
+
+  (void)userdata;
+  maybe_add_auto((u8 *)token, len);
+
+}
+
+/* Session lifecycle events keep the legacy per-stage statistics honest. */
+
+static void bf_event_cb(int event, int stage, u64 a, u64 b, void *userdata) {
+
+  (void)userdata;
+
+  if (stage < 0 || stage >= BFS_STAGES) return;
+
+  switch (event) {
+
+    case BFS_EV_STAGE_ENTER:
+      stage_short = bf_stage_short[stage];
+      stage_name  = bf_stage_name[stage];
+      stage_max   = (s32)a;
+      stage_cur   = 0;
+      stage_val_type = STAGE_VAL_NONE;
+      bf_stage_hit_base[stage] = queued_paths + unique_crashes;
+      break;
+
+    case BFS_EV_STAGE_EXIT:
+      /* stage_cycles counts candidates really executed, skipped effector
+         positions excluded. */
+      stage_cycles[stage] += a;
+      stage_finds[stage]  +=
+        (queued_paths + unique_crashes) - bf_stage_hit_base[stage];
+      break;
+
+    case BFS_EV_EFF_STATS:
+      blocks_eff_total  += a;
+      blocks_eff_select += b;
+      break;
+
+  }
+
+}
+
+/* Infinite-budget entry point: run the whole deterministic prelude in one
+   go. Returns the historical 0 (fuzzed) / 1 (skipped or bailed out). */
+
+static u8 fuzz_one_budget(char** argv, u64 bf_budget);
+
 static u8 fuzz_one(char** argv) {
+
+  return fuzz_one_budget(argv, (u64)-1);
+
+}
+
+/* Same as fuzz_one(), but the six prelude stages are limited to budget
+   execution submissions per call. When the budget is consumed before the
+   prelude finishes, the function returns 2 without marking the queue entry
+   fuzzed or deterministically done; the caller can drive the same entry
+   again. Only the prelude is budgeted; arithmetic, interesting, dictionary
+   and havoc run as before once the prelude completes. */
+
+static u8 fuzz_one_budget(char** argv, u64 bf_budget) {
 
   s32 len, fd, temp_len, i, j;
   u8  *in_buf, *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
   u64 havoc_queued,  orig_hit_cnt, new_hit_cnt;
-  u32 splice_cycle = 0, perf_score = 100, orig_perf, prev_cksum, eff_cnt = 1;
+  u32 splice_cycle = 0, perf_score = 100, orig_perf, eff_map_len = 0;
 
-  u8  ret_val = 1, doing_det = 0;
+  u8  ret_val = 1, doing_det = 0, bf_retain = 0;
 
-  u8  a_collect[MAX_AUTO_EXTRA];
-  u32 a_len = 0;
+  struct bitflip_session *bf_session = NULL;
+  int bf_rc;
+
+  /* Once a prelude is in flight, the entry is committed to deterministic
+     fuzzing: keep driving it instead of letting the probabilistic entry
+     skips strand (and leak) the paused session. */
+
+  u8 bf_in_flight = queue_cur->bitflip_sess != NULL;
 
 #ifdef IGNORE_FINDS
 
   /* In IGNORE_FINDS mode, skip any entries that weren't in the
      initial data set. */
 
-  if (queue_cur->depth > 1) return 1;
+  if (queue_cur->depth > 1) {
+    if (bf_in_flight) {
+      bitflip_session_close(queue_cur->bitflip_sess);
+      queue_cur->bitflip_sess = NULL;
+    }
+    return 1;
+  }
 
 #else
 
-  if (pending_favored) {
+  if (!bf_in_flight) {
 
-    /* If we have any favored, non-fuzzed new arrivals in the queue,
-       possibly skip to them at the expense of already-fuzzed or non-favored
-       cases. */
+    if (pending_favored) {
 
-    if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
-        UR(100) < SKIP_TO_NEW_PROB) return 1;
+      /* If we have any favored, non-fuzzed new arrivals in the queue,
+         possibly skip to them at the expense of already-fuzzed or
+         non-favored cases. */
 
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
+      if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
+          UR(100) < SKIP_TO_NEW_PROB) return 1;
 
-    /* Otherwise, still possibly skip non-favored cases, albeit less often.
-       The odds of skipping stuff are higher for already-fuzzed inputs and
-       lower for never-fuzzed entries. */
+    } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
 
-    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
+      /* Otherwise, still possibly skip non-favored cases, albeit less often.
+         The odds of skipping stuff are higher for already-fuzzed inputs and
+         lower for never-fuzzed entries. */
 
-      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
+      if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
 
-    } else {
+        if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
 
-      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+      } else {
+
+        if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+
+      }
 
     }
 
@@ -5163,9 +5318,9 @@ static u8 fuzz_one(char** argv) {
 
   doing_det = 1;
 
-  /*********************************************
-   * SIMPLE BITFLIP (+dictionary construction) *
-   *********************************************/
+  /**********************************************
+   * SIMPLE BITFLIP (resumable bitflip session) *
+   **********************************************/
 
 #define FLIP_BIT(_ar, _b) do { \
     u8* _arf = (u8*)(_ar); \
@@ -5173,326 +5328,90 @@ static u8 fuzz_one(char** argv) {
     _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \
   } while (0)
 
-  /* Single walking bit. */
-
-  stage_short = "flip1";
-  stage_max   = len << 3;
-  stage_name  = "bitflip 1/1";
-
-  stage_val_type = STAGE_VAL_NONE;
-
-  orig_hit_cnt = queued_paths + unique_crashes;
-
-  prev_cksum = queue_cur->exec_cksum;
-
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur >> 3;
-
-    FLIP_BIT(out_buf, stage_cur);
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    FLIP_BIT(out_buf, stage_cur);
-
-    /* While flipping the least significant bit in every byte, pull of an extra
-       trick to detect possible syntax tokens. In essence, the idea is that if
-       you have a binary blob like this:
-
-       xxxxxxxxIHDRxxxxxxxx
-
-       ...and changing the leading and trailing bytes causes variable or no
-       changes in program flow, but touching any character in the "IHDR" string
-       always produces the same, distinctive path, it's highly likely that
-       "IHDR" is an atomically-checked magic value of special significance to
-       the fuzzed format.
-
-       We do this here, rather than as a separate stage, because it's a nice
-       way to keep the operation approximately "free" (i.e., no extra execs).
-       
-       Empirically, performing the check when flipping the least significant bit
-       is advantageous, compared to doing it at the time of more disruptive
-       changes, where the program flow may be affected in more violent ways.
-
-       The caveat is that we won't generate dictionaries in the -d mode or -S
-       mode - but that's probably a fair trade-off.
-
-       This won't work particularly well with paths that exhibit variable
-       behavior, but fails gracefully, so we'll carry out the checks anyway.
-
-      */
-
-    if (!dumb_mode && (stage_cur & 7) == 7) {
-
-      u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-
-      if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
-
-        /* If at end of file and we are still collecting a string, grab the
-           final character and force output. */
-
-        if (a_len < MAX_AUTO_EXTRA) a_collect[a_len] = out_buf[stage_cur >> 3];
-        a_len++;
-
-        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
-          maybe_add_auto(a_collect, a_len);
-
-      } else if (cksum != prev_cksum) {
-
-        /* Otherwise, if the checksum has changed, see if we have something
-           worthwhile queued up, and collect that if the answer is yes. */
-
-        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
-          maybe_add_auto(a_collect, a_len);
-
-        a_len = 0;
-        prev_cksum = cksum;
-
-      }
-
-      /* Continue collecting string, but only if the bit flip actually made
-         any difference - we don't want no-op tokens. */
-
-      if (cksum != queue_cur->exec_cksum) {
-
-        if (a_len < MAX_AUTO_EXTRA) a_collect[a_len] = out_buf[stage_cur >> 3];        
-        a_len++;
-
-      }
-
-    }
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP1] += stage_max;
-
-  /* Two walking bits. */
-
-  stage_name  = "bitflip 2/1";
-  stage_short = "flip2";
-  stage_max   = (len << 3) - 1;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur >> 3;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP2]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP2] += stage_max;
-
-  /* Four walking bits. */
-
-  stage_name  = "bitflip 4/1";
-  stage_short = "flip4";
-  stage_max   = (len << 3) - 3;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur >> 3;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-    FLIP_BIT(out_buf, stage_cur + 2);
-    FLIP_BIT(out_buf, stage_cur + 3);
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-    FLIP_BIT(out_buf, stage_cur + 2);
-    FLIP_BIT(out_buf, stage_cur + 3);
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP4]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP4] += stage_max;
-
-  /* Effector map setup. These macros calculate:
-
-     EFF_APOS      - position of a particular file offset in the map.
-     EFF_ALEN      - length of a map with a particular number of bytes.
-     EFF_SPAN_ALEN - map span for a sequence of bytes.
-
-   */
+/* Effector map geometry. EFF_APOS gives the map slot of a file offset,
+   EFF_ALEN the map size for a given length, EFF_SPAN_ALEN the span covering
+   a multi-byte sequence. */
 
 #define EFF_APOS(_p)          ((_p) >> EFF_MAP_SCALE2)
 #define EFF_REM(_x)           ((_x) & ((1 << EFF_MAP_SCALE2) - 1))
 #define EFF_ALEN(_l)          (EFF_APOS(_l) + !!EFF_REM(_l))
 #define EFF_SPAN_ALEN(_p, _l) (EFF_APOS((_p) + (_l) - 1) - EFF_APOS(_p) + 1)
 
-  /* Initialize effector map for the next step (see comments below). Always
-     flag first and last byte as doing something. */
+  /* The six bitflip stages are one resumable session. It owns its own copy
+     of the input, work buffer, effector map and pending tokens, so it can be
+     driven in budgeted chunks (or by a worker thread) without touching any
+     fuzzer-global state except through the callbacks above. A paused session
+     stays attached to the queue entry and is resumed on the next call. */
 
-  eff_map    = ck_alloc(EFF_ALEN(len));
-  eff_map[0] = 1;
+  bf_argv = argv;
 
-  if (EFF_APOS(len - 1) != 0) {
-    eff_map[EFF_APOS(len - 1)] = 1;
-    eff_cnt++;
-  }
+  bf_session = queue_cur->bitflip_sess;
 
-  /* Walking byte. */
+  if (bf_session) {
 
-  stage_name  = "bitflip 8/8";
-  stage_short = "flip8";
-  stage_max   = len;
+    /* The entry's input must be byte-identical to the one the paused
+       session was built from; otherwise the checkpoint is stale and the
+       prelude has to start over. */
 
-  orig_hit_cnt = new_hit_cnt;
+    if (bitflip_session_len(bf_session) != (u32)len ||
+        memcmp(bitflip_session_input(bf_session), in_buf, len)) {
 
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur;
-
-    out_buf[stage_cur] ^= 0xFF;
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    /* We also use this stage to pull off a simple trick: we identify
-       bytes that seem to have no effect on the current execution path
-       even when fully flipped - and we skip them during more expensive
-       deterministic stages, such as arithmetics or known ints. */
-
-    if (!eff_map[EFF_APOS(stage_cur)]) {
-
-      u32 cksum;
-
-      /* If in dumb mode or if the file is very short, just flag everything
-         without wasting time on checksums. */
-
-      if (!dumb_mode && len >= EFF_MIN_LEN)
-        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-      else
-        cksum = ~queue_cur->exec_cksum;
-
-      if (cksum != queue_cur->exec_cksum) {
-        eff_map[EFF_APOS(stage_cur)] = 1;
-        eff_cnt++;
-      }
+      bitflip_session_close(bf_session);
+      bf_session = NULL;
 
     }
 
-    out_buf[stage_cur] ^= 0xFF;
+  }
+
+  if (!bf_session) {
+
+    bf_session = bitflip_session_open(in_buf, len, queue_cur->exec_cksum,
+                                      dumb_mode, bf_exec_cb, bf_token_cb,
+                                      bf_event_cb, 0);
+
+    if (!bf_session) FATAL("Unable to allocate bitflip session");
 
   }
 
-  /* If the effector map is more than EFF_MAX_PERC dense, just flag the
-     whole thing as worth fuzzing, since we wouldn't be saving much time
-     anyway. */
+  queue_cur->bitflip_sess = NULL;
 
-  if (eff_cnt != EFF_ALEN(len) &&
-      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {
+  bf_active = bf_session;
+  bf_rc = bitflip_session_run(bf_session, bf_budget);
+  bf_active = NULL;
 
-    memset(eff_map, 1, EFF_ALEN(len));
+  if (bf_rc == BFS_ERROR || bf_rc == BFS_PAUSED) {
 
-    blocks_eff_select += EFF_ALEN(len);
+    /* Keep the session on the queue entry: the failing/remaining candidates
+       were neither billed nor marked done, so a later call resumes exactly
+       where it stopped. No deterministic completion marker is touched, and
+       the entry is not reported as fuzzed while a prelude remains open. */
 
-  } else {
+    queue_cur->bitflip_sess = bf_session;
+    bf_session = NULL;
+    bf_retain = 1;
 
-    blocks_eff_select += eff_cnt;
+    if (bf_rc == BFS_PAUSED) ret_val = 2;
+
+    goto abandon_entry;
 
   }
 
-  blocks_eff_total += EFF_ALEN(len);
+  /* Prelude finished. Take a private copy of the session's effector map for
+     the arithmetic, interesting and dictionary stages, then release the
+     session. Token proposals were already handed to maybe_add_auto(). */
+
+  eff_map = ck_memdup((u8 *)bitflip_session_eff_map(bf_session, &eff_map_len),
+                      eff_map_len);
+
+  bitflip_session_close(bf_session);
+  bf_session = NULL;
 
   new_hit_cnt = queued_paths + unique_crashes;
 
-  stage_finds[STAGE_FLIP8]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP8] += stage_max;
+  /* Effector map, flip8, flip16 and flip32 all live inside the session;
+     the session itself applies the original short-input rules, so nothing
+     remains of the old inline loops. */
 
-  /* Two walking bytes. */
-
-  if (len < 2) goto skip_bitflip;
-
-  stage_name  = "bitflip 16/8";
-  stage_short = "flip16";
-  stage_cur   = 0;
-  stage_max   = len - 1;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (i = 0; i < len - 1; i++) {
-
-    /* Let's consult the effector map... */
-
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
-      stage_max--;
-      continue;
-    }
-
-    stage_cur_byte = i;
-
-    *(u16*)(out_buf + i) ^= 0xFFFF;
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-    stage_cur++;
-
-    *(u16*)(out_buf + i) ^= 0xFFFF;
-
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP16]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP16] += stage_max;
-
-  if (len < 4) goto skip_bitflip;
-
-  /* Four walking bytes. */
-
-  stage_name  = "bitflip 32/8";
-  stage_short = "flip32";
-  stage_cur   = 0;
-  stage_max   = len - 3;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (i = 0; i < len - 3; i++) {
-
-    /* Let's consult the effector map... */
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
-        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
-      stage_max--;
-      continue;
-    }
-
-    stage_cur_byte = i;
-
-    *(u32*)(out_buf + i) ^= 0xFFFFFFFF;
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-    stage_cur++;
-
-    *(u32*)(out_buf + i) ^= 0xFFFFFFFF;
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP32]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP32] += stage_max;
-
-skip_bitflip:
 #ifdef AFL_TASK_PROBE
   if (afl_task_boundary_hook) {
     afl_task_boundary_hook(eff_map, EFF_ALEN(len));
@@ -6680,10 +6599,28 @@ abandon_entry:
 
   splicing_with = -1;
 
-  /* Update pending_not_fuzzed count if we made it through the calibration
-     cycle and have not seen this entry before. */
+  /* A paused or failed prelude keeps its session on the queue entry so a
+     later call retries/continues it (bf_retain). On every other exit path,
+     drop any session still attached to the entry to avoid leaking it, for
+     example when the entry is abandoned in calibration or trimming. */
 
-  if (!stop_soon && !queue_cur->cal_failed && !queue_cur->was_fuzzed) {
+  if (!bf_retain && queue_cur->bitflip_sess) {
+
+    bitflip_session_close(queue_cur->bitflip_sess);
+    queue_cur->bitflip_sess = NULL;
+
+  }
+
+  if (bf_session) bitflip_session_close(bf_session);
+
+  /* Update pending_not_fuzzed count if we made it through the calibration
+     cycle and have not seen this entry before. While a bitflip prelude is
+     still open (a pause or a candidate failure awaiting retry) the entry
+     has not been fuzzed yet, so leave was_fuzzed, passed_det and the
+     pending counters untouched. */
+
+  if (!queue_cur->bitflip_sess && !stop_soon &&
+      !queue_cur->cal_failed && !queue_cur->was_fuzzed) {
     queue_cur->was_fuzzed = 1;
     pending_not_fuzzed--;
     if (queue_cur->favored) pending_favored--;

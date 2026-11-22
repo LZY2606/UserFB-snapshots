@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s checks/resume_contract.c; fi
 bash checks/build.sh
 if [[ $mode == target ]]; then
   bash checks/build.sh target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/afl-run.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
