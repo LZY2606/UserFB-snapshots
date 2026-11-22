@@ -37,6 +37,10 @@ type Stream struct {
 	chunkIndex         int
 	sampleIndexInChunk int
 
+	// refs is populated during probe and maps stsd descriptions to dref
+	// entries; nil means reference routing was not set up.
+	refs *streamReferences
+
 	sttsEntry *mp4io.TimeToSampleEntry
 	cttsEntry *mp4io.CompositionOffsetEntry
 }

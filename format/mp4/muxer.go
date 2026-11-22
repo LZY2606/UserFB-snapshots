@@ -69,8 +69,11 @@ func (self *Muxer) newStream(codec av.CodecData) (err error) {
 				Sample: stream.sample,
 				Data: &mp4io.DataInfo{
 					Refer: &mp4io.DataRefer{
-						Url: &mp4io.DataReferUrl{
-							Flags: 0x000001, // Self reference
+						EntryCount: 1,
+						Urls: []*mp4io.DataReferUrl{
+							{
+								Flags: 0x000001, // Self reference
+							},
 						},
 					},
 				},
@@ -97,7 +100,7 @@ func (self *Stream) fillTrackAtom() (err error) {
 	if self.Type() == av.H264 {
 		codec := self.CodecData.(h264parser.CodecData)
 		width, height := codec.Width(), codec.Height()
-		self.sample.SampleDesc.AVC1Desc = &mp4io.AVC1Desc{
+		self.sample.SampleDesc.Descs = append(self.sample.SampleDesc.Descs, &mp4io.AVC1Desc{
 			DataRefIdx:           1,
 			HorizontalResolution: 72,
 			VorizontalResolution: 72,
@@ -107,7 +110,8 @@ func (self *Stream) fillTrackAtom() (err error) {
 			Depth:                24,
 			ColorTableId:         -1,
 			Conf:                 &mp4io.AVC1Conf{Data: codec.AVCDecoderConfRecordBytes()},
-		}
+		})
+		self.sample.SampleDesc.EntryCount = int32(len(self.sample.SampleDesc.Descs))
 		self.trackAtom.Media.Handler = &mp4io.HandlerRefer{
 			SubType: [4]byte{'v','i','d','e'},
 			Name:    []byte("Video Media Handler"),
@@ -120,7 +124,7 @@ func (self *Stream) fillTrackAtom() (err error) {
 
 	} else if self.Type() == av.AAC {
 		codec := self.CodecData.(aacparser.CodecData)
-		self.sample.SampleDesc.MP4ADesc = &mp4io.MP4ADesc{
+		self.sample.SampleDesc.Descs = append(self.sample.SampleDesc.Descs, &mp4io.MP4ADesc{
 			DataRefIdx:       1,
 			NumberOfChannels: int16(codec.ChannelLayout().Count()),
 			SampleSize:       int16(codec.SampleFormat().BytesPerSample()),
@@ -128,7 +132,8 @@ func (self *Stream) fillTrackAtom() (err error) {
 			Conf: &mp4io.ElemStreamDesc{
 				DecConfig: codec.MPEG4AudioConfigBytes(),
 			},
-		}
+		})
+		self.sample.SampleDesc.EntryCount = int32(len(self.sample.SampleDesc.Descs))
 		self.trackAtom.Header.Volume = 1
 		self.trackAtom.Header.AlternateGroup = 1
 		self.trackAtom.Media.Handler = &mp4io.HandlerRefer{

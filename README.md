@@ -27,6 +27,74 @@ Support container formats:
 - FLV
 - AAC (ADTS)
 
+## MP4 reference files (external media)
+
+Editing tools sometimes export a reference MP4 whose chunks stay in
+external media files instead of the main `mdat`. Read such files with
+`NewDemuxerWithResolver`; the resolver receives each dref url location
+exactly as stored and the library never opens paths or network
+resources itself. Resolved readers are cached per demuxer by the raw
+location string and shared across tracks. The example below keeps the
+external media in memory and needs no codec or external tool support:
+
+```go
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+
+	"github.com/nareix/joy4/format/mp4"
+)
+
+func main() {
+	// referenceMP4Bytes is the reference MP4; the media map holds the
+	// external media keyed by the raw location strings stored in its
+	// dref url entries.
+	var referenceMP4Bytes []byte
+	var externalTrackA, externalTrackB []byte
+
+	mainFile := bytes.NewReader(referenceMP4Bytes)
+	media := map[string][]byte{
+		"track-A.bin\x00": externalTrackA,
+		"track-B.bin\x00": externalTrackB,
+	}
+
+	resolve := func(location string) (io.ReadSeeker, error) {
+		raw, ok := media[location]
+		if !ok {
+			return nil, fmt.Errorf("unknown media location %q", location)
+		}
+		// A fresh reader per location; successful results are cached by
+		// the demuxer, failed ones are retried on the next ReadPacket.
+		return bytes.NewReader(raw), nil
+	}
+
+	demuxer := mp4.NewDemuxerWithResolver(mainFile, resolve)
+	streams, err := demuxer.Streams() // only parses indices/config
+	if err != nil {
+		panic(err)
+	}
+	_ = streams
+
+	for {
+		packet, err := demuxer.ReadPacket()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("stream=%d time=%v bytes=%d\n", packet.Idx, packet.Time, len(packet.Data))
+	}
+}
+```
+
+The plain `NewDemuxer` keeps reading self-contained MP4 files and
+returns an explicit error when it meets an external sample instead of
+reading from the wrong file offset.
+
 RTSP Client
 - High level camera bug tolerance
 - Support STAP-A

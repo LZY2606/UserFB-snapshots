@@ -28,6 +28,20 @@ func genatomdecl(origfn *ast.FuncDecl, origname, origtag string) (decls []ast.De
 		Type: &ast.StructType{Fields: fieldslist},
 	}
 
+	// fields declared by several atomslist entries hold different element
+	// types and therefore need the generic []Atom slice type.
+	listFieldCounts := map[string]int{}
+	for _, _s := range origfn.Body.List {
+		if stmt, ok := _s.(*ast.ExprStmt); ok {
+			if call, ok := stmt.X.(*ast.CallExpr); ok {
+				if call.Fun.(*ast.Ident).Name == "atomslist" {
+					listFieldCounts[getexprs(call.Args[0])]++
+				}
+			}
+		}
+	}
+	seenFields := map[string]bool{}
+
 	for _, _stmt := range origfn.Body.List {
 		stmt := _stmt.(*ast.ExprStmt)
 		callexpr := stmt.X.(*ast.CallExpr)
@@ -76,16 +90,25 @@ func genatomdecl(origfn *ast.FuncDecl, origname, origtag string) (decls []ast.De
 			typ = "*"+name2
 		case "atoms":
 			typ = "[]*"+name2
+		case "atomslist":
+			if listFieldCounts[name] > 1 {
+				typ = "[]Atom"
+			} else {
+				typ = "[]*"+name2
+			}
 		case "slice":
 			typ = "[]"+name2
 		case "array":
 			typ = "["+len3+"]"+name2
 		}
 
-		fieldslist.List = append(fieldslist.List, &ast.Field{
-			Names: []*ast.Ident{ast.NewIdent(name)},
-			Type: ast.NewIdent(typ),
-		})
+		if !seenFields[name] {
+			fieldslist.List = append(fieldslist.List, &ast.Field{
+				Names: []*ast.Ident{ast.NewIdent(name)},
+				Type: ast.NewIdent(typ),
+			})
+			seenFields[name] = true
+		}
 	}
 
 	if origtag != "" {
@@ -569,6 +592,13 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 	var atomtypes []string
 	var atomarrnames []string
 	var atomarrtypes []string
+	// ordered atom lists keep on-disk order and reject atoms whose tag
+	// does not match one of the declared element types.
+	type listCase struct {
+		field string
+		typ   string
+	}
+	var atomLists [][]listCase
 	slicenamemap := map[string]string{}
 
 	unmarshalatom := func(typ, init string) (stmts []ast.Stmt) {
@@ -624,6 +654,19 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 			})
 		}
 
+		for _, list := range atomLists {
+			for _, c := range list {
+				selfatom := "self." + c.field
+				cases = append(cases, &ast.CaseClause{
+					List: []ast.Expr{ast.NewIdent(strings.ToUpper(struct2tag(c.typ)))},
+					Body: []ast.Stmt{&ast.BlockStmt{
+						List: append(unmarshalatom(c.typ, ""),
+							simpleassign(token.ASSIGN, selfatom, "append("+selfatom+", atom)")),
+					}},
+				})
+			}
+		}
+
 		if hasunknowns {
 			init := "Tag_: tag, Data: b[n:n+size]"
 			selfatom := "self.Unknowns"
@@ -631,6 +674,11 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 				Body: []ast.Stmt{&ast.BlockStmt{
 					List: append(unmarshalatom("Dummy", init), simpleassign(token.ASSIGN, selfatom, "append("+selfatom+", atom)")),
 				}},
+			})
+		} else if len(atomLists) > 0 {
+			// ordered atom lists only accept the declared element tags
+			cases = append(cases, &ast.CaseClause{
+				Body: []ast.Stmt{&ast.BlockStmt{List: parseerrreturn("UnexpectedTag")}},
 			})
 		}
 
@@ -645,6 +693,18 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 			Cond: ast.NewIdent("n+8 < len(b)"),
 			Body: &ast.BlockStmt{List: blocks},
 		})
+
+		for _, list := range atomLists {
+			field := list[0].field
+			stmts = append(stmts, &ast.IfStmt{
+				Cond: &ast.BinaryExpr{
+					X:   ast.NewIdent("len(self." + field + ")"),
+					Op:  token.NEQ,
+					Y:   ast.NewIdent("int(self.EntryCount)"),
+				},
+				Body: &ast.BlockStmt{List: parseerrreturn("EntryCount")},
+			})
+		}
 		return
 	}
 
@@ -760,6 +820,7 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 		}
 	}
 
+	emittedListFields := map[string]bool{}
 	getdefaultstmts := func(
 		typ, name, name2 string,
 		marstmts *[]ast.Stmt, lenstmts *[]ast.Stmt,
@@ -786,6 +847,14 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 			*marstmts = append(*marstmts, foreachatom("self."+name, callmarshal("atom"))...)
 			*lenstmts = append(*lenstmts, foreachatom("self."+name, calllen("atom"))...)
 			*childrenstmts = append(*childrenstmts, foreachatomsappendchildren("self."+name)...)
+
+		case "atomslist":
+			if !emittedListFields[name] {
+				*marstmts = append(*marstmts, foreachatom("self."+name, callmarshal("atom"))...)
+				*lenstmts = append(*lenstmts, foreachatom("self."+name, calllen("atom"))...)
+				*childrenstmts = append(*childrenstmts, foreachatomsappendchildren("self."+name)...)
+				emittedListFields[name] = true
+			}
 
 		case "slice":
 			*marstmts = append(*marstmts, foreachentry("self."+name, callputstruct(name2, "entry"))...)
@@ -822,6 +891,21 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 			name2 := getexprs(callexpr.Args[1])
 			atomarrnames = append(atomarrnames, name)
 			atomarrtypes = append(atomarrtypes, name2)
+		} else if typ == "atomslist" {
+			field := getexprs(callexpr.Args[0])
+			elemType := getexprs(callexpr.Args[1])
+			merged := false
+			for i := range atomLists {
+				if atomLists[i][0].field == field {
+					atomLists[i] = append(atomLists[i], listCase{field: field, typ: elemType})
+					merged = true
+					break
+				}
+			}
+			if !merged {
+				atomLists = append(atomLists, []listCase{{field: field, typ: elemType}})
+			}
+			slicenamemap[field] = elemType
 		} else if typ == "slice" {
 			name := getexprs(callexpr.Args[0])
 			name2 := getexprs(callexpr.Args[1])
@@ -913,7 +997,7 @@ func getatommarshalfn(origfn *ast.FuncDecl,
 		childrenstmts = append(childrenstmts, defchildrenstmts...)
 	}
 
-	if len(atomnames) > 0 || len(atomarrnames) > 0 || hasunknowns {
+	if len(atomnames) > 0 || len(atomarrnames) > 0 || len(atomLists) > 0 || hasunknowns {
 		unmarstmts = append(unmarstmts, unmrashalatoms()...)
 	}
 

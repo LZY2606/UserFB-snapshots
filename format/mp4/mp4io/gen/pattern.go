@@ -1,3 +1,11 @@
+//go:build ignore
+// +build ignore
+
+// This file is not compiled as part of the package; the atom generator
+// parses it as DSL input. Regenerate atoms.go with:
+//
+//	go run ./format/mp4/mp4io/gen/gen.go gen \
+//	    ./format/mp4/mp4io/gen/pattern.go ./format/mp4/mp4io/atoms.go
 package main
 
 func moov_Movie() {
@@ -93,13 +101,16 @@ func dinf_DataInfo() {
 func dref_DataRefer() {
 	uint8(Version)
 	uint24(Flags)
-	int32(_childrenNR)
-	atom(Url, DataReferUrl)
+	int32(EntryCount)
+	atomslist(Urls, DataReferUrl)
 }
 
 func url__DataReferUrl() {
 	uint8(Version)
 	uint24(Flags)
+	// url version 0 carries the location as the remaining atom bytes;
+	// a self-contained entry has no location bytes at all.
+	bytesleft(Location)
 }
 
 func smhd_SoundMediaInfo() {
@@ -129,10 +140,11 @@ func stbl_SampleTable() {
 func stsd_SampleDesc() {
 	uint8(Version)
 	_skip(3)
-	int32(_childrenNR)
-	atom(AVC1Desc, AVC1Desc)
-	atom(MP4ADesc, MP4ADesc)
-	_unknowns()
+	int32(EntryCount)
+	// sample descriptions stay in file order; unknown tags are rejected
+	// instead of silently becoming the first/fallback entry.
+	atomslist(Descs, AVC1Desc)
+	atomslist(Descs, MP4ADesc)
 }
 
 func mp4a_MP4ADesc() {

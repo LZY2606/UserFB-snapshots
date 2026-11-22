@@ -16,11 +16,32 @@ type Demuxer struct {
 	r         io.ReadSeeker
 	streams   []*Stream
 	movieAtom *mp4io.Movie
+
+	// resolve opens external media on demand; nil keeps the legacy
+	// self-contained behaviour. resources caches successfully resolved
+	// readers keyed by the raw location string and is shared by tracks.
+	resolve   ReferenceResolver
+	resources map[string]io.ReadSeeker
 }
 
 func NewDemuxer(r io.ReadSeeker) *Demuxer {
 	return &Demuxer{
 		r: r,
+	}
+}
+
+// NewDemuxerWithResolver returns a demuxer that can read reference MP4
+// files whose chunks live in external media. resolve receives the url
+// entry's location byte string exactly as stored in the file; the
+// library never opens paths or network resources itself. The returned
+// reader is cached per Demuxer by the raw location and shared by all
+// tracks. A failed resolution is not cached, so the next ReadPacket can
+// retry the same sample.
+func NewDemuxerWithResolver(r io.ReadSeeker, resolve ReferenceResolver) *Demuxer {
+	return &Demuxer{
+		r:         r,
+		resolve:   resolve,
+		resources: map[string]io.ReadSeeker{},
 	}
 }
 
@@ -89,9 +110,15 @@ func (self *Demuxer) probe() (err error) {
 			if stream.CodecData, err = h264parser.NewCodecDataFromAVCDecoderConfRecord(avc1.Data); err != nil {
 				return
 			}
+			if err = self.probeReferences(stream); err != nil {
+				return
+			}
 			self.streams = append(self.streams, stream)
 		} else if esds := atrack.GetElemStreamDesc(); esds != nil {
 			if stream.CodecData, err = aacparser.NewCodecDataFromMPEG4AudioConfigBytes(esds.DecConfig); err != nil {
+				return
+			}
+			if err = self.probeReferences(stream); err != nil {
 				return
 			}
 			self.streams = append(self.streams, stream)
@@ -309,10 +336,18 @@ func (self *Demuxer) ReadPacket() (pkt av.Packet, err error) {
 	var chosen *Stream
 	var chosenidx int
 	for i, stream := range self.streams {
+		if !stream.isSampleValid() {
+			// finished tracks leave scheduling while the others continue
+			continue
+		}
 		if chosen == nil || stream.tsToTime(stream.dts) < chosen.tsToTime(chosen.dts) {
 			chosen = stream
 			chosenidx = i
 		}
+	}
+	if chosen == nil {
+		err = io.EOF
+		return
 	}
 	if false {
 		fmt.Printf("ReadPacket: chosen index=%v time=%v\n", chosen.idx, chosen.tsToTime(chosen.dts))
@@ -371,9 +406,18 @@ func (self *Stream) readPacket() (pkt av.Packet, err error) {
 		sampleSize = self.sample.SampleSize.Entries[self.sampleIndex]
 	}
 
+	descId := self.sample.SampleToChunk.Entries[self.chunkGroupIndex].SampleDescId
+	if descId < 1 || int(descId) > len(self.refs.refs) {
+		err = fmt.Errorf("mp4: stream[%d]: sample_description_index %d out of range", self.idx, descId)
+		return
+	}
+	ref := self.refs.refs[descId-1]
 	sampleOffset := int64(chunkOffset) + self.sampleOffsetInChunk
-	pkt.Data = make([]byte, sampleSize)
-	if err = self.demuxer.readat(sampleOffset, pkt.Data); err != nil {
+
+	// The read either succeeds completely or state is untouched; resolve,
+	// seek and short-read failures must never advance sample/time/keyframe
+	// state of any track.
+	if pkt.Data, err = self.demuxer.readReferenceSample(ref, sampleOffset, int64(sampleSize)); err != nil {
 		return
 	}
 
