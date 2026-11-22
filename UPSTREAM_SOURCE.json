@@ -1,0 +1,7 @@
+{
+  "repo": "https://github.com/chirlu/soxr",
+  "commit": "945b592b70470e29f917f4de89b4281fbbd540c0",
+  "license": "LGPL-2.1-only",
+  "archive_sha256": "cff7e2b6427b01a5f73b32175153d38a919941052ea0e52f1992d196e46493ce",
+  "description": "Pinned upstream source exported without target implementation. Added files under task_support provide the baseline and C test driver."
+}
