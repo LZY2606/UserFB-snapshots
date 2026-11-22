@@ -8,6 +8,8 @@ import (
 	"log"
 
 	"github.com/mewkiz/flac"
+	"github.com/mewkiz/flac/frame"
+	"github.com/mewkiz/flac/meta"
 )
 
 func ExampleParseFile() {
@@ -118,4 +120,139 @@ func ExampleOpen() {
 	//     sample 2: 152
 	//
 	// decoded audio md5sum valid: true
+}
+
+// memFile is a minimal in-memory io.WriteSeeker built only from the standard
+// library, sufficient to demonstrate stream-relative STREAMINFO back-filling.
+type memFile struct {
+	data []byte
+	pos  int64
+}
+
+func (m *memFile) Write(p []byte) (int, error) {
+	end := m.pos + int64(len(p))
+	if end > int64(len(m.data)) {
+		m.data = append(m.data, make([]byte, end-int64(len(m.data)))...)
+	}
+	copy(m.data[m.pos:end], p)
+	m.pos = end
+	return len(p), nil
+}
+
+func (m *memFile) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekCurrent:
+		offset += m.pos
+	case io.SeekEnd:
+		offset += int64(len(m.data))
+	}
+	if offset < 0 {
+		return m.pos, fmt.Errorf("negative position")
+	}
+	m.pos = offset
+	return offset, nil
+}
+
+// newExampleFrame builds a deterministic 16-bit mono frame.
+func newExampleFrame(blockSize uint16) *frame.Frame {
+	samples := make([]int32, blockSize)
+	for i := range samples {
+		samples[i] = int32(i*257) - 2048
+	}
+	return &frame.Frame{
+		Header: frame.Header{
+			HasFixedBlockSize: true,
+			BlockSize:         blockSize,
+			SampleRate:        44100,
+			Channels:          frame.ChannelsMono,
+			BitsPerSample:     16,
+		},
+		Subframes: []*frame.Subframe{{
+			SubHeader: frame.SubHeader{Pred: frame.PredVerbatim},
+			NSamples:  int(blockSize),
+			Samples:   samples,
+		}},
+	}
+}
+
+// ExampleNewEncoder encodes a frame into a plain io.Writer. Because a
+// bytes.Buffer cannot seek, the STREAMINFO fields that are only known once the
+// stream is finished (total sample count, MD5 and frame sizes) are left
+// untouched, but the audio frames themselves are fully written and decodable.
+func ExampleNewEncoder() {
+	info := &meta.StreamInfo{
+		BlockSizeMin:  16,
+		BlockSizeMax:  16,
+		SampleRate:    44100,
+		NChannels:     1,
+		BitsPerSample: 16,
+	}
+	out := new(bytes.Buffer)
+	enc, err := flac.NewEncoder(out, info)
+	if err != nil {
+		log.Fatal(err)
+	}
+	enc.EnablePredictionAnalysis(false)
+	if err := enc.WriteFrame(newExampleFrame(16)); err != nil {
+		log.Fatal(err)
+	}
+	if err := enc.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	stream, err := flac.Parse(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	f, err := stream.ParseNext()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("channels=%d blocksize=%d first=%d\n", stream.Info.NChannels, f.BlockSize, f.Subframes[0].Samples[0])
+	// Output:
+	// channels=1 blocksize=16 first=-2048
+}
+
+// ExampleEncoder_Close demonstrates appending an independent FLAC stream to a
+// writer that already holds unrelated bytes. The encoder starts at the current
+// position, writes its own "fLaC" signature and metadata there, and on Close
+// back-fills only this stream's STREAMINFO before restoring the cursor to the
+// end of the new stream's audio. The prefix is never modified.
+func ExampleEncoder_Close() {
+	prefix := []byte("PREVIOUS-DATA")
+	f := &memFile{data: append([]byte(nil), prefix...)}
+	f.pos = int64(len(prefix))
+
+	info := &meta.StreamInfo{
+		BlockSizeMin:  16,
+		BlockSizeMax:  16,
+		SampleRate:    44100,
+		NChannels:     1,
+		BitsPerSample: 16,
+	}
+	enc, err := flac.NewEncoder(f, info)
+	if err != nil {
+		log.Fatal(err)
+	}
+	enc.EnablePredictionAnalysis(false)
+	if err := enc.WriteFrame(newExampleFrame(16)); err != nil {
+		log.Fatal(err)
+	}
+	audioEnd := f.pos
+	if err := enc.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("prefix kept: %t\n", bytes.Equal(f.data[:len(prefix)], prefix))
+	fmt.Printf("cursor restored: %t\n", f.pos == audioEnd)
+
+	stream, err := flac.Parse(bytes.NewReader(f.data[len(prefix):]))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("back-filled nsamples=%d md5-set=%t\n", stream.Info.NSamples, stream.Info.MD5sum != [16]byte{})
+	// Output:
+	// prefix kept: true
+	// cursor restored: true
+	// back-filled nsamples=16 md5-set=true
 }

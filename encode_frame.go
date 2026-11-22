@@ -1,6 +1,7 @@
 package flac
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"math"
@@ -15,105 +16,264 @@ import (
 
 // --- [ Frame ] ---------------------------------------------------------------
 
-// WriteFrame encodes the given audio frame to the output stream. The Num field
-// of the frame header is automatically calculated by the encoder.
+// WriteFrame encodes the given audio frame to the output stream.
+//
+// The frame is fully validated and encoded into a bounded, single-frame
+// workspace before the underlying writer is touched: invalid metadata never
+// produces a partial frame, never panics, and leaves the caller's Frame (its
+// header, subframe metadata, nested partitions and samples) unmodified. The
+// only caller-visible mutation on success is the automatic assignment of the
+// frame Num field.
+//
+// State is committed only after the complete frame has been written to the
+// underlying writer: frame numbering, block/frame size statistics and the
+// running MD5 hash of the unencoded audio samples advance together. A short
+// write or any other I/O error poisons the encoder; subsequent WriteFrame and
+// Close calls return the first error without writing any more data. A frame
+// rejected before the commit point may be fixed and retried, producing a
+// byte-identical stream as if the failed attempt had never happened.
 func (enc *Encoder) WriteFrame(f *frame.Frame) error {
-	// Sanity checks.
-	nchannels := int(enc.Info.NChannels)
-	if nchannels != len(f.Subframes) {
-		return errutil.Newf("subframe and channel count mismatch; expected %d, got %d", nchannels, len(f.Subframes))
+	// A poisoned or closed encoder performs no further writes.
+	if enc.err != nil {
+		return enc.err
 	}
-	nsamplesPerChannel := f.Subframes[0].NSamples
-	for i, subframe := range f.Subframes {
-		if nsamplesPerChannel != len(subframe.Samples) {
-			return errutil.Newf("invalid number of samples in channel %d; expected %d, got %d", i, nsamplesPerChannel, len(subframe.Samples))
-		}
+	if enc.closed {
+		return ErrEncoderClosed
 	}
-	if nchannels != f.Channels.Count() {
-		return errutil.Newf("channel count mismatch; expected %d, got %d", nchannels, f.Channels.Count())
+	if f == nil {
+		return errutil.Newf("WriteFrame: nil frame")
 	}
 
-	// Create a new CRC-16 hash writer which adds the data from all write
-	// operations to a running hash.
-	h := crc16.NewIBM()
-	hw := io.MultiWriter(h, enc.w)
-
-	// Encode frame header.
-	f.Num = enc.curNum
-	if f.HasFixedBlockSize {
-		enc.curNum++
-	} else {
-		enc.curNum += uint64(nsamplesPerChannel)
+	// Validate and encode the complete frame into an in-memory workspace. The
+	// working copy absorbs decorrelation, prediction analysis and wasted-bit
+	// shifts, so the caller's frame is never mutated by a failed attempt.
+	buf, num, nextNum, blockSize, err := enc.stageFrame(f)
+	if err != nil {
+		return errutil.Err(err)
 	}
-	enc.nsamples += uint64(nsamplesPerChannel)
-	blockSize := uint16(nsamplesPerChannel)
+
+	// Commit point: write the complete frame in a single operation. Nothing in
+	// the encoder state may advance until the whole frame is accepted.
+	n, werr := enc.w.Write(buf)
+	if werr == nil && n != len(buf) {
+		// A writer must return an error on a short write; tolerate writers
+		// that violate the io.Writer contract instead of silently truncating.
+		werr = io.ErrShortWrite
+	}
+	if werr != nil {
+		// The output may now be incomplete. Record the first I/O error and
+		// leave numbering, statistics and MD5 exactly where they were.
+		enc.fail(werr)
+		return errutil.Err(werr)
+	}
+
+	// The complete frame is durable: commit all derived state atomically.
+	f.Num = num
+	enc.curNum = nextNum
+	enc.nsamples += uint64(blockSize)
 	if enc.blockSizeMin == 0 || blockSize < enc.blockSizeMin {
 		enc.blockSizeMin = blockSize
 	}
 	if enc.blockSizeMax == 0 || blockSize > enc.blockSizeMax {
 		enc.blockSizeMax = blockSize
 	}
-	// TODO: track number of bytes written to hw, to update values of
-	// frameSizeMin and frameSizeMax.
-	// Add unencoded audio samples to running MD5 hash.
-	f.Hash(enc.md5sum)
-	if err := enc.encodeFrameHeader(hw, f.Header); err != nil {
-		return errutil.Err(err)
+	frameSize := uint32(len(buf))
+	if enc.frameSizeMin == 0 || frameSize < enc.frameSizeMin {
+		enc.frameSizeMin = frameSize
 	}
-
-	// Inter-channel decorrelation of subframe samples.
-	f.Decorrelate()
-	defer f.Correlate() // NOTE: revert decorrelation of audio samples after encoding is done (to make encode non-destructive).
-
-	// Encode subframes.
-	bw := bitio.NewWriter(hw)
-	for channel, subframe := range f.Subframes {
-		// The side channel requires an extra bit per sample when using
-		// inter-channel decorrelation.
-		bps := uint(f.BitsPerSample)
-		switch f.Channels {
-		case frame.ChannelsSideRight:
-			// channel 0 is the side channel.
-			if channel == 0 {
-				bps++
-			}
-		case frame.ChannelsLeftSide, frame.ChannelsMidSide:
-			// channel 1 is the side channel.
-			if channel == 1 {
-				bps++
-			}
-		}
-
-		// optional prediction analysis
-		//
-		// (leave subframe as-is if AnalysisEnabled is false)
-		if enc.AnalysisEnabled {
-			switch subframe.Pred {
-			case frame.PredVerbatim:
-				analyzeSubframe(subframe, bps)
-			}
-		}
-
-		if err := encodeSubframe(bw, f.Header, subframe, bps); err != nil {
-			return errutil.Err(err)
-		}
+	if frameSize > enc.frameSizeMax {
+		enc.frameSizeMax = frameSize
 	}
-
-	// Zero-padding to byte alignment.
-	// Flush pending writes to subframe.
-	if _, err := bw.Align(); err != nil {
-		return errutil.Err(err)
-	}
-
-	// CRC-16 (polynomial = x^16 + x^15 + x^2 + x^0, initialized with 0) of
-	// everything before the crc, back to and including the frame header sync
-	// code.
-	crc := h.Sum16()
-	if err := binary.Write(enc.w, binary.BigEndian, crc); err != nil {
-		return errutil.Err(err)
-	}
-
+	// Hash the caller's untouched, inter-channel correlated PCM samples using
+	// the effective bits-per-sample, so a frame header that defers to
+	// STREAMINFO (BitsPerSample == 0) still contributes to the MD5.
+	enc.hashInterleavedPCM(f)
 	return nil
+}
+
+// hashInterleavedPCM writes the unencoded, inter-channel correlated PCM of the
+// frame to the running MD5 hash as little-endian samples, one subframe after
+// another per sample index. For an explicit frame bits-per-sample this is
+// byte-identical to frame.Frame.Hash; a zero value defers to STREAMINFO.
+func (enc *Encoder) hashInterleavedPCM(f *frame.Frame) {
+	bps := f.BitsPerSample
+	if bps == 0 {
+		bps = enc.Info.BitsPerSample
+	}
+	if len(f.Subframes) == 0 {
+		return
+	}
+	var buf [3]byte
+	nsamples := len(f.Subframes[0].Samples)
+	h := enc.md5sum
+	for i := 0; i < nsamples; i++ {
+		for _, subframe := range f.Subframes {
+			sample := subframe.Samples[i]
+			switch {
+			case bps <= 8:
+				buf[0] = uint8(sample)
+				h.Write(buf[:1])
+			case bps <= 16:
+				buf[0] = uint8(sample)
+				buf[1] = uint8(sample >> 8)
+				h.Write(buf[:2])
+			default:
+				buf[0] = uint8(sample)
+				buf[1] = uint8(sample >> 8)
+				buf[2] = uint8(sample >> 16)
+				h.Write(buf[:])
+			}
+		}
+	}
+}
+
+// stageFrame validates and encodes a single frame into an in-memory buffer,
+// returning the frame bytes together with the assigned frame number, the next
+// frame number and the block size. The caller's frame is not modified.
+//
+// All failures (including panics caused by malformed metadata) are returned as
+// errors before any data reaches the underlying writer.
+func (enc *Encoder) stageFrame(f *frame.Frame) (buf []byte, num, nextNum uint64, blockSize uint16, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf = nil
+			err = errutil.Newf("internal encoder error while staging frame: %v", r)
+		}
+	}()
+
+	// Work on a private copy so analysis and decorrelation cannot dirty the
+	// caller's frame, even on an error mid-way.
+	work := cloneFrame(f)
+
+	if err = enc.validateFrame(work); err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	num = enc.curNum
+	blockSize = work.Header.BlockSize
+	if work.HasFixedBlockSize {
+		if num > (1<<31)-1 {
+			return nil, 0, 0, 0, errutil.Newf("frame number %d exceeds the 31-bit fixed-blocksize limit", num)
+		}
+		nextNum = num + 1
+	} else {
+		if num > (1<<36)-1 {
+			return nil, 0, 0, 0, errutil.Newf("sample number %d exceeds the 36-bit variable-blocksize limit", num)
+		}
+		nextNum = num + uint64(blockSize)
+	}
+	work.Header.Num = num
+
+	// Inter-channel decorrelation of the working copy only.
+	work.Decorrelate()
+
+	// Optional prediction analysis, using the production implementation.
+	for channel, subframe := range work.Subframes {
+		if !enc.AnalysisEnabled {
+			break
+		}
+		if subframe.Pred == frame.PredVerbatim {
+			analyzeSubframe(subframe, enc.subframeBPS(work, channel))
+		}
+	}
+
+	// Re-validate metadata after analysis, and compute the exact encoded bit
+	// count arithmetically. This rejects over-long Rice unary runs before a
+	// single unary code is generated.
+	residuals, err := enc.validatePrediction(work)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	var workspace bytes.Buffer
+	// Create a new CRC-16 hash writer which adds the data from all write
+	// operations to a running hash.
+	h := crc16.NewIBM()
+	hw := io.MultiWriter(h, &workspace)
+
+	// Encode frame header.
+	if err = enc.encodeFrameHeader(hw, work.Header); err != nil {
+		return nil, 0, 0, 0, err
+	}
+	headerBytes := workspace.Len()
+
+	subframeBits, err := enc.estimateSubframesBits(work, residuals)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	totalBits := int64(headerBytes)*8 + subframeBits
+	frameBytes := (totalBits+7)/8 + 2 // byte alignment plus CRC-16.
+	if frameBytes > maxFrameSize {
+		return nil, 0, 0, 0, ErrFrameTooLarge
+	}
+
+	// Encode subframes using the unchanged production routines.
+	bw := bitio.NewWriter(hw)
+	for channel, subframe := range work.Subframes {
+		if err = encodeSubframe(bw, work.Header, subframe, enc.subframeBPS(work, channel)); err != nil {
+			return nil, 0, 0, 0, err
+		}
+	}
+
+	// Zero-padding to byte alignment. Flush pending writes to subframes.
+	if _, err = bw.Align(); err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	// CRC-16 of everything before the crc, back to and including the frame
+	// header sync code.
+	crc := h.Sum16()
+	if err = binary.Write(&workspace, binary.BigEndian, crc); err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	// The arithmetic estimate and the real encoder must agree exactly.
+	if int64(workspace.Len()) != frameBytes {
+		return nil, 0, 0, 0, errutil.Newf("frame size estimate mismatch; estimated %d bytes, encoded %d bytes", frameBytes, workspace.Len())
+	}
+	return workspace.Bytes(), num, nextNum, blockSize, nil
+}
+
+// subframeBPS returns the bits-per-sample used for the given subframe,
+// accounting for the extra bit required by inter-channel side channels.
+func (enc *Encoder) subframeBPS(f *frame.Frame, channel int) uint {
+	bps := uint(f.BitsPerSample)
+	if bps == 0 {
+		bps = uint(enc.Info.BitsPerSample)
+	}
+	switch f.Channels {
+	case frame.ChannelsSideRight:
+		// channel 0 is the side channel.
+		if channel == 0 {
+			bps++
+		}
+	case frame.ChannelsLeftSide, frame.ChannelsMidSide:
+		// channel 1 is the side channel.
+		if channel == 1 {
+			bps++
+		}
+	}
+	return bps
+}
+
+// cloneFrame returns a deep copy of the frame structure and its sample slices.
+// Read-only metadata such as coefficient and partition slices is shared, since
+// encoding never mutates them.
+func cloneFrame(f *frame.Frame) *frame.Frame {
+	c := &frame.Frame{
+		Header:    f.Header,
+		Subframes: make([]*frame.Subframe, len(f.Subframes)),
+	}
+	for i, sf := range f.Subframes {
+		if sf == nil {
+			c.Subframes[i] = nil
+			continue
+		}
+		cp := *sf // value copy of SubHeader, including slice headers.
+		cp.Samples = append([]int32(nil), sf.Samples...)
+		c.Subframes[i] = &cp
+	}
+	return c
 }
 
 // --- [ Frame header ] --------------------------------------------------------

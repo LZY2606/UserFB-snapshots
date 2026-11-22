@@ -35,7 +35,7 @@ func encodeBlock(bw *bitio.Writer, block *meta.Block, last bool) error {
 	case *meta.Picture:
 		return encodePicture(bw, body, last)
 	default:
-		panic(fmt.Errorf("support for metadata block body type %T not yet implemented", body))
+		return errutil.Newf("support for metadata block body type %T not yet implemented", body)
 	}
 }
 

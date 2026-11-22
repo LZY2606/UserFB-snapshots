@@ -20,6 +20,48 @@ Documentation provided by GoDoc.
 [flac/frame]: http://pkg.go.dev/github.com/mewkiz/flac/frame
 [flac/meta]: http://pkg.go.dev/github.com/mewkiz/flac/meta
 
+## Encoder
+
+`flac.NewEncoder` writes an independent FLAC stream starting at the underlying
+writer's current position, so a single `io.WriteSeeker` may hold a prefix of
+unrelated data (or several FLAC streams appended one after another). The
+encoder only ever owns the bytes of its own stream.
+
+- **Atomic frame commit.** `WriteFrame` fully validates and encodes each frame
+  into a bounded single-frame workspace before touching the output. Invalid
+  metadata is returned as an error and never panics, never writes a partial
+  frame and never mutates the caller's `frame.Frame` (its header, subframe
+  metadata, nested partitions or samples). The frame `Num` is assigned only on
+  success. A rejected frame may be fixed and retried; the resulting stream is
+  byte-identical to one that never saw the failed attempt.
+- **Exact size accounting.** The complete frame size is computed
+  arithmetically (warm-up samples, predictor coefficients, Rice partitions and
+  unary/escape codes, frame header, alignment and CRCs) before any unary code is
+  generated. Frames exceeding the 24-bit STREAMINFO limit (16,777,215 bytes)
+  are rejected up front with a retryable `ErrFrameTooLarge`.
+- **Validation.** Accepted frames use 8/16/24-bit samples, 1 to 8 channels and
+  16 to 65535 samples per block. Prediction and residuals use 64-bit
+  arithmetic; residuals that overflow signed 32 bits or an escape partition's
+  declared width are rejected rather than truncated.
+- **I/O failures are sticky.** The first short write, zero write or write error
+  poisons the encoder. Later `WriteFrame` and `Close` calls return that error
+  without writing anything else or attempting a STREAMINFO back-fill.
+- **Finalization.** If the writer implements `io.WriteSeeker`, `Close`
+  back-fills only this stream's STREAMINFO (total samples, MD5 of the
+  unencoded interleaved PCM, frame and block size extrema) and restores the
+  cursor to the end of this stream's audio; the prefix is never modified. A
+  plain `io.Writer` is fully supported and simply skips the back-fill. An
+  underlying `io.Closer` is closed at most once, including on a failed
+  finalization; repeated `Close` returns the first result, and `WriteFrame`
+  after `Close` returns `ErrEncoderClosed`.
+- **Bitstream compatibility.** Successfully encoded frames use the unchanged
+  production coding paths: prediction analysis, explicit fixed/FIR predictors,
+  Rice1/Rice2 and escape partitions, wasted bits and inter-channel
+  decorrelation all behave as before.
+
+See `ExampleNewEncoder` and `ExampleEncoder_Close` for runnable,
+standard-library-only examples.
+
 ## Changes
 
 * Version 1.0.14 (2026-08-19)

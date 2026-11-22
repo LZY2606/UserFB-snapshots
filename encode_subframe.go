@@ -2,6 +2,7 @@ package flac
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/icza/bitio"
 	"github.com/mewkiz/flac/frame"
@@ -356,14 +357,17 @@ func getLPCResiduals(subframe *frame.Subframe, coeffs []int32, shift int32) ([]i
 	if subframe.NSamples != len(subframe.Samples) {
 		return nil, fmt.Errorf("getLPCResiduals: subframe sample count mismatch; expected %d, got %d", subframe.NSamples, len(subframe.Samples))
 	}
-	var residuals []int32
+	residuals := make([]int32, 0, subframe.NSamples-subframe.Order)
 	for i := subframe.Order; i < subframe.NSamples; i++ {
 		var sample int64
 		for j, c := range coeffs {
 			sample += int64(c) * int64(subframe.Samples[i-j-1])
 		}
-		residual := subframe.Samples[i] - int32(sample>>uint(shift))
-		residuals = append(residuals, residual)
+		residual := int64(subframe.Samples[i]) - (sample >> uint(shift))
+		if residual > math.MaxInt32 || residual < math.MinInt32 {
+			return nil, fmt.Errorf("getLPCResiduals: residual at sample %d (%d) overflows signed 32 bits", i, residual)
+		}
+		residuals = append(residuals, int32(residual))
 	}
 	return residuals, nil
 }

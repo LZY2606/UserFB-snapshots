@@ -141,3 +141,9 @@ func (e *ErrInfo) Error() string {
 	return fmt.Sprintf("%s %s", e.pos, text)
 
 }
+
+// Unwrap returns the wrapped error so that errors.Is and errors.As work
+// through the position-information wrapper.
+func (e *ErrInfo) Unwrap() error {
+	return e.Err
+}
