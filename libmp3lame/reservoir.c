@@ -35,6 +35,7 @@
 #include "bitstream.h"
 #include "lame-analysis.h"
 #include "lame_global_flags.h"
+#include "ancillary.h"
 
 
 /*
@@ -94,6 +95,19 @@ ResvFrameBegin(lame_internal_flags * gfc, int *mean_bits)
     frameLength = getframebits(gfc);
     meanBits = (frameLength - cfg->sideinfo_len * 8) / cfg->mode_gr;
 
+    /* A slotted frame reserves its last bytes for ancillary data: take
+     * them out of the nominal main data budget so quantization cannot use
+     * them, and forbid extra reservoir use in this frame so that the
+     * whole backlog is drained and the following frame starts with
+     * main_data_begin == 0. */
+    {
+        int const anc_bits = 8 * ancillary_pending_size(gfc);
+        if (anc_bits > 0) {
+            meanBits = (frameLength - cfg->sideinfo_len * 8 - anc_bits)
+                       / cfg->mode_gr;
+        }
+    }
+
 /*
  *  Meaning of the variables:
  *      resvLimit: (0, 8, ..., 8*255 (MPEG-2), 8*511 (MPEG-1))
@@ -145,7 +159,15 @@ ResvFrameBegin(lame_internal_flags * gfc, int *mean_bits)
         esv->ResvMax = resvLimit;
     if (esv->ResvMax < 0 || cfg->disable_reservoir)
         esv->ResvMax = 0;
-    
+
+    /* A slotted frame reserves its last bytes for ancillary data: take
+     * them out of the nominal main data budget so quantization cannot use
+     * them, and forbid reservoir accumulation in this frame so that the
+     * whole existing backlog is drained and the following frame starts
+     * with main_data_begin == 0. */
+    if (ancillary_pending_size(gfc) > 0)
+        esv->ResvMax = 0;
+
     fullFrameBits = meanBits * cfg->mode_gr + Min(esv->ResvSize, esv->ResvMax);
 
     if (fullFrameBits > maxmp3buf)
@@ -178,6 +200,14 @@ ResvMaxBits(lame_internal_flags * gfc, int mean_bits, int *targ_bits, int *extra
     EncStateVar_t *const esv = &gfc->sv_enc;
     int     add_bits, targBits, extraBits;
     int     ResvSize = esv->ResvSize, ResvMax = esv->ResvMax;
+
+    /* A slotted frame must drain rather than spend the reservoir, and its
+     * target already excludes the reserved tail bytes. */
+    if (ancillary_pending_size(gfc) > 0) {
+        *targ_bits = mean_bits;
+        *extra_bits = 0;
+        return;
+    }
 
     /* conpensate the saved bits used in the 1st granule */
     if (cbr)

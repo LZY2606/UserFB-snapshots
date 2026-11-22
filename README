@@ -42,3 +42,58 @@ Copyrights (c) 1998 by Michael Cheng
 Copyrights (c) 1995,1996,1997 by Michael Hipp: mpglib
 
 As well as additional copyrights as documented in the source code.
+
+============================================================================
+
+Ancillary tail slots
+--------------------
+
+lame_set_ancillary_slots() installs a plan of small data items that are
+written into the physical tail of selected MP3 audio frames.  Each
+lame_ancillary_slot names:
+
+  - audio_frame: the zero based number of the encoded AUDIO frame that
+    carries the data.  Numbering starts at 0 and counts only real audio
+    frames, including the frames produced while flushing the encoder;
+    ID3v2 and Xing/Info frames are not counted and do not consume a
+    number.  Frame numbers in one plan must be strictly increasing.
+  - data/size:  the 1..32 payload bytes.  The library makes its own
+    copies, so the caller may reuse or free this memory as soon as
+  lame_set_ancillary_slots() returns 0.
+
+The plan must be installed before lame_init_params(); NULL with a count
+of 0 clears the current plan.  Invalid arguments, calls after
+lame_init_params() and allocation failures return -1 and leave any
+previously installed plan untouched.  A non-empty plan is accepted only
+for CBR encoding with equal input/output sample rates of 24, 44.1 or
+48 kHz, mono/stereo/joint-stereo output and a bitrate of 64..160 kbps
+that is legal for the configuration; lame_init_params() rejects anything
+else.
+
+For a frame of physical length L carrying a slot of n bytes, the bytes
+at offsets L-n .. L-1 are exactly the slot data.  They are genuine
+ancillary data: the quantizer is constrained before encoding so that no
+scalefactor or Huffman bit (including data back-pointed from other
+frames) can occupy them.  A slotted frame drains the bit reservoir, so
+the next audio frame always has main_data_begin 0; the reservoir then
+builds up and is borrowed again normally in the following slot-free
+regions.  Header CRC, padding and Xing/Info tagging keep working, and an
+encoder without a plan produces the identical bitstream as before.
+
+Example:
+
+    lame_ancillary_slot slots[2];
+    unsigned char d0[4] = { 0xde, 0xad, 0xbe, 0xef };
+    unsigned char d1[32];
+    slots[0].audio_frame = 0;  slots[0].data = d0; slots[0].size = 4;
+    slots[1].audio_frame = 7;  slots[1].data = d1; slots[1].size = 32;
+
+    lame_t gfp = lame_init();
+    /* ... configure a supported CBR mode ... */
+    if (lame_set_ancillary_slots(gfp, slots, 2) != 0) { /* handle error */ }
+    if (lame_init_params(gfp) != 0) { /* handle error */ }
+    /* ... lame_encode_buffer() / lame_encode_flush() as usual ... */
+
+Slots whose frame number is beyond the last frame actually emitted are
+ignored and never cause extra audio frames to be generated.
+

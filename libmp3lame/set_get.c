@@ -34,6 +34,7 @@
 
 #include "set_get.h"
 #include "lame_global_flags.h"
+#include "ancillary.h"
 
 /*
  * input stream description
@@ -2343,4 +2344,14 @@ lame_get_maximum_number_of_samples(lame_t gfp, size_t buffer_size)
         }
     }
     return LAME_GENERICERROR;
+}
+
+
+int
+lame_set_ancillary_slots(lame_t gfp,
+                         const lame_ancillary_slot *slots, size_t count)
+{
+    if (!is_lame_global_flags_valid(gfp))
+        return -1;
+    return ancillary_set_plan(gfp, slots, count);
 }

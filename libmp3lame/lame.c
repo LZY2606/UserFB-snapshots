@@ -46,6 +46,7 @@
 #include "version.h"
 #include "VbrTag.h"
 #include "tables.h"
+#include "ancillary.h"
 
 
 #if defined(__FreeBSD__) && !defined(__alpha__)
@@ -1309,6 +1310,11 @@ lame_init_params(lame_global_flags * gfp)
         hip_set_msgf(gfc->hip, gfp->report.msgf);
     }
 #endif
+    /* an ancillary plan is only supported for a restricted set of
+     * CBR configurations; reject everything else here */
+    if (ancillary_validate_config(gfc) != 0)
+        return -1;
+
     /* updating lame internal flags finished successful */
     gfc->lame_init_params_successful = 1;
     return 0;

@@ -32,6 +32,7 @@
 #include "encoder.h"
 #include "util.h"
 #include "tables.h"
+#include "ancillary.h"
 
 #define PRECOMPUTE
 #if defined(__FreeBSD__) && !defined(__alpha__)
@@ -152,6 +153,8 @@ freegfc(lame_internal_flags * const gfc)
         free(gfc->sv_enc.in_buffer_1);
     }
     free_id3tag(gfc);
+
+    ancillary_free_plan(gfc);
 
 #ifdef DECODE_ON_THE_FLY
     if (gfc->hip) {

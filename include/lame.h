@@ -147,6 +147,22 @@ typedef struct lame_global_struct lame_global_flags;
 typedef lame_global_flags *lame_t;
 
 
+/*
+ * Ancillary data tail slot.
+ *
+ * A slot asks the encoder to reserve the last 'size' bytes of the
+ * physical MP3 audio frame numbered 'audio_frame' (frame numbers start
+ * at 0 and count only real encoded audio frames, including the frames
+ * produced while flushing; ID3 and Xing/Info frames are not counted).
+ * The reserved bytes are written verbatim with 'data'.
+ */
+typedef struct lame_ancillary_slot {
+  unsigned long audio_frame;
+  const unsigned char *data;
+  unsigned int size;
+} lame_ancillary_slot;
+
+
 
 
 /***********************************************************************
@@ -625,6 +641,39 @@ float CDECL lame_get_noclipScale(const lame_global_flags *);
 /* returns the limit of PCM samples, which one can pass in an encode call
    under the constrain of a provided buffer of size buffer_size */
 int CDECL lame_get_maximum_number_of_samples(lame_t gfp, size_t buffer_size);
+
+
+/*
+ * OPTIONAL: install a plan of ancillary data tail slots.
+ *
+ * Must be called before lame_init_params(); calling it afterwards fails.
+ * Each slot references an audio frame by its zero based encoded audio
+ * frame number (flush frames count, ID3 and Xing/Info frames do not),
+ * frame numbers must be strictly increasing, and each size must be in
+ * the range 1..32. On success the library keeps its own independent copy
+ * of the plan and of all slot data, returns 0, and the caller may reuse
+ * or free the passed memory immediately. Pass NULL with count 0 to clear
+ * a previously installed plan. Returns -1 on invalid arguments, when
+ * called after lame_init_params(), or on allocation failure; in case of
+ * failure the previously installed plan is left untouched.
+ *
+ * A non-empty plan is currently accepted only for CBR encoding with
+ * equal input and output sample rates of 24, 44.1 or 48 kHz, mono,
+ * stereo or joint-stereo mode, and a bitrate of 64..160 kbps that is
+ * otherwise legal for this configuration; any other configuration is
+ * rejected by lame_init_params().
+ */
+int CDECL lame_set_ancillary_slots(lame_t gfp,
+                                   const lame_ancillary_slot *slots,
+                                   size_t count);
+
+
+/*
+ * REQUIRED:
+ * sets more internal configuration based on data provided above.
+ * returns -1 if something failed.
+ */
+int CDECL lame_init_params(lame_global_flags *);
 
 
 

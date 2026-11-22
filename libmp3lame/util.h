@@ -460,6 +460,20 @@ extern  "C" {
     } SessionConfig_t;
 
 
+    typedef struct {
+        unsigned long frame;      /* zero based audio frame number */
+        unsigned char *data;      /* owned copy */
+        unsigned int size;        /* 1..32 bytes */
+    } anc_slot_t;
+
+    typedef struct {
+        anc_slot_t *slots;        /* owned plan, sorted by frame */
+        size_t count;             /* number of slots in the plan */
+        size_t cursor;            /* next slot not yet delivered */
+        int active;               /* plan accepted for this encoder run */
+        int pending_size;         /* slot size of the frame being encoded */
+    } ancillary_state_t;
+
     struct lame_internal_flags {
 
   /********************************************************************
@@ -525,6 +539,8 @@ extern  "C" {
         VBR_seek_info_t VBR_seek_table; /* used for Xing VBR header */
 
         ATH_t  *ATH;         /* all ATH related stuff */
+
+        ancillary_state_t ancillary; /* ancillary tail slot plan */
 
         PsyConst_t *cd_psy;
 

@@ -42,6 +42,7 @@
 #include "VbrTag.h"
 #include "quantize.h"
 #include "quantize_pvt.h"
+#include "ancillary.h"
 
 
 
@@ -485,6 +486,10 @@ lame_encode_mp3_frame(       /* Output */
     /****************************************
     *   Stage 4: quantization loop          *
     ****************************************/
+
+    /* select the ancillary tail slot, if any, before quantization so the
+     * bit budget and reservoir rules of this frame already account for it */
+    ancillary_begin_frame(gfc, (unsigned long) gfc->ov_enc.frame_number);
 
     if (cfg->vbr == vbr_off || cfg->vbr == vbr_abr) {
         static FLOAT const fircoef[9] = {

@@ -41,6 +41,7 @@
 #include "VbrTag.h"
 #include "bitstream.h"
 #include "tables.h"
+#include "ancillary.h"
 
 
 
@@ -922,9 +923,12 @@ format_bitstream(lame_internal_flags * gfc)
     int     bits, nbytes;
     III_side_info_t *l3_side;
     int     bitsPerFrame;
+    int     anc_bytes, anc_bits, i;
     l3_side = &gfc->l3_side;
 
     bitsPerFrame = getframebits(gfc);
+    anc_bytes = ancillary_pending_size(gfc);
+    anc_bits = 8 * anc_bytes;
     drain_into_ancillary(gfc, l3_side->resvDrain_pre);
 
     encodeSideInfo2(gfc, bitsPerFrame);
@@ -933,7 +937,18 @@ format_bitstream(lame_internal_flags * gfc)
     drain_into_ancillary(gfc, l3_side->resvDrain_post);
     bits += l3_side->resvDrain_post;
 
-    l3_side->main_data_begin += (bitsPerFrame - bits) / 8;
+    /* Reserved tail slot: emitted through the ordinary bit writer so the
+     * bytes occupy the physical end of this frame and the next frame's
+     * header is inserted at its regular timing.  The quantization loop
+     * was constrained to leave exactly this much ancillary space. */
+    for (i = 0; i < anc_bytes; ++i)
+        putbits2(gfc, ancillary_slot_byte(gfc, i), 8);
+    if (anc_bytes > 0)
+        ancillary_slot_consumed(gfc);
+
+    /* slot bytes belong to the frame but not to its audio main data, so
+     * they must not credit the reservoir/main_data_begin accounting */
+    l3_side->main_data_begin += (bitsPerFrame - bits - anc_bits) / 8;
 
     /* compare number of bits needed to clear all buffered mp3 frames
      * with what we think the resvsize is: */
