@@ -27,4 +27,15 @@
 
 int mad_layer_III(struct mad_stream *, struct mad_frame *);
 
+/*
+ * Decode one Layer III ADU (RFC 5219 section 4.1): the header, optional
+ * CRC and side information prefix followed by the frame's self-contained
+ * main data segment.  No compression reservoir history is required; the
+ * frame overlap state lives in struct mad_frame exactly as for the
+ * physical-frame path.
+ */
+int mad_layer_III_adu(struct mad_stream *, struct mad_frame *,
+		      unsigned char const * /* adu */,
+		      unsigned long /* length */);
+
 # endif

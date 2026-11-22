@@ -27,3 +27,5 @@ configure
 *.rej
 *~
 *.swp
+
+.task-build/

@@ -2784,3 +2784,120 @@ int mad_layer_III(struct mad_stream *stream, struct mad_frame *frame)
 
   return result;
 }
+
+/*
+ * NAME:	layer->III_adu()
+ * DESCRIPTION:	decode a single self-contained Layer III ADU
+ *
+ * The ADU layout is the physical frame prefix (header, optional CRC word
+ * and side information) followed by the frame's main data segment on the
+ * continuous main-data slot axis.  The header has already been decoded
+ * into frame->header; the ADU is copied into a private guarded buffer so
+ * the caller's packet needs no guard and is never modified.  No
+ * compression reservoir state is consulted, so a non-zero
+ * main_data_begin inside the packet is satisfied entirely by the packet
+ * body.
+ */
+int mad_layer_III_adu(struct mad_stream *stream, struct mad_frame *frame,
+		      unsigned char const *adu, unsigned long length)
+{
+  struct mad_header *header = &frame->header;
+  unsigned int nch, si_len, md_len;
+  unsigned long prefix;
+  struct mad_bitptr ptr;
+  struct sideinfo si;
+  enum mad_error error;
+  int result = 0;
+
+  if (stream->main_data == 0) {
+    stream->main_data = malloc(MAD_BUFFER_MDLEN);
+    if (stream->main_data == 0) {
+      stream->error = MAD_ERROR_NOMEM;
+      return -1;
+    }
+  }
+
+  if (frame->overlap == 0) {
+    frame->overlap = calloc(2 * 32 * 18, sizeof(mad_fixed_t));
+    if (frame->overlap == 0) {
+      stream->error = MAD_ERROR_NOMEM;
+      return -1;
+    }
+  }
+
+  nch = MAD_NCHANNELS(header);
+  si_len = (header->flags & MAD_FLAG_LSF_EXT) ?
+    (nch == 1 ? 9 : 17) : (nch == 1 ? 17 : 32);
+
+  prefix = 4 + ((header->flags & MAD_FLAG_PROTECTION) ? 2 : 0) + si_len;
+
+  if (length < prefix || length + MAD_BUFFER_GUARD > MAD_BUFFER_MDLEN) {
+    stream->error = MAD_ERROR_BADFRAMELEN;
+    stream->md_len = 0;
+    return -1;
+  }
+
+  /* private guarded copy */
+  memcpy(*stream->main_data, adu, length);
+  memset(*stream->main_data + length, 0, MAD_BUFFER_GUARD);
+
+  mad_bit_init(&stream->ptr, *stream->main_data + 4);
+  if (header->flags & MAD_FLAG_PROTECTION)
+    mad_bit_skip(&stream->ptr, 16);
+
+  /* check CRC word, exactly as for the physical-frame path */
+
+  if (header->flags & MAD_FLAG_PROTECTION) {
+    header->crc_check =
+      mad_bit_crc(stream->ptr, si_len * CHAR_BIT, header->crc_check);
+
+    if (header->crc_check != header->crc_target &&
+	!(frame->options & MAD_OPTION_IGNORECRC)) {
+      stream->error = MAD_ERROR_BADCRC;
+      result = -1;
+    }
+  }
+
+  /* decode frame side information */
+
+  {
+    unsigned int data_bitlen, priv_bitlen;
+
+    error = III_sideinfo(&stream->ptr, nch,
+			 header->flags & MAD_FLAG_LSF_EXT,
+			 &si, &data_bitlen, &priv_bitlen);
+    if (error && result == 0) {
+      stream->error = error;
+      result = -1;
+    }
+
+    header->flags        |= priv_bitlen;
+    header->private_bits |= si.private_bits;
+
+    md_len = (unsigned int) (length - prefix);
+
+    if (si.main_data_begin > md_len && result == 0) {
+      stream->error = MAD_ERROR_BADDATAPTR;
+      result = -1;
+    }
+
+    mad_bit_init(&ptr, *stream->main_data + prefix);
+
+    if (result == 0) {
+      error = III_decode(&ptr, frame, &si, nch, md_len);
+      if (error) {
+	stream->error = error;
+	result = -1;
+      }
+
+      /* designate ancillary bits */
+
+      stream->anc_ptr    = ptr;
+      stream->anc_bitlen = md_len * CHAR_BIT - data_bitlen;
+    }
+  }
+
+  stream->md_len = 0;
+
+  return result;
+}

@@ -11,6 +11,7 @@ extern "C" {
 #include "frame.h"
 #include "synth.h"
 #include "decoder.h"
+#include "adu.h"
 #ifdef __cplusplus
 }
 #endif

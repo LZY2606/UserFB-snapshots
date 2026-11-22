@@ -224,6 +224,64 @@ Experimenting and Developing
 
 ===============================================================================
 
+ADU PACKETIZATION (RFC 5219 section 4.1)
+
+  A Layer III stream can be repackaged into Audio Data Units without any
+  RTP transport.  One ADU corresponds one-to-one to one physical frame and
+  therefore to one frame's worth of playback time.  An ADU contains:
+
+    1. The frame's 4-byte header, its optional 2-byte CRC word and its
+       side information block, copied byte for byte from the physical
+       frame (the sync word is left untouched).
+    2. The frame's main data segment on the continuous axis formed by
+       concatenating the main-data slot of every physical frame.  If C_i
+       is the start of frame i's slot on that axis and B_i is its
+       main_data_begin, frame i's ADU body is the interval
+       [C_i - B_i, C_{i+1} - B_{i+1}); the final frame extends to the
+       end of the last physical slot.  Ancillary bytes inside an interval
+       are part of the ADU; the frame header and side information never
+       are.  An ADU body can span several physical slots and can be longer
+       than one nominal physical slot.
+
+  Only ordinary (non-free-format) MPEG-1/2 Layer III is accepted; MPEG-2.5
+  and other layers are rejected.  Version, sample rate and channel count
+  must stay constant within one stream.  The first frame must have
+  main_data_begin == 0.
+
+  The packer API (adu.h) is mad_adu_packer_new/feed/finish/free.  It
+  accepts arbitrary byte fragments, delivers each completed ADU through a
+  callback, keeps only bounded state, and fails on truncated or malformed
+  input rather than inventing audio.  The decoder entry point
+  mad_frame_decode_adu() (frame.h) takes one ADU plus its exact length;
+  no guard bytes, reservoir history or following frame are required, and
+  the supplied packet is never modified.  CRC checking and
+  MAD_OPTION_IGNORECRC behave exactly as for mad_frame_decode().  Feeding
+  consecutive ADUs to the same mad_frame preserves the IMDCT overlap, so
+  synthesis with one mad_synth yields sample-identical PCM to decoding the
+  original physical stream.
+
+  examples/mad_adu.c demonstrates both directions:
+
+    mad_adu pack   <input.mp3> <output.adu>
+    mad_adu decode <input.adu> <output.pcm>
+
+  The pack output is a sequence of records, each a big-endian 32-bit byte
+  length followed by that many ADU bytes.  The decode output is
+  interleaved, signed 16-bit little-endian PCM (left then right for
+  stereo, one sample per position for mono).
+
+  MAD PCM samples are signed Q28 fixed-point numbers in [-1, 1), i.e.
+  unity is 2^28.  The 16-bit conversion used by the example and the
+  reference checks is:
+
+      sample += 1 << (28 - 16);                 /* round */
+      clip sample to [-2^28, 2^28 - 1];         /* saturate */
+      pcm16  = sample >> (28 + 1 - 16);         /* = >> 13 */
+
+  No dithering or noise shaping is applied.
+
+===============================================================================
+
 COPYRIGHT
 
   Please read the `COPYRIGHT' file for copyright and warranty information.

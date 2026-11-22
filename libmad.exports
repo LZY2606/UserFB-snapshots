@@ -40,3 +40,8 @@ _mad_decoder_finish
 _mad_decoder_init
 _mad_decoder_message
 _mad_decoder_run
+_mad_adu_packer_new
+_mad_adu_packer_feed
+_mad_adu_packer_finish
+_mad_adu_packer_free
+_mad_frame_decode_adu

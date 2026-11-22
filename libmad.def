@@ -41,3 +41,8 @@ mad_decoder_finish
 mad_decoder_init
 mad_decoder_message
 mad_decoder_run
+mad_adu_packer_new
+mad_adu_packer_feed
+mad_adu_packer_finish
+mad_adu_packer_free
+mad_frame_decode_adu

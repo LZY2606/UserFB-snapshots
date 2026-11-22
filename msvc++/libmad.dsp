@@ -99,6 +99,10 @@ SOURCE=..\fixed.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\adu.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\frame.c
 # End Source File
 # Begin Source File
@@ -140,6 +144,10 @@ SOURCE=..\bit.h
 # Begin Source File
 
 SOURCE=.\config.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\adu.h
 # End Source File
 # Begin Source File
 

@@ -33,7 +33,6 @@
 # include "timer.h"
 # include "layer12.h"
 # include "layer3.h"
-
 static
 unsigned long const bitrate_table[5][15] = {
   /* MPEG-1 */
@@ -517,4 +516,82 @@ void mad_frame_mute(struct mad_frame *frame)
       }
     }
   }
+}
+
+/*
+ * NAME:	frame->decode_adu()
+ * DESCRIPTION:	decode a single self-contained Layer III ADU
+ *
+ * The ADU begins with the unchanged frame header (and optional CRC word)
+ * and side information; the remainder is the packet's main data segment.
+ * The packet is its own complete boundary, so no guard bytes or following
+ * frame are required.  Only MPEG-1/2 Layer III is accepted.  The return
+ * convention and stream->error semantics are the same as for
+ * mad_frame_decode().
+ */
+int mad_frame_decode_adu(struct mad_frame *frame, struct mad_stream *stream,
+			 unsigned char const *adu, unsigned long length)
+{
+  unsigned char const *saved_bufend;
+  int result = -1;
+
+  frame->options = stream->options;
+
+  if (adu == 0 || length < 4) {
+    stream->error = MAD_ERROR_BUFLEN;
+    goto fail;
+  }
+
+  /* header(): decode the prefix header from the packet itself.  The
+     packet is its own boundary, so point bufend at its end for the
+     duration of this call and restore the caller's value afterwards. */
+
+  saved_bufend = stream->bufend;
+  stream->bufend = adu + length;
+
+  stream->error = MAD_ERROR_NONE;
+  stream->this_frame = adu;
+  stream->next_frame = adu + length;
+
+  mad_bit_init(&stream->ptr, adu);
+
+  if (decode_header(&frame->header, stream) == -1)
+    goto fail_restore;
+
+  if (frame->header.layer != MAD_LAYER_III) {
+    stream->error = MAD_ERROR_BADLAYER;
+    goto fail_restore;
+  }
+
+  if (frame->header.flags & MAD_FLAG_MPEG_2_5_EXT) {
+    stream->error = MAD_ERROR_LOSTSYNC;	/* MPEG-2.5 unsupported */
+    goto fail_restore;
+  }
+
+  if (frame->header.bitrate == 0) {
+    stream->error = MAD_ERROR_BADBITRATE;	/* free format unsupported */
+    goto fail_restore;
+  }
+
+  /* calculate frame duration */
+  mad_timer_set(&frame->header.duration, 0,
+		32 * MAD_NSBSAMPLES(&frame->header),
+		frame->header.samplerate);
+
+  /* audio_data(): feed the whole packet straight into the Layer III core */
+
+  if (mad_layer_III_adu(stream, frame, adu, length) == -1)
+    goto fail_restore;
+
+  result = 0;
+
+ fail_restore:
+  stream->bufend = saved_bufend;
+
+  if (result == 0)
+    return 0;
+
+ fail:
+  stream->anc_bitlen = 0;
+  return -1;
 }

@@ -7,7 +7,7 @@ cmake -S . -B .task-build -DCMAKE_BUILD_TYPE=Release
 cmake --build .task-build -j 4
 if [[ $mode == target ]]; then
   cc -std=c99 -DHAVE_CONFIG_H -DFPM_64BIT -DOPT_ACCURACY -I. -I.task-build task_support/driver.c tests/adu_target.c .task-build/CMakeFiles/mad_task.dir/*.o -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp .task-build/target-log.XXXXXX)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

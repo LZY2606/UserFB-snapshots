@@ -113,6 +113,16 @@ void mad_frame_finish(struct mad_frame *);
 
 int mad_frame_decode(struct mad_frame *, struct mad_stream *);
 
+/*
+ * Decode one self-contained MPEG-1/2 Layer III ADU (RFC 5219 4.1).  The
+ * packet supplies its own complete boundary; no guard bytes, reservoir
+ * history or following frame are needed.  Returns 0 on success or -1 with
+ * stream->error set, using the same conventions as mad_frame_decode().
+ */
+int mad_frame_decode_adu(struct mad_frame *, struct mad_stream *,
+			 unsigned char const * /* adu */,
+			 unsigned long /* length */);
+
 void mad_frame_mute(struct mad_frame *);
 
 # endif
