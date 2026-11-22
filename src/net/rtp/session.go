@@ -57,6 +57,8 @@ type Session struct {
 	transportEndUpper TransportEnd
 	transportWrite    TransportWrite
 	transportRecv     TransportRecv
+
+	pacedStreams map[uint32]*pacedStream // manually pumped send queues, see pacing.go
 }
 
 // Remote stores a remote addess in a transport independent way.
@@ -145,6 +147,7 @@ func NewSession(tpw TransportWrite, tpr TransportRecv) *Session {
 	rs.streamsIn = make(streamInMap, maxNumberInStreams)
 	rs.remotes = make(remoteMap, 2)
 	rs.conflicts = make(conflictMap, 2)
+	rs.pacedStreams = make(map[uint32]*pacedStream, 2)
 
 	rs.MaxNumberOutStreams = maxNumberOutStreams
 	rs.MaxNumberInStreams = maxNumberInStreams
@@ -263,6 +266,7 @@ func (rs *Session) StartSession() (err error) {
 // closes the receiver transports,
 //
 func (rs *Session) CloseSession() {
+	rs.cancelAllPaced() // release queued paced packets even if the RTCP service never started
 	if !rs.rtcpServiceActive {
 		return
 	}
@@ -391,6 +395,7 @@ func (rs *Session) SsrcStreamClose() {
 //   streamindex - the index of the output stream as returned by NewSsrcStreamOut
 //
 func (rs *Session) SsrcStreamCloseForIndex(streamIndex uint32) {
+	rs.CancelPaced(streamIndex) // release queued paced packets even if the RTCP service never started
 	if rs.rtcpServiceActive {
 		str := rs.streamsOut[streamIndex]
 		rc := rs.buildRtcpByePkt(str, "Go RTP says good-bye")
