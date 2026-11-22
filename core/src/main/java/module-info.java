@@ -7,6 +7,7 @@ module TarsosDSP.core {
     exports be.tarsos.dsp.onsets;
     exports be.tarsos.dsp.pitch;
     exports be.tarsos.dsp.resample;
+    exports be.tarsos.dsp.stft;
     exports be.tarsos.dsp.synthesis;
     exports be.tarsos.dsp.util.fft;
     exports be.tarsos.dsp.util;
