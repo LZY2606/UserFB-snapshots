@@ -1,0 +1,48 @@
+{
+  "commit": "2a206a3ada78ec4d13434847f05f50097c60c36a",
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "git_blob": "b6dfec53ff89d31a701de3fa2d53315303d9ea90",
+      "sha256": "37009a30e3770b66e834ab2b54ad4017332d0a179107e26afe98b997a8167c1c"
+    },
+    {
+      "path": "Makefile",
+      "mode": "100644",
+      "git_blob": "8a15ca17ace1c9590f60df389e7be6788e3e5ba6",
+      "sha256": "4fc716e2bef82037b5b419cc48bdc10a34be177f7527d23e05ea932b33396754"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "git_blob": "cc83628345089dee4e6142d073511c90ea199a43",
+      "sha256": "0e8c478e76ca79b445c2a6bcfa314b1768b61d8919504f55098cda690e985721"
+    },
+    {
+      "path": "main.c",
+      "mode": "100644",
+      "git_blob": "1dc60c48b217561919a73d1921bab7f6e2bc6bea",
+      "sha256": "9645de7ddb367da3aafd691a28fa944695b2d6ba433371d6c115ce999a70d3e8"
+    },
+    {
+      "path": "pdmp3.c",
+      "mode": "100644",
+      "git_blob": "f5bed00b0457901905d09a5da5882569c214c191",
+      "sha256": "3fa7df3b90d47696e656cb0d277296f19048832432c4b2a0584b64c71bfc1ff7"
+    }
+  ],
+  "excluded": [],
+  "binary_files": [],
+  "secret_scan": "filename and credential-prefix checks passed; no sensitive values printed",
+  "dependencies": "C standard library + system libm; no downloaded dependencies",
+  "repo": "https://github.com/technosaurus/PDMP3",
+  "license_extract": {
+    "path": "LICENSE",
+    "from": "pdmp3.c:2-20",
+    "sha256": "a37a87d7b4b7e28f4f335629f20b89db6834218fd74da061eadc12dd5880b464"
+  }
+}
