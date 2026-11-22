@@ -59,6 +59,9 @@ DECLARE_MKX_MASTER(KaxCuePoint)
 
     const KaxCueTrackPositions * GetSeekPosition() const;
     bool Timecode(uint64 & aTimecode, uint64 GlobalTimecodeScale) const;
+
+    // allow KaxCues to finalize the points it maintains
+    using EbmlElement::SetValueIsSet;
 };
 
 DECLARE_MKX_MASTER(KaxCueTrackPositions)

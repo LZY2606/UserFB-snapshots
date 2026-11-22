@@ -342,6 +342,11 @@ public:
 
   bool IsSimpleBlock() const {return bUseSimpleBlock;}
 
+  /*!
+    \brief whether an underlying block has been set or created yet
+  */
+  bool HasBlock() const {return Block.group != nullptr;}
+
   bool ReplaceSimpleByGroup();
 protected:
   KaxCluster *ParentCluster{nullptr};

@@ -30,6 +30,8 @@
   \version \$Id: KaxCluster.cpp 1228 2005-10-14 19:36:51Z robux4 $
   \author Steve Lhomme     <robux4 @ users.sf.net>
 */
+#include <algorithm>
+
 #include "matroska/KaxCluster.h"
 #include "matroska/KaxBlock.h"
 #include "matroska/KaxContexts.h"
@@ -175,18 +177,29 @@ filepos_t KaxCluster::Render(IOCallback & output, KaxCues & CueToUpdate, bool bS
     Result = EbmlMaster::Render(output, bSaveDefault);
     // For all Blocks add their position on the CueEntry
 
-    for (auto&& element : ElementList) {
-      if (EbmlId(*element) == EBML_ID(KaxBlockGroup)) {
-        CueToUpdate.PositionSet(*static_cast<const KaxBlockGroup *>(element));
+    if (CueToUpdate.CodecStateTracking()) {
+      // only reached when the whole Cluster was written successfully, so a
+      // failed render never commits partial index or codec state data
+      CueToUpdate.CommitCluster(*this);
+    } else {
+      for (auto&& element : ElementList) {
+        if (EbmlId(*element) == EBML_ID(KaxBlockGroup)) {
+          CueToUpdate.PositionSet(*static_cast<const KaxBlockGroup *>(element));
+        }
       }
     }
   } else {
     // new school, using KaxBlockBlob
     for (Index = 0; Index<Blobs.size(); Index++) {
+      EbmlElement * NewElement;
       if (Blobs[Index]->IsSimpleBlock())
-        PushElement( static_cast<KaxSimpleBlock&>(*Blobs[Index]));
+        NewElement = &static_cast<KaxSimpleBlock&>(*Blobs[Index]);
       else
-        PushElement( static_cast<KaxBlockGroup&>(*Blobs[Index]));
+        NewElement = &static_cast<KaxBlockGroup&>(*Blobs[Index]);
+      // a cluster may be rendered again (e.g. relocated or retried after a
+      // failed write): don't push the same block element twice
+      if (std::find(ElementList.begin(), ElementList.end(), NewElement) == ElementList.end())
+        PushElement(*NewElement);
     }
 
     // SilentTracks handling
@@ -215,8 +228,13 @@ filepos_t KaxCluster::Render(IOCallback & output, KaxCues & CueToUpdate, bool bS
     Result = EbmlMaster::Render(output, bSaveDefault);
 
     // For all Blocks add their position on the CueEntry
-    for (Index = 0; Index<Blobs.size(); Index++) {
-      CueToUpdate.PositionSet(*Blobs[Index]);
+    if (CueToUpdate.CodecStateTracking()) {
+      // only reached when the whole Cluster was written successfully
+      CueToUpdate.CommitCluster(*this);
+    } else {
+      for (Index = 0; Index<Blobs.size(); Index++) {
+        CueToUpdate.PositionSet(*Blobs[Index]);
+      }
     }
 
     Blobs.clear();

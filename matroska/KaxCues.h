@@ -35,6 +35,7 @@
 #ifndef LIBMATROSKA_CUES_H
 #define LIBMATROSKA_CUES_H
 
+#include <cstddef>
 #include <vector>
 
 #include "matroska/KaxTypes.h"
@@ -46,6 +47,10 @@ using namespace libebml;
 namespace libmatroska {
 
 class KaxCuePoint;
+class KaxCueTrackPositions;
+class KaxCluster;
+class KaxCodecState;
+class KaxSegment;
 
 DECLARE_MKX_MASTER(KaxCues)
   public:
@@ -71,6 +76,35 @@ DECLARE_MKX_MASTER(KaxCues)
     uint64 GetTimecodePosition(uint64 aTimecode) const;
     const KaxCuePoint * GetTimecodePoint(uint64 aTimecode) const;
 
+    /*!
+      \brief Find the track positions to decode from for the given track at the
+             given timecode (expressed in nanoseconds).
+      \note Only the CuePoint elements currently held by this element are used.
+            The selected point is the latest one not after the requested
+            timecode; points with the same timecode are ordered by their
+            physical position in the file. Returns nullptr when the track has
+            no cue point at or before the requested timecode.
+    */
+    const KaxCueTrackPositions * GetDecodePosition(uint64 timecode, uint64 track) const;
+
+    /*!
+      \brief Enable or disable tracking of the KaxCodecState elements so that
+             each generated cue entry references the codec state in effect for
+             its block, even when the state changed in a BlockGroup that is
+             not itself referenced by a cue.
+      \note This can only be changed before the first AddBlockBlob() call and
+            before any KaxCluster::Render() feeding this element. When called
+            too late the previous mode is kept and false is returned.
+    */
+    bool SetCodecStateTracking(bool enabled);
+    bool CodecStateTracking() const { return bCodecStateTracking; }
+
+    /*!
+      \brief Commit the blocks of a successfully rendered Cluster and refresh
+             the tracked cue entries (internal use, codec state tracking only)
+    */
+    void CommitCluster(const KaxCluster & Cluster);
+
     void SetGlobalTimecodeScale(uint64 aGlobalTimecodeScale) {
       mGlobalTimecodeScale = aGlobalTimecodeScale;
       bGlobalTimecodeScaleIsSet = true;
@@ -81,9 +115,42 @@ DECLARE_MKX_MASTER(KaxCues)
     }
 
   protected:
+    struct TrackedBlockEvent {
+      uint64 Track;
+      uint64 GlobalTimecode;
+      uint64 ClusterPosition;
+      uint32 BlockNumber;
+      const KaxCodecState *CodecState;
+      const KaxSegment *Segment;
+      size_t EntryIndex;
+    };
+
+    struct TrackedCluster {
+      const KaxCluster *Cluster;
+      uint64 ClusterPosition;
+      std::vector<TrackedBlockEvent> Events;
+    };
+
+    struct TrackedEntry {
+      const KaxBlockBlob *Blob;
+      KaxCuePoint *Point{nullptr};
+      KaxCueTrackPositions *Positions{nullptr};
+    };
+
+    static constexpr size_t NoTrackedEntry = ~static_cast<size_t>(0);
+
+    size_t MatchTrackedEntry(const KaxBlockGroup *Group, const KaxSimpleBlock *Simple,
+                             uint64 Track, uint64 GlobalTimecode,
+                             const std::vector<bool> &Matched) const;
+    void RegenerateTrackedCues();
+
     std::vector<const KaxBlockBlob *> myTempReferences;
+    std::vector<TrackedEntry> mTrackedEntries;
+    std::vector<TrackedCluster> mTrackedClusters;
     bool   bGlobalTimecodeScaleIsSet;
     uint64 mGlobalTimecodeScale;
+    bool   bCodecStateTracking{false};
+    bool   bCueingStarted{false};
 };
 
 } // namespace libmatroska
