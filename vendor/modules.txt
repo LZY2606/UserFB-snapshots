@@ -1,0 +1,9 @@
+# github.com/icza/bitio v1.1.0
+## explicit; go 1.13
+github.com/icza/bitio
+# github.com/mewkiz/pkg v0.0.0-20250417130911-3f050ff8c56d
+## explicit; go 1.23.2
+github.com/mewkiz/pkg/errutil
+# github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985
+## explicit; go 1.23.2
+github.com/mewpkg/term
