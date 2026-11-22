@@ -278,6 +278,7 @@ extern "C"
 
     RTMP_READ m_read;
     RTMPPacket m_write;
+    struct RTMPLivePacer *m_livePacer;	/* live pacer state, if enabled */
     RTMPSockBuf m_sb;
     RTMP_LNK Link;
   } RTMP;
@@ -336,6 +337,24 @@ extern "C"
   RTMP *RTMP_Alloc(void);
   void RTMP_Free(RTMP *r);
   void RTMP_EnableWrite(RTMP *r);
+
+  /* live pacer: media-time driven low-latency send mode (livepacer.c).
+   * Explicitly enabled per RTMP context; the synchronous RTMP_SendPacket
+   * path is unchanged.  Only FLV AVC/AAC messages are accepted once
+   * enabled, and only for a connected cleartext RTMP session driven by a
+   * single-threaded event loop.
+   */
+#define RTMP_LIVE_PUMP_ERROR	(-1)	/* send failed (connection closed) */
+#define RTMP_LIVE_PUMP_IDLE	0	/* nothing due to send right now */
+#define RTMP_LIVE_PUMP_SENT	1	/* one media packet was sent */
+
+  int RTMP_EnableLivePacer(RTMP *r, int64_t delay_us, int64_t late_us,
+			   uint32_t max_queued);
+  int RTMP_QueueLivePacket(RTMP *r, const RTMPPacket *packet,
+			   int64_t now_us);
+  int RTMP_PumpLive(RTMP *r, int64_t now_us);
+  uint32_t RTMP_LivePacerPending(const RTMP *r);
+  void RTMP_LivePacerClose(RTMP *r);
 
   void *RTMP_TLS_AllocServerContext(const char* cert, const char* key);
   void RTMP_TLS_FreeServerContext(void *ctx);

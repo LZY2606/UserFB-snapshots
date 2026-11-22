@@ -4174,6 +4174,8 @@ CloseInternal(RTMP *r, int reconnect)
   r->m_write.m_nBytesRead = 0;
   RTMPPacket_Free(&r->m_write);
 
+  RTMP_LivePacerClose(r);
+
   for (i = 0; i < r->m_channelsAllocatedIn; i++)
     {
       if (r->m_vecChannelsIn[i])

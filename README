@@ -218,3 +218,57 @@ URL-encoded fashion. E.g.
 is equivalent the rtmpdump parameters "-r rtmp://server/myapp -y somefile".
 
 Note that only the shortform (single letter) rtmpdump options are supported.
+
+Live pacer (media-time driven, low-latency push)
+------------------------------------------------
+
+For live publishing, librtmp offers an optional paced send mode alongside
+the synchronous RTMP_SendPacket path (which is unchanged).  The producer
+hands complete FLV AVC/AAC messages to a queue together with a monotonic
+microsecond clock, and a pump drives the actual sending from a
+single-threaded event loop.  Media is sent when its media time is due;
+anything that falls too far behind is dropped, and video recovers by
+jumping forward to the next keyframe that can still make its playout
+time, re-sending the AVC configuration that keyframe carries.  Only
+plain RTMP after a completed handshake is supported.
+
+  RTMP r;
+  RTMP_Init(&r);
+  ... RTMP_Connect / RTMP_ConnectStream as usual ...
+
+  /* delay_us/late_us >= 0, max_queued > 0; enabling twice fails */
+  if (!RTMP_EnableLivePacer(&r, 500000, 200000, 256))
+    /* handle error */;
+
+  for (;;)
+    {
+      int64_t now_us = monotonic_clock_us();
+
+      /* producer side: complete FLV AVC/AAC messages; on success the
+       * pacer holds a snapshot, so the packet can be reused/freed */
+      while (have_input)
+        {
+          RTMPPacket *pkt = next_flv_message();
+          if (!RTMP_QueueLivePacket(&r, pkt, now_us))
+            /* rejected (malformed, queue full, DTS regression): drop it */;
+          RTMPPacket_Free(pkt);
+        }
+
+      /* send whatever is due; each call emits at most one media packet
+       * (preceded by any config messages it needs) */
+      for (;;)
+        {
+          int rc = RTMP_PumpLive(&r, now_us);
+          if (rc == RTMP_LIVE_PUMP_IDLE)
+            break;
+          if (rc == RTMP_LIVE_PUMP_ERROR)
+            goto disconnected;	/* usual RTMP_Close behavior */
+        }
+
+      /* RTMP_LivePacerPending(&r) reports queued media packets;
+       * sleep until the next due time or new input, then loop */
+      wait_for_next_due_or_input();
+    }
+
+RTMP_Close releases the queue and all config versions; nothing carries
+over into a re-initialized RTMP context.
