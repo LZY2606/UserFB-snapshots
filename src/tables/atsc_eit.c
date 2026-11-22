@@ -403,10 +403,12 @@ static void dvbpsi_atsc_GatherEITSections(dvbpsi_t * p_dvbpsi,
     }
 
     /* TS discontinuity check */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_eit_decoder)))
     {
         dvbpsi_ReInitEIT(p_eit_decoder, true);
         p_eit_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_eit_decoder));
         p_demux->b_discontinuity = false;
     }
     else

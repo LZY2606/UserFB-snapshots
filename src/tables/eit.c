@@ -443,10 +443,12 @@ void dvbpsi_eit_sections_gather(dvbpsi_t *p_dvbpsi, dvbpsi_decoder_t *p_private_
                         = (dvbpsi_eit_decoder_t*)p_private_decoder;
 
     /* TS discontinuity check */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_eit_decoder)))
     {
         dvbpsi_ReInitEIT(p_eit_decoder, true);
         p_eit_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_eit_decoder));
         p_demux->b_discontinuity = false;
     }
     else

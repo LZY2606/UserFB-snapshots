@@ -378,10 +378,12 @@ void dvbpsi_bat_sections_gather(dvbpsi_t *p_dvbpsi,
     }
 
     /* We have a valid BAT section */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_bat_decoder)))
     {
         dvbpsi_ReInitBAT(p_bat_decoder, true);
         p_bat_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_bat_decoder));
         p_demux->b_discontinuity = false;
     }
     else

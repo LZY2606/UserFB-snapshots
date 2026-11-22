@@ -273,10 +273,12 @@ void dvbpsi_cat_sections_gather(dvbpsi_t *p_dvbpsi,
                           = (dvbpsi_cat_decoder_t*)p_dvbpsi->p_decoder;
 
     /* TS discontinuity check */
-    if (p_cat_decoder->b_discontinuity)
+    if (p_cat_decoder->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_cat_decoder)))
     {
         dvbpsi_ReInitCAT(p_cat_decoder, true);
         p_cat_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_cat_decoder));
     }
     else
     {

@@ -5,7 +5,7 @@ pkgincludedir = $(includedir)/dvbpsi
 lib_LTLIBRARIES = libdvbpsi.la
 
 libdvbpsi_la_SOURCES = dvbpsi.c dvbpsi_private.h \
-                       psi.c \
+                       psi.c psi_lane.c psi_lane.h \
                        demux.c \
                        descriptor.c \
                        $(tables_src) \

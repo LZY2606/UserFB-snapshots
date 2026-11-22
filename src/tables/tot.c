@@ -327,12 +327,14 @@ void dvbpsi_tot_sections_gather(dvbpsi_t* p_dvbpsi,
     dvbpsi_tot_decoder_t* p_tot_decoder = (dvbpsi_tot_decoder_t*)p_decoder;
 
     /* TS discontinuity check */
-    if (p_tot_decoder->b_discontinuity)
+    if (p_tot_decoder->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_tot_decoder)))
     {
         /* We don't care about discontinuities with the TDT/TOT as it
            only consists of one section anyway */
         //dvbpsi_ReInitTOT(p_tot_decoder, true);
         p_tot_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_tot_decoder));
     }
     else
     {

@@ -426,10 +426,12 @@ static void dvbpsi_atsc_GatherMGTSections(dvbpsi_t * p_dvbpsi,
     }
 
     /* TS discontinuity check */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_mgt_decoder)))
     {
         dvbpsi_ReInitMGT(p_mgt_decoder, true);
         p_mgt_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_mgt_decoder));
         p_demux->b_discontinuity = false;
     }
     else

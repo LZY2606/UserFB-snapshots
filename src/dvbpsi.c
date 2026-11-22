@@ -97,6 +97,8 @@ void *dvbpsi_decoder_new(dvbpsi_callback_gather_t pf_gather,
     p_decoder->i_last_section_number = 0;
     p_decoder->p_sections = NULL;
     p_decoder->b_complete_header = false;
+    p_decoder->i_discontinuity_generation = 0;
+    p_decoder->i_discontinuity_seen = 0;
 
     return p_decoder;
 }
@@ -112,9 +114,16 @@ void dvbpsi_decoder_reset(dvbpsi_decoder_t* p_decoder, const bool b_force)
     if (b_force)
         p_decoder->b_current_valid = false;
 
-    /* Clear the section array */
+    /* Clear the section array and any half-received section.  A half section
+     * left over from before the reset must never be glued onto the packet
+     * stream that follows it. */
     dvbpsi_DeletePSISections(p_decoder->p_sections);
     p_decoder->p_sections = NULL;
+
+    dvbpsi_DeletePSISections(p_decoder->p_current_section);
+    p_decoder->p_current_section = NULL;
+    p_decoder->i_need = 0;
+    p_decoder->b_complete_header = false;
 }
 
 /*****************************************************************************
@@ -248,6 +257,32 @@ bool dvbpsi_decoder_present(dvbpsi_t *p_dvbpsi)
 }
 
 /*****************************************************************************
+ * dvbpsi_decoder_discontinuity_pending
+ *****************************************************************************/
+bool dvbpsi_decoder_discontinuity_pending(dvbpsi_t *p_dvbpsi,
+                                          dvbpsi_decoder_t *p_decoder)
+{
+    if (p_dvbpsi == NULL || p_dvbpsi->p_decoder == NULL || p_decoder == NULL)
+        return false;
+
+    return p_decoder->i_discontinuity_seen !=
+           p_dvbpsi->p_decoder->i_discontinuity_generation;
+}
+
+/*****************************************************************************
+ * dvbpsi_decoder_discontinuity_ack
+ *****************************************************************************/
+void dvbpsi_decoder_discontinuity_ack(dvbpsi_t *p_dvbpsi,
+                                      dvbpsi_decoder_t *p_decoder)
+{
+    if (p_dvbpsi == NULL || p_dvbpsi->p_decoder == NULL || p_decoder == NULL)
+        return;
+
+    p_decoder->i_discontinuity_seen =
+        p_dvbpsi->p_decoder->i_discontinuity_generation;
+}
+
+/*****************************************************************************
  * dvbpsi_packet_push
  *****************************************************************************
  * Injection of a TS packet into a PSI decoder.
@@ -275,6 +310,7 @@ bool dvbpsi_packet_push(dvbpsi_t *p_dvbpsi, uint8_t* p_data)
 
     /* Continuity check */
     bool b_first = (p_decoder->i_continuity_counter == DVBPSI_INVALID_CC);
+    bool b_gap_now = false;
     if (b_first)
         p_decoder->i_continuity_counter = p_data[3] & 0xf;
     else
@@ -299,6 +335,12 @@ bool dvbpsi_packet_push(dvbpsi_t *p_dvbpsi, uint8_t* p_data)
                      p_decoder->i_continuity_counter, i_expected_counter,
                      ((uint16_t)(p_data[1] & 0x1f) << 8) | p_data[2]);
             p_decoder->b_discontinuity = true;
+            b_gap_now = true;
+            /* Announce the gap on the receiving handle.  Subtable decoders
+             * attached to a demux observe this counter and invalidate their
+             * own partial state; the counter is never acknowledged here so
+             * every subdecoder sees the same gap. */
+            p_decoder->i_discontinuity_generation++;
             if (p_decoder->p_current_section)
             {
                 dvbpsi_DeletePSISections(p_decoder->p_current_section);
@@ -306,6 +348,13 @@ bool dvbpsi_packet_push(dvbpsi_t *p_dvbpsi, uint8_t* p_data)
             }
         }
     }
+
+    /* The gap is announced once through i_discontinuity_generation; every
+     * logical decoder observes the generation counter on its next section.
+     * Keep b_discontinuity set for the gap packet itself only, so that the
+     * duplicate-packet detection keeps working afterwards. */
+    if (!b_gap_now)
+        p_decoder->b_discontinuity = false;
 
     /* Return if no payload in the TS packet */
     if (!(p_data[3] & 0x10))
@@ -443,9 +492,13 @@ bool dvbpsi_packet_push(dvbpsi_t *p_dvbpsi, uint8_t* p_data)
                         p_section->i_last_number = 0;
                         p_section->p_payload_start = p_section->p_data + 3;
                     }
+                    /* The complete section is now owned by the gather
+                     * callback.  Clear the in-progress pointer before the
+                     * call, gather callbacks may reset the decoder (and thus
+                     * release p_current_section) while handling it. */
+                    p_decoder->p_current_section = NULL;
                     if (p_decoder->pf_gather)
                         p_decoder->pf_gather(p_dvbpsi, p_section);
-                    p_decoder->p_current_section = NULL;
                 }
                 else
                 {

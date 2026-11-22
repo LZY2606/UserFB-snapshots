@@ -464,10 +464,12 @@ static void dvbpsi_atsc_GatherVCTSections(dvbpsi_t *p_dvbpsi,
     dvbpsi_atsc_vct_decoder_t *p_vct_decoder = (dvbpsi_atsc_vct_decoder_t*)p_decoder;
 
     /* TS discontinuity check */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_vct_decoder)))
     {
         dvbpsi_ReInitVCT(p_vct_decoder, true);
         p_vct_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_vct_decoder));
         p_demux->b_discontinuity = false;
     }
     else

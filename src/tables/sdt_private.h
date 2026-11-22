@@ -28,6 +28,8 @@
 #ifndef _DVBPSI_SDT_PRIVATE_H_
 #define _DVBPSI_SDT_PRIVATE_H_
 
+#include "../psi_lane.h"
+
 /*****************************************************************************
  * dvbpsi_sdt_decoder_t
  *****************************************************************************
@@ -40,8 +42,7 @@ typedef struct dvbpsi_sdt_decoder_s
     dvbpsi_sdt_callback           pf_sdt_callback;
     void *                        p_cb_data;
 
-    dvbpsi_sdt_t                  current_sdt;
-    dvbpsi_sdt_t *                p_building_sdt;
+    dvbpsi_psi_epochs_t           epochs;
 
 } dvbpsi_sdt_decoder_t;
 

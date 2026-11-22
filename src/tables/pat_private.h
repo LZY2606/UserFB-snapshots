@@ -27,6 +27,7 @@
 #ifndef _DVBPSI_PAT_PRIVATE_H_
 #define _DVBPSI_PAT_PRIVATE_H_
 
+#include "../psi_lane.h"
 
 /*****************************************************************************
  * dvbpsi_pat_decoder_t
@@ -40,8 +41,7 @@ typedef struct dvbpsi_pat_decoder_s
     dvbpsi_pat_callback           pf_pat_callback;
     void *                        p_cb_data;
 
-    dvbpsi_pat_t                  current_pat;
-    dvbpsi_pat_t *                p_building_pat;
+    dvbpsi_psi_epochs_t           epochs;
 
 } dvbpsi_pat_decoder_t;
 

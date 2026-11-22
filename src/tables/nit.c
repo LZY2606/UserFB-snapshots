@@ -386,10 +386,12 @@ void dvbpsi_nit_sections_gather(dvbpsi_t *p_dvbpsi,
     }
 
     /* TS discontinuity check */
-    if (p_nit_decoder->b_discontinuity)
+    if (p_nit_decoder->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_nit_decoder)))
     {
         dvbpsi_ReInitNIT(p_nit_decoder, true);
         p_nit_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_nit_decoder));
     }
     else
     {

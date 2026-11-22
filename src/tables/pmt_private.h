@@ -28,6 +28,8 @@
 #ifndef _DVBPSI_PMT_PRIVATE_H_
 #define _DVBPSI_PMT_PRIVATE_H_
 
+#include "../psi_lane.h"
+
 /*****************************************************************************
  * dvbpsi_pmt_decoder_t
  *****************************************************************************
@@ -40,8 +42,7 @@ typedef struct dvbpsi_pmt_decoder_s
     dvbpsi_pmt_callback           pf_pmt_callback;
     void *                        p_cb_data;
 
-    dvbpsi_pmt_t                  current_pmt;
-    dvbpsi_pmt_t *                p_building_pmt;
+    dvbpsi_psi_epochs_t           epochs;
 
     uint16_t                      i_program_number;
 

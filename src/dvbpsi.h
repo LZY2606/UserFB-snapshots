@@ -245,6 +245,8 @@ typedef void (* dvbpsi_callback_gather_t)(dvbpsi_t *p_dvbpsi,  /*!< pointer to d
     dvbpsi_callback_gather_t  pf_gather;/*!< PSI decoder's callback */            \
     int      i_section_max_size;   /*!< Max size of a section for this decoder */ \
     int      i_need;               /*!< Bytes needed */                           \
+    uint32_t i_discontinuity_generation; /*!< Incremented on every CC gap */      \
+    uint32_t i_discontinuity_seen; /*!< Last gap generation handled by decoder */ \
 /**@}*/
 
 /*****************************************************************************
@@ -349,6 +351,34 @@ bool dvbpsi_decoder_psi_section_add(dvbpsi_decoder_t *p_decoder, dvbpsi_psi_sect
  * handle is invalid the fuction will return false.
  */
 bool dvbpsi_decoder_present(dvbpsi_t *p_dvbpsi);
+
+/*****************************************************************************
+ * dvbpsi_decoder_discontinuity_pending/ack
+ *****************************************************************************/
+/*!
+ * \fn bool dvbpsi_decoder_discontinuity_pending(dvbpsi_t *p_dvbpsi,
+ *                                               dvbpsi_decoder_t *p_decoder)
+ * \brief Has a continuity counter gap been seen but not yet handled by this
+ * decoder?
+ * \param p_dvbpsi handle whose receiving decoder detected the gap
+ * \param p_decoder logical decoder to check
+ * \return true when the logical decoder still has to invalidate its state.
+ *
+ * The generation counter lives on the decoder that consumes TS packets
+ * (a demux or a direct table decoder).  Every logical decoder remembers the
+ * last generation it handled, so a single gap can be observed independently
+ * by all subtable decoders attached to a demux.
+ */
+bool dvbpsi_decoder_discontinuity_pending(dvbpsi_t *p_dvbpsi,
+                                          dvbpsi_decoder_t *p_decoder);
+
+/*!
+ * \fn void dvbpsi_decoder_discontinuity_ack(dvbpsi_t *p_dvbpsi,
+ *                                           dvbpsi_decoder_t *p_decoder)
+ * \brief Mark the current gap generation as handled for this logical decoder.
+ */
+void dvbpsi_decoder_discontinuity_ack(dvbpsi_t *p_dvbpsi,
+                                      dvbpsi_decoder_t *p_decoder);
 
 #ifdef __cplusplus
 };

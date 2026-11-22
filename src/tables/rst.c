@@ -360,10 +360,12 @@ void dvbpsi_rst_sections_gather(dvbpsi_t *p_dvbpsi,
                           = (dvbpsi_rst_decoder_t*)p_dvbpsi->p_decoder;
 
     /* TS discontinuity check */
-    if (p_rst_decoder->b_discontinuity)
+    if (p_rst_decoder->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_rst_decoder)))
     {
     	dvbpsi_rst_reset(p_rst_decoder, true);
         p_rst_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_rst_decoder));
     }
 
     /* Add section to RST */

@@ -355,10 +355,12 @@ void dvbpsi_sis_sections_gather(dvbpsi_t *p_dvbpsi,
     }
 
     /* TS discontinuity check */
-    if (p_demux->b_discontinuity)
+    if (p_demux->b_discontinuity ||
+        dvbpsi_decoder_discontinuity_pending(p_dvbpsi, DVBPSI_DECODER(p_sis_decoder)))
     {
         dvbpsi_ReInitSIS(p_sis_decoder, true);
         p_sis_decoder->b_discontinuity = false;
+        dvbpsi_decoder_discontinuity_ack(p_dvbpsi, DVBPSI_DECODER(p_sis_decoder));
         p_demux->b_discontinuity = false;
     }
     else
