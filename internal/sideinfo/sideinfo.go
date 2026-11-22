@@ -62,19 +62,25 @@ var sideInfoBitsToRead = [2][4]int{
 	},
 }
 
-func Read(source FullReader, header frameheader.FrameHeader) (*SideInfo, error) {
+func Read(source FullReader, header frameheader.FrameHeader, frameSize int) (*SideInfo, error) {
 	nch := header.NumberOfChannels()
-	framesize, err := header.FrameSize()
-	if err != nil {
-		return nil, err
+	if frameSize <= 0 {
+		// Regular bitrate streams carry the frame size in the header.
+		fs, err := header.FrameSize()
+		if err != nil {
+			return nil, err
+		}
+		frameSize = fs
 	}
-	if framesize > 2000 {
-		return nil, fmt.Errorf("mp3: framesize = %d\n", framesize)
+	// The unpadded free-format frame is at most 2000 bytes; with the single
+	// Layer III padding byte the total frame can be 2001 bytes.
+	if frameSize > 2001 {
+		return nil, fmt.Errorf("mp3: framesize = %d\n", frameSize)
 	}
 	sideinfo_size := header.SideInfoSize()
 
 	// Main data size is the rest of the frame,including ancillary data
-	main_data_size := framesize - sideinfo_size - 4 // sync+header
+	main_data_size := frameSize - sideinfo_size - 4 // sync+header
 	// CRC is 2 bytes
 	if header.ProtectionBit() == 0 {
 		main_data_size -= 2

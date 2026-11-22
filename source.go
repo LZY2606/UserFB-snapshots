@@ -22,7 +22,10 @@ import (
 type source struct {
 	reader io.Reader
 	buf    []byte
-	pos    int64
+	// pos is the physical stream offset of the next byte to deliver. It
+	// advances for every byte handed out, including bytes served from buf,
+	// so it stays a valid argument to Seek even while unread data is queued.
+	pos int64
 }
 
 func (s *source) Seek(position int64, whence int) (int64, error) {
@@ -103,6 +106,7 @@ func (s *source) ReadFull(buf []byte) (int, error) {
 		} else {
 			s.buf = nil
 		}
+		s.pos += int64(read)
 		if len(buf) == read {
 			return read, nil
 		}

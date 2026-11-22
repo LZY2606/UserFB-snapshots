@@ -16,11 +16,14 @@ package frameheader
 
 import (
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/hajimehoshi/go-mp3/internal/consts"
 )
+
+// errFreeBitrate is returned by FrameSize for free-bitrate (index 0)
+// headers, whose frame length is not encoded in the header.
+var errFreeBitrate = errors.New("mp3: free bitrate frame size is not defined by the header")
 
 // A mepg1FrameHeader is MPEG1 Layer 1-3 frame header
 type FrameHeader uint32
@@ -191,9 +194,21 @@ func (f FrameHeader) FrameSize() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if f.BitrateIndex() == 0 {
+		// Free-format frame: the frame length is not derivable from the
+		// header and is determined externally by frame locking.
+		return 0, errFreeBitrate
+	}
 	size := ((144*f.Bitrate())/freq +
 		int(f.PaddingBit())) >> uint(f.LowSamplingFrequency())
 	return size, nil
+}
+
+// IsFreeBitrate reports whether the header uses the free bitrate index
+// (bitrate index 0). Such frames do not carry their frame length in the
+// header; the length has to be locked from consecutive frame headers.
+func (f FrameHeader) IsFreeBitrate() bool {
+	return f.BitrateIndex() == 0
 }
 
 func (f FrameHeader) SideInfoSize() int {
@@ -264,9 +279,31 @@ func Read(source FullReader, position int64) (h FrameHeader, startPosition int64
 	// If we get here we've found the sync word, and can decode the header
 	// which is in the low 20 bits of the 32-bit sync+header word.
 
-	if header.BitrateIndex() == 0 {
-		return 0, 0, fmt.Errorf("mp3: free bitrate format is not supported. Header word is 0x%08x at position %d",
-			header, position)
-	}
+	// Free bitrate (index 0) is accepted; the caller is responsible for
+	// locking the frame length from consecutive frame headers.
 	return header, position, nil
+}
+
+// ReadFixed reads exactly four bytes and parses a frame header without
+// resynchronizing. It is used for free-bitrate streams whose frame length
+// has already been locked, where every frame starts at a known position and
+// a sync word inside main data must not be mistaken for a frame header.
+func ReadFixed(source FullReader) (FrameHeader, error) {
+	buf := make([]byte, 4)
+	n, err := source.ReadFull(buf)
+	if n < 4 {
+		if err == io.EOF {
+			if n == 0 {
+				return 0, io.EOF
+			}
+			return 0, &consts.UnexpectedEOF{"readFixedHeader"}
+		}
+		return 0, err
+	}
+	header := FrameHeader(uint32(buf[0])<<24 | uint32(buf[1])<<16 |
+		uint32(buf[2])<<8 | uint32(buf[3]))
+	if !header.IsValid() {
+		return 0, errors.New("mp3: invalid frame header at locked frame boundary")
+	}
+	return header, nil
 }

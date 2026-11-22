@@ -22,6 +22,7 @@ import (
 	"github.com/hajimehoshi/go-mp3/internal/bits"
 	"github.com/hajimehoshi/go-mp3/internal/consts"
 	"github.com/hajimehoshi/go-mp3/internal/frameheader"
+	"github.com/hajimehoshi/go-mp3/internal/framelock"
 	"github.com/hajimehoshi/go-mp3/internal/imdct"
 	"github.com/hajimehoshi/go-mp3/internal/maindata"
 	"github.com/hajimehoshi/go-mp3/internal/sideinfo"
@@ -63,11 +64,22 @@ func readCRC(source FullReader) error {
 	return nil
 }
 
-func Read(source FullReader, position int64, prev *Frame) (frame *Frame, startPosition int64, err error) {
-	h, pos, err := frameheader.Read(source, position)
-	if err != nil {
-		return nil, 0, err
+func Read(source FullReader, position int64, prev *Frame, lock *framelock.Lock) (frame *Frame, startPosition int64, err error) {
+	var h frameheader.FrameHeader
+	if lock != nil {
+		// The frame length is locked: headers sit at fixed positions and a
+		// sync word inside main data must not trigger resynchronization.
+		h, err = frameheader.ReadFixed(source)
+		if err != nil {
+			return nil, 0, err
+		}
+	} else {
+		h, _, err = frameheader.Read(source, position)
+		if err != nil {
+			return nil, 0, err
+		}
 	}
+	pos := position
 
 	if h.ProtectionBit() == 0 {
 		if err := readCRC(source); err != nil {
@@ -82,7 +94,14 @@ func Read(source FullReader, position int64, prev *Frame) (frame *Frame, startPo
 		return nil, 0, fmt.Errorf("mp3: only layer3 (want %d; got %d) is supported", consts.Layer3, h.Layer())
 	}
 
-	si, err := sideinfo.Read(source, h)
+	// Free-bitrate frames carry no length in the header; the locked frame
+	// length supplies it. Regular streams keep deriving it from the header.
+	frameSize := 0
+	if lock != nil && h.IsFreeBitrate() {
+		frameSize = lock.FrameSize(h)
+	}
+
+	si, err := sideinfo.Read(source, h, frameSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -94,7 +113,7 @@ func Read(source FullReader, position int64, prev *Frame) (frame *Frame, startPo
 	if prev != nil {
 		prevM = prev.mainDataBits
 	}
-	md, mdb, err := maindata.Read(source, prevM, h, si)
+	md, mdb, err := maindata.Read(source, prevM, h, si, frameSize)
 	if err != nil {
 		return nil, 0, err
 	}

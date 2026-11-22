@@ -79,20 +79,25 @@ func initSlen() (nSlen2 [512]int) {
 	return
 }
 
-func Read(source FullReader, prev *bits.Bits, header frameheader.FrameHeader, sideInfo *sideinfo.SideInfo) (*MainData, *bits.Bits, error) {
+func Read(source FullReader, prev *bits.Bits, header frameheader.FrameHeader, sideInfo *sideinfo.SideInfo, frameSize int) (*MainData, *bits.Bits, error) {
 	nch := header.NumberOfChannels()
 	// Calculate header audio data size
-	framesize, err := header.FrameSize()
-	if err != nil {
-		return nil, nil, err
+	if frameSize <= 0 {
+		// Regular bitrate streams carry the frame size in the header.
+		fs, err := header.FrameSize()
+		if err != nil {
+			return nil, nil, err
+		}
+		frameSize = fs
 	}
-	if framesize > 2000 {
-		return nil, nil, fmt.Errorf("mp3: framesize = %d", framesize)
+	// Unpadded free-format frames reach 2000 bytes, 2001 with padding.
+	if frameSize > 2001 {
+		return nil, nil, fmt.Errorf("mp3: framesize = %d", frameSize)
 	}
 	sideinfo_size := header.SideInfoSize()
 
 	// Main data size is the rest of the frame,including ancillary data
-	main_data_size := framesize - sideinfo_size - 4 // sync+header
+	main_data_size := frameSize - sideinfo_size - 4 // sync+header
 	// CRC is 2 bytes
 	if header.ProtectionBit() == 0 {
 		main_data_size -= 2
@@ -270,7 +275,9 @@ func getScaleFactorsMpeg1(nch int, m *bits.Bits, header frameheader.FrameHeader,
 }
 
 func read(source FullReader, prev *bits.Bits, size int, offset int) (*bits.Bits, error) {
-	if size > 1500 {
+	// Standard frames keep main data well below this; free-format frames may
+	// use the full frame length (up to 2000 bytes, see framelock).
+	if size > 2000 {
 		return nil, fmt.Errorf("mp3: size = %d", size)
 	}
 	// Check that there's data available from previous frames if needed
