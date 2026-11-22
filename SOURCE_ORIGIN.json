@@ -1,0 +1,98 @@
+{
+  "repo": "https://github.com/abema/go-mp4",
+  "commit": "e4068d3b1e5c9bdf6c8534b9a133523b22642dff",
+  "tree": "7e31f5b91ae002097ba253eb0b81deeb2ca2a861",
+  "archive_sha256": "ddd46382c8d44fe1228ad426aef52aa659e8ce5a29d7b688085459d64d1f50c4",
+  "license": "MIT; dependency licenses preserved in vendor/",
+  "excluded_tracked_paths": [],
+  "additions": [
+    "vendor/",
+    "task_support/",
+    "seed_opus_baseline_test.go",
+    "SOURCE_ORIGIN.json"
+  ],
+  "vendor_modules": [
+    {
+      "module": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "license_paths": [
+        "vendor/github.com/davecgh/go-spew/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/google/uuid",
+      "version": "v1.1.2",
+      "license_paths": [
+        "vendor/github.com/google/uuid/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/orcaman/writerseeker",
+      "version": "v0.0.0-20200621085525-1d3f536ff85e",
+      "license_paths": [
+        "vendor/github.com/orcaman/writerseeker/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "license_paths": [
+        "vendor/github.com/pmezard/go-difflib/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/stretchr/testify",
+      "version": "v1.4.0",
+      "license_paths": [
+        "vendor/github.com/stretchr/testify/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/sunfish-shogi/bufseekio",
+      "version": "v0.0.0-20210207115823-a4185644b365",
+      "license_paths": [
+        "vendor/github.com/sunfish-shogi/bufseekio/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/sys",
+      "version": "v0.0.0-20210615035016-665e8c7367d1",
+      "license_paths": [
+        "vendor/golang.org/x/sys/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/term",
+      "version": "v0.0.0-20210927222741-03fcf44c2211",
+      "license_paths": [
+        "vendor/golang.org/x/term/LICENSE"
+      ]
+    },
+    {
+      "module": "gopkg.in/src-d/go-billy.v4",
+      "version": "v4.3.2",
+      "license_paths": [
+        "vendor/gopkg.in/src-d/go-billy.v4/LICENSE"
+      ]
+    },
+    {
+      "module": "gopkg.in/yaml.v2",
+      "version": "v2.2.8",
+      "license_paths": [
+        "vendor/gopkg.in/yaml.v2/LICENSE",
+        "vendor/gopkg.in/yaml.v2/NOTICE",
+        "vendor/gopkg.in/yaml.v2/LICENSE.libyaml"
+      ]
+    }
+  ],
+  "license_supplements": [
+    {
+      "repo": "https://github.com/sunfish-shogi/bufseekio",
+      "license_commit": "53f45a0b755a2ff4779b3216e345c4778e7291fa",
+      "original_dependency_version": "v0.0.0-20210207115823-a4185644b365",
+      "reader_identical": true,
+      "reader_sha256": "9d29054ca9baf456c40f59937c49e8ee218fb571f58230fb5fe3089cf351fbaf",
+      "license_sha256": "c097219be46b6f4ad213bc2d771e1f110d39f6a64073abb51e331972d7b464cf"
+    }
+  ]
+}
