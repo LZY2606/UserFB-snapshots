@@ -1,0 +1,11 @@
+{
+  "repo": "https://github.com/l-smash/l-smash",
+  "commit": "18a9ed25c7ff79a7f4f4bf850c345c72179b8998",
+  "license": "ISC",
+  "method": "git archive HEAD; fixed production files unchanged",
+  "excluded": [],
+  "gitlinks": [],
+  "gitmodules": false,
+  "binary_files": [],
+  "symlinks": []
+}
