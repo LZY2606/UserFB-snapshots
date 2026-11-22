@@ -51,6 +51,7 @@
 #include "threadqueue.h"
 #include "videoframe.h"
 #include "rate_control.h"
+#include "frame_bitrate.h"
 
 
 static void kvazaar_close(kvz_encoder *encoder)
@@ -168,6 +169,14 @@ static void set_frame_info(kvz_frame_info *const info, const encoder_state_t *co
 
   info->ref_list_len[0] = state->frame->ref_LX_size[0];
   info->ref_list_len[1] = state->frame->ref_LX_size[1];
+
+  // Zeroed by default for encoders without frame bitrate control.
+  info->rc_bitrate = 0;
+  info->rc_feedback_frames = 0;
+  info->rc_earned_bits = 0;
+  info->rc_actual_bits = 0;
+  info->rc_target_bits = 0.0;
+  kvz_frame_rc_fill_info(state, info);
 }
 
 
@@ -257,6 +266,15 @@ static int kvazaar_encode(kvz_encoder *enc,
     kvz_encoder_prepare(state);
   }
 
+  if (pic_in != NULL && enc->control->cfg.frame_bitrate &&
+      (pic_in->rc_bitrate < 0 || pic_in->roi.roi_array != NULL)) {
+    // Reject the input without consuming it. Output pointers and length are
+    // already cleared above; the inherited rate and the input sequence
+    // number are untouched so the same picture can be retried after fixing
+    // the request or removing the unsupported per-picture ROI map.
+    return 0;
+  }
+
   if (pic_in != NULL) {
     // FIXME: The frame number printed here is wrong when GOP is enabled.
     CHECKPOINT_MARK("read source frame: %d", state->frame->num + enc->control->cfg.seek);
@@ -268,6 +286,17 @@ static int kvazaar_encode(kvz_encoder *enc,
   );
   if (frame) {
     assert(state->frame->num == enc->frames_started);
+
+    // Bind the effective bitrate to this picture before any worker can read
+    // it. The shared encoder control is never modified, so pictures already
+    // encoding in other states keep their own bound values.
+    if (enc->control->cfg.frame_bitrate) {
+      if (!kvz_frame_rc_accept(enc->control->frame_rc, state, frame)) {
+        // The reference taken by feed_frame must be released on failure.
+        kvz_image_free(frame);
+        return 0;
+      }
+    }
 
     // Start encoding.
     kvz_encode_one_frame(state, frame);

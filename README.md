@@ -420,6 +420,126 @@ must be defined. On other platforms it's not strictly required.
 
 The needed linker and compiler flags can be obtained with pkg-config.
 
+### Continuous per-frame bitrate switching
+
+The optional `frame-bitrate` mode lets a live encoder change its target
+bitrate from input picture to input picture without restarting the
+encoder, inserting an IDR or clearing the reference pictures. The mode is
+off by default and is enabled through `config_parse` with
+`frame-bitrate=true` (or the `kvz_config.frame_bitrate` field). It only
+supports 8-bit progressive I420 input, `gop=0`, lambda rate control, a
+positive `target_bitrate` and positive frame rate numerator/denominator,
+and cannot be combined with intra bit allocation, ROI or VAQ. The encoder
+fails to open for unsupported combinations.
+
+When the mode is enabled, set `rc_bitrate` on each input `kvz_picture`:
+
+- a positive value sets a new target in bits per second starting from this
+  picture;
+- `0` inherits the rate of the previous accepted input picture, and the
+  first picture inherits the configured `target_bitrate`;
+- a negative value rejects the picture: `encoder_encode` returns 0 with
+  cleared outputs, the picture is not consumed and the same picture can be
+  retried after correcting the value.
+
+The effective rate is bound to the picture when it is accepted, so
+pictures already encoding in the OWF pipeline keep their own value instead
+of observing a later change through the shared encoder control. The
+reference chain and the lambda alpha/beta learning are preserved across
+switches.
+
+For picture *n*, with effective rate *r_n*, the nominal per-frame target
+is `q_n = r_n * framerate_denom / framerate_num`. The feedback frontier is
+fixed at `m = max(0, n - owf)` and only the first *m* completed pictures
+count: `E_m` is their earned budget kept as an exact rational prefix and
+`A_m` is their complete Annex-B output cost in bits, including every
+header and SEI. The target handed to the lambda/CTU/QP/RDO chain is
+`max(200, q_n + (E_m - A_m) / 40)`. The frontier is awaited through the
+existing bitstream job dependencies, so the feedback is never read early
+or polled. Because the frontier lags by `owf` pictures, a bitrate change
+takes effect on the encoded output with a delay of `owf + 1` pictures.
+
+`kvz_frame_info` reports, for every output picture (including flushed
+ones), the effective rate and the `m`, `E_m`, `A_m` and target used. The
+following minimal C example changes the rate twice on a live stream:
+
+```c
+#include "kvazaar.h"
+#include <stdint.h>
+#include <stdio.h>
+
+int main(void) {
+  const kvz_api *api = kvz_api_get(8);
+  kvz_config *cfg = api->config_alloc();
+  api->config_init(cfg);
+  api->config_parse(cfg, "preset", "ultrafast");
+  api->config_parse(cfg, "gop", "0");
+  api->config_parse(cfg, "frame-bitrate", "true");
+  cfg->width = 128;
+  cfg->height = 128;
+  cfg->framerate_num = 30000;
+  cfg->framerate_denom = 1001;
+  cfg->target_bitrate = 100000;   /* bits/s, inherited by the first frame */
+  cfg->rc_algorithm = KVZ_LAMBDA;
+  cfg->owf = 2;
+  cfg->wpp = 1;
+  cfg->threads = 2;
+  cfg->intra_period = 0;
+  cfg->intra_bit_allocation = 0;
+  cfg->vaq = 0;
+
+  kvz_encoder *enc = api->encoder_open(cfg);
+  api->config_destroy(cfg);
+  if (!enc) return 1;
+
+  for (int n = 0; n < 60; ++n) {
+    kvz_picture *pic = api->picture_alloc(128, 128);
+    pic->pts = n;
+    /* ... fill pic->y/u/v ... */
+
+    if (n == 20) pic->rc_bitrate = 250000;  /* upswitch from frame 20 */
+    if (n == 40) pic->rc_bitrate = 60000;   /* downswitch from frame 40 */
+    /* pic->rc_bitrate == 0 elsewhere means "keep the current rate". */
+
+    kvz_data_chunk *chunks = NULL;
+    uint32_t len = 0;
+    kvz_picture *rec = NULL, *src = NULL;
+    kvz_frame_info info;
+    if (!api->encoder_encode(enc, pic, &chunks, &len, &rec, &src, &info)) {
+      /* A negative rc_bitrate rejects the input; fix and retry. */
+      api->picture_free(pic);
+      continue;
+    }
+    api->picture_free(pic);  /* the bound rate travels with the encoder */
+    if (len) {
+      printf("frame %d: %u bytes at %d bits/s, target %.1f bits "
+             "(m=%llu E=%llu A=%llu)\n", info.poc, len, info.rc_bitrate,
+             info.rc_target_bits, (unsigned long long)info.rc_feedback_frames,
+             (unsigned long long)info.rc_earned_bits,
+             (unsigned long long)info.rc_actual_bits);
+      api->chunk_free(chunks);
+      api->picture_free(rec);
+      api->picture_free(src);
+    }
+  }
+
+  /* NULL inputs only drain the delayed outputs without changing the rate. */
+  for (;;) {
+    kvz_data_chunk *chunks = NULL;
+    uint32_t len = 0;
+    kvz_picture *rec = NULL, *src = NULL;
+    kvz_frame_info info;
+    api->encoder_encode(enc, NULL, &chunks, &len, &rec, &src, &info);
+    if (!len) break;
+    api->chunk_free(chunks);
+    api->picture_free(rec);
+    api->picture_free(src);
+  }
+  api->encoder_close(enc);
+  return 0;
+}
+```
+
 
 ## Compiling Kvazaar
 If you have trouble regarding compiling the source code, please make an

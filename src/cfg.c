@@ -180,6 +180,9 @@ int kvz_config_init(kvz_config *cfg)
   cfg->intra_bit_allocation = false;
   cfg->clip_neighbour = true;
 
+  // Per-frame bitrate switching is opt-in.
+  cfg->frame_bitrate = 0;
+
   cfg->file_format = KVZ_FORMAT_AUTO;
 
   cfg->stats_file_prefix = NULL;
@@ -1421,6 +1424,9 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
   else if OPT("intra-bits") {
     cfg->intra_bit_allocation = atobool(value);
   }
+  else if OPT("frame-bitrate") {
+    cfg->frame_bitrate = atobool(value);
+  }
   else if OPT("clip-neighbour") {
     cfg->clip_neighbour = atobool(value);
   }
@@ -1797,6 +1803,56 @@ int kvz_config_validate(const kvz_config *const cfg)
   if(cfg->target_bitrate == 0 && cfg->rc_algorithm != KVZ_NO_RC) {
     fprintf(stderr, "Rate control algorithm set but bitrate not set.\n");
     error = 1;
+  }
+
+  if (cfg->frame_bitrate) {
+    // Per-frame bitrate switching only supports the all-intra lambda RC
+    // path on 8-bit progressive I420, where each accepted picture is coded
+    // independently of GOP reordering and the feedback frontier is simple.
+    if (cfg->input_bitdepth != 8 || KVZ_BIT_DEPTH != 8) {
+      fprintf(stderr, "Input error: frame-bitrate requires 8-bit coding.\n");
+      error = 1;
+    }
+    if (cfg->source_scan_type != KVZ_INTERLACING_NONE) {
+      fprintf(stderr, "Input error: frame-bitrate requires progressive input.\n");
+      error = 1;
+    }
+    if (cfg->chroma_format != KVZ_CSP_420 || cfg->input_format != KVZ_FORMAT_P420) {
+      fprintf(stderr, "Input error: frame-bitrate requires I420 (P420) input.\n");
+      error = 1;
+    }
+    if (cfg->gop_len != 0 || cfg->gop_lowdelay) {
+      fprintf(stderr, "Input error: frame-bitrate requires gop=0.\n");
+      error = 1;
+    }
+    if (cfg->rc_algorithm != KVZ_LAMBDA) {
+      fprintf(stderr, "Input error: frame-bitrate requires lambda rate control.\n");
+      error = 1;
+    }
+    if (cfg->target_bitrate <= 0) {
+      fprintf(stderr, "Input error: frame-bitrate requires a positive target bitrate.\n");
+      error = 1;
+    }
+    if (cfg->framerate_num <= 0 || cfg->framerate_denom <= 0) {
+      fprintf(stderr, "Input error: frame-bitrate requires positive framerate numerator and denominator.\n");
+      error = 1;
+    }
+    if (cfg->intra_bit_allocation) {
+      fprintf(stderr, "Input error: frame-bitrate is incompatible with intra bit allocation.\n");
+      error = 1;
+    }
+    if (cfg->vaq) {
+      fprintf(stderr, "Input error: frame-bitrate is incompatible with VAQ.\n");
+      error = 1;
+    }
+    if (cfg->roi.file_path) {
+      fprintf(stderr, "Input error: frame-bitrate is incompatible with ROI.\n");
+      error = 1;
+    }
+    if (cfg->owf != 0 && cfg->owf != 2) {
+      fprintf(stderr, "Input error: frame-bitrate requires owf 0 or 2.\n");
+      error = 1;
+    }
   }
 
   if (cfg->enable_cross_component_prediction && cfg->chroma_format != KVZ_CSP_444) {

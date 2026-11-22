@@ -53,6 +53,7 @@
 #include "threadqueue.h"
 #include "videoframe.h"
 #include "rate_control.h"
+#include "frame_bitrate.h"
 
 
 static void encoder_state_write_bitstream_aud(encoder_state_t *const state)
@@ -1179,6 +1180,13 @@ static void encoder_state_write_bitstream_main(encoder_state_t * const state)
     state->frame->total_bits_coded = state->previous_encoder_state->frame->total_bits_coded;
   }
   state->frame->total_bits_coded += newpos - curpos;
+
+  // Settle the complete Annex-B output cost of this access unit (including
+  // parameter sets, headers and SEI) for the per-frame bitrate feedback.
+  if (state->encoder_control->cfg.frame_bitrate) {
+    kvz_frame_rc_settle(state, newpos - curpos);
+  }
+
   if(state->encoder_control->cfg.rc_algorithm == KVZ_OBA || state->encoder_control->cfg.stats_file_prefix) {
     kvz_update_after_picture(state);
   }

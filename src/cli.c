@@ -158,6 +158,8 @@ static const struct option long_options[] = {
   { "no-zero-coeff-rdo",        no_argument, NULL, 0 },
   { "intra-qp-offset",    required_argument, NULL, 0 },
   { "rc-algorithm",       required_argument, NULL, 0 },
+  { "frame-bitrate",      required_argument, NULL, 0 },
+  { "no-frame-bitrate",          no_argument, NULL, 0 },
   { "intra-bits",               no_argument, NULL, 0 },
   { "no-intra-bits",            no_argument, NULL, 0 },
   { "clip-neighbour",           no_argument, NULL, 0 },
@@ -512,6 +514,8 @@ void print_help(void)
     "      --(no-)clip-neighbour  : On oba based rate control whether to clip \n"
     "                               lambda values to same frame's ctus or previous'.\n"
     "                               Default on for RA GOPS and disabled for LP.\n"
+    "      --(no-)frame-bitrate   : Enable per-frame target bitrate switching\n"
+    "                               through kvz_picture.rc_bitrate. [disabled]\n"
     "      --(no-)lossless        : Use lossless coding. [disabled]\n"
     "      --mv-constraint <string> : Constrain movement vectors. [none]\n"
     "                                   - none: No constraint\n"

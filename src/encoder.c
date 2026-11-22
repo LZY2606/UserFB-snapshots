@@ -42,6 +42,7 @@
 #include "kvz_math.h"
 #include "fast_coeff_cost.h"
 #include "rate_control.h"
+#include "frame_bitrate.h"
 
 static int encoder_control_init_gop_layer_weights(encoder_control_t * const);
 
@@ -610,6 +611,14 @@ encoder_control_t* kvz_encoder_control_init(const kvz_config *const cfg)
     }
   }
 
+  if (encoder->cfg.frame_bitrate) {
+    encoder->frame_rc = kvz_frame_rc_init(encoder);
+    if (!encoder->frame_rc) {
+      fprintf(stderr, "Failed to initialize frame bitrate control.\n");
+      goto init_failed;
+    }
+  }
+
   return encoder;
 
 init_failed:
@@ -657,6 +666,8 @@ void kvz_encoder_control_free(encoder_control_t *const encoder)
   }
 
   kvz_free_rc_data(encoder->rc_data);
+
+  kvz_frame_rc_destroy(encoder->frame_rc);
 
   free(encoder);
 }

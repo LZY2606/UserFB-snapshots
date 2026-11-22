@@ -37,6 +37,7 @@
 #include "encoder.h"
 #include "kvazaar.h"
 #include "pthread.h"
+#include "frame_bitrate.h"
 
 
 static const int MIN_SMOOTHING_WINDOW = 40;
@@ -1017,7 +1018,8 @@ void kvz_set_picture_lambda_and_qp(encoder_state_t * const state)
     // Rate control enabled
 
     if (state->frame->num > ctrl->cfg.owf) {
-      // At least one frame has been written.
+      // At least one frame has been written. The alpha/beta learning is kept
+      // running across bitrate switches.
       update_parameters(state->stats_bitstream_length * 8,
                         ctrl->in.pixels_per_pic,
                         state->frame->lambda,
@@ -1025,7 +1027,16 @@ void kvz_set_picture_lambda_and_qp(encoder_state_t * const state)
                         &state->frame->rc_beta);
     }
 
-    const double pic_target_bits = pic_allocate_bits(state);
+    double pic_target_bits;
+    if (ctrl->cfg.frame_bitrate) {
+      // Per-frame bitrate switching: the target follows the bitrate bound
+      // to this picture and the rational-prefix feedback of the completed
+      // pictures up to the fixed feedback frontier. The result enters the
+      // same frame/CTU lambda, QP and RDO chain as the regular target.
+      pic_target_bits = kvz_frame_rc_compute_target(state);
+    } else {
+      pic_target_bits = pic_allocate_bits(state);
+    }
     const double target_bpp = pic_target_bits / ctrl->in.pixels_per_pic;
     double lambda = state->frame->rc_alpha * pow(target_bpp, state->frame->rc_beta);
     lambda = clip_lambda(lambda);

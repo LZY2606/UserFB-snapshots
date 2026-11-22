@@ -45,6 +45,7 @@
 #include "fast_coeff_cost.h"
 
 struct rc_data;
+struct kvz_frame_rc_t;
 
 /* Encoder control options, the main struct */
 typedef struct encoder_control_t
@@ -151,6 +152,9 @@ typedef struct encoder_control_t
   fast_coeff_table_t fast_coeff_table;
 
   struct kvz_rc_data *rc_data;
+
+  //! Per-frame bitrate switching state, NULL unless cfg.frame_bitrate is on.
+  struct kvz_frame_rc_t *frame_rc;
 
 } encoder_control_t;
 

@@ -74,6 +74,8 @@ libkvazaar_la_SOURCES = \
 	fast_coeff_cost.h \
 	filter.c \
 	filter.h \
+	frame_bitrate.c \
+	frame_bitrate.h \
 	global.h \
 	gop.h \
 	image.c \

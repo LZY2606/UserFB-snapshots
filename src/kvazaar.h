@@ -506,6 +506,19 @@ typedef struct kvz_config
 
   uint8_t enable_cross_component_prediction; //!< \brief Enable cross-component prediction (4:4:4).
 
+  /**
+   * \brief Enable per-frame target bitrate updates.
+   *
+   * When enabled, the target bitrate can be changed from frame to frame
+   * without restarting the encoder by setting a positive rc_bitrate on the
+   * input pictures. Disabled by default. Only supported with 8-bit
+   * progressive I420 input, gop=0, lambda rate control and a positive target
+   * bitrate. See the rc_bitrate field of kvz_picture for details.
+   *
+   * \since 2.4.0
+   */
+  int32_t frame_bitrate;
+
 } kvz_config;
 
 /**
@@ -555,6 +568,24 @@ typedef struct kvz_picture {
     int height;
     int8_t *roi_array;
   } roi;
+
+  /**
+   * \brief Per-frame rate control request in bits per second.
+   *
+   * Only used when kvz_config.frame_bitrate is enabled.
+   *  - A positive value sets the target bitrate starting from this picture.
+   *  - Zero inherits the bitrate accepted with the previous input picture
+   *    (or the configured target_bitrate for the first accepted picture).
+   *  - A negative value rejects the input: encoder_encode returns 0 without
+   *    consuming the picture, and the same picture may be retried after
+   *    correcting the value.
+   *
+   * Ignored when frame_bitrate mode is disabled. Initialized to zero by
+   * picture_alloc.
+   *
+   * \since 2.4.0
+   */
+  int32_t rc_bitrate;
 
 } kvz_picture;
 
@@ -665,6 +696,49 @@ typedef struct kvz_frame_info {
    * \brief Lengths of the reference picture lists
    */
   int ref_list_len[2];
+
+  /**
+   * \name Per-frame rate control diagnostics
+   *
+   * Populated only when kvz_config.frame_bitrate is enabled. The values
+   * describe the rate-control state of the output picture and are returned
+   * for delayed output and flush pictures as well.
+   *
+   * @{
+   */
+
+  /**
+   * \brief Effective bitrate in bits/s bound to this output picture.
+   */
+  int32_t rc_bitrate;
+
+  /**
+   * \brief Number of completed pictures feeding back into this picture's
+   *        target, i.e. the feedback frontier m = max(0, n - owf).
+   */
+  uint64_t rc_feedback_frames;
+
+  /**
+   * \brief Rational-prefix earned budget E_m in bits of the m feedback
+   *        pictures.
+   */
+  uint64_t rc_earned_bits;
+
+  /**
+   * \brief Actual complete Annex-B output cost A_m in bits of the m
+   *        feedback pictures, including all headers and SEI messages.
+   */
+  uint64_t rc_actual_bits;
+
+  /**
+   * \brief Frame target in bits handed to the lambda allocation chain for
+   *        this picture.
+   */
+  double rc_target_bits;
+
+  /**
+   * @}
+   */
 
 } kvz_frame_info;
 

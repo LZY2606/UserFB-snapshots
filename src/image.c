@@ -112,6 +112,8 @@ kvz_picture * kvz_image_alloc(enum kvz_chroma_format chroma_format, const int32_
   im->roi.width = 0;
   im->roi.height = 0;
 
+  im->rc_bitrate = 0;
+
   return im;
 }
 
@@ -214,6 +216,10 @@ kvz_picture *kvz_image_make_subimage(kvz_picture *const orig_image,
   im->dts = 0;
 
   im->roi = orig_image->roi;
+
+  // Subimages share the base image's pixel buffers and the per-frame rate
+  // control request travels with the base image.
+  im->rc_bitrate = orig_image->rc_bitrate;
 
   return im;
 }
