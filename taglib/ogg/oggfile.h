@@ -80,6 +80,13 @@ namespace TagLib {
 
       virtual bool save();
 
+      /*!
+       * Returns the total number of bytes occupied by the pages of the
+       * selected logical stream.  For a plain (non multiplexed) file this
+       * is simply the length of the file.
+       */
+      long long streamPageBytes();
+
     protected:
       /*!
        * Constructs an Ogg file from \a file.
@@ -94,13 +101,73 @@ namespace TagLib {
        * Constructs an Ogg file from \a stream.
        *
        * \note This constructor is protected since Ogg::File shouldn't be
-       * instantiated directly but rather should be used through the codec
+       * instantiated directly but should be used through the codec
        * specific subclasses.
        *
        * \note TagLib will *not* take ownership of the stream, the caller is
        * responsible for deleting it after the File object.
        */
       File(IOStream *stream);
+
+      /*!
+       * Constructs an Ogg file from \a file and selects the logical Ogg
+       * stream with the serial number \a serialNumber in a multiplexed
+       * (chained) file.  Every page, packet and audio property accessed
+       * through this instance is then restricted to that logical stream.
+       *
+       * \note This constructor is protected since Ogg::File shouldn't be
+       * instantiated directly but rather should be used through the codec
+       * specific subclasses.
+       */
+      File(FileName file, unsigned int serialNumber);
+
+      /*!
+       * Constructs an Ogg file from \a stream and selects the logical Ogg
+       * stream with the serial number \a serialNumber in a multiplexed
+       * (chained) file.  Every page, packet and audio property accessed
+       * through this instance is then restricted to that logical stream.
+       *
+       * \note TagLib will *not* take ownership of the stream, the caller is
+       * responsible for deleting it after the File object.
+       */
+      File(IOStream *stream, unsigned int serialNumber);
+
+      /*!
+       * Returns true if this instance works on a single logical stream
+       * selected by an explicit serial number (the four argument
+       * constructors).
+       */
+      bool multiplexed() const;
+
+      /*!
+       * Returns the serial number of the selected logical stream when the
+       * file was opened with an explicit serial number, and zero otherwise.
+       */
+      unsigned int selectedSerialNumber() const;
+
+      /*!
+       * Scans every physical page in the file and builds the index of the
+       * selected logical stream.  Returns true if a beginning-of-stream
+       * page with the selected serial number was found.  Only meaningful for
+       * multiplexed instances.
+       */
+      bool indexLogicalStream();
+
+      /*!
+       * Checks the structural assumptions about the selected logical stream
+       * (continuous page numbering, consistent continuation flags, an end
+       * of stream page, no dangling packet and a page boundary between the
+       * three header packets and the first audio packet).  Returns true if
+       * the stream may be rewritten.  The file is not touched when this
+       * returns false.
+       */
+      bool validateLogicalStream();
+
+      /*!
+       * Discards the page index so that it is rebuilt from the rewritten
+       * file on the next access.
+       */
+      void invalidatePageIndex();
 
     private:
       File(const File &);
@@ -116,6 +183,15 @@ namespace TagLib {
        * Writes the requested packet to the file.
        */
       void writePacket(unsigned int i, const ByteVector &packet);
+
+      //! Logical page index and multiplexed rewrite support.
+      struct PhysicalPage;
+
+      bool scanPhysicalPages();
+      ByteVector readLogicalPacket(unsigned int i);
+      bool writeLogicalPacket(unsigned int i, const ByteVector &packet);
+      void copyRange(long source, long long length, long destination,
+                     unsigned long blockSize);
 
       class FilePrivate;
       FilePrivate *d;

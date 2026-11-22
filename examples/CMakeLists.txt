@@ -38,7 +38,12 @@ target_link_libraries(framelist tag)
 add_executable(strip-id3v1 strip-id3v1.cpp)
 target_link_libraries(strip-id3v1 tag)
 
-install(TARGETS tagreader tagreader_c tagwriter framelist strip-id3v1
+########### next target ###############
+
+add_executable(muxcomment muxcomment.cpp)
+target_link_libraries(muxcomment tag)
+
+install(TARGETS tagreader tagreader_c tagwriter framelist strip-id3v1 muxcomment
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

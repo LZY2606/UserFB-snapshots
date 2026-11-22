@@ -57,6 +57,11 @@ namespace TagLib {
    * an Ogg stream.  0x03 indicates the comment header.
    */
   static const char vorbisCommentHeaderID[] = { 0x03, 'v', 'o', 'r', 'b', 'i', 's', 0 };
+
+  /*!
+   * 0x01 indicates the identification header.
+   */
+  static const char vorbisIdentificationHeaderID[] = { 0x01, 'v', 'o', 'r', 'b', 'i', 's', 0 };
 } // namespace TagLib
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -85,6 +90,24 @@ Vorbis::File::File(FileName file, bool readProperties, Properties::ReadStyle) :
 
 Vorbis::File::File(IOStream *stream, bool readProperties, Properties::ReadStyle) :
   Ogg::File(stream),
+  d(new FilePrivate())
+{
+  if(isOpen())
+    read(readProperties);
+}
+
+Vorbis::File::File(FileName file, bool readProperties,
+                   Properties::ReadStyle, unsigned int serialNumber) :
+  Ogg::File(file, serialNumber),
+  d(new FilePrivate())
+{
+  if(isOpen())
+    read(readProperties);
+}
+
+Vorbis::File::File(IOStream *stream, bool readProperties,
+                   Properties::ReadStyle, unsigned int serialNumber) :
+  Ogg::File(stream, serialNumber),
   d(new FilePrivate())
 {
   if(isOpen())
@@ -135,6 +158,17 @@ bool Vorbis::File::save()
 
 void Vorbis::File::read(bool readProperties)
 {
+  if(multiplexed()) {
+    // The serial number has to address a Vorbis beginning of stream page.
+    if(!indexLogicalStream() ||
+       packet(0).mid(0, 7) != vorbisIdentificationHeaderID) {
+      debug("Vorbis::File::read() - Could not find a Vorbis logical stream "
+            "with the requested serial number.");
+      setValid(false);
+      return;
+    }
+  }
+
   ByteVector commentHeaderData = packet(1);
 
   if(commentHeaderData.mid(0, 7) != vorbisCommentHeaderID) {

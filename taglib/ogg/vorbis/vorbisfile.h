@@ -84,6 +84,43 @@ namespace TagLib {
            Properties::ReadStyle propertiesStyle = Properties::Average);
 
       /*!
+       * Constructs a Vorbis file from \a file and selects the logical Ogg
+       * stream with the serial number \a serialNumber in a multiplexed
+       * file.  If \a readProperties is true the selected stream's audio
+       * properties will also be read.
+       *
+       * Tags, packets, page headers, audio properties and save() are then
+       * all restricted to this single logical stream.  If no Vorbis
+       * beginning of stream page with this serial number exists, the
+       * resulting file is not valid (isValid() returns false).
+       *
+       * \note In the current implementation, \a propertiesStyle is ignored.
+       */
+      File(FileName file, bool readProperties,
+           Properties::ReadStyle propertiesStyle,
+           unsigned int serialNumber);
+
+      /*!
+       * Constructs a Vorbis file from \a stream and selects the logical
+       * Ogg stream with the serial number \a serialNumber in a multiplexed
+       * file.  If \a readProperties is true the selected stream's audio
+       * properties will also be read.
+       *
+       * Tags, packets, page headers, audio properties and save() are then
+       * all restricted to this single logical stream.  If no Vorbis
+       * beginning of stream page with this serial number exists, the
+       * resulting file is not valid (isValid() returns false).
+       *
+       * \note TagLib will *not* take ownership of the stream, the caller is
+       * responsible for deleting it after the File object.
+       *
+       * \note In the current implementation, \a propertiesStyle is ignored.
+       */
+      File(IOStream *stream, bool readProperties,
+           Properties::ReadStyle propertiesStyle,
+           unsigned int serialNumber);
+
+      /*!
        * Destroys this instance of the File.
        */
       virtual ~File();
