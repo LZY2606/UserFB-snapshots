@@ -85,6 +85,7 @@ static const short _scanOffsets[5][24]={
 TDStretch::TDStretch() : FIFOProcessor(&outputBuffer)
 {
     bQuickSeek = FALSE;
+    bTracing = false;
     channels = 2;
 
     pMidBuffer = NULL;
@@ -210,12 +211,18 @@ void TDStretch::overlapMono(SAMPLETYPE *pOutput, const SAMPLETYPE *pInput) const
 void TDStretch::clearMidBuffer()
 {
     memset(pMidBuffer, 0, channels * sizeof(SAMPLETYPE) * overlapLength);
+    // the zeroed mid buffer has no real input sources
+    for (int i = 0; i < (int)traceMid.size(); i ++)
+    {
+        traceMid[i].clear();
+    }
 }
 
 
 void TDStretch::clearInput()
 {
     inputBuffer.clear();
+    traceIn.clear();
     clearMidBuffer();
 }
 
@@ -224,7 +231,94 @@ void TDStretch::clearInput()
 void TDStretch::clear()
 {
     outputBuffer.clear();
+    traceOut.clear();
     clearInput();
+}
+
+
+// Enables/disables source contribution tracing
+void TDStretch::enableTrace(bool enable)
+{
+    bTracing = enable;
+    if (enable)
+    {
+        // mid buffer currently holds silence
+        traceMid.assign(overlapLength, SourceRow());
+    }
+    else
+    {
+        traceIn.clear();
+        traceOut.clear();
+        traceMid.clear();
+    }
+}
+
+
+// Returns total number of source weight terms currently held for tracing
+size_t TDStretch::traceTerms() const
+{
+    size_t terms = traceIn.terms() + traceOut.terms();
+    for (size_t i = 0; i < traceMid.size(); i ++)
+    {
+        terms += traceMid[i].size();
+    }
+    return terms;
+}
+
+
+// Builds source rows for the overlap-mixed output samples. The sample
+// routines mix the input at 'ovlPos' with the mid buffer using sliding
+// linear fade coefficients; the source rows are combined with the very same
+// coefficients.
+void TDStretch::traceOverlap(uint ovlPos)
+{
+    int i;
+
+#ifndef USE_MULTICH_ALWAYS
+    if (channels == 1)
+    {
+        // mono routine: output = (input * m1 + mid * m2) / overlapLength
+        for (i = 0; i < overlapLength; i ++)
+        {
+            const SourceRow *rows[2];
+            double coeffs[2];
+
+            rows[0] = &traceIn[ovlPos + i];
+            rows[1] = &traceMid[i];
+            coeffs[0] = (double)i / (double)overlapLength;
+            coeffs[1] = (double)(overlapLength - i) / (double)overlapLength;
+
+            SourceRow row = traceCombineRows(rows, coeffs, 2);
+            traceOut.put(row);
+        }
+        return;
+    }
+#endif // USE_MULTICH_ALWAYS
+
+    // stereo & multichannel routines: output = input * f1 + mid * f2,
+    // with f1/f2 sliding by 1/overlapLength per sample
+    {
+        float fScale = 1.0f / (float)overlapLength;
+        float f1 = 0;
+        float f2 = 1.0f;
+
+        for (i = 0; i < overlapLength; i ++)
+        {
+            const SourceRow *rows[2];
+            double coeffs[2];
+
+            rows[0] = &traceIn[ovlPos + i];
+            rows[1] = &traceMid[i];
+            coeffs[0] = (double)f1;
+            coeffs[1] = (double)f2;
+
+            SourceRow row = traceCombineRows(rows, coeffs, 2);
+            traceOut.put(row);
+
+            f1 += fScale;
+            f2 -= fScale;
+        }
+    }
 }
 
 
@@ -540,12 +634,17 @@ void TDStretch::processSamples()
         // position
         offset = seekBestOverlapPosition(inputBuffer.ptrBegin());
 
-        // Mix the samples in the 'inputBuffer' at position of 'offset' with the 
+        // Mix the samples in the 'inputBuffer' at position of 'offset' with the
         // samples in 'midBuffer' using sliding overlapping
         // ... first partially overlap with the end of the previous sequence
         // (that's in 'midBuffer')
         overlap(outputBuffer.ptrEnd((uint)overlapLength), inputBuffer.ptrBegin(), (uint)offset);
         outputBuffer.putSamples((uint)overlapLength);
+        if (bTracing)
+        {
+            // source rows for the overlap-mixed samples
+            traceOverlap((uint)offset);
+        }
 
         // ... then copy sequence samples from 'inputBuffer' to output:
 
@@ -560,12 +659,24 @@ void TDStretch::processSamples()
 
         outputBuffer.putSamples(inputBuffer.ptrBegin() + channels * (offset + overlapLength), (uint)temp);
 
-        // Copies the end of the current sequence from 'inputBuffer' to 
-        // 'midBuffer' for being mixed with the beginning of the next 
+        // Copies the end of the current sequence from 'inputBuffer' to
+        // 'midBuffer' for being mixed with the beginning of the next
         // processing sequence and so on
         assert((offset + temp + overlapLength * 2) <= (int)inputBuffer.numSamples());
-        memcpy(pMidBuffer, inputBuffer.ptrBegin() + channels * (offset + temp + overlapLength), 
+        memcpy(pMidBuffer, inputBuffer.ptrBegin() + channels * (offset + temp + overlapLength),
             channels * sizeof(SAMPLETYPE) * overlapLength);
+
+        if (bTracing)
+        {
+            // source rows for the copied sequence samples
+            traceOut.putFrom(traceIn, (uint)(offset + overlapLength), (uint)temp);
+
+            // source rows for the samples copied to the mid buffer
+            for (int i = 0; i < overlapLength; i ++)
+            {
+                traceMid[i] = traceIn[(uint)(offset + temp + overlapLength + i)];
+            }
+        }
 
         // Remove the processed samples from the input buffer. Update
         // the difference between integer & nominal skip step to 'skipFract'
@@ -574,6 +685,10 @@ void TDStretch::processSamples()
         ovlSkip = (int)skipFract;   // rounded to integer skip
         skipFract -= ovlSkip;       // maintain the fraction part, i.e. real vs. integer skip
         inputBuffer.receiveSamples((uint)ovlSkip);
+        if (bTracing)
+        {
+            traceIn.receive((uint)ovlSkip);
+        }
     }
 }
 

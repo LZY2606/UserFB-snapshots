@@ -49,6 +49,7 @@
 #include "AAFilter.h"
 #include "FIFOSamplePipe.h"
 #include "FIFOSampleBuffer.h"
+#include "SourceTrace.h"
 
 #include "STTypes.h"
 
@@ -68,14 +69,14 @@ public:
 protected:
     virtual void resetRegisters() = 0;
 
-    virtual int transposeMono(SAMPLETYPE *dest, 
-                        const SAMPLETYPE *src, 
+    virtual int transposeMono(SAMPLETYPE *dest,
+                        const SAMPLETYPE *src,
                         int &srcSamples)  = 0;
-    virtual int transposeStereo(SAMPLETYPE *dest, 
-                        const SAMPLETYPE *src, 
+    virtual int transposeStereo(SAMPLETYPE *dest,
+                        const SAMPLETYPE *src,
                         int &srcSamples) = 0;
-    virtual int transposeMulti(SAMPLETYPE *dest, 
-                        const SAMPLETYPE *src, 
+    virtual int transposeMulti(SAMPLETYPE *dest,
+                        const SAMPLETYPE *src,
                         int &srcSamples) = 0;
 
     static ALGORITHM algorithm;
@@ -88,6 +89,15 @@ public:
     virtual ~TransposerBase();
 
     virtual int transpose(FIFOSampleBuffer &dest, FIFOSampleBuffer &src);
+
+    /// Same as 'transpose', but additionally produces source contribution
+    /// rows for the output samples, combined from the source rows of the
+    /// consumed input samples with the actual interpolation coefficients.
+    /// Supported only by the CUBIC interpolation algorithm; the base class
+    /// implementation throws an exception.
+    virtual int transposeTraced(FIFOSampleBuffer &dest, FIFOSampleBuffer &src,
+                                SourceRowFifo &destRows, SourceRowFifo &srcRows);
+
     virtual void setRate(float newRate);
     virtual void setChannels(int channels);
 
@@ -96,6 +106,12 @@ public:
 
     // static function to set interpolation algorithm
     static void setAlgorithm(ALGORITHM a);
+
+    // static function to query current interpolation algorithm
+    static ALGORITHM getAlgorithm()
+    {
+        return algorithm;
+    }
 };
 
 
@@ -120,6 +136,18 @@ protected:
 
     BOOL bUseAAFilter;
 
+    /// Flag: Is source contribution tracing enabled?
+    bool bTracing;
+
+    /// Source rows mirroring 'inputBuffer'
+    SourceRowFifo traceIn;
+
+    /// Source rows mirroring 'midBuffer'
+    SourceRowFifo traceMid;
+
+    /// Source rows mirroring 'outputBuffer'
+    SourceRowFifo traceOut;
+
 
     /// Transposes sample rate by applying anti-alias filter to prevent folding. 
     /// Returns amount of samples returned in the "dest" buffer.
@@ -143,6 +171,18 @@ public:
 
     /// Returns the output buffer object
     FIFOSamplePipe *getOutput() { return &outputBuffer; };
+
+    /// Returns the source row queue mirroring the input buffer
+    SourceRowFifo &inputRows() { return traceIn; }
+
+    /// Returns the source row queue mirroring the output buffer
+    SourceRowFifo &outputRows() { return traceOut; }
+
+    /// Enables/disables source contribution tracing
+    void enableTrace(bool enable);
+
+    /// Returns total number of source weight terms currently held for tracing
+    size_t traceTerms() const;
 
     /// Returns the store buffer object
 //    FIFOSamplePipe *getStore() { return &storeBuffer; };

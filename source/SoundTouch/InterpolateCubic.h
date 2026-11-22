@@ -60,6 +60,11 @@ protected:
 
 public:
     InterpolateCubic();
+
+    /// Traced transpose: produces both the transposed samples and the source
+    /// contribution rows for them, using the actual cubic coefficients.
+    virtual int transposeTraced(FIFOSampleBuffer &dest, FIFOSampleBuffer &src,
+                                SourceRowFifo &destRows, SourceRowFifo &srcRows);
 };
 
 }

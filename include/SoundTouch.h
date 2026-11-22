@@ -72,11 +72,31 @@
 #ifndef SoundTouch_H
 #define SoundTouch_H
 
+#include <stddef.h>
+#include <stdint.h>
+#include <vector>
+
 #include "FIFOSamplePipe.h"
 #include "STTypes.h"
 
 namespace soundtouch
 {
+
+/// One term of a source contribution row: output sample depends on the
+/// input frame number 'frame' (counted from the value given to
+/// 'enableSourceTrace') with the given linear 'weight'.
+struct SourceWeight
+{
+    uint64_t frame;
+    double weight;
+};
+
+/// Source contribution row for one output sample: a list of (frame, weight)
+/// terms, strictly ascending by frame with no duplicate frames. The row is
+/// shared by all channels of the output sample. An empty row means the
+/// output sample was produced purely from silent padding (e.g. flush
+/// zero-stuffing) and has no real input source.
+typedef std::vector<SourceWeight> SourceRow;
 
 /// Soundtouch library version string
 #define SOUNDTOUCH_VERSION          "1.8.0"
@@ -162,9 +182,33 @@ private:
     /// Flag: Has sample rate been set?
     BOOL  bSrateSet;
 
-    /// Calculates effective rate & tempo valuescfrom 'virtualRate', 'virtualTempo' and 
+    /// Flag: Is optional source contribution tracing enabled?
+    bool bTracing;
+
+    /// Flag: Has non-empty input been sent since construction / last clear()?
+    bool bStreamStarted;
+
+    /// Next source frame number to assign to input samples when tracing.
+    uint64_t nextTraceFrame;
+
+    /// Flag: source frame numbering has reached the top of the uint64 range.
+    bool bTraceExhausted;
+
+    /// Calculates effective rate & tempo valuescfrom 'virtualRate', 'virtualTempo' and
     /// 'virtualPitch' parameters.
     void calcEffectiveRateAndTempo();
+
+    /// Common input routine for 'putSamples' and 'flush'. When tracing is
+    /// enabled, assigns source frame numbers to the samples (unless 'silence'
+    /// is set, in which case the samples get empty source rows).
+    void putSamplesInternal(const SAMPLETYPE *samples, uint numSamples, bool silence);
+
+    /// Returns the source row FIFO of the current final pipeline stage.
+    class SourceRowFifo &traceOutputRows();
+    const class SourceRowFifo &traceOutputRows() const;
+
+    /// Throws std::logic_error if source tracing is currently enabled.
+    void throwIfTracing() const;
 
 protected :
     /// Number of channels
@@ -261,6 +305,50 @@ public:
 
     /// Returns number of samples currently unprocessed.
     virtual uint numUnprocessedSamples() const;
+
+    /// Enables optional source contribution tracing. Must be called after
+    /// sample rate and channels have been configured, and before any
+    /// non-empty input has been sent since construction or the last clear().
+    /// 'firstFrame' is the source frame number assigned to the first input
+    /// sample; subsequent input samples are numbered consecutively.
+    ///
+    /// Throws std::invalid_argument if the current configuration isn't
+    /// supported by tracing, and std::logic_error if called at a wrong time.
+    /// While tracing is enabled, all processing parameter changes are
+    /// rejected with std::logic_error until the next clear(). Calling
+    /// enableSourceTrace() again before the stream has started replaces
+    /// 'firstFrame'.
+    void enableSourceTrace(uint64_t firstFrame);
+
+    /// Receives processed samples like the usual 'receiveSamples', and
+    /// additionally replaces 'rows' with exactly one source contribution row
+    /// per received sample. Throws std::logic_error if source tracing isn't
+    /// enabled.
+    uint receiveSamples(SAMPLETYPE *pcm,        ///< Buffer where to copy output samples.
+                        uint capacity,          ///< How many samples to receive at max.
+                        std::vector<SourceRow> &rows    ///< Receives the source rows.
+                        );
+
+    /// Output samples from the pipe; also drops the corresponding source
+    /// rows when tracing is enabled.
+    virtual uint receiveSamples(SAMPLETYPE *output, ///< Buffer where to copy output samples.
+                                uint maxSamples     ///< How many samples to receive at max.
+                                );
+
+    /// Removes samples from the beginning of the pipe without copying them;
+    /// also drops the corresponding source rows when tracing is enabled.
+    virtual uint receiveSamples(uint maxSamples ///< Remove this many samples from the beginning of pipe.
+                                );
+
+    /// allow trimming (downwards) amount of samples in pipeline; also trims
+    /// the corresponding source rows when tracing is enabled.
+    /// Returns adjusted amount of samples
+    virtual uint adjustAmountOfSamples(uint numSamples);
+
+    /// Returns the total number of SourceWeight terms the object currently
+    /// holds internally for tracing (rows already read out aren't counted).
+    /// Returns 0 when tracing is disabled.
+    size_t getTraceStorageTerms() const;
 
 
     /// Other handy functions that are implemented in the ancestor classes (see

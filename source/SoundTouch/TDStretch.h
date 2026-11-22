@@ -45,9 +45,11 @@
 #define TDStretch_H
 
 #include <stddef.h>
+#include <vector>
 #include "STTypes.h"
 #include "RateTransposer.h"
 #include "FIFOSamplePipe.h"
+#include "SourceTrace.h"
 
 namespace soundtouch
 {
@@ -127,6 +129,18 @@ protected:
     FIFOSampleBuffer inputBuffer;
     BOOL bQuickSeek;
 
+    /// Flag: Is source contribution tracing enabled?
+    bool bTracing;
+
+    /// Source rows mirroring 'inputBuffer'
+    SourceRowFifo traceIn;
+
+    /// Source rows mirroring 'outputBuffer'
+    SourceRowFifo traceOut;
+
+    /// Source rows mirroring 'pMidBuffer' (one row per overlap sample)
+    std::vector<SourceRow> traceMid;
+
     int sampleRate;
     int sequenceMs;
     int seekWindowMs;
@@ -152,6 +166,10 @@ protected:
 
     void clearMidBuffer();
     void overlap(SAMPLETYPE *output, const SAMPLETYPE *input, uint ovlPos) const;
+
+    /// Builds source rows for the overlap-mixed output samples and appends
+    /// them to 'traceOut', using the actual fade coefficients.
+    void traceOverlap(uint ovlPos);
 
     void calcSeqParameters();
 
@@ -179,6 +197,18 @@ public:
 
     /// Returns the input buffer object
     FIFOSamplePipe *getInput() { return &inputBuffer; };
+
+    /// Returns the source row queue mirroring the input buffer
+    SourceRowFifo &inputRows() { return traceIn; }
+
+    /// Returns the source row queue mirroring the output buffer
+    SourceRowFifo &outputRows() { return traceOut; }
+
+    /// Enables/disables source contribution tracing
+    void enableTrace(bool enable);
+
+    /// Returns total number of source weight terms currently held for tracing
+    size_t traceTerms() const;
 
     /// Sets new target tempo. Normal tempo = 'SCALE', smaller values represent slower 
     /// tempo, larger faster tempo.

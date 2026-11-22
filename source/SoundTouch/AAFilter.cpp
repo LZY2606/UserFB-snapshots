@@ -238,3 +238,13 @@ uint AAFilter::getLength() const
 {
     return pFIR->getLength();
 }
+
+
+/// Applies the filter to the given src & dest pipes like 'evaluate(dest, src)',
+/// and additionally produces source contribution rows for the output samples.
+uint AAFilter::evaluateTraced(FIFOSampleBuffer &dest, FIFOSampleBuffer &src,
+                              SourceRowFifo &destRows, SourceRowFifo &srcRows) const
+{
+    assert(pFIR);
+    return pFIR->evaluateTraced(dest, src, destRows, srcRows);
+}

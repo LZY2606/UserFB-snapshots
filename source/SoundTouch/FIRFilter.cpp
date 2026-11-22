@@ -249,6 +249,61 @@ uint FIRFilter::getLength() const
 }
 
 
+// Applies the filter to the given src & dest pipes, and produces source
+// contribution rows for the output samples. Each output sample is a linear
+// combination of 'length' consecutive source samples with the actual filter
+// coefficients and result scaling, so its source row is the combination of
+// the corresponding source rows with the same coefficients.
+uint FIRFilter::evaluateTraced(FIFOSampleBuffer &dest, FIFOSampleBuffer &src,
+                               SourceRowFifo &destRows, SourceRowFifo &srcRows) const
+{
+    uint numSrcSamples, result, j, i;
+    SAMPLETYPE *pdest;
+    const SAMPLETYPE *psrc;
+    int numChannels = src.getChannels();
+#ifdef SOUNDTOUCH_FLOAT_SAMPLES
+    double dScaler = 1.0 / (double)resultDivider;
+#else
+    double dScaler = 1.0 / (double)(1 << resultDivFactor);
+#endif
+
+    assert(length > 0);
+    assert(numChannels == dest.getChannels());
+
+    numSrcSamples = src.numSamples();
+    result = (numSrcSamples >= length) ? (numSrcSamples - length) : 0;
+
+    // Build the source rows for the output samples before consuming anything
+    // from the source queue. Output sample 'j' depends on source samples
+    // 'j + i' with coefficient filterCoeffs[i] * dScaler.
+    for (j = 0; j < result; j ++)
+    {
+        const SourceRow *tapRows[256];
+        double coeffs[256];
+
+        assert(length <= 256);
+        for (i = 0; i < length; i ++)
+        {
+            tapRows[i] = &srcRows[j + i];
+            coeffs[i] = (double)filterCoeffs[i] * dScaler;
+        }
+        SourceRow row = traceCombineRows(tapRows, coeffs, length);
+        destRows.put(row);
+    }
+
+    // Filter the sample data with the usual routine
+    psrc = src.ptrBegin();
+    pdest = dest.ptrEnd(numSrcSamples);
+    uint filtered = evaluate(pdest, psrc, numSrcSamples, numChannels);
+    assert(filtered == result);
+    src.receiveSamples(filtered);
+    srcRows.receive(filtered);
+    dest.putSamples(filtered);
+
+    return filtered;
+}
+
+
 
 // Applies the filter to the given sequence of samples. 
 //

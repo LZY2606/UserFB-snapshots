@@ -35,6 +35,7 @@
 
 #include <stddef.h>
 #include <math.h>
+#include <assert.h>
 #include "InterpolateCubic.h"
 #include "STTypes.h"
 
@@ -152,10 +153,10 @@ int InterpolateCubic::transposeStereo(SAMPLETYPE *pdest,
 }
 
 
-/// Transpose multi-channel audio. Returns number of produced output samples, and 
+/// Transpose multi-channel audio. Returns number of produced output samples, and
 /// updates "srcSamples" to amount of consumed source samples
-int InterpolateCubic::transposeMulti(SAMPLETYPE *pdest, 
-                    const SAMPLETYPE *psrc, 
+int InterpolateCubic::transposeMulti(SAMPLETYPE *pdest,
+                    const SAMPLETYPE *psrc,
                     int &srcSamples)
 {
     int i;
@@ -196,5 +197,80 @@ int InterpolateCubic::transposeMulti(SAMPLETYPE *pdest,
         srcCount += whole;
     }
     srcSamples = srcCount;
+    return i;
+}
+
+
+/// Traced transpose: produces the transposed samples exactly like the plain
+/// 'transpose' routine, and additionally builds a source contribution row for
+/// each output sample by combining the source rows of the four cubic tap
+/// positions with the actual interpolation coefficients.
+int InterpolateCubic::transposeTraced(FIFOSampleBuffer &dest, FIFOSampleBuffer &src,
+                                      SourceRowFifo &destRows, SourceRowFifo &srcRows)
+{
+    int numSrcSamples = src.numSamples();
+    int sizeDemand = (int)((float)numSrcSamples / rate) + 8;
+    SAMPLETYPE *psrc = src.ptrBegin();
+    SAMPLETYPE *pdest = dest.ptrEnd(sizeDemand);
+    int srcSampleEnd = numSrcSamples - 4;
+    int srcCount = 0;
+    int i = 0;
+    int channels = numChannels;
+
+    assert(channels > 0);
+
+    while (srcCount < srcSampleEnd)
+    {
+        const float x3 = 1.0f;
+        const float x2 = (float)fract;    // x
+        const float x1 = x2*x2;           // x^2
+        const float x0 = x1*x2;           // x^3
+        float y0, y1, y2, y3;
+
+        assert(fract < 1.0);
+
+        y0 =  _coeffs[0] * x0 +  _coeffs[1] * x1 +  _coeffs[2] * x2 +  _coeffs[3] * x3;
+        y1 =  _coeffs[4] * x0 +  _coeffs[5] * x1 +  _coeffs[6] * x2 +  _coeffs[7] * x3;
+        y2 =  _coeffs[8] * x0 +  _coeffs[9] * x1 + _coeffs[10] * x2 + _coeffs[11] * x3;
+        y3 = _coeffs[12] * x0 + _coeffs[13] * x1 + _coeffs[14] * x2 + _coeffs[15] * x3;
+
+        for (int c = 0; c < channels; c ++)
+        {
+            float out;
+            out = y0 * psrc[c] + y1 * psrc[c + channels] + y2 * psrc[c + 2 * channels] + y3 * psrc[c + 3 * channels];
+            pdest[i * channels + c] = (SAMPLETYPE)out;
+        }
+
+        // source row of this output sample: the four tap rows combined with
+        // the actual cubic coefficients
+        {
+            const SourceRow *tapRows[4];
+            double coeffs[4];
+
+            tapRows[0] = &srcRows[srcCount + 0];
+            tapRows[1] = &srcRows[srcCount + 1];
+            tapRows[2] = &srcRows[srcCount + 2];
+            tapRows[3] = &srcRows[srcCount + 3];
+            coeffs[0] = (double)y0;
+            coeffs[1] = (double)y1;
+            coeffs[2] = (double)y2;
+            coeffs[3] = (double)y3;
+
+            SourceRow row = traceCombineRows(tapRows, coeffs, 4);
+            destRows.put(row);
+        }
+        i ++;
+
+        // update position fraction
+        fract += rate;
+        // update whole positions
+        int whole = (int)fract;
+        fract -= whole;
+        psrc += channels*whole;
+        srcCount += whole;
+    }
+    dest.putSamples(i);
+    src.receiveSamples(srcCount);
+    srcRows.receive(srcCount);
     return i;
 }

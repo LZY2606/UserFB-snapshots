@@ -44,6 +44,8 @@
 
 #include <stddef.h>
 #include "STTypes.h"
+#include "FIFOSampleBuffer.h"
+#include "SourceTrace.h"
 
 namespace soundtouch
 {
@@ -88,10 +90,19 @@ public:
     /// smaller than the amount of input samples.
     ///
     /// \return Number of samples copied to 'dest'.
-    uint evaluate(SAMPLETYPE *dest, 
-                  const SAMPLETYPE *src, 
-                  uint numSamples, 
+    uint evaluate(SAMPLETYPE *dest,
+                  const SAMPLETYPE *src,
+                  uint numSamples,
                   uint numChannels) const;
+
+    /// Applies the filter to the given src & dest pipes like 'evaluate(dest, src)'
+    /// of AAFilter, and additionally produces source contribution rows for the
+    /// output samples by combining the source rows of the filtered samples with
+    /// the actual FIR coefficients and result scaling.
+    uint evaluateTraced(FIFOSampleBuffer &dest,
+                        FIFOSampleBuffer &src,
+                        SourceRowFifo &destRows,
+                        SourceRowFifo &srcRows) const;
 
     uint getLength() const;
 

@@ -24,14 +24,14 @@ include $(top_srcdir)/config/am_include.mk
 # set to something if you want other stuff to be included in the distribution tarball
 EXTRA_DIST=SoundTouch.dsp SoundTouch.dsw SoundTouch.sln SoundTouch.vcproj
 
-noinst_HEADERS=AAFilter.h cpu_detect.h cpu_detect_x86.cpp FIRFilter.h RateTransposer.h TDStretch.h PeakFinder.h
+noinst_HEADERS=AAFilter.h cpu_detect.h cpu_detect_x86.cpp FIRFilter.h RateTransposer.h TDStretch.h PeakFinder.h SourceTrace.h
 
 lib_LTLIBRARIES=libSoundTouch.la
 #
 libSoundTouch_la_SOURCES=AAFilter.cpp FIRFilter.cpp FIFOSampleBuffer.cpp    \
     RateTransposer.cpp SoundTouch.cpp TDStretch.cpp cpu_detect_x86.cpp      \
     BPMDetect.cpp PeakFinder.cpp InterpolateLinear.cpp InterpolateCubic.cpp \
-    InterpolateShannon.cpp
+    InterpolateShannon.cpp SourceTrace.cpp
 
 # Compiler flags
 AM_CXXFLAGS=-O3 -fcheck-new -I../../include

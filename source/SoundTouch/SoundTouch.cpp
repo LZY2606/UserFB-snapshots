@@ -74,10 +74,12 @@
 #include <memory.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdexcept>
 
 #include "SoundTouch.h"
 #include "TDStretch.h"
 #include "RateTransposer.h"
+#include "SourceTrace.h"
 #include "cpu_detect.h"
 
 using namespace soundtouch;
@@ -104,14 +106,19 @@ SoundTouch::SoundTouch()
 
     rate = tempo = 0;
 
-    virtualPitch = 
-    virtualRate = 
+    virtualPitch =
+    virtualRate =
     virtualTempo = 1.0;
 
     calcEffectiveRateAndTempo();
 
     channels = 0;
     bSrateSet = FALSE;
+
+    bTracing = false;
+    bStreamStarted = false;
+    nextTraceFrame = 0;
+    bTraceExhausted = false;
 }
 
 
@@ -140,10 +147,23 @@ uint SoundTouch::getVersionId()
 }
 
 
+// Throws std::logic_error if source tracing is currently enabled: while
+// tracing, all processing parameter settings are locked until the next
+// clear().
+void SoundTouch::throwIfTracing() const
+{
+    if (bTracing)
+    {
+        throw std::logic_error("SoundTouch: settings are locked while source trace is enabled");
+    }
+}
+
+
 // Sets the number of channels, 1 = mono, 2 = stereo
 void SoundTouch::setChannels(uint numChannels)
 {
-    /*if (numChannels != 1 && numChannels != 2) 
+    throwIfTracing();
+    /*if (numChannels != 1 && numChannels != 2)
     {
         //ST_THROW_RT_ERROR("Illegal number of channels");
 		return;
@@ -159,6 +179,7 @@ void SoundTouch::setChannels(uint numChannels)
 // represent slower rate, larger faster rates.
 void SoundTouch::setRate(float newRate)
 {
+    throwIfTracing();
     virtualRate = newRate;
     calcEffectiveRateAndTempo();
 }
@@ -169,6 +190,7 @@ void SoundTouch::setRate(float newRate)
 // to the original rate (-50 .. +100 %)
 void SoundTouch::setRateChange(float newRate)
 {
+    throwIfTracing();
     virtualRate = 1.0f + 0.01f * newRate;
     calcEffectiveRateAndTempo();
 }
@@ -179,6 +201,7 @@ void SoundTouch::setRateChange(float newRate)
 // represent slower tempo, larger faster tempo.
 void SoundTouch::setTempo(float newTempo)
 {
+    throwIfTracing();
     virtualTempo = newTempo;
     calcEffectiveRateAndTempo();
 }
@@ -189,6 +212,7 @@ void SoundTouch::setTempo(float newTempo)
 // to the original tempo (-50 .. +100 %)
 void SoundTouch::setTempoChange(float newTempo)
 {
+    throwIfTracing();
     virtualTempo = 1.0f + 0.01f * newTempo;
     calcEffectiveRateAndTempo();
 }
@@ -199,6 +223,7 @@ void SoundTouch::setTempoChange(float newTempo)
 // represent lower pitches, larger values higher pitch.
 void SoundTouch::setPitch(float newPitch)
 {
+    throwIfTracing();
     virtualPitch = newPitch;
     calcEffectiveRateAndTempo();
 }
@@ -209,6 +234,7 @@ void SoundTouch::setPitch(float newPitch)
 // (-1.00 .. +1.00)
 void SoundTouch::setPitchOctaves(float newPitch)
 {
+    throwIfTracing();
     virtualPitch = (float)exp(0.69314718056f * newPitch);
     calcEffectiveRateAndTempo();
 }
@@ -219,6 +245,7 @@ void SoundTouch::setPitchOctaves(float newPitch)
 // (-12 .. +12)
 void SoundTouch::setPitchSemiTones(int newPitch)
 {
+    throwIfTracing();
     setPitchOctaves((float)newPitch / 12.0f);
 }
 
@@ -226,6 +253,7 @@ void SoundTouch::setPitchSemiTones(int newPitch)
 
 void SoundTouch::setPitchSemiTones(float newPitch)
 {
+    throwIfTracing();
     setPitchOctaves(newPitch / 12.0f);
 }
 
@@ -283,6 +311,7 @@ void SoundTouch::calcEffectiveRateAndTempo()
 // Sets sample rate.
 void SoundTouch::setSampleRate(uint srate)
 {
+    throwIfTracing();
     bSrateSet = TRUE;
     // set sample rate, leave other tempo changer parameters as they are.
     pTDStretch->setParameters((int)srate);
@@ -293,44 +322,88 @@ void SoundTouch::setSampleRate(uint srate)
 // the input of the object.
 void SoundTouch::putSamples(const SAMPLETYPE *samples, uint nSamples)
 {
-    if (bSrateSet == FALSE) 
+    putSamplesInternal(samples, nSamples, false);
+}
+
+
+// Common input routine for 'putSamples' and 'flush'. When source tracing is
+// enabled, assigns source frame numbers to the incoming samples (unless
+// 'silence' is set, in which case the samples get empty source rows) and
+// routes the corresponding source rows through the processing pipeline
+// together with the samples.
+void SoundTouch::putSamplesInternal(const SAMPLETYPE *samples, uint nSamples, bool silence)
+{
+    std::vector<SourceRow> rows;
+
+    if (bSrateSet == FALSE)
     {
         ST_THROW_RT_ERROR("SoundTouch : Sample rate not defined");
-    } 
-    else if (channels == 0) 
+    }
+    else if (channels == 0)
     {
         ST_THROW_RT_ERROR("SoundTouch : Number of channels not defined");
     }
 
-    // Transpose the rate of the new samples if necessary
-    /* Bypass the nominal setting - can introduce a click in sound when tempo/pitch control crosses the nominal value...
-    if (rate == 1.0f) 
+    if (bTracing && nSamples > 0)
     {
-        // The rate value is same as the original, simply evaluate the tempo changer. 
-        assert(output == pTDStretch);
-        if (pRateTransposer->isEmpty() == 0) 
+        if (!silence)
         {
-            // yet flush the last samples in the pitch transposer buffer
-            // (may happen if 'rate' changes from a non-zero value to zero)
-            pTDStretch->moveSamples(*pRateTransposer);
+            // reject input that would overflow the source frame numbering,
+            // before writing anything
+            if (bTraceExhausted ||
+                (uint64_t)(nSamples - 1) > (uint64_t)(~(uint64_t)0) - nextTraceFrame)
+            {
+                throw std::overflow_error("SoundTouch : Source frame number overflow");
+            }
+            rows.reserve(nSamples);
+            for (uint i = 0; i < nSamples; i ++)
+            {
+                SourceRow row;
+                SourceWeight term;
+                term.frame = nextTraceFrame + i;
+                term.weight = 1.0;
+                row.push_back(term);
+                rows.push_back(row);
+            }
+            if (nextTraceFrame + nSamples - 1 == (uint64_t)(~(uint64_t)0))
+            {
+                // the last assignable frame number was just used up
+                bTraceExhausted = true;
+            }
+            nextTraceFrame += nSamples;
         }
-        pTDStretch->putSamples(samples, nSamples);
-    } 
-    */
+        else
+        {
+            // silent padding (flush) has no source frames
+            rows.resize(nSamples);
+        }
+    }
+    if (!silence && nSamples > 0)
+    {
+        // real input was sent: source trace can no longer be enabled
+        bStreamStarted = true;
+    }
+
+    const SourceRow *pRows = rows.empty() ? NULL : &rows[0];
+
 #ifndef SOUNDTOUCH_PREVENT_CLICK_AT_RATE_CROSSOVER
-    else if (rate <= 1.0f) 
+    if (rate <= 1.0f)
     {
         // transpose the rate down, output the transposed sound to tempo changer buffer
         assert(output == pTDStretch);
+        if (bTracing && nSamples > 0) pRateTransposer->inputRows().put(pRows, nSamples);
         pRateTransposer->putSamples(samples, nSamples);
+        if (bTracing) pTDStretch->inputRows().moveFrom(pRateTransposer->outputRows());
         pTDStretch->moveSamples(*pRateTransposer);
-    } 
-    else 
+    }
+    else
 #endif
     {
-        // evaluate the tempo changer, then transpose the rate up, 
+        // evaluate the tempo changer, then transpose the rate up,
         assert(output == pRateTransposer);
+        if (bTracing && nSamples > 0) pTDStretch->inputRows().put(pRows, nSamples);
         pTDStretch->putSamples(samples, nSamples);
+        if (bTracing) pRateTransposer->inputRows().moveFrom(pTDStretch->outputRows());
         pRateTransposer->moveSamples(*pTDStretch);
     }
 }
@@ -363,9 +436,10 @@ void SoundTouch::flush()
     // feeding blank samples into the processing pipeline until new, 
     // processed samples appear in the output (not however, more than 
     // 8ksamples in any case)
-    for (i = 0; i < 128; i ++) 
+    for (i = 0; i < 128; i ++)
     {
-        putSamples(buff, 64);
+        // silent padding pushed by flush has no source frame numbers
+        putSamplesInternal(buff, 64, true);
         if ((int)numSamples() >= nOut) 
         {
             // Enough new samples have appeared into the output!
@@ -390,6 +464,7 @@ void SoundTouch::flush()
 // 'SETTING_...' defines for available setting ID's.
 BOOL SoundTouch::setSetting(int settingId, int value)
 {
+    throwIfTracing();
     int sampleRate, sequenceMs, seekWindowMs, overlapMs;
 
     // read current tdstretch routine parameters
@@ -477,11 +552,18 @@ int SoundTouch::getSetting(int settingId) const
 
 
 // Clears all the samples in the object's output and internal processing
-// buffers.
+// buffers. Also disables source contribution tracing and clears its history.
 void SoundTouch::clear()
 {
     pRateTransposer->clear();
     pTDStretch->clear();
+
+    pRateTransposer->enableTrace(false);
+    pTDStretch->enableTrace(false);
+    bTracing = false;
+    bStreamStarted = false;
+    nextTraceFrame = 0;
+    bTraceExhausted = false;
 }
 
 
@@ -499,4 +581,141 @@ uint SoundTouch::numUnprocessedSamples() const
         }
     }
     return 0;
+}
+
+
+// Enables optional source contribution tracing.
+void SoundTouch::enableSourceTrace(uint64_t firstFrame)
+{
+#ifndef SOUNDTOUCH_FLOAT_SAMPLES
+    // source tracing is implemented for floating point samples only
+    throw std::invalid_argument("SoundTouch : Source trace requires floating point sample type");
+#endif
+
+    if (bStreamStarted)
+    {
+        throw std::logic_error("SoundTouch : Source trace must be enabled before sending input");
+    }
+    if (bSrateSet == FALSE || channels == 0)
+    {
+        throw std::logic_error("SoundTouch : Sample rate and channels must be set before enabling source trace");
+    }
+    if (bTracing)
+    {
+        // tracing already enabled and stream hasn't started yet: replace the
+        // first frame number
+        nextTraceFrame = firstFrame;
+        bTraceExhausted = false;
+        return;
+    }
+
+    // check that the current configuration is supported by tracing
+    if (channels != 1 && channels != 2 && channels != 6)
+    {
+        throw std::invalid_argument("SoundTouch : Source trace supports only 1, 2 or 6 channels");
+    }
+    int sampleRate = 0;
+    pTDStretch->getParameters(&sampleRate, NULL, NULL, NULL);
+    if (sampleRate != 44100 && sampleRate != 48000)
+    {
+        throw std::invalid_argument("SoundTouch : Source trace supports only 44100 or 48000 Hz sample rate");
+    }
+    if (!(tempo >= 0.5f && tempo <= 2.0f) || !(rate >= 0.5f && rate <= 2.0f))
+    {
+        throw std::invalid_argument("SoundTouch : Source trace supports effective rate/tempo within [0.5, 2]");
+    }
+    if (TransposerBase::getAlgorithm() != TransposerBase::CUBIC)
+    {
+        throw std::invalid_argument("SoundTouch : Source trace supports only CUBIC interpolation");
+    }
+    if (pRateTransposer->getAAFilter()->getLength() != 64)
+    {
+        throw std::invalid_argument("SoundTouch : Source trace supports only the default 64-tap anti-alias filter");
+    }
+
+    bTracing = true;
+    nextTraceFrame = firstFrame;
+    bTraceExhausted = false;
+    pTDStretch->enableTrace(true);
+    pRateTransposer->enableTrace(true);
+}
+
+
+// Returns the source row queue of the current final pipeline stage.
+SourceRowFifo &SoundTouch::traceOutputRows()
+{
+    if (output == (FIFOSamplePipe *)pRateTransposer)
+    {
+        return pRateTransposer->outputRows();
+    }
+    return pTDStretch->outputRows();
+}
+
+
+const SourceRowFifo &SoundTouch::traceOutputRows() const
+{
+    if (output == (FIFOSamplePipe *)pRateTransposer)
+    {
+        return pRateTransposer->outputRows();
+    }
+    return pTDStretch->outputRows();
+}
+
+
+// Output samples from beginning of the sample buffer; drops the
+// corresponding source rows when tracing is enabled.
+uint SoundTouch::receiveSamples(SAMPLETYPE *outBuffer, uint maxSamples)
+{
+    uint n = FIFOProcessor::receiveSamples(outBuffer, maxSamples);
+    if (bTracing && n > 0)
+    {
+        traceOutputRows().receive(n);
+    }
+    return n;
+}
+
+
+// Removes samples from the beginning of the pipe without copying them;
+// drops the corresponding source rows when tracing is enabled.
+uint SoundTouch::receiveSamples(uint maxSamples)
+{
+    uint n = FIFOProcessor::receiveSamples(maxSamples);
+    if (bTracing && n > 0)
+    {
+        traceOutputRows().receive(n);
+    }
+    return n;
+}
+
+
+// Receives processed samples together with their source contribution rows.
+uint SoundTouch::receiveSamples(SAMPLETYPE *pcm, uint capacity, std::vector<SourceRow> &rows)
+{
+    if (!bTracing)
+    {
+        throw std::logic_error("SoundTouch : Source trace is not enabled");
+    }
+    uint n = FIFOProcessor::receiveSamples(pcm, capacity);
+    traceOutputRows().receive(rows, n);
+    return n;
+}
+
+
+// Trims the amount of samples in the pipeline; trims the source rows too.
+uint SoundTouch::adjustAmountOfSamples(uint numSamples)
+{
+    uint adjusted = FIFOProcessor::adjustAmountOfSamples(numSamples);
+    if (bTracing)
+    {
+        traceOutputRows().truncate(adjusted);
+    }
+    return adjusted;
+}
+
+
+// Returns the total number of SourceWeight terms currently held for tracing.
+size_t SoundTouch::getTraceStorageTerms() const
+{
+    if (!bTracing) return 0;
+    return pTDStretch->traceTerms() + pRateTransposer->traceTerms();
 }
