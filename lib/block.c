@@ -712,6 +712,15 @@ int vorbis_synthesis_restart(vorbis_dsp_state *v){
   v->eofflag=0;
   ((private_state *)(v->backend_state))->sample_count=-1;
 
+  /* bounded pending mode: restart drops the backlog and the lap
+     history, but keeps the configured limit and its storage */
+  {
+    private_state *b=v->backend_state;
+    b->pending_configurable=1;
+    b->pending_r=b->pending_c=b->pending_w=0;
+    b->pending_wn=0;
+  }
+
   return(0);
 }
 
@@ -736,6 +745,8 @@ int vorbis_synthesis_blockin(vorbis_dsp_state *v,vorbis_block *vb){
   int i,j;
 
   if(!vb)return(OV_EINVAL);
+  if(b->pending_limit)return(_vorbis_pending_blockin(v,vb));
+  b->pending_configurable=0;
   if(v->pcm_current>v->pcm_returned  && v->pcm_returned!=-1)return(OV_EINVAL);
 
   v->lW=v->W;
@@ -946,6 +957,9 @@ int vorbis_synthesis_blockin(vorbis_dsp_state *v,vorbis_block *vb){
 /* pcm==NULL indicates we just want the pending samples, no more */
 int vorbis_synthesis_pcmout(vorbis_dsp_state *v,float ***pcm){
   vorbis_info *vi=v->vi;
+  private_state *b=v->backend_state;
+
+  if(b&&b->pending_limit)return(_vorbis_pending_pcmout(v,pcm));
 
   if(v->pcm_returned>-1 && v->pcm_returned<v->pcm_current){
     if(pcm){
@@ -960,6 +974,8 @@ int vorbis_synthesis_pcmout(vorbis_dsp_state *v,float ***pcm){
 }
 
 int vorbis_synthesis_read(vorbis_dsp_state *v,int n){
+  private_state *b=v->backend_state;
+  if(b&&b->pending_limit)return(_vorbis_pending_read(v,n));
   if(n && v->pcm_returned+n>v->pcm_current)return(OV_EINVAL);
   v->pcm_returned+=n;
   return(0);
@@ -973,12 +989,15 @@ int vorbis_synthesis_read(vorbis_dsp_state *v,int n){
 int vorbis_synthesis_lapout(vorbis_dsp_state *v,float ***pcm){
   vorbis_info *vi=v->vi;
   codec_setup_info *ci=vi->codec_setup;
+  private_state *b=v->backend_state;
   int hs=ci->halfrate_flag;
 
   int n=ci->blocksizes[v->W]>>(hs+1);
   int n0=ci->blocksizes[0]>>(hs+1);
   int n1=ci->blocksizes[1]>>(hs+1);
   int i,j;
+
+  if(b&&b->pending_limit)return(_vorbis_pending_lapout(v,pcm));
 
   if(v->pcm_returned<0)return 0;
 

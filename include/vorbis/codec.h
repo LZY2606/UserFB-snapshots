@@ -213,6 +213,19 @@ extern int      vorbis_synthesis_lapout(vorbis_dsp_state *v,float ***pcm);
 extern int      vorbis_synthesis_read(vorbis_dsp_state *v,int samples);
 extern long     vorbis_packet_blocksize(vorbis_info *vi,ogg_packet *op);
 
+/* Bounded pending PCM mode.  By default (limit 0) the synthesizer
+   refuses a new block while previously produced PCM is still unread.
+   Setting a positive limit before any block is submitted (or right
+   after vorbis_synthesis_restart) allows vorbis_synthesis_blockin to
+   accept blocks while older PCM is pending, up to 'frames' unread
+   frames per channel at the current output rate; a block that would
+   exceed the limit is rejected with OV_EBACKPRESSURE and may be
+   retried unchanged after reading.  The limit ranges from the
+   halfrate-adjusted long block size to 1048576 frames. */
+extern int      vorbis_synthesis_set_pending_limit(vorbis_dsp_state *v,
+                                                   int frames);
+extern long     vorbis_synthesis_pending(vorbis_dsp_state *v);
+
 extern int      vorbis_synthesis_halfrate(vorbis_info *v,int flag);
 extern int      vorbis_synthesis_halfrate_p(vorbis_info *v);
 
@@ -233,6 +246,7 @@ extern int      vorbis_synthesis_halfrate_p(vorbis_info *v);
 #define OV_EBADPACKET -136
 #define OV_EBADLINK   -137
 #define OV_ENOSEEK    -138
+#define OV_EBACKPRESSURE -140
 
 #ifdef __cplusplus
 }

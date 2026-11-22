@@ -3,7 +3,7 @@
 AUTOMAKE_OPTIONS = foreign
 
 noinst_PROGRAMS = decoder_example encoder_example chaining_example\
-		vorbisfile_example seeking_example
+		vorbisfile_example seeking_example pending_example
 
 EXTRA_DIST = frameview.pl
 
@@ -26,6 +26,9 @@ vorbisfile_example_LDADD = $(top_builddir)/lib/libvorbisfile.la $(top_builddir)/
 
 seeking_example_SOURCES = seeking_example.c
 seeking_example_LDADD = $(top_builddir)/lib/libvorbisfile.la $(top_builddir)/lib/libvorbis.la @VORBIS_LIBS@ @OGG_LIBS@
+
+pending_example_SOURCES = pending_example.c
+pending_example_LDADD = $(top_builddir)/lib/libvorbisenc.la $(top_builddir)/lib/libvorbis.la @VORBIS_LIBS@ @OGG_LIBS@
 
 debug:
 	$(MAKE) all CFLAGS="@DEBUG@"

@@ -36,6 +36,7 @@ set(VORBIS_SOURCES
     lpc.c
     analysis.c
     synthesis.c
+    pending.c
     psy.c
     info.c
     floor1.c
