@@ -1202,6 +1202,20 @@ class HwEncoderP4 : public SoftwareEncoder {
   bool useHardware() const { return useHardware_; }
 
   /**
+   * Explicitly rejects the software-only partition motion search while
+   * hardware mode is active: enabling it returns false and changes
+   * nothing (no request reaches the inherited SoftwareEncoder fallback
+   * either, since a later automatic fallback must stay on the exact path
+   * the caller asked for). Disabling it always succeeds. The hardware
+   * encoder has no shape-search control of its own, so there is nothing
+   * for this to configure there.
+   */
+  bool setPartitionSearch(bool enable) override {
+    if (enable) return false;
+    return SoftwareEncoder::setPartitionSearch(false);
+  }
+
+  /**
    * Encodes one picture via real ESP32-P4 hardware when possible,
    * falling back to the inherited SoftwareEncoder::encodeFrame() (the
    * software Baseline/CAVLC pipeline) whenever hardware mode is off,

@@ -391,6 +391,29 @@ class TinyH264Encoder {
   }
 
   /**
+   * Enables or disables the optional P-macroblock partition motion search
+   * (P_16x16/P_16x8/P_8x16/P_8x8 with 8x8/8x4/4x8/4x4 sub-partitions) -
+   * see SoftwareEncoder::setPartitionSearch() (encoder/h264_encoder.h) and
+   * docs/partition-search.md for the exact shape/cost rules. Defaults to
+   * false: with it off, output is byte-for-byte identical to before this
+   * feature existed, and setMotionSearchAlgorithm()'s Fast/Exhaustive
+   * choice still governs the 16x16 search exactly as before. When on, the
+   * partition path replaces that 16x16 search with an exhaustive,
+   * deterministic shape search; the Fast/Exhaustive choice no longer
+   * affects the P-frame output. Toggling it mid-sequence keeps the
+   * reference picture intact. Works for the plain-YUV encodeFrame() and
+   * the RGB/YUYV overloads alike. Returns false only when the active
+   * backend does not support motion search at all - hardware mode (see
+   * setUseHardware()) rejects `true`; software mode always returns true.
+   */
+  bool setPartitionSearch(bool enable) {
+    return concreteEncoder_.setPartitionSearch(enable);
+  }
+  /// Whether the optional partition motion search is enabled - see
+  /// setPartitionSearch().
+  bool partitionSearch() const { return concreteEncoder_.partitionSearch(); }
+
+  /**
    * Runtime alternative to `#define H264_MAX_WIDTH ...`/`#define
    * H264_MAX_HEIGHT ...` before `#include`ing this header - overrides
    * the picture-buffer/metadata-table/color-conversion-scratch

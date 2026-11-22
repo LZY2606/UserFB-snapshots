@@ -67,10 +67,19 @@ inline MvNeighbor mvNeighborAt(const CtxT& ctx, int bx, int by) {
   if (bx >= 4 && by >= 0) return n;
   if (bx >= 0 && by >= 0) {
     const MacroblockInfo& cur = ctx.mbInfo->at(ctx.mbX, ctx.mbY);
+    int idx = kInvBlk4x4[by][bx];
+    /*
+     * A within-MB 4x4 cell is only available once an earlier partition
+     * has actually coded it. refIdx starts at -1 for "not yet coded" (see
+     * MacroblockInfo::refIdx) - treating a not-yet-coded cell as
+     * available with mv (0,0) would make e.g. a P_8x8 sub-partition's
+     * above-right "C" neighbor spuriously available, diverging from
+     * clause 8.4.1.3.2 and from a conformant decoder.
+     */
+    if (cur.refIdx[idx] < 0) return n;
     n.available = true;
     n.interCoded = true;  // within-MB: only reached while decoding/encoding
                            // an Inter MB
-    int idx = kInvBlk4x4[by][bx];
     n.refIdx = cur.refIdx[idx];
     n.mv[0] = cur.mv[idx][0];
     n.mv[1] = cur.mv[idx][1];

@@ -174,11 +174,20 @@ inline bool decodeMacroblockInter(BitReader& br, MbDecodeContext& ctx,
    * all mvd_l0 values are read afterward - the two are NOT interleaved
    * per-partition.
    */
+  /*
+   * A legal P_8x8 macroblock can split every one of its four 8x8
+   * quadrants into four 4x4 sub-partitions, i.e. up to 16 entries total
+   * (clause 7.4.5.2, Table 7-15). Sizing this at 4 (one per top-level
+   * partition) silently overflows the stack for a valid P_8x8 stream
+   * where every quadrant uses sub_mb_type 4x4 - caught by an
+   * AddressSanitizer build. 16 is the hard upper bound for any P
+   * macroblock.
+   */
   struct Part {
     int bx, by, pw, ph, dirSide;
     int8_t refIdx;
   };
-  Part parts[4];
+  Part parts[16];
   int numParts = 0;
 
   if (mbTypeRaw == kPL0_16x16) {
@@ -222,6 +231,13 @@ inline bool decodeMacroblockInter(BitReader& br, MbDecodeContext& ctx,
       H264LOG.error("decodeMacroblockInter: bitstream error reading sub_mb_type at mb(%d,%d)",
                      ctx.mbX, ctx.mbY);
       return false;
+    }
+    for (int i = 0; i < 4; i++) {
+      if (subType[i] > (uint32_t)kSub4x4) {
+        H264LOG.error("decodeMacroblockInter: sub_mb_type %u out of range at mb(%d,%d) quadrant=%d",
+                       subType[i], ctx.mbX, ctx.mbY, i);
+        return false;
+      }
     }
 
     int8_t quadRefIdx[4];

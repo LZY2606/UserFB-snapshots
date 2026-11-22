@@ -8,6 +8,7 @@
 #include "h264_macroblock_encode.h"
 #include "h264_macroblock_encode_inter.h"
 #include "h264_nal_writer.h"
+#include "h264_partition_search.h"
 #include "h264_sps_pps_writer.h"
 #include "../common/h264_frame.h"
 #include "../common/h264_mb_info.h"
@@ -398,6 +399,30 @@ class SoftwareEncoder {
   }
 
   /**
+   * Enables or disables the optional P-macroblock *partition* motion
+   * search (see encoder/h264_partition_search.h and
+   * docs/partition-search.md). When enabled, every P macroblock is coded
+   * as P_16x16, P_16x8, P_8x16 or P_8x8 (the last with per-8x8
+   * sub_mb_type 8x8/8x4/4x8/4x4), chosen by an exhaustive, deterministic
+   * shape search instead of the always-P_16x16 path. Defaults to false:
+   * with it off, the bitstream is byte-for-byte identical to before this
+   * feature existed, and setMotionSearchAlgorithm() still selects the
+   * Fast/Exhaustive 16x16 search exactly as before. Enabling it does not
+   * reset the reference picture, so it can be toggled mid-sequence; it is
+   * also honored by the RGB/YUYV encodeFrame()-family overloads (they all
+   * funnel through the same planar YUV P-frame path). Always true here -
+   * a hardware backend overrides this to reject the request instead (see
+   * encoder/h264_hw_encoder_p4.h::HwEncoderP4).
+   */
+  virtual bool setPartitionSearch(bool enable) {
+    partitionSearch_ = enable;
+    return true;
+  }
+  /// Whether the optional partition motion search is enabled - see
+  /// setPartitionSearch().
+  bool partitionSearch() const { return partitionSearch_; }
+
+  /**
    * Overrides the H264_MAX_WIDTH/H264_MAX_HEIGHT compile-time defaults
    * (h264_config.h) for this Encoder instance's own picture-buffer,
    * per-macroblock-metadata, and color-conversion-scratch allocation
@@ -774,6 +799,98 @@ class SoftwareEncoder {
       mbInfo_.beginMb(mbX, mbY, ctx.sliceId);
       ctx.mbX = mbX;
       ctx.mbY = mbY;
+
+      if (partitionSearch_) {
+        /*
+         * Optional partition search path (see h264_partition_search.h and
+         * docs/partition-search.md): exhaustive, deterministic shape
+         * search over P_16x16/P_16x8/P_8x16/P_8x8. It leaves the winning
+         * shape's per-4x4 MV/refIdx state in mbInfo_, which the final
+         * writer below reuses; ctx.frame is still untouched (search only
+         * reads the reference and source).
+         */
+        PartitionSearchResult pr;
+        if (!searchP16Partitions(ctx, refFrame_, motionSearchRange_,
+                                 qpRunning, &pr)) {
+          H264LOG.error("encodePFrame: partition search failed at mb(%d,%d)",
+                         mbX, mbY);
+          return 0;
+        }
+        int interSad = pr.totalSad;
+
+        int16_t skipMvVal[2];
+        skipMv(ctx, skipMvVal);
+        /*
+         * P_Skip is only legal when *every* selected partition equals the
+         * inferred skip MV (not just the first one) and the whole-MB
+         * residual at that MV quantizes to zero - the all-partitions-equal
+         * case makes the partitioned prediction identical to the whole-MB
+         * skip prediction.
+         */
+        bool allEqSkip = true;
+        for (int i = 0; i < pr.numParts; i++) {
+          if (pr.parts[i].mv[0] != skipMvVal[0] ||
+              pr.parts[i].mv[1] != skipMvVal[1]) {
+            allEqSkip = false;
+            break;
+          }
+        }
+        MacroblockInfo trialMb;
+        int32_t trialLumaBlocks[16][16];
+        int32_t trialChromaBlocks[2][4][16];
+        int32_t trialChromaDcGrid[2][4];
+        bool isSkip = false;
+        if (allEqSkip) {
+          isSkip = computeInterResidual(ctx, refFrame_, skipMvVal[0],
+                                         skipMvVal[1], qpRunning, trialMb,
+                                         trialLumaBlocks, trialChromaBlocks,
+                                         trialChromaDcGrid);
+        }
+        if (isSkip) {
+          MacroblockInfo& mb = mbInfo_.at(mbX, mbY);
+          mb = trialMb;
+          mb.type = kMbPSkip;
+          mb.qpY = (int8_t)qpRunning;
+          pendingSkipRun++;
+          continue;
+        }
+
+        /*
+         * Intra fallback keeps its existing heuristic, but compares
+         * against the *winning partitions'* total raw SAD rather than a
+         * lone 16x16 search result. chooseIntra16x16Mode() only overwrites
+         * the luma plane, and the partition writer below re-runs motion
+         * compensation for every selected partition, so that trial
+         * prediction can never survive into the final reconstruction.
+         */
+        bool leftAvail = mbInfo_.leftAvailable(mbX, mbY, ctx.sliceId);
+        bool topAvail = mbInfo_.topAvailable(mbX, mbY, ctx.sliceId);
+        bool topLeftAvail = mbInfo_.topLeftAvailable(mbX, mbY, ctx.sliceId);
+        chooseIntra16x16Mode(ctx, leftAvail, topAvail, topLeftAvail);
+        int intraSad = sadLuma16x16(ctx);
+
+        sliceW.ue((uint32_t)pendingSkipRun);
+        pendingSkipRun = 0;
+
+        if (shouldUseIntraInPSlice(intraSad, interSad)) {
+          if (shouldUseIntra4x4(ctx, intraSad)) {
+            qpRunning = encodeMacroblockIntra4x4(sliceW, ctx, qpRunning, qp,
+                                                  /*mbTypeOffset=*/5);
+          } else {
+            qpRunning = encodeMacroblockIntra16x16(sliceW, ctx, qpRunning, qp,
+                                                    /*mbTypeOffset=*/5);
+          }
+        } else {
+          qpRunning = encodeInterPartitionMacroblock(
+              sliceW, ctx, refFrame_, pr, qpRunning, qp);
+        }
+        if (sliceW.error()) {
+          H264LOG.error("encodePFrame: slice scratch buffer overflowed at mb(%d,%d)",
+                         mbX, mbY);
+          return 0;
+        }
+        continue;
+      }
 
       int16_t bestMv[2];
       int interSad = motionSearchAlgorithm_ == MotionSearchAlgorithm::Fast
@@ -1357,6 +1474,7 @@ class SoftwareEncoder {
   int motionSearchRange_ = 8;  ///< +/-pixel search window, see setMotionSearchRange()
   MotionSearchAlgorithm motionSearchAlgorithm_ =
       MotionSearchAlgorithm::Exhaustive;  ///< see setMotionSearchAlgorithm()
+  bool partitionSearch_ = false;  ///< see setPartitionSearch()
 };
 
 }  // namespace tinyh264

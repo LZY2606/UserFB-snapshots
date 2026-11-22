@@ -77,8 +77,20 @@ struct MacroblockInfo {
    * Decoder::refFrames_, 0 = most recently decoded reference), one per
    * 4x4 block, same expand-to-fill-16 convention as mv[]. Valid only for
    * kMbPSkip/kMbInter (always 0 for P_Skip, clause 8.4.1.1).
+   *
+   * Initialized to -1 ("not yet coded") rather than 0: within a P_8x8
+   * macroblock the partitions are coded in a fixed sub-partition order,
+   * and clause 8.4.1.3.2's neighbor availability depends on whether that
+   * 4x4 block has *already* been decoded. Treating every within-MB block
+   * as available with refIdx 0 / mv 0 (the old default) makes a later
+   * partition's above-right ("C") neighbor look available when it isn't,
+   * which perturbs the MV predictor and desynchronizes from a conformant
+   * decoder. Every real Inter partition overwrites its covered cells with
+   * a non-negative refIdx (fillPartitionMv()), so "<0 means not yet
+   * coded" is unambiguous.
    */
-  int8_t refIdx[16] = {0};
+  int8_t refIdx[16] = {-1, -1, -1, -1, -1, -1, -1, -1,
+                       -1, -1, -1, -1, -1, -1, -1, -1};
 
   /**
    * True for any of the three Intra macroblock types (as opposed to

@@ -28,16 +28,29 @@ project(TinyH264 CXX)
 # README's "Testing" section), and (3) - handled by the ESP_PLATFORM
 # branch above - being consumed as an ESP-IDF component. None of this is
 # needed for, or affects, the Arduino/arduino-cli workflow.
+#
+# src/encoder/h264_partition_search.cpp is the one exception to
+# "header-only": the optional exhaustive partition search is large enough
+# that compiling it once into every user is better than inlining it into
+# every translation unit. Every consumer (CMake target, ESP-IDF component,
+# test/native/, task_support/run.sh) must therefore compile that .cpp
+# alongside the headers.
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Header-only library target: no .cpp files of its own, so this is an
-# INTERFACE target - it only contributes an include path and a C++17
-# requirement to whatever links against it.
-add_library(TinyH264 INTERFACE)
+# The one compiled source file (see the note above). Header-only users of
+# the plain TinyH264::TinyH264 target that don't call setPartitionSearch()
+# still link it, harmlessly.
+set(TINYH264_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/encoder/h264_partition_search.cpp
+)
+
+# Library target: contributes the compiled partition-search source, the
+# include path, and the C++17 requirement to whatever links against it.
+add_library(TinyH264 STATIC ${TINYH264_SOURCES})
 add_library(TinyH264::TinyH264 ALIAS TinyH264)
-target_include_directories(TinyH264 INTERFACE
+target_include_directories(TinyH264 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/common
     ${CMAKE_CURRENT_SOURCE_DIR}/src/decoder
@@ -47,7 +60,7 @@ target_include_directories(TinyH264 INTERFACE
 # just this build of it), so a project linking against TinyH264 without
 # C++17 enabled should fail to configure rather than fail with confusing
 # compiler errors deep inside a header.
-target_compile_features(TinyH264 INTERFACE cxx_std_17)
+target_compile_features(TinyH264 PUBLIC cxx_std_17)
 
 # Only build the test suite when this is the top-level CMake project
 # (i.e. not when some other project add_subdirectory()s this one just to
