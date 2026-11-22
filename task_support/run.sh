@@ -9,7 +9,7 @@ for source_file in src/*.c; do cc -std=c11 -O2 -Iinclude -Isrc -I. -c "$source_f
 cc -std=c11 -O2 -Iinclude task_support/baseline.c .task-build/*.o -lm -o .task-build/baseline
 if [[ $mode == target ]]; then
   cc -std=c11 -O2 -I. -Iinclude -Isrc task_support/driver.c tests/repair_window.c .task-build/*.o -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp 2>/dev/null || echo ".task-build/run.$$.log")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

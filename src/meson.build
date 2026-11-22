@@ -20,6 +20,7 @@ lc3_sources = [
 	'bwdet.c',
 	'energy.c',
 	'lc3.c',
+	'lc3_repair.c',
 	'ltpf.c',
 	'mdct.c',
 	'plc.c',
@@ -40,6 +41,7 @@ lc3lib = library('lc3',
 lc3_install_headers = [
 	'../include/lc3_private.h',
 	'../include/lc3.h',
+	'../include/lc3_repair.h',
 	'../include/lc3_cpp.h'
 ]
 

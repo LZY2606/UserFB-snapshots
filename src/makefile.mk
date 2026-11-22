@@ -20,6 +20,7 @@ liblc3_src += \
     $(SRC_DIR)/bwdet.c \
     $(SRC_DIR)/energy.c \
     $(SRC_DIR)/lc3.c \
+    $(SRC_DIR)/lc3_repair.c \
     $(SRC_DIR)/ltpf.c \
     $(SRC_DIR)/mdct.c \
     $(SRC_DIR)/plc.c \

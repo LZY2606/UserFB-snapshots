@@ -109,6 +109,85 @@ $ alias dlc3="LD_LIBRARY_PATH=`pwd`/bin `pwd`/bin/dlc3"
 $ elc3 <in.wav> -b <bitrate> | dlc3 | aplay -D pipewire
 ```
 
+## Repair window
+
+The repair window (`include/lc3_repair.h`) is a bounded decode window for
+pre-roll preview with late packet correction. A frame first entered as lost
+(PLC) can be replaced once the original packet arrives, together with any
+later frame still held, without ever advancing a decoder permanently during
+a preview.
+
+```c
+lc3_repair_t *w = lc3_repair_create(
+    10000 /* dt_us */, 32000 /* sr_hz */, 48000 /* sr_pcm_hz, 0 follows */,
+    2 /* nchannels */, 8 /* capacity, 2 to 32 frames */);
+
+uint64_t id;
+struct lc3_repair_frame frames[2] = {
+    { packet_ch0, nbytes }, { NULL, 0 }   /* channel 1 is lost */
+};
+lc3_repair_append(w, frames, &id);       /* id starts at 0, consecutive */
+
+int16_t preview[ns * 2];
+lc3_repair_preview(w, id, preview);      /* whole interleaved frame */
+
+frames[1] = (struct lc3_repair_frame){ late_packet, nbytes };
+lc3_repair_replace(w, id, frames);       /* correction before playback */
+
+int16_t pcm[capacity_samples * 2];
+int n = lc3_repair_read(w, pcm, capacity_samples);
+```
+
+Units
+
+- Frame sizes (`nbytes`) are per channel, in bytes. A NULL `data` pointer
+  with `nbytes == 0` marks a lost channel; any other payload must lie in the
+  frame byte range of the configuration (20 to 400 bytes for standard LC3).
+- `capacity`, frame identifiers and the frames array count frames; the
+  window holds 2 to 32 frames.
+- `lc3_repair_read()` and its `capacity_samples` argument count PCM samples
+  **per channel**. One frame contains `lc3_frame_samples(dt_us, sr_pcm_hz)`
+  samples per channel, and the interleaved S16 output holds
+  `nchannels` times that many `int16_t` values.
+
+Repair range
+
+- Any frame still held by the window whose playback has not started can be
+  replaced, repeatedly and out of order. The frame and all its successors
+  are recomputed from decoder state snapshots, giving exactly the sound of
+  decoding the final packet sequence in order with ordinary `lc3_decode()`,
+  including independent per-channel losses, consecutive PLC and loss after
+  recovery.
+- Previews are not playback: they target any retained frame in any order,
+  any number of times, and never consume capacity.
+- As soon as one sample of a frame is read, that frame can no longer be
+  replaced; its remaining PCM is still delivered in full, and the slot is
+  recycled only once the whole frame has been read. Fully read or reset
+  frames cannot be addressed through their old identifiers.
+- Retained memory grows only with the codec configuration, the channel
+  count and the capacity; played packets and frames are never stored, and
+  decoding does not restart at frame 0 while the window moves forward.
+  Snapshots are in-memory only, for a single process and build.
+
+Return values
+
+- `lc3_repair_create()` returns a handle, or NULL on invalid parameters or
+  allocation failure.
+- `lc3_repair_append()`, `lc3_repair_replace()` and `lc3_repair_preview()`
+  return 0 on success and -1 on failure (invalid parameters, full window, or
+  an unknown / no longer replaceable frame). Failures are atomic: no state,
+  frame numbering, retained audio or output parameter is modified. A
+  legal-size packet rejected by the decoder is accepted and rendered as
+  PLC, exactly as `lc3_decode()` does.
+- `lc3_repair_read()` returns the number of samples per channel written
+  (0 when the window is temporarily empty); `lc3_repair_reset()` returns
+  nothing and clears all history while keeping frame numbering monotonic.
+
+The supported configurations are standard LC3 frame durations of 7.5 and
+10 ms, stream rates of 8/16/24/32/48 kHz, one or two channels, and an output
+rate (`sr_pcm_hz`, 0 to follow the stream rate) greater than or equal to the
+stream rate. Output PCM is always interleaved signed 16 bits.
+
 ## Test
 
 A python implementation of the encoder is provided in `test` diretory.
