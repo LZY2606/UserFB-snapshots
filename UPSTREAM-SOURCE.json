@@ -1,0 +1,16 @@
+{
+  "repo": "https://github.com/mkrufky/libdvbpsi",
+  "commit": "8cd5c202f9a3d5347a89bfa210cbf1a0c7e23c33",
+  "license": "LGPL-2.1-or-later",
+  "export": "git archive HEAD; complete tracked tree with modes",
+  "excluded": [],
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "runtime_dependencies": [
+    "C99 compiler",
+    "POSIX shell",
+    "standard C library"
+  ],
+  "binary_inputs": []
+}
