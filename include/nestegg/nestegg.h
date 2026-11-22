@@ -228,6 +228,26 @@ typedef void (* nestegg_log)(nestegg * context, unsigned int severity, char cons
     @retval -1 Error. */
 int nestegg_init(nestegg ** context, nestegg_io io, nestegg_log callback, int64_t max_offset);
 
+/** Initialize a nestegg context over a stream of complete WebM members
+    concatenated back to back.  Each member starts with its own EBML header
+    and Segment; the first member establishes the public (zero based) track
+    set, and later members are matched to it by TrackUID.  Packets read with
+    #nestegg_read_packet carry the public track indexes and timestamps on a
+    continuous timeline: each member's local timecodes are scaled by its own
+    TimecodeScale and shifted by the sum of the declared Info.Duration of all
+    previous members.  Seeking (#nestegg_track_seek, #nestegg_offset_seek),
+    #nestegg_read_last_packet and #nestegg_read_total_frames_count are not
+    supported and return -1.  All other entry points behave as with
+    #nestegg_init.
+    @param context  Storage for the new nestegg context.  NULL on failure.
+                    @see nestegg_destroy
+    @param io       User supplied IO context.
+    @param callback Optional logging callback function pointer.  May be NULL.
+    @param max_offset Optional maximum offset to be read. Set -1 to ignore.
+    @retval  0 Success.
+    @retval -1 Error. */
+int nestegg_init_chained(nestegg ** context, nestegg_io io, nestegg_log callback, int64_t max_offset);
+
 /** Destroy a nestegg context and free associated memory.
     @param context #nestegg context to be freed.  @see nestegg_init */
 void nestegg_destroy(nestegg * context);

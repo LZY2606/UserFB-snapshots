@@ -47,3 +47,4 @@ test/regress.exe
 test/*.log
 test/*.trs
 include/nestegg/nestegg-stdint.h
+.task-build

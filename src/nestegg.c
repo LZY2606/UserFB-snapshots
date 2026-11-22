@@ -442,6 +442,17 @@ struct saved_state {
   uint64_t last_id;
   uint64_t last_size;
   int last_valid;
+  /* Chained-member state captured alongside the stream position so that
+     nestegg_read_reset restores member identity, the local track number
+     mapping, the timeline base and the cluster timecode.  The map pointer
+     is borrowed; ownership stays with the context. */
+  struct track_number_index * chain_map;
+  uint64_t chain_base_ns;
+  uint64_t chain_member_duration_ns;
+  uint64_t chain_tc_scale;
+  int64_t chain_segment_end;
+  uint64_t cluster_timecode;
+  int read_cluster_timecode;
 };
 
 struct frame_encryption {
@@ -487,6 +498,7 @@ struct nestegg {
   struct ebml ebml;
   struct segment segment;
   int64_t segment_offset;
+  uint64_t segment_size;
   struct track_entry ** track_by_index;
   struct track_number_index * track_by_number;
   unsigned int track_count;
@@ -494,6 +506,28 @@ struct nestegg {
   uint64_t cluster_timecode;
   int read_cluster_timecode;
   struct saved_state saved;
+  /* Chained-member state (nestegg_init_chained only).  The public track
+     set always comes from the first member; chain_map translates the
+     current member's TrackNumbers to public track indexes. */
+  int chained;
+  int chain_clean_eof;
+  uint64_t chain_base_ns;
+  uint64_t chain_member_duration_ns;
+  uint64_t chain_tc_scale;
+  int64_t chain_segment_end;
+  uint64_t * chain_uids;
+  struct track_number_index * chain_map;
+  struct track_number_index * chain_map_keep;
+};
+
+/* Parse target for the header of a chained member after the first.  Its
+   lifetime is bounded by a single member transition, so it must not be
+   allocated from the context pool. */
+struct member_head {
+  struct ebml ebml;
+  struct segment segment;
+  int64_t segment_offset;
+  uint64_t segment_size;
 };
 
 struct nestegg_packet {
@@ -522,6 +556,9 @@ struct ebml_element_desc {
   struct ebml_element_desc * children;
   size_t size;
   size_t data_offset;
+  /* Offset of a uint64_t in the parent structure receiving the element's
+     declared size; only meaningful together with DESC_FLAG_OFFSET. */
+  size_t size_offset;
   /* Schema-declared default value, valid if DESC_FLAG_HAS_DEFAULT is set.
      Stored as two scalars rather than a union to allow static
      initialization in C89.  An element whose default can't be expressed
@@ -532,25 +569,25 @@ struct ebml_element_desc {
 };
 
 #define E_FIELD(ID, TYPE, STRUCT, FIELD) \
-  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_NONE, NULL, 0, 0, 0, 0.0 }
+  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_NONE, NULL, 0, 0, 0, 0, 0.0 }
 #define E_FIELD_DEFAULT_UINT(ID, STRUCT, FIELD, DEFAULT) \
-  { #ID, ID, TYPE_UINT, offsetof(STRUCT, FIELD), DESC_FLAG_HAS_DEFAULT, NULL, 0, 0, DEFAULT, 0.0 }
+  { #ID, ID, TYPE_UINT, offsetof(STRUCT, FIELD), DESC_FLAG_HAS_DEFAULT, NULL, 0, 0, 0, DEFAULT, 0.0 }
 #define E_FIELD_DEFAULT_FLOAT(ID, STRUCT, FIELD, DEFAULT) \
-  { #ID, ID, TYPE_FLOAT, offsetof(STRUCT, FIELD), DESC_FLAG_HAS_DEFAULT, NULL, 0, 0, 0, DEFAULT }
+  { #ID, ID, TYPE_FLOAT, offsetof(STRUCT, FIELD), DESC_FLAG_HAS_DEFAULT, NULL, 0, 0, 0, 0, DEFAULT }
 #define E_FIELD_ACCESSOR_DEFAULT(ID, TYPE, STRUCT, FIELD) \
-  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_ACCESSOR_DEFAULT, NULL, 0, 0, 0, 0.0 }
+  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_ACCESSOR_DEFAULT, NULL, 0, 0, 0, 0, 0.0 }
 #define E_MASTER(ID, TYPE, STRUCT, FIELD) \
   { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_MULTI, ne_ ## FIELD ## _elements, \
-      sizeof(struct FIELD), 0, 0, 0.0 }
+      sizeof(struct FIELD), 0, 0, 0, 0.0 }
 #define E_SINGLE_MASTER_O(ID, TYPE, STRUCT, FIELD) \
   { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_OFFSET, ne_ ## FIELD ## _elements, 0, \
-      offsetof(STRUCT, FIELD ## _offset), 0, 0.0 }
+      offsetof(STRUCT, FIELD ## _offset), offsetof(STRUCT, FIELD ## _size), 0, 0.0 }
 #define E_SINGLE_MASTER(ID, TYPE, STRUCT, FIELD) \
-  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_NONE, ne_ ## FIELD ## _elements, 0, 0, 0, 0.0 }
+  { #ID, ID, TYPE, offsetof(STRUCT, FIELD), DESC_FLAG_NONE, ne_ ## FIELD ## _elements, 0, 0, 0, 0, 0.0 }
 #define E_SUSPEND(ID, TYPE) \
-  { #ID, ID, TYPE, 0, DESC_FLAG_SUSPEND, NULL, 0, 0, 0, 0.0 }
+  { #ID, ID, TYPE, 0, DESC_FLAG_SUSPEND, NULL, 0, 0, 0, 0, 0.0 }
 #define E_LAST \
-  { NULL, 0, 0, 0, DESC_FLAG_NONE, NULL, 0, 0, 0, 0.0 }
+  { NULL, 0, 0, 0, DESC_FLAG_NONE, NULL, 0, 0, 0, 0, 0.0 }
 
 /* EBML Element Lists */
 static struct ebml_element_desc ne_ebml_elements[] = {
@@ -716,6 +753,14 @@ static struct ebml_element_desc ne_segment_elements[] = {
 static struct ebml_element_desc ne_top_level_elements[] = {
   E_SINGLE_MASTER(ID_EBML, TYPE_MASTER, nestegg, ebml),
   E_SINGLE_MASTER_O(ID_SEGMENT, TYPE_MASTER, nestegg, segment),
+  E_LAST
+};
+
+/* Top level descriptor used when parsing the header of a chained member
+   after the first. */
+static struct ebml_element_desc ne_member_elements[] = {
+  E_SINGLE_MASTER(ID_EBML, TYPE_MASTER, struct member_head, ebml),
+  E_SINGLE_MASTER_O(ID_SEGMENT, TYPE_MASTER, struct member_head, segment),
   E_LAST
 };
 
@@ -1322,6 +1367,13 @@ ne_ctx_save(nestegg * ctx, struct saved_state * s)
   s->last_id = ctx->last_id;
   s->last_size = ctx->last_size;
   s->last_valid = ctx->last_valid;
+  s->chain_map = ctx->chain_map;
+  s->chain_base_ns = ctx->chain_base_ns;
+  s->chain_member_duration_ns = ctx->chain_member_duration_ns;
+  s->chain_tc_scale = ctx->chain_tc_scale;
+  s->chain_segment_end = ctx->chain_segment_end;
+  s->cluster_timecode = ctx->cluster_timecode;
+  s->read_cluster_timecode = ctx->read_cluster_timecode;
   return 0;
 }
 
@@ -1342,6 +1394,35 @@ ne_ctx_restore(nestegg * ctx, struct saved_state * s)
   ctx->last_id = s->last_id;
   ctx->last_size = s->last_size;
   ctx->last_valid = s->last_valid;
+
+  if (ctx->chained) {
+    struct track_number_index * active = ctx->chain_map;
+    struct track_number_index * keep = ctx->chain_map_keep;
+    struct track_number_index * new_keep = NULL;
+
+    /* Maps not referenced by the restored state are dropped, unless the
+       context reset point still needs them for a later read_reset. */
+    if (keep && keep != s->chain_map) {
+      if (keep == ctx->saved.chain_map)
+        new_keep = keep;
+      else
+        free(keep);
+    }
+    if (active && active != s->chain_map && active != keep) {
+      if (active == ctx->saved.chain_map)
+        new_keep = active;
+      else
+        free(active);
+    }
+    ctx->chain_map = s->chain_map;
+    ctx->chain_map_keep = new_keep;
+    ctx->chain_base_ns = s->chain_base_ns;
+    ctx->chain_member_duration_ns = s->chain_member_duration_ns;
+    ctx->chain_tc_scale = s->chain_tc_scale;
+    ctx->chain_segment_end = s->chain_segment_end;
+  }
+  ctx->cluster_timecode = s->cluster_timecode;
+  ctx->read_cluster_timecode = s->read_cluster_timecode;
   return 0;
 }
 
@@ -1561,6 +1642,7 @@ ne_parse(nestegg * ctx, struct ebml_element_desc * top_level, int64_t max_offset
           r = -1;
           break;
         }
+        *(uint64_t *) (ctx->ancestor->data + element->size_offset) = size;
       }
 
       if (element->type == TYPE_MASTER) {
@@ -1801,6 +1883,25 @@ ne_saturate_mul_uint64(uint64_t a, uint64_t b)
   return a * b;
 }
 
+/* Returns non-zero if 'size' equals the EBML unknown-size pattern for any VINT
+   length. Patterns (data bits all 1): 0x7F, 0x3FFF, 0x1FFFFF, 0x0FFFFFFF,
+   0x07FFFFFFFF, 0x03FFFFFFFFFF, 0x01FFFFFFFFFFFF, 0x00FFFFFFFFFFFFFF. */
+static int
+ne_size_is_unknown(uint64_t size)
+{
+  int len;
+  for (len = 1; len <= 8; ++len) {
+    uint64_t mask;
+    if (len == 8)
+      mask = 0x00FFFFFFFFFFFFFFULL;  /* 56 data bits = all ones */
+    else
+      mask = (1ULL << (7 * len)) - 1ULL; /* 7 data bits per byte */
+    if (size == mask)
+      return 1;
+  }
+  return 0;
+}
+
 static uint64_t
 ne_get_timecode_scale(nestegg * ctx)
 {
@@ -1810,6 +1911,17 @@ ne_get_timecode_scale(nestegg * ctx)
     return 0;
 
   return scale;
+}
+
+/* Timecode scale of the member currently being read.  In chained mode each
+   member carries its own scale; otherwise the segment's scale is used. */
+static uint64_t
+ne_current_timecode_scale(nestegg * ctx)
+{
+  if (ctx->chained)
+    return ctx->chain_tc_scale;
+
+  return ne_get_timecode_scale(ctx);
 }
 
 static int
@@ -1886,15 +1998,20 @@ ne_map_track_number_to_index(nestegg * ctx,
                              uint64_t track_number,
                              unsigned int * track_index)
 {
+  struct track_number_index const * map;
   size_t start = 0;
   size_t end = ctx->track_count;
 
   if (track_number == 0)
     return -1;
 
+  /* In chained mode the current member's TrackNumber mapping translates to
+     the public (first member) track indexes. */
+  map = ctx->chained ? ctx->chain_map : ctx->track_by_number;
+
   while (start < end) {
     size_t middle = start + (end - start) / 2;
-    struct track_number_index const * entry = &ctx->track_by_number[middle];
+    struct track_number_index const * entry = &map[middle];
 
     if (track_number < entry->number) {
       end = middle;
@@ -1973,7 +2090,7 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
   struct frame * f;
   struct track_entry * entry;
   uint64_t track_number, length, frame_sizes[256], cluster_tc, flags, frames, tc_scale, total,
-           encoding_type, encryption_algo, encryption_mode;
+           encoding_type, encryption_algo, encryption_mode, pkt_timecode;
   unsigned int i, lacing, track;
   uint8_t signal_byte, keyframe = NESTEGG_PACKET_HAS_KEYFRAME_UNKNOWN, j = 0;
   size_t consumed = 0, data_size, encryption_size;
@@ -2090,7 +2207,7 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
     return -1;
   }
 
-  tc_scale = ne_get_timecode_scale(ctx);
+  tc_scale = ne_current_timecode_scale(ctx);
   if (tc_scale == 0)
     return -1;
 
@@ -2100,16 +2217,45 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
 
   abs_timecode = timecode + cluster_tc;
   if (abs_timecode < 0) {
-      /* Ignore the spec and negative timestamps */
-      ctx->log(ctx, NESTEGG_LOG_WARNING, "ignoring negative timecode: %lld", abs_timecode);
-      abs_timecode = 0;
+    if (ctx->chained) {
+      /* Chained members must not contain negative packet timecodes. */
+      ctx->log(ctx, NESTEGG_LOG_ERROR, "negative timecode in chained member: %lld",
+               abs_timecode);
+      return -1;
+    }
+    /* Ignore the spec and negative timestamps */
+    ctx->log(ctx, NESTEGG_LOG_WARNING, "ignoring negative timecode: %lld", abs_timecode);
+    abs_timecode = 0;
+  }
+
+  if (ctx->chained) {
+    /* Local nanoseconds from the member's own scale, checked against the
+       member's declared duration, then shifted onto the continuous
+       timeline by the sum of previous members' declared durations. */
+    if ((uint64_t) abs_timecode > UINT64_MAX / tc_scale) {
+      ctx->log(ctx, NESTEGG_LOG_ERROR, "timecode overflow in chained member");
+      return -1;
+    }
+    pkt_timecode = (uint64_t) abs_timecode * tc_scale;
+    if (pkt_timecode >= ctx->chain_member_duration_ns) {
+      ctx->log(ctx, NESTEGG_LOG_ERROR,
+               "packet timecode beyond declared member duration");
+      return -1;
+    }
+    if (pkt_timecode > UINT64_MAX - ctx->chain_base_ns) {
+      ctx->log(ctx, NESTEGG_LOG_ERROR, "chained timeline base overflow");
+      return -1;
+    }
+    pkt_timecode += ctx->chain_base_ns;
+  } else {
+    pkt_timecode = ne_saturate_mul_uint64((uint64_t) abs_timecode, tc_scale);
   }
 
   pkt = ne_alloc(sizeof(*pkt));
   if (!pkt)
     return -1;
   pkt->track = track;
-  pkt->timecode = ne_saturate_mul_uint64((uint64_t) abs_timecode, tc_scale);
+  pkt->timecode = pkt_timecode;
   pkt->keyframe = keyframe;
   pkt->frames = ne_alloc((size_t) frames * sizeof(*pkt->frames));
   if (!pkt->frames) {
@@ -2671,6 +2817,484 @@ ne_free_block_additions(struct block_additional * block_additional)
   }
 }
 
+/* Chained-member support: a stream of complete WebM members concatenated
+   back to back, presented as one continuous track set and timeline. */
+
+/* EBML header checks shared by nestegg_init and chained member transitions. */
+static int
+ne_chain_check_ebml(struct ebml * ebml)
+{
+  uint64_t version, docversion;
+  char * doctype;
+
+  if (ne_get_uint(ebml->ebml_read_version, &version) != 0 ||
+      version != 1)
+    return -1;
+
+  /* DocType's declared default is "matroska"; string defaults are not
+     representable in the element descriptors, so apply it here. */
+  if (ne_get_string(ebml->doctype, &doctype) != 0)
+    doctype = DOCTYPE_MKV;
+  if (!!strcmp(doctype, DOCTYPE_WEBM) && !!strcmp(doctype, DOCTYPE_MKV))
+    return -1;
+
+  if (ne_get_uint(ebml->doctype_read_version, &docversion) != 0 ||
+      docversion < 1 || docversion > 2)
+    return -1;
+
+  return 0;
+}
+
+/* Validate a member's Info and compute its declared duration in
+   nanoseconds.  The duration must be present, finite, a positive integer
+   number of ticks not exceeding 2^53-1, and the product with the
+   (nonzero) TimecodeScale must not overflow. */
+static int
+ne_chain_member_duration(struct info * info, uint64_t * duration_ns,
+                         uint64_t * scale_out)
+{
+  double duration;
+  uint64_t scale, ticks;
+
+  if (ne_get_uint(info->timecode_scale, &scale) != 0 || scale == 0)
+    return -1;
+
+  if (ne_get_float(info->duration, &duration) != 0)
+    return -1;
+
+  if (!(duration > 0) || duration != duration ||
+      duration > 9007199254740991.0 /* 2^53-1 */)
+    return -1;
+
+  ticks = (uint64_t) duration;
+  if ((double) ticks != duration)
+    return -1;
+
+  if (ticks > UINT64_MAX / scale)
+    return -1;
+
+  *duration_ns = ticks * scale;
+  *scale_out = scale;
+  return 0;
+}
+
+/* Compute the end offset of a Segment from its declared size, or -1 for
+   an unknown-size Segment. */
+static int
+ne_chain_segment_end(int64_t segment_offset, uint64_t segment_size,
+                     int64_t * end)
+{
+  if (ne_size_is_unknown(segment_size)) {
+    *end = -1;
+    return 0;
+  }
+
+  if (segment_offset < 0 ||
+      segment_size > (uint64_t) INT64_MAX - (uint64_t) segment_offset)
+    return -1;
+
+  *end = segment_offset + (int64_t) segment_size;
+  return 0;
+}
+
+/* Constraints every track of every chained member must satisfy: audio or
+   video, unencrypted, no ContentEncodings, TrackTimecodeScale exactly 1. */
+static int
+ne_chain_track_common_valid(struct track_entry * entry)
+{
+  uint64_t type;
+  double track_timecode_scale;
+  char * codec_id;
+
+  if (ne_get_uint(entry->type, &type) != 0)
+    return -1;
+  if (type != TRACK_TYPE_VIDEO && type != TRACK_TYPE_AUDIO)
+    return -1;
+
+  if (entry->content_encodings.content_encoding.head)
+    return -1;
+
+  if (ne_get_float(entry->track_timecode_scale, &track_timecode_scale) != 0 ||
+      track_timecode_scale != 1.0)
+    return -1;
+
+  if (ne_get_string(entry->codec_id, &codec_id) != 0)
+    return -1;
+
+  return 0;
+}
+
+/* Compare a uint field with schema-default resolution: two fields are
+   equal when both are absent (and have no default) or both resolve to the
+   same value. */
+static int
+ne_chain_uint_equal(struct ebml_type a, struct ebml_type b)
+{
+  uint64_t va = 0, vb = 0;
+  int sa = ne_get_uint(a, &va) == 0;
+  int sb = ne_get_uint(b, &vb) == 0;
+
+  if (sa != sb)
+    return 0;
+  return !sa || va == vb;
+}
+
+static int
+ne_chain_float_equal(struct ebml_type a, struct ebml_type b)
+{
+  double fa = 0, fb = 0;
+  int sa = ne_get_float(a, &fa) == 0;
+  int sb = ne_get_float(b, &fb) == 0;
+
+  if (sa != sb)
+    return 0;
+  return !sa || memcmp(&fa, &fb, sizeof(fa)) == 0;
+}
+
+#define NE_CHAIN_UINT_MATCH(field) \
+  do { if (!ne_chain_uint_equal(a->field, b->field)) return 0; } while (0)
+#define NE_CHAIN_FLOAT_MATCH(field) \
+  do { if (!ne_chain_float_equal(a->field, b->field)) return 0; } while (0)
+
+static int
+ne_chain_video_equal(struct track_entry * a, struct track_entry * b)
+{
+  uint64_t da, db;
+
+  NE_CHAIN_UINT_MATCH(video.stereo_mode);
+  NE_CHAIN_UINT_MATCH(video.alpha_mode);
+  NE_CHAIN_UINT_MATCH(video.pixel_width);
+  NE_CHAIN_UINT_MATCH(video.pixel_height);
+  NE_CHAIN_UINT_MATCH(video.pixel_crop_bottom);
+  NE_CHAIN_UINT_MATCH(video.pixel_crop_top);
+  NE_CHAIN_UINT_MATCH(video.pixel_crop_left);
+  NE_CHAIN_UINT_MATCH(video.pixel_crop_right);
+
+  /* DisplayWidth/DisplayHeight default to the pixel dimensions, matching
+     the public parameter accessors. */
+  da = 0;
+  ne_get_uint(a->video.pixel_width, &da);
+  ne_get_uint(a->video.display_width, &da);
+  db = 0;
+  ne_get_uint(b->video.pixel_width, &db);
+  ne_get_uint(b->video.display_width, &db);
+  if (da != db)
+    return 0;
+
+  da = 0;
+  ne_get_uint(a->video.pixel_height, &da);
+  ne_get_uint(a->video.display_height, &da);
+  db = 0;
+  ne_get_uint(b->video.pixel_height, &db);
+  ne_get_uint(b->video.display_height, &db);
+  if (da != db)
+    return 0;
+
+  NE_CHAIN_UINT_MATCH(video.colour.matrix_coefficients);
+  NE_CHAIN_UINT_MATCH(video.colour.range);
+  NE_CHAIN_UINT_MATCH(video.colour.transfer_characteristics);
+  NE_CHAIN_UINT_MATCH(video.colour.primaries);
+  NE_CHAIN_UINT_MATCH(video.colour.max_cll);
+  NE_CHAIN_UINT_MATCH(video.colour.max_fall);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_r_chromacity_x);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_r_chromacity_y);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_g_chromacity_x);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_g_chromacity_y);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_b_chromacity_x);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.primary_b_chromacity_y);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.white_point_chromaticity_x);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.white_point_chromaticity_y);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.luminance_max);
+  NE_CHAIN_FLOAT_MATCH(video.colour.mastering_metadata.luminance_min);
+  NE_CHAIN_UINT_MATCH(video.projection.type);
+  NE_CHAIN_FLOAT_MATCH(video.projection.pose_yaw);
+  NE_CHAIN_FLOAT_MATCH(video.projection.pose_pitch);
+  NE_CHAIN_FLOAT_MATCH(video.projection.pose_roll);
+
+  return 1;
+}
+
+static int
+ne_chain_audio_equal(struct track_entry * a, struct track_entry * b)
+{
+  uint64_t da, db;
+
+  NE_CHAIN_FLOAT_MATCH(audio.sampling_frequency);
+  NE_CHAIN_UINT_MATCH(audio.channels);
+
+  /* BitDepth has no declared default; the public accessor reports 16. */
+  da = 16;
+  ne_get_uint(a->audio.bit_depth, &da);
+  db = 16;
+  ne_get_uint(b->audio.bit_depth, &db);
+  if (da != db)
+    return 0;
+
+  return 1;
+}
+
+/* A candidate track is compatible with the public (first member) track of
+   the same TrackUID when the decode-relevant configuration is identical.
+   Names, language and default-selection flags do not participate. */
+static int
+ne_chain_track_compatible(struct track_entry * pub, struct track_entry * cand)
+{
+  uint64_t type;
+  char * codec_a, * codec_b;
+  struct ebml_binary priv_a, priv_b;
+  int has_a, has_b;
+
+  if (ne_chain_track_common_valid(cand) != 0)
+    return 0;
+
+  if (!ne_chain_uint_equal(pub->type, cand->type))
+    return 0;
+  if (ne_get_uint(cand->type, &type) != 0)
+    return 0;
+
+  if (ne_get_string(pub->codec_id, &codec_a) != 0 ||
+      ne_get_string(cand->codec_id, &codec_b) != 0)
+    return 0;
+  if (strcmp(codec_a, codec_b) != 0)
+    return 0;
+
+  /* An absent CodecPrivate and an empty one are equivalent. */
+  has_a = ne_get_binary(pub->codec_private, &priv_a) == 0;
+  has_b = ne_get_binary(cand->codec_private, &priv_b) == 0;
+  if (has_a != has_b)
+    return 0;
+  if (has_a && (priv_a.length != priv_b.length ||
+                memcmp(priv_a.data, priv_b.data, priv_a.length) != 0))
+    return 0;
+
+  if (!ne_chain_uint_equal(pub->default_duration, cand->default_duration))
+    return 0;
+  if (!ne_chain_uint_equal(pub->codec_delay, cand->codec_delay))
+    return 0;
+  if (!ne_chain_uint_equal(pub->seek_preroll, cand->seek_preroll))
+    return 0;
+
+  if (type == TRACK_TYPE_VIDEO)
+    return ne_chain_video_equal(pub, cand);
+
+  return ne_chain_audio_equal(pub, cand);
+}
+
+#undef NE_CHAIN_UINT_MATCH
+#undef NE_CHAIN_FLOAT_MATCH
+
+/* Validate a subsequent member's Tracks against the public set and build
+   the member's TrackNumber -> public index mapping.  The UID sets must be
+   identical; TrackNumbers and physical order may differ. */
+static int
+ne_chain_build_track_map(nestegg * ctx, struct tracks * tracks,
+                         struct track_number_index ** map_out)
+{
+  struct ebml_list_node * node;
+  struct track_number_index * map;
+  unsigned char * seen;
+  size_t count, i, j;
+
+  *map_out = NULL;
+
+  count = tracks->track_entry.count;
+  if (count == 0 || count != ctx->track_count)
+    return -1;
+
+  map = malloc(count * sizeof(*map));
+  if (!map)
+    return -1;
+  seen = calloc(count, sizeof(*seen));
+  if (!seen) {
+    free(map);
+    return -1;
+  }
+
+  node = tracks->track_entry.head;
+  for (i = 0; i < count; ++i) {
+    struct track_entry * entry;
+    uint64_t number, uid;
+
+    if (!node || node->id != ID_TRACK_ENTRY)
+      goto fail;
+    entry = node->data;
+
+    if (ne_get_uint(entry->number, &number) != 0 || number == 0)
+      goto fail;
+    if (ne_get_uint(entry->uid, &uid) != 0 || uid == 0)
+      goto fail;
+
+    for (j = 0; j < ctx->track_count; ++j)
+      if (ctx->chain_uids[j] == uid)
+        break;
+    if (j == ctx->track_count)
+      goto fail;
+    if (seen[j])
+      goto fail;
+    seen[j] = 1;
+
+    if (!ne_chain_track_compatible(ctx->track_by_index[j], entry))
+      goto fail;
+
+    map[i].number = number;
+    map[i].index = (unsigned int) j;
+    node = node->next;
+  }
+  if (node)
+    goto fail;
+
+  qsort(map, count, sizeof(*map), ne_compare_track_number_index);
+  for (i = 1; i < count; ++i) {
+    if (map[i - 1].number == map[i].number)
+      goto fail;
+  }
+
+  free(seen);
+  *map_out = map;
+  return 0;
+
+fail:
+  free(seen);
+  free(map);
+  return -1;
+}
+
+/* Parse and validate the header of the next chained member (the EBML
+   element is already peeked).  On success the new track mapping, timecode
+   scale and timeline base are committed and 1 is returned; on any failure
+   -1 is returned and the previous member's state remains active. */
+static int
+ne_chain_next_member(nestegg * ctx)
+{
+  struct member_head head;
+  struct pool_ctx * real_pool, * tmp_pool;
+  struct track_number_index * new_map = NULL;
+  uint64_t duration_ns = 0, scale = 0, new_base;
+  int64_t segment_end;
+  int r;
+
+  memset(&head, 0, sizeof(head));
+  ne_init_defaults(ne_member_elements, &head);
+
+  /* Parse with a scratch pool so member header storage does not accumulate
+     in the context pool across members. */
+  tmp_pool = ne_pool_init();
+  if (!tmp_pool)
+    return -1;
+  real_pool = ctx->alloc_pool;
+  ctx->alloc_pool = tmp_pool;
+
+  r = ne_ctx_push(ctx, ne_member_elements, &head);
+  if (r == 0) {
+    r = ne_parse(ctx, NULL, -1);
+    while (ctx->ancestor)
+      ne_ctx_pop(ctx);
+  }
+  ctx->alloc_pool = real_pool;
+
+  if (r != 1)
+    goto fail;
+
+  /* The header parse must stop at the member's first Cluster: a member
+     with no Cluster, or a header truncated before it, is rejected. */
+  if (!ctx->last_valid || ctx->last_id != ID_CLUSTER)
+    goto fail;
+
+  if (ne_chain_check_ebml(&head.ebml) != 0)
+    goto fail;
+
+  if (ne_chain_member_duration(&head.segment.info, &duration_ns, &scale) != 0)
+    goto fail;
+
+  if (ne_chain_build_track_map(ctx, &head.segment.tracks, &new_map) != 0)
+    goto fail;
+
+  if (ctx->chain_member_duration_ns > UINT64_MAX - ctx->chain_base_ns)
+    goto fail;
+  new_base = ctx->chain_base_ns + ctx->chain_member_duration_ns;
+
+  if (ne_chain_segment_end(head.segment_offset, head.segment_size,
+                           &segment_end) != 0)
+    goto fail;
+
+  /* Validation passed: commit the new mapping and clock.  The previous
+     map stays alive if the last reset point still references it. */
+  if (ctx->chain_map == ctx->saved.chain_map) {
+    free(ctx->chain_map_keep);
+    ctx->chain_map_keep = ctx->chain_map;
+  } else {
+    free(ctx->chain_map);
+  }
+  ctx->chain_map = new_map;
+  ctx->chain_tc_scale = scale;
+  ctx->chain_member_duration_ns = duration_ns;
+  ctx->chain_base_ns = new_base;
+  ctx->chain_segment_end = segment_end;
+  ctx->read_cluster_timecode = 0;
+
+  ne_pool_destroy(tmp_pool);
+  return 1;
+
+fail:
+  free(new_map);
+  ne_pool_destroy(tmp_pool);
+  return -1;
+}
+
+/* Establish the chained state from the first member after a successful
+   nestegg_init-style parse. */
+static int
+ne_chain_setup(nestegg * ctx)
+{
+  uint64_t duration_ns, scale, uid;
+  unsigned int i, j;
+  struct track_entry * entry;
+
+  /* The first member must offer at least one Cluster. */
+  if (!ctx->last_valid || ctx->last_id != ID_CLUSTER)
+    return -1;
+
+  if (ne_chain_member_duration(&ctx->segment.info, &duration_ns, &scale) != 0)
+    return -1;
+
+  ctx->chain_uids = ne_pool_alloc(ctx->track_count * sizeof(*ctx->chain_uids),
+                                  ctx->alloc_pool);
+  if (!ctx->chain_uids)
+    return -1;
+
+  for (i = 0; i < ctx->track_count; ++i) {
+    entry = ctx->track_by_index[i];
+    if (ne_get_uint(entry->uid, &uid) != 0 || uid == 0)
+      return -1;
+    for (j = 0; j < i; ++j)
+      if (ctx->chain_uids[j] == uid)
+        return -1;
+    ctx->chain_uids[i] = uid;
+    if (ne_chain_track_common_valid(entry) != 0)
+      return -1;
+  }
+
+  ctx->chain_map = ne_alloc(ctx->track_count * sizeof(*ctx->chain_map));
+  if (!ctx->chain_map)
+    return -1;
+  memcpy(ctx->chain_map, ctx->track_by_number,
+         ctx->track_count * sizeof(*ctx->chain_map));
+
+  ctx->chain_tc_scale = scale;
+  ctx->chain_member_duration_ns = duration_ns;
+  ctx->chain_base_ns = 0;
+  if (ne_chain_segment_end(ctx->segment_offset, ctx->segment_size,
+                           &ctx->chain_segment_end) != 0)
+    return -1;
+  ctx->chained = 1;
+
+  /* Refresh the reset point so it captures the chained state. */
+  if (ne_ctx_save(ctx, &ctx->saved) != 0)
+    return -1;
+
+  return 0;
+}
+
 int
 nestegg_init(nestegg ** context, nestegg_io io, nestegg_log callback, int64_t max_offset)
 {
@@ -2751,12 +3375,37 @@ nestegg_init(nestegg ** context, nestegg_io io, nestegg_log callback, int64_t ma
   return 0;
 }
 
+int
+nestegg_init_chained(nestegg ** context, nestegg_io io, nestegg_log callback,
+                     int64_t max_offset)
+{
+  nestegg * ctx = NULL;
+
+  if (!context)
+    return -1;
+  *context = NULL;
+
+  if (nestegg_init(&ctx, io, callback, max_offset) != 0)
+    return -1;
+
+  if (ne_chain_setup(ctx) != 0) {
+    nestegg_destroy(ctx);
+    return -1;
+  }
+
+  *context = ctx;
+  return 0;
+}
+
 void
 nestegg_destroy(nestegg * ctx)
 {
   assert(ctx->ancestor == NULL);
   if (ctx->alloc_pool)
     ne_pool_destroy(ctx->alloc_pool);
+  free(ctx->chain_map);
+  if (ctx->chain_map_keep != ctx->chain_map)
+    free(ctx->chain_map_keep);
   free(ctx->io.io);
   free(ctx);
 }
@@ -2870,6 +3519,9 @@ nestegg_offset_seek(nestegg * ctx, uint64_t offset)
 {
   int r;
 
+  if (ctx->chained)
+    return -1;
+
   if (offset > INT64_MAX)
     return -1;
 
@@ -2892,6 +3544,9 @@ nestegg_track_seek(nestegg * ctx, unsigned int track, uint64_t tstamp)
   struct cue_track_positions * pos;
   struct track_entry * entry;
   uint64_t seek_pos, tc_scale, track_number;
+
+  if (ctx->chained)
+    return -1;
 
   entry = ne_find_track_entry(ctx, track);
   if (!entry || ne_get_uint(entry->number, &track_number) != 0)
@@ -3440,25 +4095,70 @@ nestegg_read_reset(nestegg * ctx)
   return ne_ctx_restore(ctx, &ctx->saved);
 }
 
-int
-nestegg_read_packet(nestegg * ctx, nestegg_packet ** pkt)
+static int
+ne_read_packet_body(nestegg * ctx, nestegg_packet ** pkt)
 {
   int r, read_block = 0;
   uint64_t id, size;
 
-  *pkt = NULL;
-
-  assert(ctx->ancestor == NULL);
-
-  /* Prepare for read_reset to resume parsing from this point upon error. */
-  r = ne_ctx_save(ctx, &ctx->saved);
-  if (r != 0)
-    return -1;
-
   while (!read_block) {
-    r = ne_read_element(ctx, &id, &size);
-    if (r != 1)
-      return r;
+    if (ctx->chained) {
+      int64_t pos = ne_io_tell(&ctx->io);
+      if (pos < 0)
+        return -1;
+
+      r = ne_peek_element(ctx, &id, &size);
+      if (r == 0) {
+        /* EOF is clean only at a member boundary: a partially read element
+           header, or a known-size Segment that has not reached its declared
+           end, is a truncation error. */
+        if (ne_io_tell(&ctx->io) != pos)
+          return -1;
+        if (ctx->chain_segment_end >= 0 && pos != ctx->chain_segment_end)
+          return -1;
+        ctx->chain_clean_eof = 1;
+        return 0;
+      }
+      if (r != 1)
+        return r;
+
+      if (id == ID_EBML) {
+        /* A new member may only start exactly at the declared end of a
+           known-size Segment. */
+        if (ctx->chain_segment_end >= 0 && pos != ctx->chain_segment_end)
+          return -1;
+        r = ne_chain_next_member(ctx);
+        if (r != 1)
+          return r;
+        continue;
+      }
+
+      /* A second Segment is never skipped over in chained mode. */
+      if (id == ID_SEGMENT)
+        return -1;
+
+      if (ctx->chain_segment_end >= 0 && pos >= ctx->chain_segment_end)
+        return -1;
+
+      r = ne_read_element(ctx, &id, &size);
+      if (r != 1)
+        return r;
+
+      /* Elements with a declared size must fit inside a known-size
+         Segment; trailing Cues, Tags, Void and the like are skipped by
+         their real structure below. */
+      if (ctx->chain_segment_end >= 0 && !ne_size_is_unknown(size)) {
+        int64_t payload = ne_io_tell(&ctx->io);
+        if (payload < 0)
+          return -1;
+        if ((uint64_t) payload + size > (uint64_t) ctx->chain_segment_end)
+          return -1;
+      }
+    } else {
+      r = ne_read_element(ctx, &id, &size);
+      if (r != 1)
+        return r;
+    }
 
     switch (id) {
     case ID_CLUSTER: {
@@ -3567,7 +4267,7 @@ nestegg_read_packet(nestegg * ctx, nestegg_packet ** pkt)
             }
             return r;
           }
-          tc_scale = ne_get_timecode_scale(ctx);
+          tc_scale = ne_current_timecode_scale(ctx);
           if (tc_scale == 0) {
             ne_free_block_additions(block_additional);
             if (*pkt) {
@@ -3681,6 +4381,39 @@ nestegg_read_packet(nestegg * ctx, nestegg_packet ** pkt)
 }
 
 int
+nestegg_read_packet(nestegg * ctx, nestegg_packet ** pkt)
+{
+  int r;
+
+  *pkt = NULL;
+
+  assert(ctx->ancestor == NULL);
+
+  /* Prepare for read_reset to resume parsing from this point upon error. */
+  r = ne_ctx_save(ctx, &ctx->saved);
+  if (r != 0)
+    return -1;
+
+  if (ctx->chained) {
+    /* The reset point now references the active mapping; any mapping
+       retained for the previous reset point can be released. */
+    if (ctx->chain_map_keep && ctx->chain_map_keep != ctx->chain_map)
+      free(ctx->chain_map_keep);
+    ctx->chain_map_keep = NULL;
+    ctx->chain_clean_eof = 0;
+  }
+
+  r = ne_read_packet_body(ctx, pkt);
+
+  /* In chained mode a bare EOF is only a valid end of stream at a member
+     boundary; anywhere else it is a truncation error. */
+  if (ctx->chained && r == 0 && !ctx->chain_clean_eof)
+    r = -1;
+
+  return r;
+}
+
+int
 nestegg_read_last_packet(nestegg * context, unsigned int track,
                          nestegg_packet ** packet)
 {
@@ -3691,6 +4424,9 @@ nestegg_read_last_packet(nestegg * context, unsigned int track,
   if (!context || !packet) {
     return -1;
   }
+
+  if (context->chained)
+    return -1;
 
   *packet = NULL;
 
@@ -4110,25 +4846,6 @@ ne_sum_block_or_group(nestegg * ctx, uint64_t id, uint64_t size, uint64_t * fram
   return 1;
 }
 
-/* Returns non-zero if 'size' equals the EBML unknown-size pattern for any VINT
-   length. Patterns (data bits all 1): 0x7F, 0x3FFF, 0x1FFFFF, 0x0FFFFFFF,
-   0x07FFFFFFFF, 0x03FFFFFFFFFF, 0x01FFFFFFFFFFFF, 0x00FFFFFFFFFFFFFF. */
-static int
-ne_size_is_unknown(uint64_t size)
-{
-  int len;
-  for (len = 1; len <= 8; ++len) {
-    uint64_t mask;
-    if (len == 8)
-      mask = 0x00FFFFFFFFFFFFFFULL;  /* 56 data bits = all ones */
-    else
-      mask = (1ULL << (7 * len)) - 1ULL; /* 7 data bits per byte */
-    if (size == mask)
-      return 1;
-  }
-  return 0;
-}
-
 /* Read ONE Cluster and return the sum of frames of ALL SimpleBlock/Block in it.
    Returns 1 on success (Cluster found), 0 on clean EOS before any Cluster,
    <0 on error. */
@@ -4239,6 +4956,9 @@ nestegg_read_total_frames_count(nestegg * context, uint64_t * frames_out)
   int r;
 
   if (!context || !frames_out)
+    return -1;
+
+  if (context->chained)
     return -1;
 
   if (ne_ctx_save(context, &saved) != 0)
