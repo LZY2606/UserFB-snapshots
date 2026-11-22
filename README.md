@@ -62,6 +62,69 @@ You can embed this interceptor as a starting point so you only need to define ex
 [chain.go]( https://github.com/pion/interceptor/blob/master/chain.go) is used to combine multiple interceptors into one. They are called
 sequentially as the packet moves through them.
 
+### One-shot padding probe clusters (GCC)
+`gcc.SendSideBWE` can run a one-shot padding probe cluster when the audio/video
+bitrate itself is too low to produce a dense enough packet train for a real
+bandwidth sample. The probe packets are RTP padding-only packets that share the
+media streams' `twcc.HeaderExtensionInterceptor` (so transport-wide sequence
+numbers come from one space) and are measured through the regular TWCC feedback
+path. The result is exposed via `GetStats`/`LatestProbeResult` and does **not**
+change the GCC target bitrate by itself.
+
+```go
+pacer := gcc.NewLeakyBucketPacer(1_000_000)
+bwe, _ := gcc.NewSendSideBWE(gcc.SendSideBWEPacer(pacer))
+hdrExt := &twcc.HeaderExtensionInterceptor{}
+
+// Locally synthesized audio/video: bind each media stream as usual, sharing
+// the one HeaderExtensionInterceptor with the probe stream.
+mediaInfo := &interceptor.StreamInfo{
+    SSRC: 100, PayloadType: 111, ClockRate: 48000,
+    RTPHeaderExtensions: []interceptor.RTPHeaderExtension{
+        {URI: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01", ID: 1},
+    },
+}
+mediaWriter := hdrExt.BindLocalStream(mediaInfo, bwe.AddStream(mediaInfo, rtpSink))
+_ = mediaWriter // write synthesized RTP here
+
+// The padding stream must be negotiated with the peer beforehand: it uses an
+// application-reserved SSRC/payload type that the receiver must not expect to
+// carry decodable media. ClockRate is the RTP clock rate in Hz (ticks per
+// second, e.g. 90000 for video, 48000 for Opus audio); probe RTP timestamps
+// are derived from it and the RTPTimeBase/LocalTimeBase pair.
+err := bwe.EnableProbeStream(gcc.ProbeStreamConfig{
+    SSRC: 4001, PayloadType: 127, ClockRate: 90000,
+    InitialSequenceNumber: 1,
+    RTPTimeBase:           0,
+    LocalTimeBase:         time.Now(),
+    TWCCExtensionID:       1,
+    HeaderExtension:       hdrExt,
+    Writer:                rtpSink,
+})
+if err != nil {
+    panic(err)
+}
+
+// One cluster at a time: target 2 Mbit/s, 200 padding bytes per packet
+// (220 bytes on the wire), 32 packets, 2s timeout.
+clusterID, err := bwe.StartProbe(gcc.ProbeConfig{
+    TargetBitrate: 2_000_000,
+    PaddingBytes:  200,
+    Packets:       32,
+    Timeout:       2 * time.Second,
+})
+if err != nil {
+    panic(err)
+}
+_ = clusterID
+
+// Later, after the cluster succeeded, was canceled or timed out:
+if result, ok := bwe.LatestProbeResult(); ok {
+    fmt.Printf("probe cluster %d: %s, %d/%d packets received, %d bit/s\n",
+        result.ClusterID, result.Status, result.Received, result.Sent, result.Bitrate)
+}
+```
+
 ### Examples
 The [examples](https://github.com/pion/interceptor/blob/master/examples) directory provides some basic examples. If you need more please file an issue!
 You should also look in [pion/webrtc](https://github.com/pion/webrtc) for real world examples.

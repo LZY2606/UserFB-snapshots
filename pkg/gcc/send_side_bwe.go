@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/interceptor"
@@ -55,6 +56,10 @@ type SendSideBWE struct {
 	latestBitrate int
 	minBitrate    int
 	maxBitrate    int
+
+	mediaSSRCs    map[uint32]struct{}
+	probe         atomic.Pointer[probeEngine]
+	onProbeResult func(ProbeResult)
 
 	close     chan struct{}
 	closeLock sync.RWMutex
@@ -123,6 +128,7 @@ func NewSendSideBWE(opts ...Option) (*SendSideBWE, error) {
 		latestBitrate:         latestBitrate,
 		minBitrate:            minBitrate,
 		maxBitrate:            maxBitrate,
+		mediaSSRCs:            map[uint32]struct{}{},
 		close:                 make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -160,6 +166,10 @@ func (e *SendSideBWE) AddStream(info *interceptor.StreamInfo, writer interceptor
 		}
 	}
 
+	e.lock.Lock()
+	e.mediaSSRCs[info.SSRC] = struct{}{}
+	e.lock.Unlock()
+
 	e.pacer.AddStream(info.SSRC, interceptor.RTPWriterFunc(
 		func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
 			if hdrExtID != 0 {
@@ -177,6 +187,103 @@ func (e *SendSideBWE) AddStream(info *interceptor.StreamInfo, writer interceptor
 	))
 
 	return e.pacer
+}
+
+// EnableProbeStream reserves a dedicated stream for one-shot padding probe
+// clusters. Probing is disabled until this is called. The probe stream shares
+// the media HeaderExtensionInterceptor so transport sequence numbers come from
+// a single space, and requires a Pacer that supports probe scheduling (the
+// LeakyBucketPacer does).
+func (e *SendSideBWE) EnableProbeStream(cfg ProbeStreamConfig) error {
+	if cfg.ClockRate == 0 ||
+		cfg.TWCCExtensionID < probeMinTWCCExtID || cfg.TWCCExtensionID > probeMaxTWCCExtID ||
+		cfg.HeaderExtension == nil || cfg.Writer == nil {
+		return ErrProbeStreamInvalid
+	}
+
+	e.lock.Lock()
+	_, conflict := e.mediaSSRCs[cfg.SSRC]
+	e.lock.Unlock()
+	if conflict {
+		return ErrProbeSSRCConflict
+	}
+
+	pacer, ok := e.pacer.(probePacer)
+	if !ok {
+		return ErrProbePacerUnsupported
+	}
+	if old := e.probe.Load(); old != nil && old.hasActiveCluster() {
+		return ErrProbeActive
+	}
+
+	nowFn := cfg.Now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	info := &interceptor.StreamInfo{
+		SSRC:        cfg.SSRC,
+		PayloadType: cfg.PayloadType,
+		ClockRate:   cfg.ClockRate,
+		RTPHeaderExtensions: []interceptor.RTPHeaderExtension{
+			{URI: transportCCURI, ID: int(cfg.TWCCExtensionID)},
+		},
+	}
+	writer := cfg.HeaderExtension.BindLocalStream(info, cfg.Writer)
+	engine := newProbeEngine(cfg, writer, e.feedbackAdapter, nowFn)
+
+	e.lock.Lock()
+	engine.setOnResult(e.onProbeResult)
+	e.lock.Unlock()
+
+	pacer.setProbeEngine(engine)
+	e.probe.Store(engine)
+
+	return nil
+}
+
+// StartProbe starts a one-shot padding probe cluster and returns its cluster
+// ID. At most one cluster is in flight at a time; on invalid configuration or
+// an in-flight cluster an error is returned and the previous state is kept.
+func (e *SendSideBWE) StartProbe(cfg ProbeConfig) (uint64, error) {
+	engine := e.probe.Load()
+	if engine == nil {
+		return 0, ErrProbeNotEnabled
+	}
+
+	return engine.start(cfg)
+}
+
+// CancelProbe cancels the in-flight probe cluster and publishes a canceled
+// result. A new cluster may be started immediately afterwards.
+func (e *SendSideBWE) CancelProbe() error {
+	engine := e.probe.Load()
+	if engine == nil {
+		return ErrProbeNotEnabled
+	}
+
+	return engine.cancel()
+}
+
+// LatestProbeResult returns the most recently finished probe cluster result.
+func (e *SendSideBWE) LatestProbeResult() (ProbeResult, bool) {
+	engine := e.probe.Load()
+	if engine == nil {
+		return ProbeResult{}, false
+	}
+
+	return engine.latestResult()
+}
+
+// OnProbeResult sets a callback that is invoked once whenever a probe cluster
+// finishes. The callback never runs while the cluster state lock is held. The
+// result is not used to change the GCC target bitrate automatically.
+func (e *SendSideBWE) OnProbeResult(f func(ProbeResult)) {
+	e.lock.Lock()
+	e.onProbeResult = f
+	e.lock.Unlock()
+	if engine := e.probe.Load(); engine != nil {
+		engine.setOnResult(f)
+	}
 }
 
 // WriteRTCP adds some RTCP feedback to the bandwidth estimator.
@@ -200,6 +307,11 @@ func (e *SendSideBWE) WriteRTCP(pkts []rtcp.Packet, _ interceptor.Attributes) er
 			acks, err = e.feedbackAdapter.OnTransportCCFeedback(now, fb)
 			if err != nil {
 				return err
+			}
+			if engine := e.probe.Load(); engine != nil {
+				// Probe ACKs feed the in-flight cluster and must not enter
+				// the media loss/delay control samples.
+				acks = engine.filterAcks(acks)
 			}
 			for i, ack := range acks {
 				if i == 0 {
@@ -251,7 +363,7 @@ func (e *SendSideBWE) GetStats() map[string]any {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	return map[string]any{
+	stats := map[string]any{
 		"lossTargetBitrate":  e.latestStats.LossStats.TargetBitrate,
 		"averageLoss":        e.latestStats.AverageLoss,
 		"delayTargetBitrate": e.latestStats.DelayStats.TargetBitrate,
@@ -261,6 +373,13 @@ func (e *SendSideBWE) GetStats() map[string]any {
 		"usage":              e.latestStats.Usage.String(),
 		"state":              e.latestStats.State.String(),
 	}
+	if engine := e.probe.Load(); engine != nil {
+		if result, ok := engine.latestResult(); ok {
+			stats["probeResult"] = result
+		}
+	}
+
+	return stats
 }
 
 // OnTargetBitrateChange sets the callback that is called when the target
@@ -288,6 +407,10 @@ func (e *SendSideBWE) Close() error {
 		return err
 	}
 	close(e.close)
+
+	if engine := e.probe.Load(); engine != nil {
+		engine.close()
+	}
 
 	return e.pacer.Close()
 }

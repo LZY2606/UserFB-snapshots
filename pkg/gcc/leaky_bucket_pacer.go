@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/interceptor"
@@ -44,14 +45,32 @@ type LeakyBucketPacer struct {
 	writerLock   sync.RWMutex
 
 	pool *sync.Pool
+
+	// lastSent drives the pacing budget. It lives on the struct so the real
+	// ticker and manual Ticks share the same production scheduling logic.
+	lastSent time.Time
+	manual   bool
+	probe    atomic.Pointer[probeEngine]
+}
+
+// LeakyBucketPacerOption configures a LeakyBucketPacer.
+type LeakyBucketPacerOption func(*LeakyBucketPacer)
+
+// LeakyBucketPacerManualTicks disables the background pacing goroutine. The
+// pacer then only makes progress when Tick is called, which runs the same
+// per-tick scheduling logic as the real ticker.
+func LeakyBucketPacerManualTicks() LeakyBucketPacerOption {
+	return func(p *LeakyBucketPacer) {
+		p.manual = true
+	}
 }
 
 // NewLeakyBucketPacer initializes a new LeakyBucketPacer.
-func NewLeakyBucketPacer(initialBitrate int) *LeakyBucketPacer {
-	return newLeakyBucketPacer(initialBitrate, logging.NewDefaultLoggerFactory())
+func NewLeakyBucketPacer(initialBitrate int, opts ...LeakyBucketPacerOption) *LeakyBucketPacer {
+	return newLeakyBucketPacer(initialBitrate, logging.NewDefaultLoggerFactory(), opts...)
 }
 
-func newLeakyBucketPacer(initialBitrate int, loggerFactory logging.LoggerFactory) *LeakyBucketPacer {
+func newLeakyBucketPacer(initialBitrate int, loggerFactory logging.LoggerFactory, opts ...LeakyBucketPacerOption) *LeakyBucketPacer {
 	pacer := &LeakyBucketPacer{
 		log:            loggerFactory.NewLogger("pacer"),
 		f:              1.5,
@@ -70,8 +89,13 @@ func newLeakyBucketPacer(initialBitrate int, loggerFactory logging.LoggerFactory
 			return &b
 		},
 	}
-
-	go pacer.Run()
+	for _, opt := range opts {
+		opt(pacer)
+	}
+	if !pacer.manual {
+		pacer.lastSent = time.Now()
+		go pacer.Run()
+	}
 
 	return pacer
 }
@@ -133,32 +157,61 @@ func (p *LeakyBucketPacer) Run() {
 	ticker := time.NewTicker(p.pacingInterval)
 	defer ticker.Stop()
 
-	lastSent := time.Now()
 	for {
 		select {
 		case <-p.done:
 			return
 		case now := <-ticker.C:
-			budget := int(float64(now.Sub(lastSent).Milliseconds()) * float64(p.getTargetBitrate()) / 8000.0)
-			p.qLock.Lock()
-			for p.queue.Len() != 0 && budget > 0 {
-				next, ok := p.queue.Front().Value.(*item)
-				if !ok {
-					p.log.Warnf("failed to access leaky bucket pacer queue, cast failed")
-					p.queue.Remove(p.queue.Front())
-
-					continue
-				}
-				p.queue.Remove(p.queue.Front())
-				p.qLock.Unlock()
-				budget -= p.write(next)
-				lastSent = now
-				p.pool.Put(next.payload)
-				p.qLock.Lock()
-			}
-			p.qLock.Unlock()
+			p.tick(now)
 		}
 	}
+}
+
+// Tick advances a manually clocked pacer to now. It is a no-op unless the
+// pacer was created with LeakyBucketPacerManualTicks.
+func (p *LeakyBucketPacer) Tick(now time.Time) {
+	if !p.manual {
+		p.log.Warnf("Tick called on a pacer with a real ticker, ignoring")
+
+		return
+	}
+	p.tick(now)
+}
+
+// tick runs one scheduling step: the media queue drains within its budget
+// first, then a single due probe packet may be attempted.
+func (p *LeakyBucketPacer) tick(now time.Time) {
+	if p.lastSent.IsZero() {
+		p.lastSent = now
+	}
+	budget := int(float64(now.Sub(p.lastSent).Milliseconds()) * float64(p.getTargetBitrate()) / 8000.0)
+	p.qLock.Lock()
+	for p.queue.Len() != 0 && budget > 0 {
+		next, ok := p.queue.Front().Value.(*item)
+		if !ok {
+			p.log.Warnf("failed to access leaky bucket pacer queue, cast failed")
+			p.queue.Remove(p.queue.Front())
+
+			continue
+		}
+		p.queue.Remove(p.queue.Front())
+		p.qLock.Unlock()
+		budget -= p.write(next)
+		p.lastSent = now
+		p.pool.Put(next.payload)
+		p.qLock.Lock()
+	}
+	p.qLock.Unlock()
+
+	if engine := p.probe.Load(); engine != nil {
+		engine.maybeAttempt(now)
+	}
+}
+
+// setProbeEngine attaches the padding probe engine that is consulted once per
+// tick after the media budget. It implements probePacer.
+func (p *LeakyBucketPacer) setProbeEngine(engine *probeEngine) {
+	p.probe.Store(engine)
 }
 
 func (p *LeakyBucketPacer) write(next *item) int {
