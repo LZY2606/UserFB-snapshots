@@ -52,6 +52,12 @@ LTCDecoder* ltc_decoder_create(int apv, int queue_len) {
 		free(d);
 		return NULL;
 	}
+	d->clock_queue = (LTCFrameClock*) calloc(d->queue_len, sizeof(LTCFrameClock));
+	if (!d->clock_queue) {
+		free(d->queue);
+		free(d);
+		return NULL;
+	}
 	d->biphase_state = 1;
 	d->snd_to_biphase_period = apv / 80;
 	d->snd_to_biphase_lmt = (d->snd_to_biphase_period * 3) / 4;
@@ -60,12 +66,16 @@ LTCDecoder* ltc_decoder_create(int apv, int queue_len) {
 	d->snd_to_biphase_max = SAMPLE_CENTER;
 	d->frame_start_prev = -1;
 	d->biphase_tic = 0;
+	d->edge_total = 0;
+	d->tick_raw = 0;
+	d->tick_level = 0;
 
 	return d;
 }
 
 int ltc_decoder_free(LTCDecoder *d) {
 	if (!d) return 1;
+	if (d->clock_queue) free(d->clock_queue);
 	if (d->queue) free(d->queue);
 	free(d);
 
@@ -114,6 +124,25 @@ int ltc_decoder_read(LTCDecoder* d, LTCFrameExt* frame) {
 		return 1;
 	}
 	return 0;
+}
+
+int ltc_decoder_read_clocked(LTCDecoder* d, LTCFrameExt* frame, LTCFrameClock *clock) {
+	int slot;
+	if (!d || !frame || !clock) return -1;
+	if (d->queue_read_off == d->queue_write_off) {
+		return 0;
+	}
+	if (d->queue_read_off == d->queue_len) {
+		d->queue_read_off = 0;
+	}
+	slot = d->queue_read_off;
+	memcpy(frame, &d->queue[slot], sizeof(LTCFrameExt));
+	/* the clock is stored in a parallel slot, so LTCFrameExt layout
+	 * is unchanged; copy it as one paired unit with the frame.
+	 */
+	memcpy(clock, &d->clock_queue[slot], sizeof(LTCFrameClock));
+	d->queue_read_off++;
+	return 1;
 }
 
 void ltc_decoder_queue_flush(LTCDecoder* d) {

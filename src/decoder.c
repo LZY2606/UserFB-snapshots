@@ -81,7 +81,6 @@
 #include <math.h>
 
 #include "decoder.h"
-
 #define DEBUG_DUMP(msg, f) \
 { \
 	int _ii; \
@@ -118,8 +117,102 @@ static double calc_volume_db(LTCDecoder *d) {
 	return (20.0 * log10((d->snd_to_biphase_max - d->snd_to_biphase_min) / 255.0));
 }
 
+/* Store the measured edge of one decoded bit start. Called from
+ * parse_ltc, using the raw transition position captured before
+ * tracker smoothing. Consecutive zero-bit double ticks share one
+ * position and are collapsed, keeping the ring at one entry per bit.
+ * The level is read from the sample itself (relative to center), so
+ * a globally polarity-inverted recording is handled correctly.
+ */
+static inline void record_edge(LTCDecoder *d) {
+	if (d->edge_total > 0) {
+		const int last_slot = (int)((d->edge_total - 1) % LTC_EDGE_RING_SIZE);
+		if (d->edge_ring[last_slot] == d->tick_raw) {
+			d->edge_level_ring[last_slot] = d->tick_level;
+			return;
+		}
+	}
+	{
+		const int slot = (int)(d->edge_total % LTC_EDGE_RING_SIZE);
+		d->edge_ring[slot] = d->tick_raw;
+		d->edge_level_ring[slot] = d->tick_level ? 1 : 0;
+		d->edge_total++;
+	}
+}
+
+static inline ltc_off_t ring_edge(LTCDecoder *d, long long age) {
+	/* age 0 = most recently recorded tick */
+	long long idx = d->edge_total - 1 - age;
+	return d->edge_ring[((idx % LTC_EDGE_RING_SIZE) + LTC_EDGE_RING_SIZE)
+			% LTC_EDGE_RING_SIZE];
+}
+
+static inline unsigned char ring_level(LTCDecoder *d, long long age) {
+	long long idx = d->edge_total - 1 - age;
+	return d->edge_level_ring[((idx % LTC_EDGE_RING_SIZE) + LTC_EDGE_RING_SIZE)
+			% LTC_EDGE_RING_SIZE];
+}
+
+/* Validate that 81 time-ordered edges are strictly increasing with
+ * at least two samples per bit.
+ */
+static int grid_usable(const LTCFrameClock *clock) {
+	int k;
+	if (!clock->valid) return 0;
+	for (k = 0; k < LTC_FRAME_BIT_COUNT; ++k) {
+		if (clock->edge[k + 1] - clock->edge[k] < 2) return 0;
+	}
+	return 1;
+}
+
+/* Forward frame: the current tick is the frame's edge[80], so the
+ * grid looks back 80..0 ticks. Requires 81 observed ticks; the first
+ * frame of a stream lacks them and is published with valid=0.
+ */
+static void publish_forward_clock(LTCDecoder *d, int slot) {
+	LTCFrameClock *clock = &d->clock_queue[slot];
+	int k;
+	memset(clock, 0, sizeof(LTCFrameClock));
+	if (d->edge_total < LTC_FRAME_BIT_COUNT + 1) {
+		return;
+	}
+	for (k = 0; k <= LTC_FRAME_BIT_COUNT; ++k) {
+		clock->edge[k] = ring_edge(d, LTC_FRAME_BIT_COUNT - k);
+	}
+	clock->start_high = ring_level(d, LTC_FRAME_BIT_COUNT);
+	clock->valid = 1;
+	if (!grid_usable(clock)) {
+		memset(clock, 0, sizeof(LTCFrameClock));
+	}
+}
+
+/* Reverse frame: the reverse sync word is only recognized once the
+ * next (tape-forward previous) frame's sync bits appear, 16 ticks
+ * after this tag finished. The tag's 80 bits therefore look back
+ * 96..16 ticks. The 16 intervening ticks belong to the adjacent
+ * frame and are deliberately excluded.
+ */
+static void publish_reverse_clock(LTCDecoder *d, int slot) {
+	LTCFrameClock *clock = &d->clock_queue[slot];
+	int k;
+	memset(clock, 0, sizeof(LTCFrameClock));
+	if (d->edge_total < 97) {
+		return;
+	}
+	for (k = 0; k <= LTC_FRAME_BIT_COUNT; ++k) {
+		clock->edge[k] = ring_edge(d, 96 - k);
+	}
+	clock->start_high = ring_level(d, 96);
+	clock->valid = 1;
+	if (!grid_usable(clock)) {
+		memset(clock, 0, sizeof(LTCFrameClock));
+	}
+}
+
 static void parse_ltc(LTCDecoder *d, unsigned char bit, ltc_off_t offset, ltc_off_t posinfo) {
 	int bit_num, bit_set, byte_num;
+
+	record_edge(d);
 
 	if (d->bit_cnt == 0) {
 		memset(&d->ltc_frame, 0, sizeof(LTCFrame));
@@ -200,6 +293,7 @@ static void parse_ltc(LTCDecoder *d, unsigned char bit, ltc_off_t offset, ltc_of
 			d->queue[d->queue_write_off].sample_min = d->snd_to_biphase_min;
 			d->queue[d->queue_write_off].sample_max = d->snd_to_biphase_max;
 
+			publish_forward_clock(d, d->queue_write_off);
 			d->queue_write_off++;
 
 		}
@@ -256,14 +350,18 @@ static void parse_ltc(LTCDecoder *d, unsigned char bit, ltc_off_t offset, ltc_of
 			d->queue[d->queue_write_off].sample_min = d->snd_to_biphase_min;
 			d->queue[d->queue_write_off].sample_max = d->snd_to_biphase_max;
 
+			publish_reverse_clock(d, d->queue_write_off);
 			d->queue_write_off++;
 		}
 		d->bit_cnt = 0;
 	}
 }
 
-static inline void biphase_decode2(LTCDecoder *d, ltc_off_t offset, ltc_off_t pos) {
+static inline void biphase_decode2(LTCDecoder *d, ltc_off_t offset, ltc_off_t pos, unsigned char level) {
 
+	/* capture the raw transition before the smoothing correction below */
+	d->tick_raw = pos + (ltc_off_t) offset;
+	d->tick_level = level ? 1 : 0;
 	d->biphase_tics[d->biphase_tic] = d->snd_to_biphase_period;
 	d->biphase_tic = (d->biphase_tic + 1) % LTC_FRAME_BIT_COUNT;
 	if (d->snd_to_biphase_cnt <= 2 * d->snd_to_biphase_period) {
@@ -309,15 +407,16 @@ void decode_ltc(LTCDecoder *d, ltcsnd_sample_t *sound, size_t size, ltc_off_t po
 			/* If the sample count has risen above the biphase length limit */
 			if (d->snd_to_biphase_cnt > d->snd_to_biphase_lmt) {
 				/* single state change within a biphase priod. decode to a 0 */
-				biphase_decode2(d, i, posinfo);
-				biphase_decode2(d, i, posinfo);
+				const unsigned char level = (sound[i] >= SAMPLE_CENTER) ? 1 : 0;
+				biphase_decode2(d, i, posinfo, level);
+				biphase_decode2(d, i, posinfo, level);
 
 			} else {
 				/* "short" state change covering half a period
 				 * together with the next or previous state change decode to a 1
 				 */
 				d->snd_to_biphase_cnt *= 2;
-				biphase_decode2(d, i, posinfo);
+				biphase_decode2(d, i, posinfo, (sound[i] >= SAMPLE_CENTER) ? 1 : 0);
 
 			}
 

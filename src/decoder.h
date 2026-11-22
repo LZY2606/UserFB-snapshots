@@ -23,8 +23,15 @@
 #define SAMPLE_CENTER 128 // unsigned 8 bit.
 #endif
 
+/** Measured-edge ring. A forward grid looks back at most 80 ticks,
+ *  a reverse grid 96 ticks; 128 leaves headroom while a completed
+ *  grid is always copied out before its slots can be overwritten.
+ */
+#define LTC_EDGE_RING_SIZE 128
+
 struct LTCDecoder {
 	LTCFrameExt* queue;
+	LTCFrameClock* clock_queue; ///< measured bit-grids, parallel to queue slots
 	int queue_len;
 	int queue_read_off;
 	int queue_write_off;
@@ -48,6 +55,20 @@ struct LTCDecoder {
 
 	float biphase_tics[LTC_FRAME_BIT_COUNT];
 	int biphase_tic;
+
+	/* Raw bit-start measurements. One entry is recorded per
+	 * parse_ltc call (one per decoded bit, at the bit's start edge)
+	 * using the transition position before tracker smoothing, so
+	 * these are actual sample positions - never re-derived from a
+	 * nominal frame-rate or the smoothed biphase period. Consecutive
+	 * duplicate ticks (a zero bit's double tick at one position) are
+	 * collapsed to a single entry.
+	 */
+	ltc_off_t edge_ring[LTC_EDGE_RING_SIZE];
+	unsigned char edge_level_ring[LTC_EDGE_RING_SIZE]; ///< physical level at that edge, 0/1
+	long long edge_total; ///< number of distinct bit-start edges recorded
+	ltc_off_t tick_raw; ///< raw (unsmoothed) position of the current biphase tick
+	unsigned char tick_level; ///< physical level entered at tick_raw
 };
 
 

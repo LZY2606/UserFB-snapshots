@@ -313,6 +313,40 @@ struct LTCFrameExt {
 typedef struct LTCFrameExt LTCFrameExt;
 
 /**
+ * Measured bit-grid of one complete 80-bit LTC frame.
+ *
+ * Unlike the smoothed tracker estimates in
+ * \ref LTCFrameExt.biphase_tics, these edges are the actual
+ * sample positions at which the biphase transitions were observed
+ * in the recording. They must not be re-derived from a nominal
+ * frame-rate or smoothed period.
+ *
+ * \p edge holds 81 strictly increasing positions in recording
+ * time-order: \p edge[0] is the sample of the first bit-start
+ * transition of the frame, \p edge[80] is the exclusive end
+ * (the first sample of the following frame). Bit \p b occupies
+ * samples [edge[b], edge[b+1]).
+ *
+ * \p start_high is the logical level of the sample at \p edge[0]:
+ * 1 for the high level, 0 for the low level.
+ *
+ * \p valid is 1 only when all 81 edges were observed for the
+ * frame. When 0, the remaining fields are zeroed and the frame
+ * (e.g. one captured with insufficient history at stream start)
+ * is still returned normally.
+ */
+struct LTCFrameClock {
+	ltc_off_t edge[LTC_FRAME_BIT_COUNT + 1]; ///< 80 measured bit starts plus the exclusive end, in recording time-order
+	int valid; ///< 1 if all 81 edges were measured, 0 otherwise
+	unsigned char start_high; ///< level (0/1) of the sample at edge[0]
+};
+
+/**
+ * see \ref LTCFrameClock
+ */
+typedef struct LTCFrameClock LTCFrameClock;
+
+/**
  * Human readable time representation, decimal values.
  */
 struct SMPTETimecode {
@@ -496,6 +530,36 @@ void ltc_decoder_write_u16(LTCDecoder *d, unsigned short *buf, size_t size, ltc_
  * @return 1 on success or 0 when no frames queued.
  */
 int ltc_decoder_read(LTCDecoder *d, LTCFrameExt *frame);
+
+/**
+ * Retrieve a decoded frame together with its measured bit-grid.
+ *
+ * This consumes the same queue as \ref ltc_decoder_read: a frame
+ * taken by either call is gone for both, and mixing the two calls
+ * (including across queue wrap-around) always returns each queued
+ * frame exactly once as a frame/clock pair.
+ *
+ * On success 1 is returned and both outputs are filled. When the
+ * queue is empty 0 is returned and the outputs are not modified.
+ *
+ * Frames captured without enough edge history are still returned.
+ * For those \p clock->valid is 0 and all other \p clock fields are
+ * zero. Stable frames always report \p clock->valid = 1 and the 81
+ * measured edges of exactly the 80 bits the tag occupies.
+ *
+ * For reverse-played frames the grid is reassigned to the 80 bits
+ * of the tag the sync word identifies: the adjacent frame's 16
+ * sync bits never leak into the edges.
+ *
+ * Flushing the queue only discards completed output; edges still
+ * being collected for the frame under construction are preserved.
+ *
+ * @param d decoder handle
+ * @param frame the decoded LTC frame is copied there
+ * @param clock the measured bit-grid is copied there, or zeroed with valid=0
+ * @return 1 on success, 0 when no frame is queued, -1 on a NULL argument
+ */
+int ltc_decoder_read_clocked(LTCDecoder *d, LTCFrameExt *frame, LTCFrameClock *clock);
 
 /**
  * Remove all LTC frames from the internal queue.
@@ -874,6 +938,66 @@ void ltc_encoder_encode_frame(LTCEncoder *e);
  * @param e encoder handle
  */
 void ltc_encoder_encode_reversed_frame(LTCEncoder *e);
+
+/**
+ * Render a new LTC label onto a measured bit-grid.
+ *
+ * The function writes unfiltered two-level 8-bit PCM that follows
+ * \p clock exactly: no bit start is ever moved. It does not use an
+ * \ref LTCEncoder handle and never modifies the caller's objects.
+ *
+ * At every bit start the level toggles; for a bit value of 1 it
+ * toggles again at floor(width/2) samples into the bit, where
+ * width is edge[b+1] - edge[b]. The level of the first output
+ * sample is given by \p clock->start_high.
+ *
+ * Forward rendering sends label bits 0..79 in order; reverse
+ * rendering sends bits 79..0. The first 64 bits are laid out per
+ * the \ref LTCFrame field semantics (no reliance on native
+ * bitfield memory layout). The last 16 bits are always the sync
+ * word sent forward as 0011111111111101; the label's stored
+ * sync_word may be either 0xBFFC (forward init representation)
+ * or 0xFCBF (reverse-decoded representation) and is normalized
+ * before rendering. The send direction then depends solely on
+ * \p reverse.
+ *
+ * A copy of the label has its parity corrected for \p standard
+ * before rendering; the remaining label and user bits are kept
+ * and the caller's \p label is not modified.
+ *
+ * Parameter rules:
+ * - \p clock->valid must be 1, \p clock->start_high must be 0 or 1.
+ * - the 81 edges must be strictly increasing and every bit must
+ *   span at least two samples.
+ * - \p standard must be one of the four \ref LTC_TV_STANDARD values.
+ * - \p reverse must be 0 or 1.
+ * - \p low < 128 < \p high.
+ * - \p length must equal edge[80] - edge[0].
+ * - absolute sample positions may exceed 32 bits; every span
+ *   computation is overflow-checked.
+ *
+ * On any error (NULL pointer, invalid parameter, length mismatch
+ * or span overflow) -1 is returned and \p output is left
+ * untouched. On success 0 is returned.
+ *
+ * @param label the LTC label to render (not modified)
+ * @param clock measured bit-grid to render onto
+ * @param standard TV standard used for parity correction
+ * @param reverse 0 for forward bit order, 1 for reversed
+ * @param low output sample value for the low logical level
+ * @param high output sample value for the high logical level
+ * @param output destination buffer, untouched on failure
+ * @param length buffer length in samples, must equal edge[80]-edge[0]
+ * @return 0 on success, -1 on failure
+ */
+int ltc_encoder_render_clocked(const LTCFrame *label,
+		const LTCFrameClock *clock,
+		enum LTC_TV_STANDARD standard,
+		int reverse,
+		ltcsnd_sample_t low,
+		ltcsnd_sample_t high,
+		ltcsnd_sample_t *output,
+		size_t length);
 
 /**
  * Set the parity of the LTC frame.
