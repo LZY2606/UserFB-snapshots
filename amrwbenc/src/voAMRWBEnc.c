@@ -41,6 +41,53 @@
 
 #define UNUSED(x) (void)(x)
 
+#ifdef TASK_FRONTEND_TEST
+#include "frontend_observe.h"
+
+/* Read-only observation hook: compiled in only for the regression target.
+ * It never feeds anything back into the coder state. */
+static FrontendObserver frontend_observer;
+
+void frontend_set_observer(FrontendObserver observer)
+{
+	frontend_observer = observer;
+}
+
+static void frontend_emit(void *coder, Word16 stage,
+                          const Word16 *samples, Word16 sample_count,
+                          const Word16 *mem_decim, const Word16 *mem_sig_in,
+                          Word16 mem_preemph, Word16 q_new, Word16 q_old,
+                          Word16 q_max0, Word16 q_max1,
+                          const Word16 *old_speech, const Word16 *past)
+{
+	FrontendStageRecord rec;
+	Word16 i;
+
+	if (frontend_observer == NULL)
+		return;
+	if (sample_count > FE_OBS_SAMPLES)
+		sample_count = FE_OBS_SAMPLES;
+	for (i = 0; i < sample_count; i++)
+		rec.samples[i] = samples[i];
+	for (; i < FE_OBS_SAMPLES; i++)
+		rec.samples[i] = 0;
+	for (i = 0; i < FE_OBS_DECIM_MEM; i++)
+		rec.mem_decim[i] = (mem_decim != NULL) ? mem_decim[i] : 0;
+	for (i = 0; i < FE_OBS_SIG_MEM; i++)
+		rec.mem_sig_in[i] = (mem_sig_in != NULL) ? mem_sig_in[i] : 0;
+	rec.mem_preemph = mem_preemph;
+	rec.q_new = q_new;
+	rec.q_old = q_old;
+	rec.q_max0 = q_max0;
+	rec.q_max1 = q_max1;
+	for (i = 0; i < FE_OBS_OLD; i++)
+		rec.old_speech[i] = (old_speech != NULL) ? old_speech[i] : 0;
+	for (i = 0; i < FE_OBS_PAST; i++)
+		rec.past_scaled[i] = (past != NULL) ? past[i] : 0;
+	frontend_observer(coder, stage, &rec);
+}
+#endif /* TASK_FRONTEND_TEST */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -211,8 +258,14 @@ void coder(
 
 	Word16 corr_gain;
 	Word16 *vo_p0, *vo_p1, *vo_p2, *vo_p3;
+#ifdef TASK_FRONTEND_TEST
+	Word16 fe_q_old_prev;
+#endif
 
 	st = (Coder_State *) spe_state;
+#ifdef TASK_FRONTEND_TEST
+	fe_q_old_prev = st->Q_old;
+#endif
 
 	*ser_size = nb_of_bits[*mode];
 	codec_mode = *mode;
@@ -260,6 +313,11 @@ void coder(
 	Set_zero(error, L_FILT16k);            /* set next sample to zero */
 	Decim_12k8(error, L_FILT16k, new_speech + L_FRAME, code);
 
+#ifdef TASK_FRONTEND_TEST
+	frontend_emit(st, FE_STAGE_DECIM, new_speech, L_FRAME + L_FILT,
+	              st->mem_decim, NULL, 0, 0, 0, 0, 0, NULL, NULL);
+#endif
+
 	/*---------------------------------------------------------------*
 	 * Perform 50Hz HP filtering of input signal.                    *
 	 *---------------------------------------------------------------*/
@@ -269,6 +327,11 @@ void coder(
 	/* last L_FILT samples for autocorrelation window */
 	Copy(st->mem_sig_in, code, 6);
 	HP50_12k8(new_speech + L_FRAME, L_FILT, code);
+
+#ifdef TASK_FRONTEND_TEST
+	frontend_emit(st, FE_STAGE_HP, new_speech, L_FRAME + L_FILT,
+	              st->mem_decim, st->mem_sig_in, 0, 0, 0, 0, 0, NULL, NULL);
+#endif
 
 	/*---------------------------------------------------------------*
 	 * Perform fixed preemphasis through 1 - g z^-1                  *
@@ -352,6 +415,15 @@ void coder(
 	Scale_sig(st->mem_decim2, 3, exp);
 	Scale_sig(&(st->mem_wsp), 1, exp);
 	Scale_sig(&(st->mem_w0), 1, exp);
+
+#ifdef TASK_FRONTEND_TEST
+	/* Q_old has already been advanced; recover the previous value so the
+	 * observer can describe both ends of the two-frame Q constraint. */
+	frontend_emit(st, FE_STAGE_PREEMPH, new_speech, L_FRAME + L_FILT,
+	              st->mem_decim, st->mem_sig_in, st->mem_preemph,
+	              Q_new, fe_q_old_prev, st->Q_max[0], st->Q_max[1],
+	              old_speech, old_speech);
+#endif
 
 	/*------------------------------------------------------------------------*
 	 *  Call VAD                                                              *
@@ -1318,6 +1390,13 @@ void coder(
 	Copy(&old_speech[L_FRAME], st->old_speech, L_TOTAL - L_FRAME);
 	Copy(&old_wsp[L_FRAME / OPL_DECIM], st->old_wsp, PIT_MAX / OPL_DECIM);
 	Copy(&old_exc[L_FRAME], st->old_exc, PIT_MAX + L_INTERPOL);
+
+#ifdef TASK_FRONTEND_TEST
+	frontend_emit(st, FE_STAGE_END, new_speech, L_FRAME + L_FILT,
+	              st->mem_decim, st->mem_sig_in, st->mem_preemph,
+	              Q_new, fe_q_old_prev, st->Q_max[0], st->Q_max[1],
+	              st->old_speech, st->old_speech);
+#endif
 	return;
 }
 

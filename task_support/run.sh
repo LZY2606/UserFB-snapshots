@@ -7,7 +7,7 @@ mkdir -p .task-build
 cc -std=c99 -O1 -fwrapv -I. -Iamrwbenc/inc -Icommon/include task_baseline.c wrapper.c common/cmnMemory.c amrwbenc/src/*.c -o .task-build/baseline > .task-build/build.log 2>&1 || { tail -30 .task-build/build.log; exit 1; }
 if [[ $mode == target ]]; then
   cc -std=c99 -O1 -fwrapv -DTASK_FRONTEND_TEST -I. -Iamrwbenc/inc -Icommon/include task_support/driver.c tests/*.c wrapper.c common/cmnMemory.c amrwbenc/src/*.c -o .task-build/target > .task-build/target-build.log 2>&1 || { tail -30 .task-build/target-build.log; exit 1; }
-  output_log=$(mktemp)
+  output_log=$(mktemp -p "${TMPDIR:-/tmp}" 2>/dev/null || mktemp .task-build/output.XXXXXX)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

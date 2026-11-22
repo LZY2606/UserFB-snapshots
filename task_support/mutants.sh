@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bash task_support/run.sh target
-scratch=$(mktemp -d)
+scratch=$(mktemp -d -p "${TMPDIR:-/tmp}" 2>/dev/null || mktemp -d .task-build/mutants.XXXXXX)
 trap 'rm -rf "$scratch"' EXIT
 for kind in PreviewCommit PreemphPreview; do
   mkdir "$scratch/$kind"
