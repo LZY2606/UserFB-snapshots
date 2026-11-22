@@ -85,6 +85,7 @@
 		<File RelativePath="..\src\fft4g32.c" />
 		<File RelativePath="..\src\fft4g64.c" />
 		<File RelativePath="..\src\filter.c" />
+		<File RelativePath="..\src\peak.c" />
 		<File RelativePath="..\src\pffft32s.c" />
 		<File RelativePath="..\src\pffft64s.c" />
 		<File RelativePath="..\src\util32s.c" />

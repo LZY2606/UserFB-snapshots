@@ -9,6 +9,7 @@
 #include "soxr.h"
 #include "data-io.h"
 #include "internal.h"
+#include "peak.h"
 
 #if AVUTIL_FOUND
   #include <libavutil/cpu.h>
@@ -47,6 +48,9 @@ char const * soxr_version(void)
 typedef void sample_t; /* float or double */
 typedef void (* fn_t)(void);
 typedef fn_t control_block_t[10];
+
+/* Full-scale multiplier applied by the engine for each output datatype. */
+static double const peak_full_scale[] = {1., 1., 65536. * 32768., 32768.};
 
 #define resampler_input        (*(sample_t * (*)(void *, sample_t * samples, size_t   n))p->control_block[0])
 #define resampler_process      (*(void (*)(void *, size_t))p->control_block[1])
@@ -88,6 +92,11 @@ struct soxr {
   size_t clips;
   unsigned long seed;
   int flushing;
+
+  unsigned peak_window;             /* Configured W; 0 when not enabled. */
+  int peak_started;                 /* Input has been processed since set/clear. */
+  int peak_double;                  /* Engine emits double (vs. float) samples. */
+  soxr_peak_observer_t * peak;
 };
 
 
@@ -441,6 +450,7 @@ soxr_t soxr_create(
         ) {
       p->deinterleave = (deinterleave_t)_soxr_deinterleave_f;
       p->interleave = (interleave_t)_soxr_interleave_f;
+      p->peak_double = 0;
       control_block =
 #if WITH_VR32
           ((!WITH_CR32 && !WITH_CR32S) || (p->q_spec.flags & SOXR_VR))? &_soxr_vr32_cb :
@@ -458,6 +468,7 @@ soxr_t soxr_create(
     {
       p->deinterleave = (deinterleave_t)_soxr_deinterleave;
       p->interleave = (interleave_t)_soxr_interleave;
+      p->peak_double = 1;
       control_block =
 #if WITH_CR64S
           !WITH_CR64 || should_use_simd64()? &_soxr_rate64s_cb :
@@ -502,6 +513,7 @@ static void soxr_delete0(soxr_t p)
   free(p->resamplers);
   free(p->channel_ptrs);
   free(p->shared);
+  _soxr_peak_delete(p->peak);
 
   memset(p, 0, sizeof(*p));
 }
@@ -602,6 +614,9 @@ soxr_error_t soxr_clear(soxr_t p) /* TODO: this, properly. */
 {
   if (p) {
     struct soxr tmp = *p;
+    soxr_peak_observer_t * peak = p->peak;
+    unsigned peak_window = p->peak_window;
+    p->peak = 0;                 /* Kept across clear; delete0 must not free it. */
     soxr_delete0(p);
     memset(p, 0, sizeof(*p));
     p->input_fn = tmp.input_fn;
@@ -613,6 +628,11 @@ soxr_error_t soxr_clear(soxr_t p) /* TODO: this, properly. */
     memcpy(p->control_block, tmp.control_block, sizeof(p->control_block));
     p->deinterleave = tmp.deinterleave;
     p->interleave = tmp.interleave;
+    p->peak = peak;
+    p->peak_window = peak_window;
+    p->peak_started = 0;
+    p->peak_double = tmp.peak_double;
+    _soxr_peak_clear(peak);
     return (p->q_spec.flags & RESET_ON_CLEAR)?
       soxr_set_io_ratio(p, tmp.io_ratio, 0) : 0;
   }
@@ -629,6 +649,18 @@ static void soxr_input_1ch(soxr_t p, unsigned i, soxr_cbuf_t src, size_t len)
 
 
 
+/* True end-of-stream: once flushing has fully drained the engine, let the
+ * observer complete its final guard units (implicit trailing zeros).  Input
+ * starvation or zero-capacity output leaves soxr_delay() > 0, so it can not
+ * be mistaken for the end; repeated calls are handled by the observer. */
+static void soxr_peak_maybe_finish(soxr_t p)
+{
+  if (p->peak && p->flushing && soxr_delay(p) == 0.)
+    _soxr_peak_finish(p->peak);
+}
+
+
+
 static size_t soxr_input(soxr_t p, void const * in, size_t len)
 {
   bool separated = !!(p->io_spec.itype & SOXR_SPLIT);
@@ -639,6 +671,7 @@ static size_t soxr_input(soxr_t p, void const * in, size_t len)
     p->flushing = true;
     return 0;
   }
+  p->peak_started = 1;             /* Locks the peak-window configuration. */
   if (separated)
     for (i = 0; i < p->num_channels; ++i)
       soxr_input_1ch(p, i, ((soxr_cbufs_t)in)[i], len);
@@ -660,6 +693,12 @@ static size_t soxr_output_1ch(soxr_t p, unsigned i, soxr_buf_t dest, size_t len,
     resampler_flush(p->resamplers[i]);
   resampler_process(p->resamplers[i], len);
   src = resampler_output(p->resamplers[i], NULL, &len);
+  if (p->peak) {                       /* Before rounding/saturation/dither. */
+    if (p->peak_double)
+      _soxr_peak_store_channel_d(p->peak, i, (double const *)src, len);
+    else
+      _soxr_peak_store_channel_f(p->peak, i, (float const *)src, len);
+  }
   if (separated)
     p->clips += (p->interleave)(p->io_spec.otype, &dest, &src,
       len, 1, (p->io_spec.flags & SOXR_NO_DITHER)? 0 : &p->seed);
@@ -688,6 +727,7 @@ static size_t soxr_output_no_callback(soxr_t p, soxr_buf_t out, size_t len)
   for (u = 0; u < p->num_channels; ++u)
     done = soxr_output_1ch(p, u, ((soxr_bufs_t)out)[u], len, separated);
 
+  _soxr_peak_commit(p->peak, done);  /* One publication per engine block. */
   if (!separated)
     p->clips += (p->interleave)(p->io_spec.otype, &out, (sample_t const * const *)p->channel_ptrs,
         done, p->num_channels, (p->io_spec.flags & SOXR_NO_DITHER)? 0 : &p->seed);
@@ -721,6 +761,7 @@ size_t soxr_output(soxr_t p, void * out, size_t len0)
       p->error = "input function reported failure";
     else soxr_input(p, in, idone);
   } while (odone || idone || (!was_flushing && p->flushing));
+  soxr_peak_maybe_finish(p);
   return odone0;
 }
 
@@ -793,12 +834,16 @@ soxr_error_t soxr_process(soxr_t p,
         soxr_input_1ch(p, u, ((soxr_cbufs_t)in)[u], ilen);
       odone = soxr_output_1ch(p, u, ((soxr_bufs_t)out)[u], olen, true);
     }
+    if (in && ilen)
+      p->peak_started = 1;
+    _soxr_peak_commit(p->peak, odone);
     idone = ilen;
   }
   else {
     idone = ilen? soxr_input (p, in , ilen) : 0;
     odone = soxr_output(p, out, olen);
   }
+  soxr_peak_maybe_finish(p);
   if (idone0) *idone0 = idone;
   if (odone0) *odone0 = odone;
   return p->error;
@@ -839,4 +884,82 @@ soxr_error_t soxr_set_error(soxr_t p, soxr_error_t error)
   if (!p->error && p->error != error) return p->error;
   p->error = error;
   return 0;
+}
+
+
+
+soxr_error_t soxr_set_peak_window(soxr_t p, unsigned window)
+{
+  soxr_peak_observer_t * peak;
+  if (!p)
+    return "null pointer";
+  if (p->error)
+    return p->error;
+  if (window < SOXR_PEAK_WINDOW_MIN || window > SOXR_PEAK_WINDOW_MAX)
+    return "peak window out-of-range";
+  if (p->q_spec.flags & SOXR_VR)
+    return "peak observation is not supported in variable-rate mode";
+  if (p->peak_started)
+    return "peak window can not be changed while processing";
+
+  peak = p->peak? p->peak : _soxr_peak_create(p->num_channels);
+  if (!peak)
+    return "malloc failed";
+  if (!_soxr_peak_set_storage(peak, window,
+          peak_full_scale[p->io_spec.otype & 3])) {
+    if (!p->peak)
+      _soxr_peak_delete(peak);
+    return "malloc failed";
+  }
+  p->peak = peak;
+  p->peak_window = window;
+  p->peak_started = 0;
+  return 0;
+}
+
+
+
+static soxr_error_t soxr_peak_query0(soxr_t p, unsigned channel,
+    soxr_peak_info_t * info)
+{
+  unsigned winner = 0;
+  unsigned phase = 0;
+  uint64_t frame = 0;
+  double magnitude = 0.;
+  int valid;
+
+  if (!p)
+    return "null pointer";
+  if (!info)
+    return "null peak info pointer";
+  if (!p->peak || !p->peak_window)
+    return "peak window not configured";
+  if (channel > p->num_channels)
+    return "peak channel out-of-range";
+
+  valid = _soxr_peak_query(p->peak, channel,
+      &magnitude, &phase, &frame, &winner);
+  info->delivered = _soxr_peak_delivered(p->peak);
+  info->observed = _soxr_peak_completed(p->peak);
+  info->window_start = info->observed > p->peak_window?
+      info->observed - p->peak_window : 0;
+  info->valid = valid;
+  info->channel = winner;
+  info->phase = phase;
+  info->frame = frame;
+  info->magnitude = magnitude;
+  return 0;
+}
+
+soxr_error_t soxr_peak_query(soxr_t p, unsigned channel,
+    soxr_peak_info_t * info)
+{
+  return soxr_peak_query0(p, channel, info);
+}
+
+soxr_error_t soxr_peak_query_all(soxr_t p, soxr_peak_info_t * info)
+{
+  if (!p)
+    return "null pointer";
+  return soxr_peak_query0(p, p->num_channels, info);
 }

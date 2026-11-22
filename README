@@ -43,6 +43,51 @@ configuration to resample between 44100Hz and 48000Hz, the latency is
 around 1000 output samples, i.e. roughly 20ms (though passband and FFT-
 size configuration parameters may be used to reduce this figure).
 
+Streaming peak observation
+---------------------------
+
+In addition to the delivered PCM, a fixed-ratio resampler can optionally
+report the largest normalised magnitude seen over a sliding window of the
+most recent output, together with its exact position.  This is a true
+interpolated peak (not a count of integer clips, and not a scan of the
+caller's already-quantised samples): each integer output frame is examined
+at four phases -- the integer sample and three quarter-frame interpolants.
+The interpolant at k + p/4 (p = 1, 2, 3) is a Hann-windowed sinc of 32 taps
+(j = -15..16),
+
+    w(j, p) = sinc(p/4 - j) * (1 + cos(pi*(p/4 - j)/16)) / 2,
+
+with the 32 weights normalised to sum to one; samples before the start and
+after the end of the stream are taken as zero.
+
+Enable it, after soxr_create() (or after soxr_clear()) and before any input
+is processed, with
+
+    soxr_set_peak_window(resampler, W);     /* W in 1..8192 output frames */
+
+The window may only be configured while idle; out-of-range windows,
+variable-rate (SOXR_VR) resamplers, and reconfiguration mid-stream return an
+error and leave the existing state untouched.  soxr_clear() drops the
+history and counters but keeps the window configuration.
+
+Query with soxr_peak_query() (one channel, or all channels merged by
+passing num_channels) or soxr_peak_query_all(); the returned soxr_peak_info_t
+gives the number of frames delivered, the number of frame units whose four
+phases have completed observation, the current window start, and the peak's
+magnitude, channel, integer frame and quarter-frame phase (0..3).  A frame
+unit completes only once its 16 future frames exist, so observation lags the
+output by 16 frames; the last 16 units complete when the stream is flushed.
+Ordinary input starvation or a zero-capacity output call is not an end of
+stream, and repeated draining or querying never advances the state.  An
+empty window is reported with valid == 0.
+
+The measured point is the normalised output after io_spec.scale has been
+applied but before rounding, saturation and dithering, so for integer
+output types the magnitude can exceed 1 (the saturation itself is still
+reported by soxr_num_clips).  Observation works through the split fast
+path, interleaved output and the soxr_output() input callback, and adds no
+work to an instance that never enables it.
+
 For build and installation instructions, see the file `INSTALL'; for
 copyright and licensing information, see the file `LICENCE'.
 

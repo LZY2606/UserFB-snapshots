@@ -25,9 +25,11 @@
 
 #if defined __cplusplus
   #include <cstddef>
+  #include <cstdint>
   extern "C" {
 #else
   #include <stddef.h>
+  #include <stdint.h>
 #endif
 
 #if defined SOXR_DLL
@@ -177,6 +179,54 @@ SOXR char const * soxr_engine(soxr_t);  /* Query resampling engine name. */
 
 SOXR soxr_error_t soxr_clear(soxr_t); /* Ready for fresh signal, same config. */
 SOXR void         soxr_delete(soxr_t);  /* Free resources. */
+
+
+
+/* ----------------------- Streaming peak observation ----------------------- */
+
+/* Optional, fixed-ratio only.  While enabled, every delivered output frame is
+ * watched at four phases per integer frame: the integer sample itself and
+ * three interpolants at quarter-frame offsets.  The interpolant is a
+ * Hann-windowed, normalised sinc of 32 taps (j = -15..16).  Values are taken
+ * from the normalised output stream, i.e. after io_spec.scale has been
+ * applied but before rounding, saturation and dithering, so integer outputs
+ * may report magnitudes greater than 1.
+ *
+ * A frame unit completes only once its 16 future output frames exist; the
+ * last 16 units complete when the stream is flushed.  Queries cover the
+ * window [max(0, observed - W), observed); ties resolve to the earlier
+ * position and then the smaller channel number. */
+
+#define SOXR_PEAK_WINDOW_MIN 1u
+#define SOXR_PEAK_WINDOW_MAX 8192u
+
+typedef struct soxr_peak_info {
+  uint64_t delivered;     /* Output frames delivered since create/clear. */
+  uint64_t observed;      /* Frame units whose four phases are complete. */
+  uint64_t window_start;  /* First unit inside the queried window. */
+  int      valid;         /* 0 when the window holds no completed unit. */
+  unsigned channel;       /* Channel owning the reported peak. */
+  unsigned phase;         /* Quarter-frame phase, 0..3. */
+  uint64_t frame;         /* Integer frame number of the peak. */
+  double   magnitude;     /* Normalised magnitude; 0 when valid == 0. */
+} soxr_peak_info_t;
+
+/* Set the sliding-window length W in output frames.  Must be called after
+ * soxr_create or soxr_clear and before any input is processed.  Returns an
+ * error (leaving the existing state untouched) for out-of-range windows,
+ * variable-rate (SOXR_VR) resamplers, or an attempt to reconfigure while
+ * processing is under way.  soxr_clear keeps the window configuration but
+ * drops the history and all counters. */
+SOXR soxr_error_t soxr_set_peak_window(soxr_t, unsigned window);
+
+/* Query the peak of one channel (channel < num_channels) or, when channel
+ * equals num_channels, of all channels merged.  The struct is always written
+ * (zeroed when the window is empty or no unit has completed). */
+SOXR soxr_error_t soxr_peak_query(soxr_t, unsigned channel,
+    soxr_peak_info_t * info);
+
+/* Query the peak merged across every channel. */
+SOXR soxr_error_t soxr_peak_query_all(soxr_t, soxr_peak_info_t * info);
 
 
 

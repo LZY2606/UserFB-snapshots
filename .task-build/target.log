@@ -1,0 +1,17 @@
+CASE interpolation module_phase_formula checks=594
+CASE interpolation overshoot_and_phase_values checks=340
+CASE interpolation tie_and_eviction_rules checks=22
+CASE interpolation integer_output_normalised checks=653
+GROUP interpolation cases=4 checks=1609 COMPLETE
+CASE streaming chunk_snapshots checks=1860
+CASE streaming split_interleaved_callback checks=744
+CASE streaming window_eviction checks=13
+CASE streaming short_stream_and_tail_pulse checks=15
+CASE streaming starvation_repeat_finish checks=38
+GROUP streaming cases=5 checks=2670 COMPLETE
+CASE lifecycle config_rejection checks=28
+CASE lifecycle clear_reuse checks=24
+CASE lifecycle legacy_pcm_compatibility checks=302
+CASE lifecycle formats_and_channels checks=222
+GROUP lifecycle cases=4 checks=576 COMPLETE
+TARGET_COMPLETE cases=13

@@ -38,7 +38,7 @@ elseif (WITH_CR32S)
   endif ()
 endif ()
 
-set (SOURCES ${PROJECT_NAME}.c data-io)
+set (SOURCES ${PROJECT_NAME}.c data-io peak)
 
 if (WITH_CR32 OR WITH_CR32S OR WITH_CR64 OR WITH_CR64S)
   list (APPEND SOURCES dbesi0 filter fft4g64 cr)
