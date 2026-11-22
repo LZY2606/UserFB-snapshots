@@ -1,0 +1,43 @@
+{
+  "repo": "https://github.com/mozilla/nestegg",
+  "commit": "767aab25013acefbdcc6d68a2a7a2c9081303e3f",
+  "license": "ISC",
+  "export": "git archive HEAD; complete tracked tree and file modes",
+  "excluded": [],
+  "gitlinks": [],
+  "gitmodules": false,
+  "symlinks": [],
+  "runtime_dependencies": [
+    "C99 compiler",
+    "POSIX shell",
+    "standard C library"
+  ],
+  "binary_upstream_files": [
+    "test/media/bug1200148.webm",
+    "test/media/bug1480003.webm",
+    "test/media/bug1539686.webm",
+    "test/media/bug1592193.webm",
+    "test/media/bug2020502.webm",
+    "test/media/bug2045549.webm",
+    "test/media/bug603918.webm",
+    "test/media/dancer1.webm",
+    "test/media/dancer1rb.webm",
+    "test/media/demo_short.webm",
+    "test/media/detodos.webm",
+    "test/media/hdr10.webm",
+    "test/media/issue76.webm",
+    "test/media/pcm.mkv",
+    "test/media/projection.webm",
+    "test/media/seek.webm",
+    "test/media/seek_encrypted.webm",
+    "test/media/seek_sub.webm",
+    "test/media/split.webm",
+    "test/media/subsample_encrypted.webm",
+    "test/media/zerolen_audio.webm",
+    "test/media/zerolen_blockaddid.webm",
+    "test/media/zerolen_default.webm",
+    "test/media/zerolen_display.webm",
+    "test/media/zerolen_repeat.webm"
+  ],
+  "binary_runtime_inputs": []
+}
