@@ -56,3 +56,102 @@ Go &ge; 1.26 is required.
 - [gortsplib](https://github.com/bluenviron/gortsplib)
 - [gohlslib](https://github.com/bluenviron/gohlslib)
 - [gortmplib](https://github.com/bluenviron/gortmplib)
+
+## Examples
+
+### Recording a fMP4 file that survives restarts
+
+`fmp4.Recorder` appends one `moof`/`mdat` group per `Commit()` to a regular
+file. If the process is restarted, opening the same file again keeps every
+complete group, discards a group that was only half written, and continues the
+sequence numbers and per-track timelines where they stopped. The caller owns
+the file and is responsible for closing it.
+
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio"
+	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
+	"github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs"
+)
+
+func main() {
+	// one H.264 track plus one optional MPEG-4 audio track; a single
+	// MPEG-4 audio track is also supported
+	init := &fmp4.Init{
+		Tracks: []*fmp4.InitTrack{
+			{
+				ID:        1,
+				TimeScale: 90000,
+				Codec: &codecs.H264{
+					SPS: []byte{
+						0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02,
+						0x27, 0xe5, 0x84, 0x00, 0x00, 0x03, 0x00, 0x04,
+						0x00, 0x00, 0x03, 0x00, 0xf0, 0x3c, 0x60, 0xc9,
+						0x20,
+					},
+					PPS: []byte{0x08},
+				},
+			},
+			{
+				ID:        2,
+				TimeScale: 48000,
+				Codec: &codecs.MPEG4Audio{
+					Config: mpeg4audio.AudioSpecificConfig{
+						Type:          2,
+						SampleRate:    48000,
+						ChannelConfig: 2,
+					},
+				},
+			},
+		},
+	}
+
+	// *os.File already implements fmp4.RecordingFile
+	f, err := os.OpenFile("recording.mp4", os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	// on an empty file this writes the ftyp/moov initialization block; on an
+	// existing file it recovers state and truncates any unfinished final group
+	rec, err := fmp4.OpenRecorder(f, init)
+	if err != nil {
+		panic(err)
+	}
+
+	// samples are only queued; each track's DTS must be contiguous from its
+	// current endpoint, but the first sample may start at any DTS
+	err = rec.WriteSample(1, 0, &fmp4.Sample{
+		Duration:        3000,
+		IsNonSyncSample: false,
+		Payload:         []byte{0x00, 0x00, 0x00, 0x02, 0x65, 0xb1},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	err = rec.WriteSample(2, 0, &fmp4.Sample{
+		Duration: 1024,
+		Payload:  []byte{0xa1, 0xa2},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// one moof/mdat group, written sequentially to the end and synced before
+	// its sequence number and timelines are published
+	err = rec.Commit()
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+After a restart, `OpenRecorder` on the same file returns a recorder whose next
+group continues the recovered sequence numbering, so recording resumes into the
+same fMP4 file without replaying or losing the committed groups.

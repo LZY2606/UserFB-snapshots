@@ -30,8 +30,8 @@ func (ps *Parts) Unmarshal(byts []byte) error {
 	var curPart *Part
 	var moofOffset uint64
 	var curTrack *PartTrack
-	var tfdt *amp4.Tfdt
-	var tfhd *amp4.Tfhd
+	var curTfhd *parsedTfhd
+	var haveTfdt bool
 
 	_, err := amp4.ReadBoxStructure(bytes.NewReader(byts), func(h *amp4.ReadHandle) (any, error) {
 		if h.BoxInfo.IsSupportedType() {
@@ -67,112 +67,95 @@ func (ps *Parts) Unmarshal(byts []byte) error {
 				}
 
 				if curTrack != nil {
-					if tfdt == nil || tfhd == nil {
+					if !haveTfdt || curTfhd == nil {
 						return nil, fmt.Errorf("parse error")
 					}
 				}
 
 				curTrack = &PartTrack{}
 				curPart.Tracks = append(curPart.Tracks, curTrack)
-				tfdt = nil
-				tfhd = nil
+				curTfhd = nil
+				haveTfdt = false
 				state = waitingTfdtTfhdTrun
 				return h.Expand()
 
 			case "tfhd":
-				if state != waitingTfdtTfhdTrun || tfhd != nil {
+				if state != waitingTfdtTfhdTrun || curTfhd != nil {
 					return nil, fmt.Errorf("unexpected tfhd")
 				}
 
-				box, _, err := h.ReadPayload()
+				parsed, err := parseTfhd(
+					bytes.NewReader(byts[h.BoxInfo.Offset+h.BoxInfo.HeaderSize:]),
+					h.BoxInfo.Size-h.BoxInfo.HeaderSize,
+				)
 				if err != nil {
 					return nil, err
 				}
-				tfhd = box.(*amp4.Tfhd)
 
-				curTrack.ID = int(tfhd.TrackID)
+				curTfhd = parsed
+				curTrack.ID = int(parsed.trackID)
 
 			case "tfdt":
-				if state != waitingTfdtTfhdTrun || tfdt != nil {
+				if state != waitingTfdtTfhdTrun || haveTfdt {
 					return nil, fmt.Errorf("unexpected tfdt")
 				}
 
-				box, _, err := h.ReadPayload()
+				_, baseTime, err := parseTfdt(
+					bytes.NewReader(byts[h.BoxInfo.Offset+h.BoxInfo.HeaderSize:]),
+					h.BoxInfo.Size-h.BoxInfo.HeaderSize,
+				)
 				if err != nil {
 					return nil, err
 				}
-				tfdt = box.(*amp4.Tfdt)
 
-				curTrack.BaseTime = tfdt.GetBaseMediaDecodeTime()
+				curTrack.BaseTime = baseTime
+				haveTfdt = true
 
 			case "trun":
-				if state != waitingTfdtTfhdTrun || tfhd == nil {
+				if state != waitingTfdtTfhdTrun || curTfhd == nil {
 					return nil, fmt.Errorf("unexpected trun")
 				}
 
 				// prevent RAM exhaustion due to unlimited Trun unmarshaling
 				rawBox := byts[h.BoxInfo.Offset:]
-				if len(rawBox) >= 16 {
-					sampleCount := uint32(rawBox[12])<<24 | uint32(rawBox[13])<<16 | uint32(rawBox[14])<<8 | uint32(rawBox[15])
-					if sampleCount > maxSamplesPerTrun {
-						return nil, fmt.Errorf("sample count (%d) exceeds maximum (%d)", sampleCount, maxSamplesPerTrun)
-					}
+				if sampleCount, ok := trunSampleCount(rawBox); ok && sampleCount > maxSamplesPerTrun {
+					return nil, fmt.Errorf("sample count (%d) exceeds maximum (%d)", sampleCount, maxSamplesPerTrun)
 				}
 
-				box, _, err := h.ReadPayload()
+				parsed, err := parseTrun(
+					bytes.NewReader(byts[h.BoxInfo.Offset+h.BoxInfo.HeaderSize:]),
+					h.BoxInfo.Size-h.BoxInfo.HeaderSize,
+				)
 				if err != nil {
 					return nil, err
 				}
-				trun := box.(*amp4.Trun)
 
-				if len(trun.Entries) != 0 {
-					trunFlags := uint16(trun.Flags[1])<<8 | uint16(trun.Flags[2])
-					if (trunFlags & trunFlagDataOffsetPreset) == 0 {
+				if len(parsed.entries) != 0 {
+					if !parsed.hasDataOffset {
 						return nil, fmt.Errorf("unsupported flags")
 					}
 
 					existing := len(curTrack.Samples)
-					tmp := make([]*Sample, existing+len(trun.Entries))
+					tmp := make([]*Sample, existing+len(parsed.entries))
 					copy(tmp, curTrack.Samples)
 					curTrack.Samples = tmp
 
-					pos := uint64(trun.DataOffset) + moofOffset
+					pos := uint64(parsed.dataOffset) + moofOffset
 					if uint64(len(byts)) < pos {
 						return nil, fmt.Errorf("invalid data_offset / moof_offset")
 					}
 
 					ptr := byts[pos:]
 
-					for i, e := range trun.Entries {
+					for i, e := range parsed.entries {
 						s := &Sample{}
+						resolved := resolveSample(e, curTfhd)
 
-						if (trunFlags & trunFlagSampleDurationPresent) != 0 {
-							s.Duration = e.SampleDuration
-						} else {
-							s.Duration = tfhd.DefaultSampleDuration
-						}
+						s.Duration = resolved.Duration
+						s.PTSOffset = resolved.PTSOffset
+						s.IsNonSyncSample = resolved.IsNonSyncSample
 
-						if trun.Version == 0 {
-							s.PTSOffset = int32(e.SampleCompositionTimeOffsetV0)
-						} else {
-							s.PTSOffset = e.SampleCompositionTimeOffsetV1
-						}
-
-						var sampleFlags uint32
-						if (trunFlags & trunFlagSampleFlagsPresent) != 0 {
-							sampleFlags = e.SampleFlags
-						} else {
-							sampleFlags = tfhd.DefaultSampleFlags
-						}
-						s.IsNonSyncSample = ((sampleFlags & sampleFlagIsNonSyncSample) != 0)
-
-						var size uint32
-						if (trunFlags & trunFlagSampleSizePresent) != 0 {
-							size = e.SampleSize
-						} else {
-							size = tfhd.DefaultSampleSize
-						}
-
+						size := resolved.Size
 						if size == 0 || len(ptr) < int(size) {
 							return nil, fmt.Errorf("invalid sample size")
 						}
@@ -190,7 +173,7 @@ func (ps *Parts) Unmarshal(byts []byte) error {
 				}
 
 				if curTrack != nil {
-					if tfdt == nil || tfhd == nil {
+					if !haveTfdt || curTfhd == nil {
 						return nil, fmt.Errorf("parse error")
 					}
 				}
