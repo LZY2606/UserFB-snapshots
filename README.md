@@ -124,8 +124,74 @@ mx.WriteData(&astits.MuxerData{
 })
 ```
 
-## Options
+## Random access seek index
 
+For offline 188-byte, unscrambled, lossless transport streams read through an
+`io.ReadSeeker`, the demuxer can index the random access points once and then
+jump to any program without replaying the tables from the beginning of the file.
+
+Only PES packets on H.264 elementary streams declared by a complete PMT whose
+first TS packet has both `payload_unit_start_indicator` and
+`random_access_indicator` set, and whose complete header carries a PTS, become
+index points. A point's `Offset` is the absolute file offset of that first
+188-byte TS packet.
+
+```go
+f, _ := os.Open("/path/to/file.ts")
+defer f.Close()
+
+dmx := astits.NewDemuxer(context.Background(), f, astits.DemuxerOptPacketSize(188))
+
+// BuildSeekIndex scans the file once. The reader position and the demuxer's
+// pending state are preserved, whether the build succeeds or fails.
+index, err := dmx.BuildSeekIndex()
+if err != nil {
+        log.Fatal(err)
+}
+
+for _, p := range index.Points() {
+        fmt.Printf("program=%d epoch=%d pid=%d pts90k=%d offset=%d\n",
+                p.ProgramNumber, p.Epoch, p.PID, p.PTS90k, p.Offset)
+}
+
+// Jump to the last access point of program 1, epoch 0 whose PTS is <= 90000.
+// The seek goes straight to the point offset: bytes before it are not read.
+point, err := dmx.SeekIndexed(index, 1, 0, 90000)
+if err != nil {
+        log.Fatal(err)
+}
+fmt.Printf("resuming at %d (PTS %d)\n", point.Offset, point.PTS90k)
+
+// NextData continues sequentially from the landing point.
+for {
+        d, err := dmx.NextData()
+        if err == astits.ErrNoMorePackets {
+                break
+        }
+        if err != nil {
+                log.Fatal(err)
+        }
+        _ = d
+}
+```
+
+Epochs start at 0 for the first complete PAT binding plus PMT of a program and
+increment for every new complete topology: a PMT PID change in the PAT (once a
+complete PMT appears on the new PID), a program removed and recreated, or a PMT
+whose PCR PID, program descriptors or ordered elementary stream declarations
+change. Repeating the same content does not create a new epoch. A program that
+is removed stops being indexed immediately.
+
+After a successful `SeekIndexed`, the PAT/PMT classification state active at the
+landing packet is restored, pending data and half PES packets are dropped, and
+continuation packets are ignored until each PID sees its own payload unit
+start. `Rewind` and repeated or backward seeks work with the same index.
+`BuildSeekIndex` returns an error when the demuxer has a custom
+`PacketsParser` or `PacketSkipper`, when the reader is not an
+`io.ReadSeeker`, or when the packet size is not 188 bytes. An index is bound to
+the demuxer that built it and is rejected by any other demuxer.
+
+## Options
 In order to pass options to the demuxer or the muxer, look for the methods prefixed with `DemuxerOpt` or `MuxerOpt` and add them upon calling `NewDemuxer` or `NewMuxer` :
 
 ```go

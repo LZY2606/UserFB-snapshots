@@ -36,6 +36,11 @@ type Demuxer struct {
 	programMap   *programMap
 	r            io.Reader
 	streamMap    *elementaryStreamMap
+
+	// seekSync is set after SeekIndexed: each PID must see its own payload unit
+	// start before its continuation packets are accepted again.
+	seekSync    bool
+	seekAligned map[uint32]bool
 }
 
 // PacketsParser represents an object capable of parsing a set of packets containing a unique payload spanning over those packets
@@ -167,6 +172,13 @@ func (dmx *Demuxer) NextData() (d *DemuxerData, err error) {
 		}
 
 		// Add packet to the pool
+		if dmx.seekSync && !dmx.seekAligned[uint32(p.Header.PID)] {
+			if !p.Header.PayloadUnitStartIndicator {
+				continue
+			}
+			dmx.seekAligned[uint32(p.Header.PID)] = true
+		}
+
 		if ps = dmx.packetPool.addUnlocked(p); len(ps) == 0 {
 			continue
 		}
@@ -216,6 +228,8 @@ func (dmx *Demuxer) Rewind() (n int64, err error) {
 	dmx.dataBuffer = []*DemuxerData{}
 	dmx.packetBuffer = nil
 	dmx.packetPool = newPacketPool(dmx.programMap)
+	dmx.seekSync = false
+	dmx.seekAligned = nil
 	if n, err = rewind(dmx.r); err != nil {
 		err = fmt.Errorf("astits: rewinding reader failed: %w", err)
 		return
