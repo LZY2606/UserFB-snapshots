@@ -188,6 +188,22 @@ struct rtcp_stats {
 	uint32_t rtt;           /**< Current Round-Trip Time in [us] */
 };
 
+/** One block in an RFC 2198 RED payload */
+struct rtp_red_block {
+	uint8_t  pt;        /**< Payload type of the block            */
+	uint16_t ts_offset; /**< Timestamp offset in RTP clock ticks  */
+	size_t   off;       /**< Offset of the block from payload start */
+	size_t   len;       /**< Length of the block in bytes         */
+};
+
+/** Decoded RFC 2198 RED payload */
+struct rtp_red {
+	struct rtp_red_block *blockv; /**< Blocks, primary block is last */
+	size_t n;                     /**< Number of blocks (incl. primary) */
+	size_t hdr_len;               /**< Header bytes at start of payload */
+	size_t data_len;              /**< Audio data bytes after headers   */
+};
+
 struct sa;
 struct re_printf;
 struct rtp_sock;
@@ -207,6 +223,8 @@ int   rtp_hdr_decode(struct rtp_header *hdr, struct mbuf *mb);
 int   rtp_encode(struct rtp_sock *rs, bool ext, bool marker, uint8_t pt,
 		 uint32_t ts, struct mbuf *mb);
 int   rtp_decode(struct rtp_sock *rs, struct mbuf *mb, struct rtp_header *hdr);
+int   rtp_red_decode(struct rtp_red *red, struct mbuf *mb,
+		     struct rtp_red_block *blockv, size_t depth);
 int   rtp_send(struct rtp_sock *rs, const struct sa *dst, bool ext,
 	       bool marker, uint8_t pt, uint32_t ts, struct mbuf *mb);
 int   rtp_debug(struct re_printf *pf, const struct rtp_sock *rs);

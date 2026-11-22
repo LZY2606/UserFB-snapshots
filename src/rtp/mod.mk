@@ -10,6 +10,7 @@ SRCS	+= rtp/ntp.c
 SRCS	+= rtp/pkt.c
 SRCS	+= rtp/rr.c
 SRCS	+= rtp/rtcp.c
+SRCS	+= rtp/red.c
 SRCS	+= rtp/rtp.c
 SRCS	+= rtp/sdes.c
 SRCS	+= rtp/sess.c

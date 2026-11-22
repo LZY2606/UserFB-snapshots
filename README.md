@@ -157,6 +157,7 @@ legend:
 * [RFC 1321](https://tools.ietf.org/html/rfc1321) - The MD5 Message-Digest Algorithm
 * [RFC 1886](https://tools.ietf.org/html/rfc1886) - DNS Extensions to support IP version 6
 * [RFC 2032](https://tools.ietf.org/html/rfc2032) - RTP Payload Format for H.261 Video Streams
+* [RFC 2198](https://tools.ietf.org/html/rfc2198) - RTP Payload for Redundant Audio Data
 * [RFC 2616](https://tools.ietf.org/html/rfc2616) - Hypertext Transfer Protocol -- HTTP/1.1
 * [RFC 2617](https://tools.ietf.org/html/rfc2617) - HTTP Authentication: Basic and Digest Access Authentication
 * [RFC 2782](https://tools.ietf.org/html/rfc2782) - A DNS RR for Specifying the Location of Services (DNS SRV)
@@ -201,6 +202,91 @@ legend:
 * [RFC 7159](https://tools.ietf.org/html/rfc7159) - JavaScript Object Notation (JSON)
 * [RFC 7350](https://tools.ietf.org/html/rfc7350) - DTLS as Transport for STUN
 * [RFC 7714](https://tools.ietf.org/html/rfc7714) - AES-GCM Authenticated Encryption in SRTP
+
+
+## RED audio jitter buffer
+
+In addition to the classic jitter buffer, `jbuf` can run a single-SSRC
+receive path for audio sent with RFC 2198 redundant encoding.  The path
+handles one SSRC with a fixed sample rate and a fixed number of RTP
+timestamp ticks (`ptime`) per packet.  DTX, RTX and RTCP feedback are not
+part of this path.
+
+The receive loop works entirely on an in-memory RTP header and `mbuf`; it
+does not use a network socket, an audio device or a real timer.  The
+application supplies a monotonic clock in microseconds:
+
+```c
+struct jbuf_red_cfg cfg = {
+	.ssrc          = ssrc,
+	.pt             = audio_pt,   /* normal audio payload type */
+	.red_pt         = red_pt,     /* RFC 2198 payload type     */
+	.rate           = 8000,
+	.ptime_ticks    = 320,        /* 20 ms at 8 kHz            */
+	.delay_us       = 60000,      /* 60 ms playout delay       */
+	.history_depth  = 4,          /* max redundancy depth      */
+	.window         = 64,         /* slots, must be < 32768    */
+};
+
+struct jbuf *jb;
+jbuf_alloc_red(&jb, &cfg);
+
+for (;;) {
+	struct rtp_header hdr;
+	struct mbuf *audio;
+	bool redundant;
+	int err;
+
+	/* Parse the RTP header from the wire and position mb at the payload */
+	err = rtp_hdr_decode(&hdr, mb);
+	if (err)
+		break;
+
+	/* Same entry for normal audio packets and RED packets */
+	err = jbuf_put_red(jb, &hdr, mb, now_us);
+	if (err)
+		break;
+	/* The payload is copied; the input mbuf may now be released */
+
+	err = jbuf_get_red(jb, now_us, &hdr, &audio, &redundant);
+	if (!err) {
+		/* hdr.pt is always the normal audio PT; play `audio` */
+		mem_deref(audio);
+	}
+}
+```
+
+The first accepted packet with its primary block establishes the timeline:
+sequence `S`, timestamp `T` and arrival `A`.  Slot `k` has sequence `S+k`
+and timestamp `T + k*ptime_ticks`, and becomes due at
+`A + delay_us + floor(k*ptime_ticks*1000000/rate)` microseconds (integer
+arithmetic).  Every later primary block must match this fixed step.  The
+sequence span stays below 32768 and the timestamp span below 2^31, so wrap
+around is handled.
+
+Redundancy blocks are inserted into missing slots before the primary copy
+is played.  A recovered slot is replaced by the real primary block if that
+arrives before playout.  Copies of the same class follow first-accepted
+wins.  A fully valid RED packet is committed atomically: if any block or
+the timeline is invalid, nothing is stored.
+
+`jbuf_get_red()` returns:
+
+| Return     | Meaning                                                        |
+|:-----------|:---------------------------------------------------------------|
+| `0`        | One audio block returned; `redundant` tells if it was recovered |
+| `EAGAIN`   | The current slot is not due yet; nothing changes                |
+| `ENOENT`   | The current slot is beyond the highest primary block            |
+| `ENODATA`  | The current slot is due but empty; the slot is advanced          |
+| `ETIMEDOUT`| `jbuf_put_red()`: the primary slot was already played out       |
+| `EINVAL`   | Invalid argument, wrong mode, or state unchanged on misuse      |
+| `EBADMSG`  | Malformed RED payload or block; nothing was committed           |
+
+`jbuf_put_red()` returns `0` on success.  `jbuf_flush()` releases all
+buffered audio and rebuilds the first-packet anchor while keeping the
+configuration.  The classic `jbuf_alloc()`/`jbuf_put()`/`jbuf_get()` API
+keeps its original behaviour; mixing the classic and RED APIs on the same
+object returns `EINVAL` and leaves the state untouched.
 
 
 ## Supported platforms
