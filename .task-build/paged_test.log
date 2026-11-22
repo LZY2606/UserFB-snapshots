@@ -1,0 +1,12 @@
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+=== RUN   TestPagedFontLoad
+    check.go:29: TASK_GROUP_DONE TestPagedFontLoad checks=142
+--- PASS: TestPagedFontLoad (0.00s)
+=== RUN   TestPagedFontRender
+    check.go:29: TASK_GROUP_DONE TestPagedFontRender checks=148
+--- PASS: TestPagedFontRender (0.00s)
+=== RUN   TestPagedFontFailure
+    check.go:29: TASK_GROUP_DONE TestPagedFontFailure checks=94
+--- PASS: TestPagedFontFailure (0.00s)
+PASS
+ok  	github.com/sinshu/go-meltysynth/meltysynth	0.257s

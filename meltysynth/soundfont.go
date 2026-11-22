@@ -14,6 +14,11 @@ type SoundFont struct {
 	SampleHeaders []*SampleHeader
 	Presets       []*Preset
 	Instruments   []*Instrument
+
+	// pageCache is non-nil only for SoundFonts loaded through
+	// NewSoundFontReaderAt. Eagerly loaded fonts keep all samples in
+	// WaveData and leave it nil.
+	pageCache *samplePageCache
 }
 
 func NewSoundFont(r io.Reader) (*SoundFont, error) {

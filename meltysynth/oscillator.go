@@ -15,7 +15,7 @@ const fpToSample float32 = float32(1) / float32(32768*fracUnit)
 
 type oscillator struct {
 	synthesizer      *Synthesizer
-	data             []int16
+	source           sampler
 	loopMode         int32
 	sampleRate       int32
 	sampleStart      int32
@@ -36,8 +36,8 @@ func newOscillator(s *Synthesizer) *oscillator {
 	return result
 }
 
-func (o *oscillator) start(data []int16, loopMode int32, sampleRate int32, start int32, end int32, startLoop int32, endLoop int32, rootKey int32, coarseTune int32, fineTune int32, scaleTuning int32) {
-	o.data = data
+func (o *oscillator) start(source sampler, loopMode int32, sampleRate int32, start int32, end int32, startLoop int32, endLoop int32, rootKey int32, coarseTune int32, fineTune int32, scaleTuning int32) {
+	o.source = source
 	o.loopMode = loopMode
 	o.sampleRate = sampleRate
 	o.sampleStart = start
@@ -81,6 +81,21 @@ func (o *oscillator) fillBlock(block []float32, pitchRatio float64) bool {
 	}
 }
 
+// samplePair resolves the two neighboring frames used for interpolation.
+// The second lookup may evict the page holding the first one, so each frame
+// is fully resolved before the next lookup is attempted.
+func (o *oscillator) samplePair(index1, index2 int32) (int64, int64, error) {
+	x1, err := o.source.sampleAt(index1)
+	if err != nil {
+		return 0, 0, err
+	}
+	x2, err := o.source.sampleAt(index2)
+	if err != nil {
+		return 0, 0, err
+	}
+	return int64(x1), int64(x2), nil
+}
+
 func (o *oscillator) fillBlock_NoLoop(block []float32, pitchRatio_fp int64) bool {
 	blockLength := len(block)
 
@@ -96,8 +111,11 @@ func (o *oscillator) fillBlock_NoLoop(block []float32, pitchRatio_fp int64) bool
 			return false
 		}
 
-		x1 := int64(o.data[index])
-		x2 := int64(o.data[index+1])
+		x1, x2, err := o.samplePair(index, index+1)
+		if err != nil {
+			o.synthesizer.fail(err)
+			return false
+		}
 		a_fp := o.position_fp & (fracUnit - 1)
 		block[t] = fpToSample * float32((x1<<fracBits)+a_fp*(x2-x1))
 
@@ -127,8 +145,11 @@ func (o *oscillator) fillBlock_Continuous(block []float32, pitchRatio_fp int64) 
 			index2 -= loopLength
 		}
 
-		x1 := int64(o.data[index1])
-		x2 := int64(o.data[index2])
+		x1, x2, err := o.samplePair(index1, index2)
+		if err != nil {
+			o.synthesizer.fail(err)
+			return false
+		}
 		a_fp := o.position_fp & (fracUnit - 1)
 		block[t] = fpToSample * float32((x1<<fracBits)+a_fp*(x2-x1))
 

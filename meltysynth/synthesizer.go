@@ -1,6 +1,7 @@
 package meltysynth
 
 import (
+	"errors"
 	"math"
 )
 
@@ -31,6 +32,11 @@ type Synthesizer struct {
 	inverseBlockSize float32
 
 	blockRead int32
+
+	// failure is sticky once set: a paged SoundFont reported a short read or
+	// a ReaderAt error while synthesizing a block. Later renders return the
+	// same cause without touching the source again; Reset does not clear it.
+	failure error
 
 	MasterVolume float32
 
@@ -316,14 +322,51 @@ func (s *Synthesizer) Reset() {
 	}
 
 	s.blockRead = s.BlockSize
+
+	// s.failure is intentionally left untouched: a sample source failure is
+	// sticky and must survive Reset.
+}
+
+// fail records the first sample source error encountered during synthesis.
+func (s *Synthesizer) fail(err error) {
+	if s.failure == nil {
+		s.failure = err
+	}
 }
 
 func (s *Synthesizer) Render(left []float32, right []float32) {
+	if _, err := s.RenderChecked(left, right); err != nil {
+		panic(err)
+	}
+}
+
+// RenderChecked renders into the two channel buffers. On success it returns
+// the number of frames written to both buffers. If the buffers differ in
+// length, an error is returned before any synthesizer state changes.
+//
+// When a paged SoundFont cannot supply a sample page, the block being
+// generated is discarded: the returned frame count only covers frames
+// delivered earlier in this call and the untouched buffer tail keeps its
+// previous contents. The error then becomes sticky: subsequent calls return
+// the same cause immediately, without further reads, and Reset does not
+// clear it.
+func (s *Synthesizer) RenderChecked(left []float32, right []float32) (n int, err error) {
+	if len(left) != len(right) {
+		return 0, errors.New("the left and right buffers must have the same length")
+	}
+
+	if s.failure != nil {
+		return 0, s.failure
+	}
+
 	var wrote int32
 	length := int32(len(left))
 	for wrote < length {
 		if s.blockRead == s.BlockSize {
-			s.renderBlock()
+			if err = s.renderBlock(); err != nil {
+				s.fail(err)
+				return int(wrote), err
+			}
 			s.blockRead = 0
 		}
 
@@ -339,13 +382,19 @@ func (s *Synthesizer) Render(left []float32, right []float32) {
 		s.blockRead += rem
 		wrote += rem
 	}
+
+	return int(wrote), nil
 }
 
-func (s *Synthesizer) renderBlock() {
+func (s *Synthesizer) renderBlock() error {
 	blockSize := int(s.BlockSize)
 	activeVoiceCount := int(s.voices.activeVoiceCount)
 
 	s.voices.process()
+
+	if s.failure != nil {
+		return s.failure
+	}
 
 	for i := 0; i < blockSize; i++ {
 		s.blockLeft[i] = 0
@@ -395,6 +444,8 @@ func (s *Synthesizer) renderBlock() {
 		arrayMultiplyAdd(s.MasterVolume, s.reverbOutputLeft, s.blockLeft)
 		arrayMultiplyAdd(s.MasterVolume, s.reverbOutputRight, s.blockRight)
 	}
+
+	return nil
 }
 
 func (s *Synthesizer) writeBlock(previousGain float32, currentGain float32, source []float32, destination []float32) {

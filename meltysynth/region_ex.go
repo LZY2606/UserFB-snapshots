@@ -2,7 +2,7 @@ package meltysynth
 
 import "math"
 
-func (o *oscillator) startByRegion(data []int16, region regionPair) {
+func (o *oscillator) startByRegion(source sampler, region regionPair) {
 	sampleRate := region.instrument.Sample.SampleRate
 	loopMode := region.GetSampleModes()
 	sampleStart := region.GetSampleStart()
@@ -14,7 +14,7 @@ func (o *oscillator) startByRegion(data []int16, region regionPair) {
 	fineTune := region.GetFineTune()
 	scaleTuning := region.GetScaleTuning()
 
-	o.start(data, loopMode, sampleRate, sampleStart, sampleEnd, startLoop, endLoop, rootKey, coarseTune, fineTune, scaleTuning)
+	o.start(source, loopMode, sampleRate, sampleStart, sampleEnd, startLoop, endLoop, rootKey, coarseTune, fineTune, scaleTuning)
 }
 
 func (env *volumeEnvelope) startByRegion(region regionPair, key int32, velocity int32) {
