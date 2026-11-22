@@ -1,0 +1,181 @@
+{
+  "repo": "https://github.com/hajimehoshi/go-mp3",
+  "commit": "fa70610237c8c313ef920c7cff6c31efbbc55ffa",
+  "license": "LICENSE",
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "git_blob": "93bfd12e59da684c7f70c6b19c04b4a37749270b",
+      "sha256": "29cc2694fdcc99c5ff5a7d40c2dfea0a75b41ff4280c1bd21d60a4f5dce69d1f",
+      "unchanged": true
+    },
+    {
+      "path": "AUTHORS",
+      "mode": "100644",
+      "git_blob": "c1132d93f053d8234ed7a177f21c8ac471b5c80a",
+      "sha256": "44f835918a25c5d7d6462fd46219b569e7e3f526b3295e6334f8ad8de27e7e6e",
+      "unchanged": true
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "git_blob": "8dada3edaf50dbc082c9a125058f25def75e625a",
+      "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+      "unchanged": true
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "git_blob": "74ede56c2c5ca3912423b72814d25dba41fc48a0",
+      "sha256": "a6aaacca4c928a8f0616ef4f85103029e72e41c9791188db0b54b0e833b5b312",
+      "unchanged": true
+    },
+    {
+      "path": "bench_test.go",
+      "mode": "100644",
+      "git_blob": "838585864a5c4dcc457d7bd8db66b7cd5f5d2ddb",
+      "sha256": "d331445ed7c0d7acaa0d567473e5d2bdd928bf1f0bd7379e4de7c13e4130882e",
+      "unchanged": true
+    },
+    {
+      "path": "decode.go",
+      "mode": "100644",
+      "git_blob": "c625cc192ec2babb9d644df782ad0495e8fe7387",
+      "sha256": "d09b13164c6d75fa2d303a68167f02bb8d799f1d1b88c4c44c3df3d3bed1a1f8",
+      "unchanged": true
+    },
+    {
+      "path": "example/classic.mp3",
+      "mode": "100644",
+      "git_blob": "17ec2988050a810132bc2d010147dd84a6791bd8",
+      "sha256": "a2188d5999028217eeeed38ea59e131ffd5aa15b26ae6ecc91659308eca757db",
+      "unchanged": true
+    },
+    {
+      "path": "example/license.md",
+      "mode": "100644",
+      "git_blob": "4ecc29644780f2ba3d2568a797c12cd4b8a8309f",
+      "sha256": "f811769c38099aaff0dfbaa55ea927a3f6931acf87c42636d2108a2a56c8cbb0",
+      "unchanged": true
+    },
+    {
+      "path": "example/mpeg2.mp3",
+      "mode": "100644",
+      "git_blob": "41296c01fb4307219d3fe9a1bde99d3afe6304f2",
+      "sha256": "cedefa2492ec9efa692ac028f0b7330387213567aaad31f5db95f205a7010c82",
+      "unchanged": true
+    },
+    {
+      "path": "fuzzing_test.go",
+      "mode": "100644",
+      "git_blob": "4ef0099aa067cd1305b119a56e360b279c35ad8e",
+      "sha256": "99be2504d796c2ecafa69b08dba1c4592a5229c248e4f10a38ecfedc1c172383",
+      "unchanged": true
+    },
+    {
+      "path": "go.mod",
+      "mode": "100644",
+      "git_blob": "edea79424ea72bd5c040e114b38ecb472c975476",
+      "sha256": "8eef1a8ac40aa9420b300b317ddd630543e7b201679a64891e395c4724026658",
+      "unchanged": false
+    },
+    {
+      "path": "go.sum",
+      "mode": "100644",
+      "git_blob": "f6f8e8aee6b2132f78198e9a6e94c43f65bdb076",
+      "sha256": "bec653fb93ed49aa23dd861a6536a5bc48001e8695c45faa0e667e0c38fc544d",
+      "unchanged": true
+    },
+    {
+      "path": "internal/bits/bits.go",
+      "mode": "100644",
+      "git_blob": "c4c116a0a43fc6298ff3dbe5f2392bf63f0c517d",
+      "sha256": "096241995347d0341450c93c3cbf21b31cbbc1106fe84a86b551302509028935",
+      "unchanged": true
+    },
+    {
+      "path": "internal/bits/bits_test.go",
+      "mode": "100644",
+      "git_blob": "70ea76f1f5531bbf11e76879f31bfcaa685687bf",
+      "sha256": "db79c0e1ffcd3f3a95ff741e9e8cfb04befc366d9478eca6ffbdf8e4e82f4299",
+      "unchanged": true
+    },
+    {
+      "path": "internal/consts/consts.go",
+      "mode": "100644",
+      "git_blob": "2bdda2a4de0b7a7f22b73d7d6aba877cbf764032",
+      "sha256": "db2a6054e5676e3e8a9adab3e343447e0fb84bdbcccf51e2e23360b86537f731",
+      "unchanged": true
+    },
+    {
+      "path": "internal/frame/frame.go",
+      "mode": "100644",
+      "git_blob": "3532e6c549b5dcc6409d3a2c8b8e16b67b0369b5",
+      "sha256": "e0b901f2291c89ff44fa904299eaf23e9141f0a8d54fe0f04f55189c3e0bdf1d",
+      "unchanged": true
+    },
+    {
+      "path": "internal/frameheader/frameheader.go",
+      "mode": "100644",
+      "git_blob": "5bb23d5ef49030830a9a4d8259ecf11240c83e77",
+      "sha256": "252e6e88e4f8f4d9d701c64616bc3c585ec41c3b91612cffeae82b87703890bf",
+      "unchanged": true
+    },
+    {
+      "path": "internal/huffman/huffman.go",
+      "mode": "100644",
+      "git_blob": "abc30058a5cb0e8a75ea40aed2aa88dd02f2c96e",
+      "sha256": "6ffbac45b10aabb6cd1a5e37736743ec84ddb8c145fbdd22b2638f1a66cb6b1d",
+      "unchanged": true
+    },
+    {
+      "path": "internal/imdct/imdct.go",
+      "mode": "100644",
+      "git_blob": "d1146175f3f6299168c9cee5102d1419b2e51042",
+      "sha256": "bb3ea34065825fda4fdb3f17d266f825e43591dd915a92638159342262006cfb",
+      "unchanged": true
+    },
+    {
+      "path": "internal/maindata/huffman.go",
+      "mode": "100644",
+      "git_blob": "191939aa0474260ed58ff60ea2bace754ab791d9",
+      "sha256": "5ef7ae46e6808da3b8ba26dc9e599e054cab11bcfab3a87f67073128246b433f",
+      "unchanged": true
+    },
+    {
+      "path": "internal/maindata/maindata.go",
+      "mode": "100644",
+      "git_blob": "7eb4159e238455d888f362c37bdc626c55944d85",
+      "sha256": "3fdd6bbd5a6c1c70472beb4bed055593817e2be52f07e0bedc5adc10562afc08",
+      "unchanged": true
+    },
+    {
+      "path": "internal/sideinfo/sideinfo.go",
+      "mode": "100644",
+      "git_blob": "f601dae96dd105e67f0c0e975fac8ced16fc41a3",
+      "sha256": "ceb03fb62aa6ac53f5680534e734b4a3e1287237f890171ca7544cf0c4e3046c",
+      "unchanged": true
+    },
+    {
+      "path": "source.go",
+      "mode": "100644",
+      "git_blob": "cb05c8d21d349fc4da93946c066dbb3d4e0e1432",
+      "sha256": "e6618d95eda21f2799259f1323f2fe35b17c967e57a62a9fa6e2cf1fa1346f2e",
+      "unchanged": true
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "example/main.go",
+      "reason": "未运行的声卡播放示例，依赖oto；保留真实生产解码器及其素材与许可证。"
+    }
+  ],
+  "build_manifest_change": "go.mod仅删除未使用oto require。",
+  "gitlinks": [],
+  "binary_assets": [
+    "example/classic.mp3",
+    "example/mpeg2.mp3"
+  ],
+  "runtime": "Go标准库，GOPROXY=off/GOTOOLCHAIN=local，GOMODCACHE和GOCACHE为新目录。"
+}
