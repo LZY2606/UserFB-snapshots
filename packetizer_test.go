@@ -9,14 +9,36 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/rtp/codecs"
 	"github.com/stretchr/testify/assert"
 )
+
+// g722TestPayloader mirrors codecs.G722Payloader without importing the codecs
+// package, which would create an import cycle now that codecs depends on this
+// package for UnmarshalAccessUnit.
+type g722TestPayloader struct{}
+
+func (p *g722TestPayloader) Payload(mtu uint16, payload []byte) [][]byte {
+	var out [][]byte
+	if payload == nil || mtu == 0 {
+		return out
+	}
+
+	for len(payload) > int(mtu) {
+		o := make([]byte, mtu)
+		copy(o, payload[:mtu])
+		payload = payload[mtu:]
+		out = append(out, o)
+	}
+	o := make([]byte, len(payload))
+	copy(o, payload)
+
+	return append(out, o)
+}
 
 func TestPacketizer(t *testing.T) {
 	multiplepayload := make([]byte, 128)
 	// use the G722 payloader here, because it's very simple and all 0s is valid G722 data.
-	packetizer := NewPacketizer(100, 98, 0x1234ABCD, &codecs.G722Payloader{}, NewRandomSequencer(), 90000)
+	packetizer := NewPacketizer(100, 98, 0x1234ABCD, &g722TestPayloader{}, NewRandomSequencer(), 90000)
 	packets := packetizer.Packetize(multiplepayload, 2000)
 
 	expectedLen := 2
@@ -34,7 +56,7 @@ func TestPacketizer(t *testing.T) {
 
 func TestPacketizer_AbsSendTime(t *testing.T) {
 	// use the G722 payloader here, because it's very simple and all 0s is valid G722 data.
-	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &codecs.G722Payloader{}, NewFixedSequencer(1234), 90000)
+	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &g722TestPayloader{}, NewFixedSequencer(1234), 90000)
 	p, ok := pktizer.(*packetizer)
 	assert.True(t, ok, "Failed to cast to *packetizer")
 
@@ -75,7 +97,7 @@ func TestPacketizer_AbsSendTime(t *testing.T) {
 
 func TestPacketizer_Roundtrip(t *testing.T) {
 	multiplepayload := make([]byte, 128)
-	packetizer := NewPacketizer(100, 98, 0x1234ABCD, &codecs.G722Payloader{}, NewRandomSequencer(), 90000)
+	packetizer := NewPacketizer(100, 98, 0x1234ABCD, &g722TestPayloader{}, NewRandomSequencer(), 90000)
 	packets := packetizer.Packetize(multiplepayload, 1000)
 
 	rawPkts := make([][]byte, 0, 1400)
@@ -113,7 +135,7 @@ func TestPacketizer_Roundtrip(t *testing.T) {
 }
 
 func TestPacketizer_GeneratePadding(t *testing.T) {
-	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &codecs.G722Payloader{}, NewFixedSequencer(1234), 90000)
+	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &g722TestPayloader{}, NewFixedSequencer(1234), 90000)
 
 	packets := pktizer.GeneratePadding(5)
 
@@ -127,7 +149,7 @@ func TestPacketizer_GeneratePadding(t *testing.T) {
 }
 
 func TestNewPacketizerWithOptions_DefaultValues(t *testing.T) {
-	pack := NewPacketizerWithOptions(100, &codecs.G722Payloader{}, NewRandomSequencer(), 90000)
+	pack := NewPacketizerWithOptions(100, &g722TestPayloader{}, NewRandomSequencer(), 90000)
 	p, ok := pack.(*packetizer)
 	assert.True(t, ok, "Failed to cast to *packetizer")
 
@@ -141,7 +163,7 @@ func TestNewPacketizerWithOptions_DefaultValues(t *testing.T) {
 func TestNewPacketizerWithOptions_WithOptions(t *testing.T) {
 	pack := NewPacketizerWithOptions(
 		100,
-		&codecs.G722Payloader{},
+		&g722TestPayloader{},
 		NewRandomSequencer(),
 		90000,
 		WithSSRC(0x1234ABCD),
@@ -169,7 +191,7 @@ func TestNewPacketizerWithOptions_WithOptions(t *testing.T) {
 func TestNewPacketizerWithOptions_PartialOptions(t *testing.T) {
 	pack := NewPacketizerWithOptions(
 		100,
-		&codecs.G722Payloader{},
+		&g722TestPayloader{},
 		NewRandomSequencer(),
 		90000,
 		WithPayloadType(98),
@@ -185,7 +207,7 @@ func TestNewPacketizerWithOptions_PartialOptions(t *testing.T) {
 }
 
 func TestPacketizer_Empty_Payload(t *testing.T) {
-	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &codecs.G722Payloader{}, NewFixedSequencer(1234), 90000)
+	pktizer := NewPacketizer(100, 98, 0x1234ABCD, &g722TestPayloader{}, NewFixedSequencer(1234), 90000)
 	const expectedSamples = uint32(4000)
 
 	prevTimestamp := uint32(0)
@@ -226,7 +248,7 @@ func FuzzPacketizer_Packetize_G722(f *testing.F) {
 
 		packetizer := NewPacketizerWithOptions(
 			mtu,
-			&codecs.G722Payloader{},
+			&g722TestPayloader{},
 			NewFixedSequencer(0),
 			90000,
 			WithPayloadType(pt),
@@ -319,7 +341,7 @@ func FuzzPacketizer_SkipSamples_And_Timestamps(f *testing.F) {
 		const startTS = uint32(0x10203040)
 		packetizer := NewPacketizerWithOptions(
 			mtu,
-			&codecs.G722Payloader{},
+			&g722TestPayloader{},
 			NewFixedSequencer(1000),
 			90000,
 			WithPayloadType(111),
@@ -371,7 +393,7 @@ func FuzzPacketizer_GeneratePadding(f *testing.F) {
 
 		packetizer := NewPacketizerWithOptions(
 			1200,
-			&codecs.G722Payloader{},
+			&g722TestPayloader{},
 			NewFixedSequencer(0),
 			90000,
 		)

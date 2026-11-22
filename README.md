@@ -41,6 +41,36 @@
 ### Roadmap
 The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
 
+### Low latency H.264 playout from in-memory RTP
+
+`codecs.H264Playout` turns raw RTP datagrams for a single SSRC and payload type
+into complete Annex B access units at their media deadlines. Time is supplied by
+the caller, so it can be driven by any clock.
+
+```go
+playout, err := codecs.NewH264Playout(
+	0x1234ABCD, // SSRC
+	96,         // payload type
+	baseTimestamp,
+	0,          // baseTime
+	100*time.Millisecond, // extra delay
+	64,         // max buffered RTP packets
+)
+if err != nil {
+	return err
+}
+
+// raw is a datagram that already arrived from the network.
+if err := playout.Push(raw, now); err != nil {
+	// Malformed, wrong SSRC/PT, late or duplicate datagrams are rejected.
+}
+
+// Call Advance from the same goroutine as the clock moves forward.
+for _, frame := range playout.Advance(now) {
+	decode(frame.AnnexB) // one complete access unit, including its AUD
+}
+```
+
 ### Community
 Pion has an active community on the [Discord](https://discord.gg/PngbdqpFbt).
 
