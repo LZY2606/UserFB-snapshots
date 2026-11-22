@@ -7,11 +7,12 @@
 #pragma once
 #include "reader.hpp"
 #include "writer.hpp"
+#include "metadata.hpp"
 
 namespace bw64 {
 
   /**
-   * @brief Open a BW64 file for reading
+   * @brief Open a BW64 file for reading
    *
    * @param filename path of the file to read
    *
@@ -60,5 +61,8 @@ namespace bw64 {
     return std::unique_ptr<Bw64Writer>(new Bw64Writer(
         filename.c_str(), channels, sampleRate, bitDepth, additionalChunks));
   }
+
+  // bw64::updateMetadataInPlace() is declared and defined in metadata.hpp,
+  // which is included above, so it is also available through this header.
 
 }  // namespace bw64

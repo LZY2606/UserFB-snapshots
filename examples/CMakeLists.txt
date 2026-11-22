@@ -10,3 +10,6 @@ target_link_libraries(bw64_create_sine bw64)
 
 add_executable(bw64_read_write bw64_read_write.cpp)
 target_link_libraries(bw64_read_write bw64)
+
+# metadata_edit.cpp is built as the metadata_edit_example target by
+# task_support/CMakeLists.txt so it is linked into the task build as well.

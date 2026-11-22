@@ -11,11 +11,10 @@
 #include <type_traits>
 #include <vector>
 #include "chunks.hpp"
+#include "metadata.hpp"
 #include "utils.hpp"
 
 namespace bw64 {
-
-  const uint32_t MAX_NUMBER_OF_UIDS = 1024;
 
   /**
    * @brief BW64 Writer class
@@ -50,6 +49,7 @@ namespace bw64 {
     Bw64Writer(const char* filename, uint16_t channels, uint32_t sampleRate,
                uint16_t bitDepth,
                std::vector<std::shared_ptr<Chunk>> additionalChunks) {
+      filename_ = filename;
       fileStream_.open(filename, std::fstream::out | std::fstream::binary);
       if (!fileStream_.is_open()) {
         std::stringstream errorString;
@@ -86,6 +86,9 @@ namespace bw64 {
       if (!fileStream_.is_open()) return;
 
       try {
+        if (reserveMode_) {
+          writeMetadataArena();
+        }
         finalizeDataChunk();
         for (auto chunk : postDataChunks_) {
           writeChunk(chunk);
@@ -179,7 +182,176 @@ namespace bw64 {
     /// @brief Use RF64 ID for outer chunk (when >4GB) rather than BW64
     void useRf64Id(bool state) { useRf64Id_ = state; }
 
+    /**
+     * @brief Reserve a fixed-size editable metadata arena before the data
+     * chunk.
+     *
+     * Must be called at most once, after opening the file and before the
+     * first non-zero-length write. @p bytes is the physical size of the
+     * whole reserved area (chunk headers, even-byte alignment and the
+     * trailing JUNK included); it must be even and between 8 bytes and
+     * 16 MiB. Any chna/axml chunks passed at construction are moved into the
+     * reserved area and their old positions are discarded when the header
+     * prefix is rebuilt, so no stale copy remains.
+     *
+     * Invalid calls leave the file and the writer state unchanged; a legal
+     * call may follow an invalid one.
+     */
+    void reserveMetadata(uint32_t bytes) {
+      if (!fileStream_.is_open()) {
+        throw std::logic_error(
+            "reserveMetadata() must not be called after close()");
+      }
+      if (reserveMode_) {
+        throw std::logic_error("reserveMetadata() can only be called once");
+      }
+      if (framesWritten() != 0u) {
+        throw std::logic_error(
+            "reserveMetadata() must be called before the first audio write");
+      }
+      if (bytes < METADATA_ARENA_MIN_SIZE ||
+          bytes > METADATA_ARENA_MAX_SIZE || (bytes % 2u) != 0u) {
+        std::stringstream msg;
+        msg << "reserveMetadata: " << bytes
+            << " bytes is not an even size between "
+            << METADATA_ARENA_MIN_SIZE << " and " << METADATA_ARENA_MAX_SIZE;
+        throw std::invalid_argument(msg.str());
+      }
+
+      // snapshot the initial metadata; the chna placeholder is only a
+      // header, so a real chunk exists only when it was passed explicitly
+      std::shared_ptr<ChnaChunk> initialChna = chnaChunk();
+      std::shared_ptr<AxmlChunk> initialAxml = axmlChunk();
+      currentChna_ = initialChna ? detail::cloneChna(*initialChna)
+                                 : std::shared_ptr<ChnaChunk>();
+      currentAxml_ = initialAxml ? detail::cloneAxml(*initialAxml)
+                                 : std::shared_ptr<AxmlChunk>();
+      if (currentChna_) {
+        detail::validateChnaForChannels(*currentChna_, channels());
+      }
+
+      // build the new arena (initial chna first, then axml, trailing JUNK)
+      // before touching the file, so a capacity or layout failure leaves the
+      // file and the writer state unchanged
+      const std::vector<char> initialArena = detail::buildMetadataArena(
+          bytes, currentChna_.get(), currentAxml_.get());
+
+      // no audio has been written yet, so rebuild the whole header-only
+      // prefix: RIFF, ds64 JUNK placeholder, fmt, any other pre-data chunks,
+      // the reserved arena and the data chunk header
+      auto fmt = formatChunk();
+      auto data = dataChunk();
+      std::vector<std::shared_ptr<Chunk>> otherPreData;
+      for (size_t i = 0; i < chunks_.size(); ++i) {
+        const uint32_t id = chunks_[i]->id();
+        if (id != utils::fourCC("fmt ") && id != utils::fourCC("data") &&
+            id != utils::fourCC("chna") && id != utils::fourCC("axml")) {
+          otherPreData.push_back(chunks_[i]);
+        }
+      }
+
+      fileStream_.close();
+      // an ofstream opened with out truncates, so this rebuilds the prefix
+      // from scratch; a failed open leaves the previous file in place
+      fileStream_.clear();
+      fileStream_.open(filename_,
+                       std::fstream::out | std::fstream::binary |
+                           std::fstream::trunc);
+      if (!fileStream_.is_open()) {
+        std::stringstream msg;
+        msg << "reserveMetadata: failed to reopen " << filename_;
+        throw std::runtime_error(msg.str());
+      }
+
+      chunkHeaders_.clear();
+      chunks_.clear();
+      writeRiffHeader();
+      // 28 byte ds64 header + 12 byte entry for axml
+      writeChunkPlaceholder(utils::fourCC("JUNK"), 40u);
+      writeChunk(fmt);
+      for (auto chunk : otherPreData) {
+        writeChunk(chunk);
+      }
+      const uint64_t arenaPosition =
+          static_cast<uint64_t>(fileStream_.tellp());
+      fileStream_.write(initialArena.data(),
+                        static_cast<std::streamsize>(initialArena.size()));
+      if (!fileStream_.good()) {
+        throw std::runtime_error(
+            "failed to write the reserved metadata arena");
+      }
+      // bookkeeping: the arena is tracked as one JUNK-sized region
+      chunkHeaders_.push_back(
+          ChunkHeader(utils::fourCC("JUNK"),
+                      static_cast<uint64_t>(bytes) - 8u, arenaPosition));
+      writeChunk(data);
+
+      reserveMode_ = true;
+      arenaPosition_ = arenaPosition;
+      arenaCapacity_ = bytes;
+    }
+
+    /**
+     * @brief Replace both metadata chunks inside the reserved arena.
+     *
+     * Only available after reserveMetadata(); otherwise std::logic_error is
+     * thrown. Either argument may be nullptr to delete that chunk. The
+     * stored values are deep copies (snapshots), so later modifications of
+     * the caller's chunks do not affect the file. Validation, serialization
+     * or capacity failures leave the current snapshots and the file
+     * unchanged; writing audio, further updates and close() still work.
+     */
+    void setMetadata(std::shared_ptr<ChnaChunk> chna,
+                     std::shared_ptr<AxmlChunk> axml) {
+      if (!fileStream_.is_open()) {
+        throw std::logic_error(
+            "setMetadata() must not be called after close()");
+      }
+      if (!reserveMode_) {
+        throw std::logic_error(
+            "setMetadata() requires reserveMetadata() to be called first");
+      }
+
+      std::shared_ptr<ChnaChunk> chnaSnapshot;
+      std::shared_ptr<AxmlChunk> axmlSnapshot;
+      if (chna) chnaSnapshot = detail::cloneChna(*chna);
+      if (axml) axmlSnapshot = detail::cloneAxml(*axml);
+      if (chnaSnapshot) {
+        detail::validateChnaForChannels(*chnaSnapshot, channels());
+      }
+
+      // serialize fully before touching the file or replacing snapshots
+      const std::vector<char> arenaBytes = detail::buildMetadataArena(
+          arenaCapacity_, chnaSnapshot.get(), axmlSnapshot.get());
+
+      writeArenaBytes(arenaBytes);
+      currentChna_ = chnaSnapshot;
+      currentAxml_ = axmlSnapshot;
+    }
+
+    /// current CHNA snapshot in reserved mode (nullptr if deleted)
+    std::shared_ptr<ChnaChunk> reservedChnaChunk() const {
+      return currentChna_;
+    }
+    /// current AXML snapshot in reserved mode (nullptr if deleted)
+    std::shared_ptr<AxmlChunk> reservedAxmlChunk() const {
+      return currentAxml_;
+    }
+    /// whether reserveMetadata() has been activated
+    bool metadataReserved() const { return reserveMode_; }
+
+    /**
+     * @brief Replace just the CHNA chunk.
+     *
+     * In reserved mode this keeps the current AXML snapshot and rewrites the
+     * metadata arena. Without a reservation the legacy placeholder
+     * overwrite behaviour is retained.
+     */
     void setChnaChunk(std::shared_ptr<ChnaChunk> chunk) {
+      if (reserveMode_) {
+        setMetadata(chunk, currentAxml_);
+        return;
+      }
       if (chunk->numUids() > 1024) {
         // TODO: make pre data chunk chna chunk a JUNK chunk and add chnaChunk
         // to postDataChunks_?
@@ -190,7 +362,34 @@ namespace bw64 {
       fileStream_.seekp(last_position);
     }
 
+    /**
+     * @brief Replace just the AXML chunk.
+     *
+     * In reserved mode this keeps the current CHNA snapshot and rewrites the
+     * metadata arena; AXML never moves behind the audio data in that mode.
+     * Without a reservation the legacy behaviour (the chunk, which may be any
+     * Chunk type, is appended after the data chunk) is retained.
+     */
     void setAxmlChunk(std::shared_ptr<Chunk> chunk) {
+      if (reserveMode_) {
+        auto axml = std::dynamic_pointer_cast<AxmlChunk>(chunk);
+        if (!axml) {
+          throw std::invalid_argument(
+              "setAxmlChunk() in reserved mode requires an AxmlChunk");
+        }
+        setMetadata(currentChna_, axml);
+        return;
+      }
+      postDataChunks_.push_back(chunk);
+    }
+
+    /**
+     * @brief Append an arbitrary chunk after the data chunk.
+     *
+     * Allows unknown post-data chunks (e.g. custom FourCC payloads) to be
+     * written at close() time, in both reserved and legacy modes.
+     */
+    void appendPostDataChunk(std::shared_ptr<Chunk> chunk) {
       postDataChunks_.push_back(chunk);
     }
 
@@ -341,12 +540,48 @@ namespace bw64 {
     }
 
    private:
+    /// write a fully serialized arena, restoring the data write position
+    void writeArenaBytes(const std::vector<char>& arenaBytes) {
+      const std::streamoff dataWritePosition = fileStream_.tellp();
+      fileStream_.clear();
+      fileStream_.seekp(static_cast<std::streamoff>(arenaPosition_),
+                        std::ios::beg);
+      fileStream_.write(arenaBytes.data(),
+                        static_cast<std::streamsize>(arenaBytes.size()));
+      if (!fileStream_.good()) {
+        throw std::runtime_error(
+            "failed to write reserved metadata arena");
+      }
+      fileStream_.clear();
+      fileStream_.seekp(dataWritePosition, std::ios::beg);
+      if (!fileStream_.good()) {
+        throw std::runtime_error(
+            "failed to restore audio write position after metadata update");
+      }
+    }
+
+    /// serialize the current snapshots into the reserved arena (used at
+    /// close() time)
+    void writeMetadataArena() {
+      const std::vector<char> arenaBytes = detail::buildMetadataArena(
+          arenaCapacity_, currentChna_.get(), currentAxml_.get());
+      writeArenaBytes(arenaBytes);
+    }
+
     std::ofstream fileStream_;
+    std::string filename_;
     std::vector<char> rawDataBuffer_;
     std::vector<std::shared_ptr<Chunk>> chunks_;
     std::vector<ChunkHeader> chunkHeaders_;
     std::vector<std::shared_ptr<Chunk>> postDataChunks_;
     bool useRf64Id_{false};
+
+    // editable pre-data metadata arena (reserveMetadata mode)
+    bool reserveMode_{false};
+    uint64_t arenaPosition_{0};
+    uint32_t arenaCapacity_{0};
+    std::shared_ptr<ChnaChunk> currentChna_;
+    std::shared_ptr<AxmlChunk> currentAxml_;
   };
 
 }  // namespace bw64
