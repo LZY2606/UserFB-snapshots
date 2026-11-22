@@ -176,7 +176,7 @@ Track *_AFfilehandle::getTrack(int trackID)
 
 bool _AFfilehandle::checkCanRead()
 {
-	if (m_access != _AF_READ_ACCESS)
+	if (m_access != _AF_READ_ACCESS && m_access != _AF_RW_ACCESS)
 	{
 		_af_error(AF_BAD_NOREADACC, "file not opened for read access");
 		return false;

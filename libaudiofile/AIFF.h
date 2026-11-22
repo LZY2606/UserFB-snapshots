@@ -30,11 +30,23 @@
 
 #include "Compiler.h"
 #include "FileHandle.h"
+#include "Tag.h"
+
+#include <vector>
 
 #define _AF_AIFF_NUM_INSTPARAMS 9
 extern const InstParamInfo _af_aiff_inst_params[_AF_AIFF_NUM_INSTPARAMS];
 #define _AF_AIFFC_NUM_COMPTYPES 3
 extern const int _af_aiffc_compression_types[_AF_AIFFC_NUM_COMPTYPES];
+
+// Description of one top-level FORM chunk as found while parsing.
+struct AIFFChunkDesc
+{
+	Tag tag;
+	uint32_t size;			// data size excluding the 8-byte header and pad
+	AFfileoffset offset;	// absolute file offset of the chunk header
+	bool padded;			// whether a pad byte follows the data
+};
 
 class AIFFFile : public _AFfilehandle
 {
@@ -55,6 +67,11 @@ public:
 
 	bool isInstrumentParameterValid(AUpvlist, int) OVERRIDE;
 
+	status editEligible() OVERRIDE;
+	status spliceFrames(int track, AFframecount start,
+		AFframecount eraseFrames, const void *insertPCM,
+		AFframecount insertFrames) OVERRIDE;
+
 private:
 	AFfileoffset m_miscellaneousPosition;
 	AFfileoffset m_FVER_offset;
@@ -63,6 +80,17 @@ private:
 	AFfileoffset m_INST_offset;
 	AFfileoffset m_AESD_offset;
 	AFfileoffset m_SSND_offset;
+
+	// Structural layout captured during readInit for in-place editing.
+	std::vector<AIFFChunkDesc> m_chunkLayout;
+	uint32_t m_formSize;
+	uint32_t m_ssndDataOffset;	// SSND offset field
+	uint32_t m_ssndBlockSize;	// SSND blockSize field
+	int m_commCount;
+	int m_ssndCount;
+	int m_markCount;
+	int m_instCount;
+	bool m_formConsistent;
 
 	status parseFVER(const Tag &type, size_t size);
 	status parseAESD(const Tag &type, size_t size);
@@ -87,6 +115,19 @@ private:
 
 	bool readPString(char s[256]);
 	bool writePString(const char *);
+
+	// In-place editing helpers.
+	const AIFFChunkDesc *findChunk(const Tag &tag) const;
+	AIFFChunkDesc *findChunk(const Tag &tag);
+	static AFframecount mapPosition(AFframecount x, AFframecount start,
+		AFframecount eraseFrames, AFframecount insertFrames);
+	status rewriteChunkHeaders(int64_t chunkShift, uint32_t newFrameCount,
+		uint64_t newSsndSize, bool newSsndPadded,
+		AFfileoffset newPayloadEnd, AFfileoffset oldChunkRegion);
+	status remapMarkersAndLoops(AFframecount start, AFframecount eraseFrames,
+		AFframecount insertFrames);
+	status refreshTrackState(AFframecount start, AFframecount eraseFrames,
+		AFframecount insertFrames);
 };
 
 #endif

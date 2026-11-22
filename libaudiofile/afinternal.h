@@ -99,7 +99,9 @@ enum
 enum
 {
 	_AF_READ_ACCESS = 1,
-	_AF_WRITE_ACCESS = 2
+	_AF_WRITE_ACCESS = 2,
+	// Read-write access used only for in-place editing of named AIFF files.
+	_AF_RW_ACCESS = 3
 };
 
 // The following are tokens for compression parameters in PV lists.

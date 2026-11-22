@@ -70,6 +70,26 @@ public:
 	virtual status update() = 0;
 	virtual bool isInstrumentParameterValid(AUpvlist, int) { return false; }
 
+	/*
+		Returns AF_SUCCEED if this handle may be opened for in-place
+		frame editing ("r+").  Only named, uncompressed AIFF files
+		support editing; every other format rejects the open.
+	*/
+	virtual status editEligible() { return AF_FAIL; }
+
+	/*
+		Splice PCM frames into or out of the underlying file and
+		update all file offsets and metadata held by the handle.
+	*/
+	virtual status spliceFrames(int track, AFframecount start,
+		AFframecount eraseFrames, const void *insertPCM,
+		AFframecount insertFrames)
+	{
+		(void) track; (void) start; (void) eraseFrames;
+		(void) insertPCM; (void) insertFrames;
+		return AF_FAIL;
+	}
+
 	bool checkCanRead();
 	bool checkCanWrite();
 

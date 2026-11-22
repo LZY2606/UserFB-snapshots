@@ -41,7 +41,8 @@ public:
 	enum AccessMode
 	{
 		ReadAccess,
-		WriteAccess
+		WriteAccess,
+		ReadWriteAccess
 	};
 
 	enum SeekOrigin
@@ -62,6 +63,8 @@ public:
 	virtual off_t length() = 0;
 	virtual off_t seek(off_t offset, SeekOrigin origin) = 0;
 	virtual off_t tell() = 0;
+	/* Truncate the file to the given length; unsupported by default. */
+	virtual int truncate(off_t length) { (void) length; return -1; }
 
 	bool canSeek();
 

@@ -6,6 +6,7 @@
 *.log
 *.o
 *.trs
+.task-build
 .DS_Store
 .deps
 .libs

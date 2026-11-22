@@ -68,7 +68,7 @@ status ModuleState::initFileModule(AFfilehandle file, Track *track)
 	}
 
 	AFframecount chunkFrames;
-	if (file->m_access == _AF_READ_ACCESS)
+	if (file->m_access == _AF_READ_ACCESS || file->m_access == _AF_RW_ACCESS)
 		m_fileModule = unit->initdecompress(track, file->m_fh, file->m_seekok,
 			file->m_fileFormat == AF_FILE_RAWDATA, &chunkFrames);
 	else
@@ -80,7 +80,7 @@ status ModuleState::initFileModule(AFfilehandle file, Track *track)
 		assert(unit->nativeSampleFormat == AF_SAMPFMT_TWOSCOMP);
 
 		RebufferModule::Direction direction =
-			file->m_access == _AF_WRITE_ACCESS ?
+			(file->m_access == _AF_WRITE_ACCESS) ?
 				RebufferModule::VariableToFixed : RebufferModule::FixedToVariable;
 
 		m_fileRebufferModule = new RebufferModule(direction,
@@ -109,7 +109,8 @@ bool ModuleState::fileModuleHandlesSeeking() const
 status ModuleState::setup(AFfilehandle file, Track *track)
 {
 	AFframecount fframepos = llrint(track->nextvframe * track->f.sampleRate / track->v.sampleRate);
-	bool isReading = file->m_access == _AF_READ_ACCESS;
+	bool isReading = (file->m_access == _AF_READ_ACCESS ||
+		file->m_access == _AF_RW_ACCESS);
 
 	if (!track->v.isUncompressed())
 	{
@@ -292,7 +293,8 @@ static bool isTrivialIntClip(const AudioFormat &format, FormatCode code)
 
 status ModuleState::arrange(AFfilehandle file, Track *track)
 {
-	bool isReading = file->m_access == _AF_READ_ACCESS;
+	bool isReading = (file->m_access == _AF_READ_ACCESS ||
+		file->m_access == _AF_RW_ACCESS);
 	AudioFormat in, out;
 	if (isReading)
 	{

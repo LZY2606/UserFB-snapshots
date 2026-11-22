@@ -7,6 +7,7 @@ EXTRA_DIST = audiofile.exports
 libaudiofile_la_SOURCES = \
 	AIFF.cpp \
 	AIFF.h \
+	AIFFSplice.cpp \
 	AVR.cpp \
 	AVR.h \
 	AudioFormat.cpp \

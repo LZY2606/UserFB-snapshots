@@ -459,6 +459,17 @@ AFAPI int afReadFrames (AFfilehandle, int track, void *buffer, int frameCount);
 AFAPI int afWriteFrames (AFfilehandle, int track, const void *buffer, int frameCount);
 AFAPI AFframecount afSeekFrame (AFfilehandle, int track, AFframecount frameoffset);
 AFAPI AFframecount afTellFrame (AFfilehandle, int track);
+
+/*
+	In-place frame editing for named, uncompressed AIFF files opened
+	with mode "r+".  Erases eraseFrames frames starting at start (in
+	pre-call frame coordinates) and inserts insertFrames of native,
+	big-endian, interleaved PCM from insertPCM at the same point.
+	Returns AF_SUCCEED on success, AF_FAIL otherwise.
+*/
+AFAPI int afSpliceFrames (AFfilehandle file, int track, AFframecount start,
+	AFframecount eraseFrames, const void *insertPCM,
+	AFframecount insertFrames);
 AFAPI AFfileoffset afGetTrackBytes (AFfilehandle, int track);
 AFAPI float afGetFrameSize (AFfilehandle, int track, int expand3to4);
 AFAPI float afGetVirtualFrameSize (AFfilehandle, int track, int expand3to4);

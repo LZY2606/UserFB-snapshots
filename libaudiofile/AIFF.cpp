@@ -109,6 +109,15 @@ AIFFFile::AIFFFile()
 	m_INST_offset = 0;
 	m_AESD_offset = 0;
 	m_SSND_offset = 0;
+
+	m_formSize = 0;
+	m_ssndDataOffset = 0;
+	m_ssndBlockSize = 0;
+	m_commCount = 0;
+	m_ssndCount = 0;
+	m_markCount = 0;
+	m_instCount = 0;
+	m_formConsistent = false;
 }
 
 /*
@@ -457,6 +466,9 @@ status AIFFFile::parseSSND(const Tag &type, size_t size)
 	readU32(&offset);
 	readU32(&blockSize);
 
+	m_ssndDataOffset = offset;
+	m_ssndBlockSize = blockSize;
+
 	track->data_size = size - 8 - offset;
 
 	track->fpos_first_frame = m_fh->tell() + offset;
@@ -482,6 +494,8 @@ status AIFFFile::readInit(AFfilesetup setup)
 		(memcmp(&formtype, "AIFF", 4) && memcmp(&formtype, "AIFC", 4)))
 		return AF_FAIL;
 
+	m_formSize = size;
+
 	if (!allocateTrack())
 		return AF_FAIL;
 
@@ -493,12 +507,33 @@ status AIFFFile::readInit(AFfilesetup setup)
 		uint32_t chunksize = 0;
 		status result = AF_SUCCEED;
 
+		AFfileoffset chunkHeaderOffset = m_fh->tell();
+
 		readTag(&chunkid);
 		readU32(&chunksize);
 
+		/*
+			Record the raw structural layout of every top-level
+			chunk so in-place edits can preserve unknown chunks and
+			their ordering byte for byte.
+		*/
+		AIFFChunkDesc desc;
+		desc.tag = chunkid;
+		desc.size = chunksize;
+		desc.offset = chunkHeaderOffset;
+		desc.padded = (chunksize % 2) != 0;
+		m_chunkLayout.push_back(desc);
+
 		if (chunkid == "COMM")
 		{
+			if (hasCOMM)
+			{
+				_af_error(AF_BAD_AIFF_COMM,
+					"AIFF file has more than one COMM chunk");
+				return AF_FAIL;
+			}
 			hasCOMM = true;
+			m_commCount++;
 			result = parseCOMM(chunkid, chunksize);
 		}
 		else if (chunkid == "FVER")
@@ -508,10 +543,24 @@ status AIFFFile::readInit(AFfilesetup setup)
 		}
 		else if (chunkid == "INST")
 		{
+			m_instCount++;
+			if (m_instCount > 1)
+			{
+				_af_error(AF_BAD_AIFF_INST,
+					"AIFF file has more than one INST chunk");
+				return AF_FAIL;
+			}
 			parseINST(chunkid, chunksize);
 		}
 		else if (chunkid == "MARK")
 		{
+			m_markCount++;
+			if (m_markCount > 1)
+			{
+				_af_error(AF_BAD_AIFF_MARK,
+					"AIFF file has more than one MARK chunk");
+				return AF_FAIL;
+			}
 			parseMARK(chunkid, chunksize);
 		}
 		else if (chunkid == "AESD")
@@ -539,6 +588,7 @@ status AIFFFile::readInit(AFfilesetup setup)
 				return AF_FAIL;
 			}
 			hasSSND = true;
+			m_ssndCount++;
 			result = parseSSND(chunkid, chunksize);
 		}
 
@@ -563,6 +613,15 @@ status AIFFFile::readInit(AFfilesetup setup)
 	{
 		_af_error(AF_BAD_HEADER, "FVER chunk is required in AIFF-C");
 	}
+
+	/*
+		A consistent FORM size means the declared chunk layout reaches
+		exactly the end of the file (no trailing or missing bytes).
+	*/
+	off_t actualLength = m_fh->length();
+	m_formConsistent = (actualLength >= 0 &&
+		static_cast<uint64_t>(actualLength) ==
+		static_cast<uint64_t>(size) + 8);
 
 	/* The file has been successfully parsed. */
 	return AF_SUCCEED;

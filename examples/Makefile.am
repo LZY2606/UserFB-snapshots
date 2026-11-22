@@ -3,11 +3,17 @@ AM_CPPFLAGS = -I$(top_srcdir)/libaudiofile
 noinst_PROGRAMS = \
 	adddcoffset \
 	power \
+	spliceaiff \
+	spliceaiffxx \
 	@TEST_BIN@
 
 EXTRA_PROGRAMS = alsaplay irixread irixtestloop linuxtest osxplay
 
 LIBAUDIOFILE = $(top_builddir)/libaudiofile/libaudiofile.la
+
+spliceaiff_SOURCES = spliceaiff.c
+
+spliceaiffxx_SOURCES = spliceaiff.cpp
 
 alsaplay_SOURCES = alsaplay.cpp
 alsaplay_LDADD = $(LIBAUDIOFILE) -lasound

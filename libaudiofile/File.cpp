@@ -53,6 +53,7 @@ public:
 	virtual off_t length() OVERRIDE;
 	virtual off_t seek(off_t offset, SeekOrigin origin) OVERRIDE;
 	virtual off_t tell() OVERRIDE;
+	virtual int truncate(off_t length) OVERRIDE;
 
 private:
 	int m_fd;
@@ -82,6 +83,8 @@ File *File::open(const char *path, File::AccessMode mode)
 		flags = O_RDONLY;
 	else if (mode == WriteAccess)
 		flags = O_CREAT | O_WRONLY | O_TRUNC;
+	else if (mode == ReadWriteAccess)
+		flags = O_RDWR;
 #if defined(WIN32) || defined(__CYGWIN__)
 	flags |= O_BINARY;
 #endif
@@ -159,6 +162,11 @@ off_t FilePOSIX::seek(off_t offset, File::SeekOrigin origin)
 off_t FilePOSIX::tell()
 {
 	return seek(0, File::SeekFromCurrent);
+}
+
+int FilePOSIX::truncate(off_t length)
+{
+	return ::ftruncate(m_fd, length);
 }
 
 int FileVF::close()

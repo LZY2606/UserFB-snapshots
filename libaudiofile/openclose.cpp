@@ -191,13 +191,32 @@ AFfilehandle afOpenFile (const char *filename, const char *mode, AFfilesetup set
 	}
 
 	int access;
-	if (mode[0] == 'r')
+	File::AccessMode fileAccess;
+	if (strcmp(mode, "r+") == 0)
+	{
+		/*
+			In-place edit mode.  Only named, seekable, uncompressed
+			AIFF files are eligible; unsupported files are rejected
+			after read initialization without ever being truncated.
+		*/
+		if (setup != AF_NULL_FILESETUP)
+		{
+			_af_error(AF_BAD_FILESETUP,
+				"edit mode \"r+\" does not accept a file setup");
+			return AF_NULL_FILEHANDLE;
+		}
+		access = _AF_RW_ACCESS;
+		fileAccess = File::ReadWriteAccess;
+	}
+	else if (mode[0] == 'r')
 	{
 		access = _AF_READ_ACCESS;
+		fileAccess = File::ReadAccess;
 	}
 	else if (mode[0] == 'w')
 	{
 		access = _AF_WRITE_ACCESS;
+		fileAccess = File::WriteAccess;
 	}
 	else
 	{
@@ -205,8 +224,7 @@ AFfilehandle afOpenFile (const char *filename, const char *mode, AFfilesetup set
 		return AF_NULL_FILEHANDLE;
 	}
 
-	File *f = File::open(filename,
-		access == _AF_READ_ACCESS ? File::ReadAccess : File::WriteAccess);
+	File *f = File::open(filename, fileAccess);
 	if (!f)
 	{
 		_af_error(AF_BAD_OPEN, "could not open file '%s'", filename);
@@ -291,7 +309,8 @@ static status _afOpenFile (int access, File *f, const char *filename,
 			return AF_FAIL;
 
 		fileFormat = filesetup->fileFormat;
-		if (access == _AF_READ_ACCESS && fileFormat != AF_FILE_RAWDATA)
+		if ((access == _AF_READ_ACCESS || access == _AF_RW_ACCESS) &&
+			fileFormat != AF_FILE_RAWDATA)
 		{
 			_af_error(AF_BAD_FILESETUP,
 				"warning: opening file for read access: "
@@ -351,7 +370,7 @@ static status _afOpenFile (int access, File *f, const char *filename,
 		filehandle->m_fileName = NULL;
 	filehandle->m_fileFormat = fileFormat;
 
-	status result = access == _AF_READ_ACCESS ?
+	status result = (access == _AF_READ_ACCESS || access == _AF_RW_ACCESS) ?
 		filehandle->readInit(completesetup) :
 		filehandle->writeInit(completesetup);
 
@@ -400,6 +419,23 @@ static status _afOpenFile (int access, File *f, const char *filename,
 		}
 	}
 
+	/*
+		Edit mode is only available for named, seekable, uncompressed
+		AIFF files.  At this point the file has only been read, so a
+		failed eligibility check leaves its contents untouched.
+	*/
+	if (access == _AF_RW_ACCESS)
+	{
+		if (filename == NULL || !filehandle->m_seekok ||
+			filehandle->editEligible() != AF_SUCCEED)
+		{
+			_af_error(AF_BAD_NOT_IMPLEMENTED,
+				"file is not eligible for in-place frame editing");
+			delete filehandle;
+			return AF_FAIL;
+		}
+	}
+
 	*file = filehandle;
 
 	return AF_SUCCEED;
@@ -428,9 +464,10 @@ int afSyncFile (AFfilehandle handle)
 		if (handle->update() != AF_SUCCEED)
 			return AF_FAIL;
 	}
-	else if (handle->m_access == _AF_READ_ACCESS)
+	else if (handle->m_access == _AF_READ_ACCESS ||
+		handle->m_access == _AF_RW_ACCESS)
 	{
-		/* Do nothing. */
+		/* Read-only and edit handles maintain their own state. */
 	}
 	else
 	{

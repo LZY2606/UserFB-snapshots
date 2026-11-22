@@ -10,7 +10,7 @@ if [[ $mode == target ]]; then
 while IFS= read -r -d '' object; do objects+=("$object"); done < <(find .task-build/CMakeFiles/audiofile_task.dir -name '*.o' -print0)
 [[ ${#objects[@]} -gt 0 ]]
 c++ -std=c++11 -I. -Ilibaudiofile task_support/driver.c test/aiff_splice_target.cpp "${objects[@]}" -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/audiofile_task_XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

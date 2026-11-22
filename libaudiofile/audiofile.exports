@@ -80,6 +80,7 @@ afReadFrames
 afReadMisc
 afSeekFrame
 afSeekMisc
+afSpliceFrames
 afSetAESChannelData
 afSetChannelMatrix
 afSetErrorHandler

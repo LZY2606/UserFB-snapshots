@@ -6,7 +6,10 @@
 #include <unistd.h>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr,"baseline failed line %d: %s\n",__LINE__,#x); return 1; } } while(0)
 int main() {
-  char name[]="/tmp/aiff-production-XXXXXX";
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || !*tmpdir) tmpdir = "/tmp";
+  char name[256];
+  snprintf(name, sizeof name, "%s/aiff-production-XXXXXX", tmpdir);
   int fd=mkstemp(name); CHECK(fd>=0); close(fd);
   struct Cleanup { char *p; ~Cleanup(){unlink(p);} } cleanup={name};
   AFfilesetup s=afNewFileSetup(); CHECK(s);
