@@ -1,0 +1,107 @@
+{
+  "repo": "https://github.com/google/libsbc",
+  "commit": "6e505650145c9973d08a0bdd5e5f5e1914305e40",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "git_blob": "8d2cbfe5e4158912f5e85e8043da6c4cc29a844b",
+      "sha256": "febb653e11ed80ccf91c3b4f766377d3b2462df03e9d49001ba51757977cdd69"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "mode": "100644",
+      "git_blob": "6272489dae31495b5936919ce0e8a8937f191620",
+      "sha256": "55745c813dc4c92a9a69a6888d7a764c8e5f226d67a35c21a035649cb8168a76"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "Makefile",
+      "mode": "100644",
+      "git_blob": "ee6a0fb95def2915b8559f7c270fe8ab5c12385a",
+      "sha256": "d0a7cc6f0129b124c0e7b289b1a07019ecac1e15aedb04d0bf8cdf7725292f8c"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "git_blob": "c65d7a34eddf735367b0b99746bd448a6ba33f4e",
+      "sha256": "86dc2805576d23c7676ae0b2ec2ca4ad236d064f72a3286b5aee12ae97d1c979"
+    },
+    {
+      "path": "include/sbc.h",
+      "mode": "100644",
+      "git_blob": "fd7c3862e1e80a6305a2cfbca349bc07d68bd613",
+      "sha256": "12ead46db002be85ba056d350741957e44d14a2013860cb81d3d40468e366aa6"
+    },
+    {
+      "path": "makefile.mk",
+      "mode": "100644",
+      "git_blob": "90af74c6423c45073616a67c451881fbb7d8f86a",
+      "sha256": "6b7511d988170e68c89f15773ff797e00e2100203bd1da9b83a2a801dcd6cacc"
+    },
+    {
+      "path": "src/arm-v7em/sbc.s",
+      "mode": "100644",
+      "git_blob": "a8dd34e8334dc1c7159562a2f910a52f11a7613d",
+      "sha256": "e08cde05b767e1b21f5062bb02e4066f6f368235fd11c73f5d1c5fb46f329e9d"
+    },
+    {
+      "path": "src/bits.c",
+      "mode": "100644",
+      "git_blob": "bf8dc0d959d66807478cdc575ecd92b8255b9247",
+      "sha256": "ae160429162aa0db88700380da030b943da48259b3ee31057abf9840fbc12b24"
+    },
+    {
+      "path": "src/bits.h",
+      "mode": "100644",
+      "git_blob": "c687bc496585dda30fa674d8001a75ef2beb3af2",
+      "sha256": "8786c84e45c8eb61ec2ee8982fb3b3c4b73f6337ff95e5e3690c6bdadb7815ce"
+    },
+    {
+      "path": "src/sbc.c",
+      "mode": "100644",
+      "git_blob": "c23fff500e0d0455c519138571b83476f0746553",
+      "sha256": "1e105f5d9366256a93225342a013b64bfc886067902ccf7ff852ec9bb42433ae"
+    },
+    {
+      "path": "tools/dsbc.c",
+      "mode": "100644",
+      "git_blob": "4131b7347abb0bda201934542f65d723eee36425",
+      "sha256": "0a237513d03a7aa4cae4a32a9383106e913fa7933c232d1430c007c657c998f9"
+    },
+    {
+      "path": "tools/esbc.c",
+      "mode": "100644",
+      "git_blob": "60a1e168e8d98995d52a81581410e0f403af1ab0",
+      "sha256": "2bbfde60ccca8b7fa81044f588e2fa265fee80ee0c370a04536eb100e6eb9774"
+    },
+    {
+      "path": "tools/makefile.mk",
+      "mode": "100644",
+      "git_blob": "bffb6248885043b5644cd95f7852d8f5936673ec",
+      "sha256": "82b0aee65902e31e8689a6ee4d18c4b6690b876a60a22f08fa07d7145757b9be"
+    },
+    {
+      "path": "tools/wave.c",
+      "mode": "100644",
+      "git_blob": "559beb8ebfa7cd2b3a7c27466a32eb6f4cd7e6bc",
+      "sha256": "ebdeeac69a2fe330e61007ce7414055c479aad12313dccf2cc68f919a73b9e71"
+    },
+    {
+      "path": "tools/wave.h",
+      "mode": "100644",
+      "git_blob": "7eac9ea4e2c114b6b1d186c0c91a541bea89f422",
+      "sha256": "eee350dc3b8f9c9a5fb50fee106ce7f8d6c3b3316b27eb09aa8c2a4ef479bd6b"
+    }
+  ],
+  "excluded_tracked_files": [],
+  "gitlinks": [],
+  "gitmodules": false,
+  "method": "git archive HEAD; all tracked files retained with modes; generated task_support and task_baseline.c added; no binary fixtures or symlinks"
+}
