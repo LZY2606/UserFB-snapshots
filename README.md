@@ -1,0 +1,255 @@
+# TinyH264
+
+[![Arduino Library](https://img.shields.io/badge/Arduino-Library-blue.svg)](https://www.arduino.cc/reference/en/libraries/)
+[![CMake](https://img.shields.io/badge/CMake-Supported-blue.svg)](https://cmake.org/)
+[![IDF Component](https://img.shields.io/badge/IDF-Component-blue.svg)](https://github.com/pschatzmann/TinyH264)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-green.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+
+A minimal H.264 (Baseline Profile, CAVLC) video encoder and decoder - written from scratch in header-only C++, for microcontrollers
+such as the ESP32 and RP2040 (Raspberry Pi Pico). No dynamic memory
+allocation in the hot path, no external dependencies beyond the C++
+standard library headers already available on Arduino cores - validated
+via `arduino-cli` against `esp32:esp32:esp32`, `esp32:esp32:esp32s3`
+(PSRAM), `esp32:esp32:esp32p4` (also a dedicated hardware H.264 encoder
+path - see "ESP32-P4 hardware encoder" below), and
+`rp2040:rp2040:rpipico`.
+
+## Performance
+
+**Decoding:** Measured on real hardware, not estimated: QCIF (176x144), `examples/
+DecodeFromProgmem`'s built-in benchmark (30 repetitions of the embedded
+test clip, `micros()`-timed per frame - see that sketch for the
+methodology, including why the timing checkpoint is taken around, not
+across, the `Serial` output).
+
+| Board | avg | min | max |
+|---|---|---|---|
+| ESP32 | 20494 us (48.8 fps) | 20296 us (49.3 fps) | 20647 us (48.4 fps) |
+| ESP32-S3 | 16045 us (62.3 fps) | 15243 us (65.6 fps) | 16564 us (60.4 fps) |
+| ESP32-P4 | 4720 us (211.9 fps) | 4484 us (223.0 fps) | 5018 us (199.3 fps) |
+| RP2040 | 29008 us (34.5 fps) | 22700 us (44.1 fps) | 32263 us (31.0 fps) |
+| RP2350 | 26193 us (38.2 fps) | 19782 us (50.6 fps) | 29511 us (33.9 fps) |
+| STM32F723 | 13926 us (71.8 fps) | 11377 us (87.9 fps) | 15567 us (64.2 fps) |
+| x86 (native)* | 280 us (3569.8 fps) | 181 us (5524.3 fps) | 429 us (2328.7 fps) |
+
+\* Not a board - a native desktop build of the same decode path (no
+Arduino framework, `Serial`, or UART involved), same embedded clip and
+30-repetition loop, `std::chrono`-timed instead of `micros()`-timed.
+Measured on an Intel i7-4650U (single core, `-O2`). Included as a rough
+ceiling for how much of each embedded figure above is decode work versus
+that core's own overhead, not a fair apples-to-apples comparison with
+the boards above it.
+
+All comfortably clear real-time (15-30 fps) for QCIF at Baseline/CAVLC
+with the deblocking filter active. None of this decoder's hot paths
+(CAVLC entropy decoding, motion-compensation interpolation, the
+deblocking filter) are hand-optimized for any of these targets - see
+`src/decoder/h264_cavlc.h`'s `decodeVlc()` and `src/common/h264_motion.h`
+for what a profiling-driven optimization pass would likely target first
+if you need more headroom than this.
+
+**Decode + display, real hardware**: `examples/DecodeToDisplay` (256x192,
+decode + RGB565 conversion + SPI push to an ILI9341 TFT, plain ESP32, no
+PSRAM) measured avg decode 56742 us (min 50161, max 79416 - content-
+dependent) and avg convert+push 55324 us (min 55314, max 55349 - a fixed
+SPI-transfer cost, essentially content-independent) - combined, ~112066
+us/frame, ~8.9 fps if run back-to-back with no pacing delay. Slower than
+the QCIF-only figures above since it's 2.9x the pixel count *and*
+includes the display push, not just decode - see that sketch's own
+on-device timing instrumentation for the methodology.
+
+**Encoding**: QCIF (176x144), `examples/EncodeSyntheticFrame`'s built-in
+benchmark (30 repetitions of an 8-frame synthetic-gradient GOP,
+`micros()`-timed per frame, same methodology as the decode table above).
+Encoding is far more expensive than decoding - The timings below are w/o any optimizations.
+Every row is the **software** encoder path (rate control active) except
+"ESP32-P4 (hardware)", which is `setUseHardware()`'s dedicated hardware
+encoder path, fixed QP 26, no rate control (see "ESP32-P4 hardware
+encoder" below for why rate control and hardware are mutually
+exclusive) - included here for direct comparison against every software
+row, ~140x faster than this same board's own software path.
+
+| Board | avg | min | max |
+|---|---|---|---|
+| ESP32 | 600503 us (1.7 fps) | 256325 us (3.9 fps) | 721200 us (1.4 fps) |
+| ESP32-S3 | 486647 us (2.1 fps) | 205299 us (4.9 fps) | 584823 us (1.7 fps) |
+| ESP32-P4 (software) |136026  us (7.4 fps) | 27687 us (36.1 fps) | 174451 us (5.7 fps) |
+| **ESP32-P4 (hardware)** | **964 us (1037.3 fps)** | **949 us (1053.7 fps)** | **1001 us (999.0 fps)** |
+| RP2040* | 401440 us (2.5 fps) | 122553 us (8.2 fps) | 499529 us (2.0 fps) |
+| RP2350* | 808982 us (1.2 fps) | 303344 us (3.3 fps) | 983456 us (1.0 fps) |
+| STM32H750VBT6* | 88616 us (11.3 fps) | 15744 us (63.5 fps) | 114245 us (8.8 fps) |
+| x86 (native)† | 5908 us (169.3 fps) | 2506 us (399.1 fps) | 11483 us (87.1 fps) |
+
+\* Built with the `-O3` ("Optimize Even More") board-menu option;
+ESP32/ESP32-S3 above use the Arduino-ESP32 core's fixed `-Os` (that core
+has no user-selectable optimization level), so those two rows aren't a
+like-for-like comparison with the `*` rows. The RP2350 figure being
+slower than RP2040 here is also suspect rather than a real chip
+comparison - RP2350's `arduino-pico` board defaults to a lower `CPU
+Speed` than RP2040's (150 MHz vs. 200 MHz) and has an ARM-vs-RISC-V
+`CPU Architecture` menu RP2040 doesn't even have, either of which could
+explain it; not yet root-caused.
+
+† Not a board - a native desktop build of the same encode path (same
+rate control target, keyframe interval, and synthetic-gradient GOP
+`EncodeSyntheticFrame` uses), `-O2`, same Intel i7-4650U as the decode
+table's x86 row - not a fair apples-to-apples comparison with the
+boards above it.
+
+These numbers are all too low for streaming live video. Therefore different __optimizations__ have been set in place which will turn fast microcontrollers into a viable option. For slow microcontrollers the functionality is still useful for some special scenaios like Time-Lapse Recording, AI Vision Agents and Streaming Analysis, Low-Storage CCTV & Dashcams, Remote Wildlife Traps ...
+
+
+**`setAllOptimizationsActive(true)`,  real hardware**: confirmed on
+STM32H750VBT6 (`-O3`), combining `Fast` with this session's other encoder
+work (a duplicate motion-compensation/transform pass eliminated - see
+[Optimizations](docs/optimizations.md#encoding)): avg 88616 -> 21461 us (= 46.6 fps)
+(**4.13x faster**).
+
+**ESP32-P4 hardware encoder (`TinyH264Encoder::setUseHardware()`)**:
+**working**, confirmed via a real encode -> decode -> PSNR round trip on
+actual hardware (`examples/EncodeDecodeRoundTrip`), not just "bytes came
+out" - Y-PSNR 48.9-52.5dB across every I- and P-frame, chip revision
+v1.3 (`arduino-cli` build + flash, `USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=enabled`).
+Measured throughput (`examples/EncodeSyntheticFrame`, QCIF 176x144, fixed
+QP 26, 240 frames, also in the table above as "ESP32-P4 (hardware)"):
+**avg 964us/frame = 1037 fps**, min 949us (1054 fps), max 1001us (999 fps)
+- a ~140x speedup over this same board's own software path just above it
+in the table (avg 136026us/frame = 7.4 fps with rate control active,
+since P-frame exhaustive motion search dominates there). Architecturally,
+`HwEncoderP4` (`src/encoder/h264_hw_encoder_p4.h`) is a subclass of the
+software encoder (`SoftwareEncoder`) rather than a separate, unrelated
+class - `TinyH264Encoder` just holds one instance of whichever concrete
+type its build has available and forwards every call straight through,
+with no hardware-specific branching of its own. `useHardware_` (a
+`HwEncoderP4` member - this class only exists in a build where hardware
+is genuinely available, so there's no separate availability check to
+apply here) defaults to `true`, with an automatic, one-time fallback to
+the inherited software implementation if a real hardware `encode()` call
+ever fails (`hwEncodeFailed_` latches after the first failure, so only
+one frame ever pays the ~1s timeout - see `HwEncoderP4::encodeFrame()`
+and its RGB/YUV422 siblings) rather than returning 0 to the caller.
+
+**Known limitation**: the hardware path requires a fixed QP -
+`HwEncoderP4::ensureHardwareReady()` needs `defaultQp_ >= 0` (the same
+field `SoftwareEncoder::setQp()` sets), and rate control's adaptive QP
+(`setTargetBitrate()`) only ever applies to the inherited software
+fallback, never synced to hardware - so a rate-controlled
+`TinyH264Encoder` never even attempts hardware (cheaply, not via the 1s
+timeout) and always uses software; `setTargetBitrate()`/
+`setMotionSearchRange()`/`setMotionSearchAlgorithm()`/
+`setAllOptimizationsActive()` all return `false` while hardware mode is
+active, for exactly this reason (still applied to the software fallback,
+just not to hardware itself). Call `setQp()` (not `setTargetBitrate()`)
+to use the hardware path. `examples/EncodeSyntheticFrame` demonstrates
+both modes back to back against the same content, labeled, in one run.
+
+[codec-h264-ESP32P4](https://github.com/pschatzmann/codec-h264-ESP32P4),
+a sibling project by this author wrapping Espressif's own real
+`esp_h264` driver source, remains available as a higher-level
+alternative (VGA at ~70 fps, no manual register/DMA work) - it was also
+this investigation's ground truth throughout, and its vendored driver
+source is what ultimately explained the root cause - see
+[the full investigation writeup](docs/esp32-p4-hardware-encoder-investigation.md)
+for the detailed root-cause story and how it was found.
+
+
+## Containers
+
+`TinyH264Encoder`/`TinyH264Decoder` speak raw H.264 elementary streams
+only (Annex-B NAL units, see
+[Preparing input with ffmpeg](docs/preparing-input-with-ffmpeg.md)) -
+there's no container muxing/demuxing in this library, deliberately. To
+produce a playable video file/stream from `encodeFrame()`'s output, or
+to extract the raw H.264 stream from an existing file to feed into
+`TinyH264Decoder`, use the
+[AudioTools](https://github.com/pschatzmann/arduino-audio-tools) project's
+`MuxerMP4`/`DemuxerMP4` (or `MuxerAVI`/`DemuxerAVI`) classes - both work
+directly against Annex-B access units, no transcoding needed. Prefer MP4
+over AVI unless you have a specific reason not to: classic AVI has no
+official H.264 standardization, so "H.264-in-AVI" plays fine in VLC/
+ffplay/mpv but not in a browser `<video>` tag.
+
+## Logging
+
+Every failure path across the encoder and decoder - allocation failures,
+a corrupt/truncated bitstream, an unsupported stream feature, a
+too-small destination buffer, a hardware encode timeout - reports
+through a single shared logger, `tinyh264::H264LOG` (`src/common/Logger.h`),
+silent by default:
+
+```cpp
+#include <TinyH264Encoder.h>
+using namespace tinyh264;
+
+void setup() {
+  Serial.begin(115200);
+  H264LOG.begin(LogLevel::kInfo);  // opt in - defaults to Serial on Arduino
+  ...
+}
+```
+
+No plumbing required to reach it from inside the library (no `Logger`
+member, no `setLogger()` call on `TinyH264Encoder`/`TinyH264Decoder`) -
+`H264LOG` is a single, always-available instance, usable from a plain
+desktop/CI build too (`printf` instead of `Print` off Arduino). See
+[Logging](docs/logging.md) for the full level policy and what gets
+logged where.
+
+## Documentation
+
+- [Scope](docs/scope.md) - what's implemented and validated (I/P-slice
+  decoding, motion compensation, deblocking, multi-reference) vs. what's
+  deliberately out of scope (CABAC, B-slices, High profile, ...), for
+  both the decoder and the encoder.
+- [Memory budget](docs/memory-budget.md) - real `arduino-cli`-measured
+  static/heap RAM cost for both `TinyH264Decoder` and `TinyH264Encoder`,
+  and the `begin()`/`end()` explicit-lifecycle-control API.
+- [Decoding](docs/decoding.md) - `TinyH264Decoder` usage, accessing
+  decoded pixel data (raw planes, single samples, RGB565/666/888,
+  packed YUV420), reference-frame count tuning, and PSRAM placement.
+- [Encoding](docs/encoding.md) - `TinyH264Encoder` usage, `encodeFrame()`
+  and its RGB/YUV422 overloads, automatic I-frame/P-frame dispatch,
+  periodic keyframes, and rate control.
+- [Logging](docs/logging.md) - `H264LOG`, the shared logger every
+  encoder/decoder failure path reports through, the `kError`/`kWarn`
+  level policy, and what's deliberately left uninstrumented.
+- `examples/EncodeDecodeRoundTrip` - encodes a synthetic sequence, feeds
+  it straight back into `TinyH264Decoder`, and checks each decoded
+  picture against its source frame by PSNR - a real on-device
+  encoder+decoder sanity check, verified passing (8/8 frames, Y PSNR
+  49-53dB) on real ESP32-P4 hardware.
+- [ESP32-P4 hardware encoder investigation](docs/esp32-p4-hardware-encoder-investigation.md) -
+  the detailed root-cause story behind the "ESP32-P4 hardware encoder"
+  section above (the AUD-padding bug, how it was found, and why it took
+  as long as it did) - not needed to just use `setUseHardware()`.
+- [Preparing input with ffmpeg](docs/preparing-input-with-ffmpeg.md) -
+  the exact `ffmpeg`/libx264 command line (and why each flag is needed)
+  to produce a stream this decoder can read.
+- [Testing](docs/testing.md) - running the native CMake/CTest suite,
+  consuming this library as a CMake target or ESP-IDF component, and
+  how the test assets themselves were generated.
+- [Optimizations](docs/optimizations.md) - encoding
+  and decoding chapters covering motion-search performance findings
+  (what was optimized, what's still slow and why, options considered for
+  going further, and why ESP-DSP/CMSIS-DSP don't help this project's
+  targets for that workload), plus other known gaps.
+
+## Installation
+
+For Arduino, download this library as a zip and use Library ->
+Include Library -> Add .ZIP Library. Or git clone this project into
+your Arduino libraries folder, e.g.
+
+```
+cd ~/Documents/Arduino/libraries
+git clone https://github.com/pschatzmann/TinyH264.git
+```
+
+No external Arduino library dependencies - the only include beyond the
+C++ standard library is `Arduino.h` itself (transitively, via the
+Arduino build), and PSRAM support (`PSRAMAllocatorESP32.h`) is opt-in
+and self-contained.
+
+For CMake or ESP-IDF projects instead, see [Testing](docs/testing.md)
+for `add_subdirectory()`/`EXTRA_COMPONENT_DIRS` usage.
