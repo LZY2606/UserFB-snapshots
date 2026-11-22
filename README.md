@@ -63,6 +63,57 @@ git.
 The directory examples contains example source code on using libFLAC and
 libFLAC++.
 
+## Splitting a cuesheeted FLAC in one forward pass
+
+`FLAC__stream_cuesplit()` (declared in
+`include/FLAC/stream_cuesplit.h`) splits one native FLAC file that
+carries a CUESHEET into one independent FLAC stream per music track.
+It is designed for sources that can only be read once and never seeked
+(for example a pipe or an archive channel): a single sequential
+decoder walks the input, and at most one output encoder is active at
+any time. The working memory scales with the largest decoded block and
+the channel count, never with the total number of samples.
+
+Input and output are both expressed through four callbacks:
+
+- `read` fills a buffer from the forward-only source, with the same
+  short-read/end-of-stream semantics as the stream decoder read
+  callback;
+- `begin` opens one output track and receives its exact sample count;
+- `write` delivers encoded bytes at an absolute byte offset inside that
+  output, so the STREAMINFO header can be rewritten in place when the
+  track completes (the input side is never seeked);
+- `end` closes the track and reports whether it completed.
+
+Each output is a lossless re-encoding in the source format whose
+STREAMINFO carries its own real total sample count and a non-zero MD5
+signature, plus a fresh non-CD CUESHEET (catalog retained, lead-in
+zero, track/ISRC/pre-emphasis and index points re-based onto the
+output start, lead-out at the output length). SEEKTABLE, APPLICATION,
+PICTURE, PADDING and VORBIS_COMMENT blocks are not inherited.
+
+Two pregap ownership policies are available:
+
+- `FLAC__CUESPLIT_PREGAP_NEXT`: track *i* owns
+  `[track[i].offset, track[i+1].offset)`, so the INDEX 00 pregap
+  recorded at the start of a track stays attached to that same track
+  and the first output begins at sample 0;
+- `FLAC__CUESPLIT_PREGAP_PREVIOUS`: each track runs from its own
+  INDEX 01 point to the next track's INDEX 01 (the last track runs to
+  the lead-out). Audio before the first INDEX 01, when present, is
+  emitted as a separate output identified by track number 0; pregap
+  audio is never skipped and never duplicated into two outputs.
+
+If the source STREAMINFO has a non-zero MD5 signature it is verified
+over the whole stream. A mismatch is reported as
+`FLAC__CUESPLIT_STATUS_SOURCE_MD5_MISMATCH` only after the full stream
+has been consumed; tracks already finished successfully are not rolled
+back. A zero source signature simply skips the check.
+
+A complete FILE*-based adaptation, including reading from stdin and
+seeking only on the output files, is in
+`examples/c/cuesplit/file/main.c`.
+
 Documentation concerning the FLAC format itself (which can be used to
 create software reading and writing FLAC software independent from
 libFLAC) was included in previous releases, but can now be found on

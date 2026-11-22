@@ -1,3 +1,4 @@
+add_subdirectory("c/cuesplit/file")
 add_subdirectory("c/decode/file")
 add_subdirectory("c/encode/file")
 

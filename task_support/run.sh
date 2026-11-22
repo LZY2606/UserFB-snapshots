@@ -8,7 +8,7 @@ cmake --build .task-build/flac --target FLAC -j 4
 cc -std=c11 -DFLAC__NO_DLL -Iinclude task_support/baseline.c .task-build/flac/src/libFLAC/libFLAC.a -lm -o .task-build/baseline
 if [[ $mode == target ]]; then
   cc -std=c11 -DFLAC__NO_DLL -I. -Iinclude task_support/driver.c tests/cue_split.c .task-build/flac/src/libFLAC/libFLAC.a -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/cuesplit.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

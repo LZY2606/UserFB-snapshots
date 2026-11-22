@@ -40,6 +40,7 @@
 #include "format.h"
 #include "metadata.h"
 #include "ordinals.h"
+#include "stream_cuesplit.h"
 #include "stream_decoder.h"
 #include "stream_encoder.h"
 

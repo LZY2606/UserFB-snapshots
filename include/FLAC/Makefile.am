@@ -39,5 +39,6 @@ flaccinclude_HEADERS = \
 	format.h \
 	metadata.h \
 	ordinals.h \
+	stream_cuesplit.h \
 	stream_decoder.h \
 	stream_encoder.h

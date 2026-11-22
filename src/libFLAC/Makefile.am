@@ -87,6 +87,7 @@ libFLAC_sources = \
 	bitwriter.c \
 	cpu.c \
 	crc.c \
+	cue_split_plan.c \
 	fixed.c \
 	fixed_intrin_sse2.c \
 	fixed_intrin_ssse3.c \
@@ -104,6 +105,7 @@ libFLAC_sources = \
 	memory.c \
 	metadata_iterators.c \
 	metadata_object.c \
+	stream_cuesplit.c \
 	stream_decoder.c \
 	stream_encoder.c \
 	stream_encoder_intrin_sse2.c \
