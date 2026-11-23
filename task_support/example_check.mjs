@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';
+import {parse,find,ns} from './xml.mjs';import {generateISD} from '../src/main/js/isd.js';
+const out=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const d=parse(fs.readFileSync('task_support/example.ttml','utf8'));
+assert.deepEqual(out.events,d.getMediaTimeEvents());
+assert.deepEqual(out.ranges,[[0,4.5]]);
+assert.deepEqual(out.frames,[1,5].map(time=>({time,isd:generateISD(d,time)})));
+assert.equal(find(out.frames[0].isd,'r').styleAttrs[ns+'opacity'],0.5);
+assert.equal(find(out.frames[1].isd,'r').styleAttrs[ns+'opacity'],0.25);
+console.log('ANIMATION_EXAMPLE_OK');
