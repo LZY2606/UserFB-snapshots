@@ -7,13 +7,18 @@ import (
 )
 
 // Format contains information about the audio format of an ogg/vorbis file.
+// For chained streams the format is taken from the first segment; only chains
+// whose segments all share the same sample rate and channel count are
+// supported.
 type Format struct {
 	SampleRate int
 	Channels   int
 	Bitrate    vorbis.Bitrate
 }
 
-// ReadAll decodes audio from in until an error or EOF.
+// ReadAll decodes audio from in until an error or EOF. For chained ogg
+// streams the returned slice is the concatenation of every segment's fully
+// decoded PCM, in the same global frame coordinates as Reader.Position.
 func ReadAll(in io.Reader) ([]float32, *Format, error) {
 	r, err := NewReader(in)
 	if err != nil {
@@ -95,16 +100,16 @@ func GetCommentHeader(in io.Reader) (vorbis.CommentHeader, error) {
 	return dec.CommentHeader, nil
 }
 
-// GetLength returns the length of the file in samples and the audio format.
+// GetLength returns the total length of the file in frames and the audio
+// format. For chained streams the length is the sum of every segment's
+// trimmed frame count.
 func GetLength(in io.ReadSeeker) (int64, *Format, error) {
-	r := oggReader{source: in, seeker: in}
-	var dec vorbis.Decoder
-	p, err := r.NextPacket()
+	idx, err := buildChainIndex(in)
 	if err != nil {
 		return 0, nil, err
 	}
-	err = dec.ReadHeader(p)
-	if err != nil {
+	var dec vorbis.Decoder
+	if err := dec.ReadHeader(idx.segments[0].id); err != nil {
 		return 0, nil, err
 	}
 	format := &Format{
@@ -112,6 +117,5 @@ func GetLength(in io.ReadSeeker) (int64, *Format, error) {
 		Channels:   dec.Channels(),
 		Bitrate:    dec.Bitrate,
 	}
-	length, err := r.LastPosition()
-	return length, format, err
+	return idx.length, format, nil
 }
