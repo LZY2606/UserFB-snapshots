@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/EmberGL-org/EmberGL",
+  "commit": "6c197451257d3b2d800b40d4e21e5e3fe4f52ae7",
+  "license": "MIT",
+  "export": "Full tracked tree, original modes, no gitlinks or symlinks; task_support added separately."
+}
