@@ -163,7 +163,11 @@ API_SYM void x86emu_reset_access_stats(x86emu_t *emu)
   mem2_page_t page;
   unsigned pdir_idx, u, u1;
 
-  if(!emu || !emu->mem || !(pdir = emu->mem->pdir)) return;
+  if(!emu) return;
+
+  x86emu_history_disable(emu);
+
+  if(!emu->mem || !(pdir = emu->mem->pdir)) return;
 
   for(pdir_idx = 0; pdir_idx < (1 << X86EMU_PDIR_BITS); pdir_idx++) {
     ptable = (*pdir)[pdir_idx];
@@ -183,6 +187,8 @@ API_SYM void x86emu_reset_access_stats(x86emu_t *emu)
 API_SYM void x86emu_set_io_perm(x86emu_t *emu, unsigned start, unsigned end, unsigned perm)
 {
   if(!emu) return;
+
+  x86emu_history_disable(emu);
 
   if(end > X86EMU_IO_PORTS - 1) end = X86EMU_IO_PORTS - 1;
 
@@ -252,6 +258,8 @@ API_SYM void x86emu_set_perm(x86emu_t *emu, unsigned start, unsigned end, unsign
 
   if(!emu || !(mem = emu->mem)) return;
 
+  x86emu_history_disable(emu);
+
   if(start > end) return;
 
   // x86emu_log(emu, "set perm: start 0x%x, end 0x%x, perm 0x%x\n", start, end, perm);
@@ -299,6 +307,8 @@ API_SYM void x86emu_set_page(x86emu_t *emu, unsigned page, void *address)
   unsigned u;
 
   if(!emu || !(mem = emu->mem)) return;
+
+  x86emu_history_disable(emu);
 
   p = vm_get_page(mem, page, 1);
 

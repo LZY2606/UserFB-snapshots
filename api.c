@@ -78,6 +78,8 @@ API_SYM x86emu_t *x86emu_new(unsigned def_mem_perm, unsigned def_io_perm)
 API_SYM x86emu_t *x86emu_done(x86emu_t *emu)
 {
   if(emu) {
+    x86emu_history_disable(emu);
+
     emu_mem_free(emu->mem);
 
     free(emu->log.buf);
@@ -104,6 +106,10 @@ API_SYM x86emu_t *x86emu_clone(x86emu_t *emu)
 
   new_emu = mem_dup(emu, sizeof *emu);
 
+  /* the clone starts without recorded history */
+  new_emu->hist = NULL;
+  if(emu->hist) new_emu->memio = vm_memio;
+
   new_emu->mem = emu_mem_clone(emu->mem);
 
   if(emu->log.buf && emu->log.ptr) {
@@ -128,6 +134,8 @@ API_SYM x86emu_t *x86emu_clone(x86emu_t *emu)
 API_SYM void x86emu_reset(x86emu_t *emu)
 {
   x86emu_regs_t *x86 = &emu->x86;
+
+  x86emu_history_disable(emu);
 
   free(x86->msr);
   free(x86->msr_perm);
@@ -164,6 +172,7 @@ API_SYM x86emu_memio_handler_t x86emu_set_memio_handler(x86emu_t *emu, x86emu_me
   x86emu_memio_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->memio;
     emu->memio = handler;
   }
@@ -177,6 +186,7 @@ API_SYM x86emu_intr_handler_t x86emu_set_intr_handler(x86emu_t *emu, x86emu_intr
   x86emu_intr_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->intr;
     emu->intr = handler;
   }
@@ -190,6 +200,7 @@ API_SYM x86emu_code_handler_t x86emu_set_code_handler(x86emu_t *emu, x86emu_code
   x86emu_code_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->code_check;
     emu->code_check = handler;
   }
@@ -202,6 +213,7 @@ API_SYM x86emu_cpuid_handler_t x86emu_set_cpuid_handler(x86emu_t *emu, x86emu_cp
   x86emu_cpuid_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->cpuid;
     emu->cpuid = handler;
   }
@@ -214,6 +226,7 @@ API_SYM x86emu_wrmsr_handler_t x86emu_set_wrmsr_handler(x86emu_t *emu, x86emu_wr
   x86emu_wrmsr_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->wrmsr;
     emu->wrmsr = handler;
   }
@@ -226,6 +239,7 @@ API_SYM x86emu_rdmsr_handler_t x86emu_set_rdmsr_handler(x86emu_t *emu, x86emu_rd
   x86emu_rdmsr_handler_t old = NULL;
 
   if(emu) {
+    x86emu_history_disable(emu);
     old = emu->rdmsr;
     emu->rdmsr = handler;
   }
@@ -237,8 +251,11 @@ API_SYM unsigned x86emu_read_byte(x86emu_t *emu, unsigned addr)
 {
   u32 val = 0xff;
 
-  if(emu) emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_8);
- 
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_8);
+  }
+
   return val;
 }
 
@@ -247,8 +264,11 @@ API_SYM unsigned x86emu_read_byte_noperm(x86emu_t *emu, unsigned addr)
 {
   u32 val = 0xff;
 
-  if(emu) emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_8_NOPERM);
- 
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_8_NOPERM);
+  }
+
   return val;
 }
 
@@ -257,8 +277,11 @@ API_SYM unsigned x86emu_read_word(x86emu_t *emu, unsigned addr)
 {
   u32 val = 0xffff;
 
-  if(emu) emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_16);
- 
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_16);
+  }
+
   return val;
 }
 
@@ -267,8 +290,11 @@ API_SYM unsigned x86emu_read_dword(x86emu_t *emu, unsigned addr)
 {
   u32 val = 0xffffffff;
 
-  if(emu) emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_32);
- 
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val, X86EMU_MEMIO_R | X86EMU_MEMIO_32);
+  }
+
   return val;
 }
 
@@ -277,7 +303,10 @@ API_SYM void x86emu_write_byte(x86emu_t *emu, unsigned addr, unsigned val)
 {
   u32 val32 = val;
 
-  if(emu) emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_8);
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_8);
+  }
 }
 
 
@@ -285,7 +314,10 @@ API_SYM void x86emu_write_byte_noperm(x86emu_t *emu, unsigned addr, unsigned val
 {
   u32 val32 = val;
 
-  if(emu) emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_8_NOPERM);
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_8_NOPERM);
+  }
 }
 
 
@@ -293,7 +325,10 @@ API_SYM void x86emu_write_word(x86emu_t *emu, unsigned addr, unsigned val)
 {
   u32 val32 = val;
 
-  if(emu) emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_16);
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_16);
+  }
 }
 
 
@@ -301,7 +336,10 @@ API_SYM void x86emu_write_dword(x86emu_t *emu, unsigned addr, unsigned val)
 {
   u32 val32 = val;
 
-  if(emu) emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_32);
+  if(emu) {
+    x86emu_history_disable(emu);
+    emu->memio(emu, addr, &val32, X86EMU_MEMIO_W | X86EMU_MEMIO_32);
+  }
 }
 
 

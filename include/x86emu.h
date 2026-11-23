@@ -546,6 +546,7 @@ typedef struct x86emu_s {
     void *private;		/* deprecated: use _private */
 #endif
   };
+  struct x86emu_hist_s *hist;	/* reversible debugging state, or NULL */
 } x86emu_t;
 
 /*-------------------------- Function Prototypes --------------------------*/
@@ -587,6 +588,56 @@ void x86emu_write_word(x86emu_t *emu, unsigned addr, unsigned val);
 void x86emu_write_dword(x86emu_t *emu, unsigned addr, unsigned val);
 
 void x86emu_set_seg_register(x86emu_t *emu, sel_t *seg, u16 val);
+
+/*
+ * reversible debugging ("history") interface
+ *
+ * x86emu_history_step() return values:
+ */
+#define X86EMU_HISTORY_OK	0	/* instruction completed */
+#define X86EMU_HISTORY_HLT	1	/* instruction halted the cpu */
+#define X86EMU_HISTORY_MEMERR	2	/* memory permission failure; step was rolled back */
+#define X86EMU_HISTORY_BARRIER	3	/* external side effect barrier; nothing was executed */
+#define X86EMU_HISTORY_DISABLED	4	/* history mode is not enabled */
+
+/*
+ * x86emu_history_back() return values:
+ */
+#define X86EMU_HISTORY_BACK_OK		0	/* one step was undone */
+#define X86EMU_HISTORY_BACK_EMPTY	1	/* no (more) history to undo */
+
+typedef struct {
+  unsigned entries;	/* retained history entries (undoable steps) */
+  u64 data_bytes;	/* retained memory data pre-image bytes */
+  u64 attr_bytes;	/* retained memory attribute pre-image bytes */
+} x86emu_history_stats_t;
+
+/*
+ * Enable reversible debugging with an empty history. Must be called at a
+ * clean instruction boundary. Fails (returns non-zero) if a custom memio
+ * or code handler is installed. Returns 0 on success.
+ */
+int x86emu_history_enable(x86emu_t *emu);
+
+/* Disable history mode and release all recorded state. */
+void x86emu_history_disable(x86emu_t *emu);
+
+/* Execute exactly one instruction (all prefixes; REP string ops count as
+ * one step) and record its pre-image. See X86EMU_HISTORY_* above. */
+unsigned x86emu_history_step(x86emu_t *emu);
+
+/* Undo the most recent recorded step. */
+unsigned x86emu_history_back(x86emu_t *emu);
+
+/* History statistics; *stats is zeroed if history is disabled. */
+void x86emu_history_stats(x86emu_t *emu, x86emu_history_stats_t *stats);
+
+/*
+ * Inspect memory without changing access attributes and without
+ * materializing sparse pages. Unallocated bytes read as 0xff with the
+ * default attributes. data and/or attr may be NULL.
+ */
+void x86emu_history_peek(x86emu_t *emu, u32 addr, unsigned len, u8 *data, u8 *attr);
 
 #ifdef  __cplusplus
 }                       			/* End of "C" linkage for C++   	*/

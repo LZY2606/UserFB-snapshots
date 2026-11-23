@@ -41,7 +41,6 @@
 
 /*----------------------------- Implementation ----------------------------*/
 
-static void handle_interrupt(x86emu_t *emu);
 static void generate_int(x86emu_t *emu, u8 nr, unsigned type, unsigned errcode);
 static void log_regs(x86emu_t *emu);
 static void log_code(x86emu_t *emu);
@@ -67,6 +66,9 @@ API_SYM unsigned x86emu_run(x86emu_t *emu, unsigned flags)
 #if WITH_TSC
   u64 tsc_ofs;
 #endif
+
+  /* a normal run invalidates any recorded history */
+  x86emu_history_disable(emu);
 
   p = &emu->log.ptr;
 

@@ -115,6 +115,8 @@ void decode_descriptor(x86emu_t *emu, descr_t *d, u32 dl, u32 dh);
 
 void emu_process_debug(x86emu_t *emu, unsigned start, unsigned len);
 
+void handle_interrupt(x86emu_t *emu);
+
 
 #ifdef  __cplusplus
 }                       			/* End of "C" linkage for C++   	*/
