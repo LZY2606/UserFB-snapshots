@@ -14,6 +14,7 @@ This library is licensed under the BSD license. See the file COPYING.
 #include "insts.h"
 #include "prefix.h"
 #include "x86defs.h"
+#include "xop.h"
 #include "../include/mnemonics.h"
 
 
@@ -347,6 +348,21 @@ _InstInfo* inst_lookup(_CodeInfo* ci, _PrefixState* ps, int* isPrefixed)
 				/* If the instruction doesn't use VEX.vvvv it must be zero. */
 				if ((((_InstInfoEx*)ii)->flagsEx & INST_VEX_V_UNUSED) && ps->vexV) return NULL;
 			}
+			return ii;
+		}
+	}
+
+	/*
+	 * AMD XOP: 0x8F is shared with POP and deliberately absent from the
+	 * prefix tables, so it never enters prefixes_decode. Intercept it here
+	 * once any legacy prefixes have been scanned. A low-five value below 8
+	 * or an unsupported map/opcode falls through to the normal opcode walk
+	 * (POP) and ultimately the legacy invalid-byte handling.
+	 */
+	if ((ci->dt != Decode16Bits) && (tmpIndex0 == PREFIX_XOP)) {
+		ii = xop_lookup(ci, ps);
+		if (ii != NULL) {
+			*isPrefixed = TRUE;
 			return ii;
 		}
 	}

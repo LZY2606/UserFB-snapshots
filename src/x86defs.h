@@ -60,6 +60,8 @@ This library is licensed under the BSD license. See the file COPYING.
 #define PREFIX_ADDR_SIZE (0x67)
 #define PREFIX_VEX2b (0xc5)
 #define PREFIX_VEX3b (0xc4)
+/* AMD XOP three-byte prefix shares the 0x8F opcode byte with POP. */
+#define PREFIX_XOP (0x8f)
 
 /* REX prefix value range, 64 bits mode decoding only. */
 #define PREFIX_REX_LOW (0x40)

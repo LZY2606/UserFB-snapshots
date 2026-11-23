@@ -15,6 +15,7 @@ This library is licensed under the BSD license. See the file COPYING.
 #include "prefix.h"
 #include "x86defs.h"
 #include "operands.h"
+#include "xop.h"
 #include "insts.h"
 #include "../include/mnemonics.h"
 
@@ -101,6 +102,17 @@ static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, const uint8_t*
 
 	ii = inst_lookup(ci, ps, &isPrefixed);
 	if (ii == NULL) goto _Undecodable;
+
+	/*
+	 * AMD XOP instructions bypass the generated opcode/operand tables.
+	 * xop_decode consumes the whole instruction (including the trailing
+	 * selector/imm byte) and fills the regular _DInst model itself.
+	 */
+	if (ii == &II_XOP) {
+		_DecodeResult xopRet = xop_decode(ci, ps, startCode, di);
+		if (xopRet != DECRES_SUCCESS) goto _Undecodable;
+		return DECRES_SUCCESS;
+	}
 
 	isi = &InstSharedInfoTable[ii->sharedIndex];
 	instFlags = FlagsTable[isi->flagsIndex];

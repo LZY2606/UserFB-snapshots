@@ -292,7 +292,7 @@ const unsigned char _MNEMONICS[] =
 "\x08" "WRFSBASE\0" "\x08" "VLDMXCSR\0" "\x07" "STMXCSR\0" "\x08" "WRGSBASE\0" \
 "\x08" "VSTMXCSR\0" "\x07" "VMPTRLD\0" "\x07" "VMCLEAR\0" "\x05" "VMXON\0" \
 "\x06" "MOVSXD\0" "\x05" "PAUSE\0" "\x04" "WAIT\0" "\x06" "RDRAND\0" \
-"\x06" "_3DNOW\0" \
+"\x06" "_3DNOW\0" "\x06" "VPCMOV\0" "\x06" "VPPERM\0" "\x06" "VPROTB\0" "\x06" "VPROTW\0" "\x06" "VPROTD\0" "\x06" "VPROTQ\0" \
 "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"; /* Sentinel mnemonic. */
 
 const _WRegister _REGISTERS[] = {

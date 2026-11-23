@@ -217,6 +217,7 @@
     <ClCompile Include="..\..\src\operands.c" />
     <ClCompile Include="..\..\src\prefix.c" />
     <ClCompile Include="..\..\src\textdefs.c" />
+    <ClCompile Include="..\..\src\xop.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\config.h" />
