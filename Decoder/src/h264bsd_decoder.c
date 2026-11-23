@@ -58,6 +58,7 @@
 #include "h264bsd_dpb.h"
 #include "h264bsd_deblocking.h"
 #include "h264bsd_conceal.h"
+#include "h264bsd_recovery.h"
 
 #ifdef EMIT_IMAGE_ASAP
 u32 sliceData[18] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -167,6 +168,7 @@ u32 h264bsdDecode(storage_t *pStorage, u8 *byteStrm, u32 len, u32 picId,
 
     u32 tmp, ppsId, spsId;
     i32 picOrderCnt;
+    u32 recoveryRelease = 0;
     nalUnit_t nalUnit;
     seqParamSet_t seqParamSet;
     picParamSet_t picParamSet;
@@ -478,7 +480,23 @@ u32 h264bsdDecode(storage_t *pStorage, u8 *byteStrm, u32 len, u32 picId,
                 break;
 
             case NAL_SEI:
-                DEBUG(("SEI MESSAGE, NOT DECODED"));
+                DEBUG(("SEI MESSAGE"));
+                /* prefix SEI is only inspected while a recovery session is
+                 * waiting for a marker or a target picture; outside of a
+                 * session the NAL stays ignored so legacy behavior and
+                 * return codes are unchanged. Emulation prevention bytes
+                 * were already removed by the NAL extraction path */
+                if (h264bsdRecoveryGetState(pStorage) ==
+                        H264BSD_RECOVERY_WAIT_MARKER ||
+                    h264bsdRecoveryGetState(pStorage) ==
+                        H264BSD_RECOVERY_WAIT_TARGET)
+                {
+                    if (h264bsdRecoveryParseSei(pStorage, &strm) != HANTRO_OK)
+                    {
+                        EPRINT("SEI");
+                        return(H264BSD_RECOVERY_ERROR);
+                    }
+                }
                 break;
 
             default:
@@ -526,6 +544,13 @@ u32 h264bsdDecode(storage_t *pStorage, u8 *byteStrm, u32 len, u32 picId,
 
         if (pStorage->validSliceInAccessUnit)
         {
+            /* recovery state machine runs once per fully reconstructed
+             * primary coded picture; decoding and reference handling are
+             * unaffected, only output eligibility changes */
+            recoveryRelease = h264bsdRecoveryPictureDone(pStorage);
+            if (recoveryRelease)
+                pStorage->dpb->gateReleasePending = HANTRO_TRUE;
+
             if (pStorage->prevNalUnit->nalRefIdc)
             {
                 tmp = h264bsdMarkDecRefPic(pStorage->dpb,
@@ -547,6 +572,11 @@ u32 h264bsdDecode(storage_t *pStorage, u8 *byteStrm, u32 len, u32 picId,
                     HANTRO_TRUE : HANTRO_FALSE,
                     pStorage->currentPicId, pStorage->numConcealedMbs);
             }
+
+            /* IDR recovery: gate stayed closed while the DPB was flushed,
+             * open it now that the IDR picture itself is stored */
+            if (recoveryRelease)
+                h264bsdDpbRecoveryRelease(pStorage->dpb);
         }
 
         pStorage->picStarted = HANTRO_FALSE;

@@ -46,7 +46,8 @@ enum {
     H264BSD_HDRS_RDY,
     H264BSD_ERROR,
     H264BSD_PARAM_SET_ERROR,
-    H264BSD_MEMALLOC_ERROR
+    H264BSD_MEMALLOC_ERROR,
+    H264BSD_RECOVERY_ERROR
 };
 
 /*------------------------------------------------------------------------------

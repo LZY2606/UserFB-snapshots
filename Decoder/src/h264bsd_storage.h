@@ -146,6 +146,15 @@ typedef struct
                               HEADERS_RDY to the user */
     u32 intraConcealmentFlag; /* 0 gray picture for corrupted intra
                                  1 previous frame used if available */
+
+    /* recovery point SEI driven output gating, see h264bsd_recovery.h */
+    u32 recoveryState;        /* one of H264BSD_RECOVERY_* */
+    u32 recoveryPendingMarker;/* an accepted marker waits for the next
+                                 primary coded picture */
+    u32 recoveryFrameCnt;     /* recovery_frame_cnt of the active marker */
+    u32 recoveryBound;        /* marker bound to a picture */
+    u32 recoveryBoundFrameNum;/* frame_num of the binding picture */
+    u32 recoveryTargetFrameNum;/* frame_num that completes the recovery */
 } storage_t;
 
 /*------------------------------------------------------------------------------

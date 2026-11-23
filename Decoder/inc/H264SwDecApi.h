@@ -135,6 +135,17 @@ extern "C"
         u32 minor;    /* Dncoder API minor version */
     } H264SwDecApiVersion;
 
+    /* recovery point output gating states, returned by
+     * H264SwDecGetRecoveryState */
+    typedef enum
+    {
+        H264SWDEC_RECOVERY_NORMAL       = 0, /* ordinary mode after init */
+        H264SWDEC_RECOVERY_WAIT_MARKER  = 1, /* waiting for recovery marker */
+        H264SWDEC_RECOVERY_WAIT_TARGET  = 2, /* marker seen, waiting for the
+                                                target picture */
+        H264SWDEC_RECOVERY_DONE         = 3  /* recovered, output eligible */
+    } H264SwDecRecoveryState;
+
 /*------------------------------------------------------------------------------
     4. Prototypes of Decoder API functions
 ------------------------------------------------------------------------------*/
@@ -152,6 +163,20 @@ extern "C"
 
     H264SwDecRet H264SwDecGetInfo(H264SwDecInst decInst,
                                   H264SwDecInfo *pDecInfo);
+
+    /* Arm recovery point (SEI payload type 6) driven output gating. Valid
+     * only after SPS/PPS activation and between pictures; on success output
+     * is suppressed until the recovery target picture is completed, while
+     * decoding and reference handling continue unchanged. Returns
+     * H264SWDEC_HDRS_NOT_RDY before parameter sets are active and
+     * H264SWDEC_PARAM_ERR while a picture is only half decoded. The call
+     * is repeatable and keeps SPS/PPS and reference pictures. */
+    H264SwDecRet H264SwDecBeginRecovery(H264SwDecInst decInst);
+
+    /* Read the current recovery state, see H264SwDecRecoveryState. Null
+     * instance or output pointer return H264SWDEC_PARAM_ERR. */
+    H264SwDecRet H264SwDecGetRecoveryState(H264SwDecInst decInst,
+                                           u32 *pState);
 
     void  H264SwDecRelease(H264SwDecInst decInst);
 

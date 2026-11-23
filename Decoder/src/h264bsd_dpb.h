@@ -92,6 +92,10 @@ typedef struct {
     u32 lastContainsMmco5;
     u32 noReordering;
     u32 flushed;
+    u32 outputGating;   /* suppress every queued/flush output until the
+                           recovery target picture is delivered */
+    u32 gateReleasePending; /* open the gate while marking the picture that
+                               completes the recovery (IDR) */
 } dpbStorage_t;
 
 /*------------------------------------------------------------------------------
@@ -142,6 +146,10 @@ u32 h264bsdCheckGapsInFrameNum(dpbStorage_t *dpb, u32 frameNum, u32 isRefPic,
 dpbOutPicture_t* h264bsdDpbOutputPicture(dpbStorage_t *dpb);
 
 void h264bsdFlushDpb(dpbStorage_t *dpb);
+
+/* recovery point output gating */
+void h264bsdDpbRecoveryBegin(dpbStorage_t *dpb);
+void h264bsdDpbRecoveryRelease(dpbStorage_t *dpb);
 
 void h264bsdFreeDpb(dpbStorage_t *dpb);
 

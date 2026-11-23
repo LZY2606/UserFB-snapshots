@@ -112,6 +112,8 @@ static dpbPicture_t* FindSmallestPicOrderCnt(dpbStorage_t *dpb);
 
 static u32 OutputPicture(dpbStorage_t *dpb);
 
+/* release the output gate after the recovery target picture has been marked,
+ * see h264bsdDpbRecoveryRelease */
 static void ShellSort(dpbPicture_t *pPic, u32 num);
 
 /*------------------------------------------------------------------------------
@@ -660,6 +662,12 @@ u32 h264bsdMarkDecRefPic(
 
     toBeDisplayed = dpb->noReordering ? HANTRO_FALSE : HANTRO_TRUE;
 
+    /* recovery gating: pictures completed while the gate is closed are not
+     * display eligible, except the target picture whose release is pending
+     * the end of this marking call (IDR recovery) */
+    if (dpb->outputGating && !dpb->gateReleasePending)
+        toBeDisplayed = HANTRO_FALSE;
+
     /* non-reference picture, stored for display reordering purposes */
     if (mark == NULL)
     {
@@ -668,7 +676,9 @@ u32 h264bsdMarkDecRefPic(
         dpb->currentOut->picNum = (i32)frameNum;
         dpb->currentOut->picOrderCnt = picOrderCnt;
         dpb->currentOut->toBeDisplayed = toBeDisplayed;
-        if (!dpb->noReordering)
+        /* fullness tracks pictures still occupying a display slot; a
+         * suppressed non-reference picture never enters one */
+        if (!dpb->noReordering && toBeDisplayed)
             dpb->fullness++;
     }
     /* IDR picture */
@@ -801,16 +811,20 @@ u32 h264bsdMarkDecRefPic(
     dpb->currentOut->numErrMbs = numErrMbs;
 
     /* dpb was initialized to not to reorder the pictures -> output current
-     * picture immediately */
+     * picture immediately, unless the recovery output gate is closed */
     if (dpb->noReordering)
     {
         ASSERT(dpb->numOut == 0);
         ASSERT(dpb->outIndex == 0);
-        dpb->outBuf[dpb->numOut].data  = dpb->currentOut->data;
-        dpb->outBuf[dpb->numOut].isIdr = dpb->currentOut->isIdr;
-        dpb->outBuf[dpb->numOut].picId = dpb->currentOut->picId;
-        dpb->outBuf[dpb->numOut].numErrMbs = dpb->currentOut->numErrMbs;
-        dpb->numOut++;
+        if (!dpb->outputGating || dpb->gateReleasePending)
+        {
+            dpb->outBuf[dpb->numOut].data  = dpb->currentOut->data;
+            dpb->outBuf[dpb->numOut].isIdr = dpb->currentOut->isIdr;
+            dpb->outBuf[dpb->numOut].picId = dpb->currentOut->picId;
+            dpb->outBuf[dpb->numOut].numErrMbs =
+                dpb->currentOut->numErrMbs;
+            dpb->numOut++;
+        }
     }
     else
     {
@@ -1039,6 +1053,9 @@ u32 h264bsdInitDpb(
             ((MAX_NUM_REF_IDX_L0_ACTIVE + 1) * sizeof(dpbPicture_t*)) );
 
     dpb->numOut = dpb->outIndex = 0;
+    dpb->flushed = HANTRO_FALSE;
+    dpb->outputGating = HANTRO_FALSE;
+    dpb->gateReleasePending = HANTRO_FALSE;
 
     return(HANTRO_OK);
 
@@ -1440,6 +1457,19 @@ u32 OutputPicture(dpbStorage_t *dpb)
     if (tmp == NULL)
         return(HANTRO_NOK);
 
+    /* recovery gating: revoke display eligibility without touching the
+     * reference status or the picture data, and never place the picture
+     * into the output buffer. Keeping the fullness accounting identical to
+     * the normal path (only non-reference pictures decrease it) lets DPB
+     * pressure handling terminate exactly as it does without gating */
+    if (dpb->outputGating)
+    {
+        tmp->toBeDisplayed = HANTRO_FALSE;
+        if (!IS_REFERENCE(*tmp))
+            dpb->fullness--;
+        return(HANTRO_OK);
+    }
+
     dpb->outBuf[dpb->numOut].data  = tmp->data;
     dpb->outBuf[dpb->numOut].isIdr = tmp->isIdr;
     dpb->outBuf[dpb->numOut].picId = tmp->picId;
@@ -1508,6 +1538,96 @@ void h264bsdFlushDpb(dpbStorage_t *dpb)
         while (OutputPicture(dpb) == HANTRO_OK)
             ;
     }
+
+}
+
+/*------------------------------------------------------------------------------
+
+    Function: h264bsdDpbRecoveryBegin
+
+        Functional description:
+            Close the output gate for a recovery session. Pictures already
+            queued in the output buffer lose their eligibility and buffered
+            pictures marked for display keep their data and reference status
+            but can no longer reach the output.
+
+------------------------------------------------------------------------------*/
+
+void h264bsdDpbRecoveryBegin(dpbStorage_t *dpb)
+{
+
+/* Variables */
+
+    u32 i;
+
+/* Code */
+
+    ASSERT(dpb);
+
+    /* nothing queued may be delivered anymore */
+    dpb->numOut = 0;
+    dpb->outIndex = 0;
+    dpb->gateReleasePending = HANTRO_FALSE;
+    dpb->outputGating = HANTRO_TRUE;
+
+    if (dpb->buffer == NULL)
+        return;
+
+    /* revoke display eligibility without changing reference marking; the
+     * fullness bookkeeping mirrors OutputPicture() so reference pictures
+     * keep counting, suppressed non-reference pictures stop counting */
+    for (i = 0; i <= dpb->dpbSize; i++)
+    {
+        if (dpb->buffer[i].toBeDisplayed)
+        {
+            dpb->buffer[i].toBeDisplayed = HANTRO_FALSE;
+            if (!IS_REFERENCE(dpb->buffer[i]))
+                dpb->fullness--;
+        }
+    }
+
+}
+
+/*------------------------------------------------------------------------------
+
+    Function: h264bsdDpbRecoveryRelease
+
+        Functional description:
+            Open the output gate once the picture that completes the
+            recovery (currentOut) has been inserted. Every other buffered
+            picture stays suppressed; only currentOut keeps display
+            eligibility. Suppressed pictures remain usable as references.
+
+------------------------------------------------------------------------------*/
+
+void h264bsdDpbRecoveryRelease(dpbStorage_t *dpb)
+{
+
+/* Variables */
+
+    u32 i;
+
+/* Code */
+
+    ASSERT(dpb);
+
+    if (dpb->buffer != NULL)
+    {
+        for (i = 0; i <= dpb->dpbSize; i++)
+        {
+            if (&dpb->buffer[i] == dpb->currentOut)
+                continue;
+            if (dpb->buffer[i].toBeDisplayed)
+            {
+                dpb->buffer[i].toBeDisplayed = HANTRO_FALSE;
+                if (!IS_REFERENCE(dpb->buffer[i]))
+                    dpb->fullness--;
+            }
+        }
+    }
+
+    dpb->outputGating = HANTRO_FALSE;
+    dpb->gateReleasePending = HANTRO_FALSE;
 
 }
 

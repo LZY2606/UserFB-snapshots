@@ -108,7 +108,79 @@ Will be called for each frame.
 
 decode (<bin>)
 
-Feed the decoder with h264 stream data.  
+Feed the decoder with h264 stream data.
+
+
+Native recovery point API
+=========================
+
+The native C decoder (`Decoder/inc/H264SwDecApi.h`) supports recovery point
+driven output gating for progressive refresh streams. This is a native-only
+extension: the Emscripten/JavaScript build does not expose it.
+
+## Interface status
+
+Two functions are added alongside the existing API and follow the same
+`H264SwDecRet` return conventions:
+
+```c
+H264SwDecRet H264SwDecBeginRecovery(H264SwDecInst decInst);
+H264SwDecRet H264SwDecGetRecoveryState(H264SwDecInst decInst, u32 *state);
+```
+
+`H264SwDecBeginRecovery` arms a recovery session. It requires active
+SPS/PPS (`H264SWDEC_HDRS_NOT_RDY` otherwise) and a fully finished picture
+(`H264SWDEC_PARAM_ERR` while a picture is half decoded); a null instance
+also returns `H264SWDEC_PARAM_ERR`. The call is repeatable, keeps SPS/PPS
+and all reference pictures, and immediately revokes the output eligibility
+of every picture currently queued. Decoding, reconstruction, deblocking and
+DPB handling are never skipped — only display output is gated.
+
+`H264SwDecGetRecoveryState` reports one of:
+
+| state | meaning |
+| ----- | ------- |
+| 0 `H264SWDEC_RECOVERY_NORMAL`      | ordinary mode after initialization |
+| 1 `H264SWDEC_RECOVERY_WAIT_MARKER` | waiting for a recovery_point marker |
+| 2 `H264SWDEC_RECOVERY_WAIT_TARGET` | marker seen, waiting for the target picture |
+| 3 `H264SWDEC_RECOVERY_DONE`        | recovered, output eligible again |
+
+A null instance or a null `state` pointer returns `H264SWDEC_PARAM_ERR`.
+Streams that never call `H264SwDecBeginRecovery` keep their original pixel
+output, picture order and return codes unchanged.
+
+## Complete NAL unit input
+
+The prefix SEI NAL unit (type 6) carrying the `recovery_point` message must
+be fed as a complete NAL unit, the same way slice and parameter-set NAL units
+are fed through `H264SwDecDecode`. Emulation prevention bytes are still
+removed by the existing NAL extraction path; the recovery parser works on
+the resulting RBSP. `payloadType`/`payloadSize` extension (`0xFF`) bytes are
+honored, other payload types are skipped over their declared size, and the
+whole NAL is validated before any marker is committed.
+
+Only `exact_match_flag == 1` with `changing_slice_group_idc == 0` is
+accepted (`broken_link_flag` may be either value); unsupported combinations
+are ignored. A corrupted or truncated `recovery_point` payload makes the NAL
+return a stream error without committing a partial marker or overwriting an
+existing waiting state. With a binding picture `frame_num = n` and
+`MaxFrameNum = m`, the target is `(n + recovery_frame_cnt) % m`; counts
+outside `[0, m-1]` are treated as unsupported markers. An IDR picture
+completes the recovery immediately. The supported scope is fixed SPS/PPS,
+`frame_mbs_only_flag = 1`, Baseline I/P streams without FMO, MMCO 5 or
+frame_num gaps; multiple slices, non-reference pictures, frame_num wrap,
+POC type 0/2 and both `noOutputReordering` settings are covered.
+
+## Picture buffer lending period
+
+The pointer returned in `H264SwDecPicture.pOutputPicture` by
+`H264SwDecNextPicture` borrows a picture buffer owned by the decoder, exactly
+as without gating. The YUV bytes are only valid until the buffer is reused
+for a later decoded picture; copy them before the next decode run if they
+are needed longer. Gating never copies or modifies pixel data, so an
+eligible gated picture is byte-for-byte identical to the same picture in an
+ungated run. Suppressed pictures remain valid references internally; they
+simply never reach the output, including during an end-of-stream flush.
 
 
 # [Real World Uses of Broadway.js](https://github.com/mbebenita/Broadway/wiki/Real-World-Uses)

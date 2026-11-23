@@ -42,6 +42,7 @@
 #include "H264SwDecApi.h"
 #include "h264bsd_decoder.h"
 #include "h264bsd_util.h"
+#include "h264bsd_recovery.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -450,6 +451,11 @@ H264SwDecRet H264SwDecDecode(H264SwDecInst decInst, H264SwDecInput *pInput,
                     returnValue = H264SWDEC_STRM_ERR;
                 }
                 break;
+            case H264BSD_RECOVERY_ERROR:
+                /* corrupted or truncated recovery_point SEI */
+                returnValue = H264SWDEC_STRM_ERR;
+                strmLen = 0;
+                break;
             case H264BSD_MEMALLOC_ERROR:
                 {
                     returnValue = H264SWDEC_MEMFAIL;
@@ -565,6 +571,98 @@ H264SwDecRet H264SwDecNextPicture(H264SwDecInst decInst,
         DEC_API_TRC("H264SwDecNextPicture# OK: return H264SWDEC_PIC_RDY");
         return(H264SWDEC_PIC_RDY);
     }
+
+}
+
+/*------------------------------------------------------------------------------
+
+    Function: H264SwDecBeginRecovery
+
+    Functional description:
+            Start a recovery point driven output gating session. Requires
+            active SPS/PPS and a fully finished picture. The call may be
+            repeated; each call re-arms the session and revokes output
+            eligibility of all currently queued pictures while parameter
+            sets and reference pictures are retained. Decoding,
+            reconstruction, deblocking and DPB handling continue normally;
+            only display output is suppressed until the recovery target
+            picture is completed.
+
+        Inputs:
+            decInst     decoder instance
+
+        Returns:
+            H264SWDEC_OK            session armed
+            H264SWDEC_PARAM_ERR     null instance, or picture half finished
+            H264SWDEC_HDRS_NOT_RDY  parameter sets not activated yet
+
+------------------------------------------------------------------------------*/
+
+H264SwDecRet H264SwDecBeginRecovery(H264SwDecInst decInst)
+{
+
+    decContainer_t *pDecCont;
+    u32 rv;
+
+    DEC_API_TRC("H264SwDecBeginRecovery#");
+
+    if (decInst == NULL)
+        return(H264SWDEC_PARAM_ERR);
+
+    pDecCont = (decContainer_t *)decInst;
+
+    rv = h264bsdRecoveryBegin(&pDecCont->storage);
+
+    switch (rv)
+    {
+        case RECOVERY_BEGIN_NO_HEADERS:
+            return(H264SWDEC_HDRS_NOT_RDY);
+        case RECOVERY_BEGIN_PICTURE_BUSY:
+            return(H264SWDEC_PARAM_ERR);
+        default:
+            return(H264SWDEC_OK);
+    }
+
+}
+
+/*------------------------------------------------------------------------------
+
+    Function: H264SwDecGetRecoveryState
+
+    Functional description:
+            Return the current recovery state:
+              0 normal mode (after initialization)
+              1 waiting for a recovery_point marker
+              2 marker seen, waiting for the target picture
+              3 recovery completed, output eligible again
+
+        Inputs:
+            decInst     decoder instance
+
+        Outputs:
+            pState      recovery state
+
+        Returns:
+            H264SWDEC_OK        success
+            H264SWDEC_PARAM_ERR null instance or null output pointer
+
+------------------------------------------------------------------------------*/
+
+H264SwDecRet H264SwDecGetRecoveryState(H264SwDecInst decInst, u32 *pState)
+{
+
+    decContainer_t *pDecCont;
+
+    DEC_API_TRC("H264SwDecGetRecoveryState#");
+
+    if (decInst == NULL || pState == NULL)
+        return(H264SWDEC_PARAM_ERR);
+
+    pDecCont = (decContainer_t *)decInst;
+
+    *pState = h264bsdRecoveryGetState(&pDecCont->storage);
+
+    return(H264SWDEC_OK);
 
 }
 
