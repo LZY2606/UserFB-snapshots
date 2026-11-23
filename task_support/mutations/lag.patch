@@ -1,0 +1,11 @@
+--- a/freeaptx.c
++++ b/freeaptx.c
+@@ -878,7 +878,7 @@
+     for (i = 0; i < order; i++) {
+         srd = (reconstructed_differences[-i-1] >> 31) | 1;
+         prediction->d_weight[i] -= rshift32(prediction->d_weight[i] - srd*srd0, 8);
+-        predicted_difference += (int64_t)reconstructed_differences[-i] * (int64_t)prediction->d_weight[i];
++        predicted_difference += (int64_t)reconstructed_differences[-i-1] * (int64_t)prediction->d_weight[i];
+     }
+ 
+     prediction->predicted_difference = clip_intp2((int32_t)(predicted_difference >> 22), 23);
