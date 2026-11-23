@@ -1,0 +1,2 @@
+/usr/bin/ar qc libfadec.a CMakeFiles/fadec.dir/decode.c.o CMakeFiles/fadec.dir/format.c.o CMakeFiles/fadec.dir/fd_path.c.o
+/usr/bin/ranlib libfadec.a

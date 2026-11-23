@@ -57,8 +57,8 @@ components = []
 
 if get_option('with_decode')
   components += 'decode'
-  headers += files('fadec.h')
-  sources += files('decode.c', 'format.c')
+  headers += files('fadec.h', 'fd_path.h')
+  sources += files('decode.c', 'format.c', 'fd_path.c')
 endif
 if get_option('with_encode')
   components += 'encode'

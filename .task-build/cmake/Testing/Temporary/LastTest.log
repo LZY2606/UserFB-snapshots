@@ -1,0 +1,19 @@
+Start testing: Nov 24 03:31 JST
+----------------------------------------------------------
+1/1 Testing: decode
+1/1 Test: decode
+Command: "/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/fadec-decode-test"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake
+"decode" start time: Nov 24 03:31 JST
+Output:
+----------------------------------------------------------
+All tests PASSED
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"decode" end time: Nov 24 03:31 JST
+"decode" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 24 03:31 JST

@@ -1,0 +1,9 @@
+[ 14%] Building table for decode
+[ 28%] Building C object CMakeFiles/fadec.dir/decode.c.o
+[ 42%] Building C object CMakeFiles/fadec.dir/format.c.o
+[ 57%] Building C object CMakeFiles/fadec.dir/fd_path.c.o
+[ 71%] Linking C static library libfadec.a
+[ 71%] Built target fadec
+[ 85%] Building C object CMakeFiles/fadec-decode-test.dir/decode-test.c.o
+[100%] Linking C executable fadec-decode-test
+[100%] Built target fadec-decode-test

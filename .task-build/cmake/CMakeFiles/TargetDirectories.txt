@@ -1,0 +1,9 @@
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/fadec.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/fadec-decode-test.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/test.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1785/attempts/20261123T151523238286Z/repo/.task-build/cmake/CMakeFiles/install/strip.dir
