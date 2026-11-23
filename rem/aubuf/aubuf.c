@@ -18,6 +18,7 @@
 #define AUBUF_DEBUG 0
 
 enum { POOL_FRAMES = 25 };
+enum { TIMELINE_WINDOW_MAX = 65536 };
 
 /** Locked audio-buffer with almost zero-copy */
 struct aubuf {
@@ -40,6 +41,14 @@ struct aubuf {
 	} stats;
 
 	bool live;               /**< Live stream switch                     */
+
+	/* Optional sample-timeline mode */
+	bool timeline;           /**< Timeline mode enabled                  */
+	uint8_t tl_ch;           /**< Number of channels (1 or 2)            */
+	size_t tl_window;        /**< Timeline window in frames              */
+	uint64_t tl_front;       /**< Consumption front (frame index)        */
+	int16_t *tl_sampv;       /**< Sample storage [window * channels]     */
+	uint64_t *tl_frame;      /**< Absolute frame per slot                 */
 };
 
 
@@ -66,6 +75,8 @@ static void aubuf_destructor(void *arg)
 	mem_deref(ab->lock);
 	mem_deref(ab->id);
 	mem_deref(ab->pool);
+	mem_deref(ab->tl_sampv);
+	mem_deref(ab->tl_frame);
 }
 
 
@@ -174,6 +185,197 @@ void aubuf_set_id(struct aubuf *ab, struct pl *id)
 	mtx_lock(ab->lock);
 	ab->id = mem_ref(id);
 	mtx_unlock(ab->lock);
+}
+
+
+/**
+ * Allocate a new audio buffer in sample-timeline mode.  The buffer stores
+ * up to `window_frames` interleaved sample frames, indexed by an absolute
+ * frame number.  The consumption front starts at frame 0.
+ *
+ * @param abp           Pointer to allocated audio buffer
+ * @param channels      Number of channels (1 or 2)
+ * @param window_frames Number of sample frames the window holds (1..65536)
+ *
+ * @return 0 for success, otherwise error code
+ */
+int aubuf_timeline_alloc(struct aubuf **abp, uint8_t channels,
+			 size_t window_frames)
+{
+	struct aubuf *ab;
+	int err;
+
+	if (!abp || (channels != 1 && channels != 2) ||
+	    window_frames < 1 || window_frames > TIMELINE_WINDOW_MAX)
+		return EINVAL;
+
+	err = aubuf_alloc(&ab, 0, 0);
+	if (err)
+		return err;
+
+	ab->tl_sampv = mem_zalloc(window_frames * channels *
+				  sizeof(*ab->tl_sampv), NULL);
+	ab->tl_frame = mem_zalloc(window_frames * sizeof(*ab->tl_frame), NULL);
+	if (!ab->tl_sampv || !ab->tl_frame) {
+		mem_deref(ab);
+		return ENOMEM;
+	}
+
+	/* Mark all slots as empty.  A frame slot is valid only when its
+	 * generation tag matches the buffer generation below. */
+	memset(ab->tl_frame, 0xff, window_frames * sizeof(*ab->tl_frame));
+
+	ab->timeline  = true;
+	ab->tl_ch     = channels;
+	ab->tl_window = window_frames;
+	ab->tl_front  = 0;
+
+	*abp = ab;
+
+	return 0;
+}
+
+
+/* A slot holds valid samples iff its frame tag is not the empty marker. */
+static bool timeline_slot_valid(const struct aubuf *ab, size_t idx)
+{
+	return ab->tl_frame[idx] != UINT64_MAX;
+}
+
+
+/**
+ * Write interleaved samples at an absolute start frame.
+ *
+ * The write interval must lie completely inside
+ * [front, front + window_frames), otherwise ERANGE is returned and the
+ * buffer is left untouched.  Samples already present at a position are
+ * not overwritten (first writer wins).
+ *
+ * @param ab          Audio buffer
+ * @param start_frame Absolute frame index of the first frame
+ * @param sampv       Interleaved S16 samples
+ * @param frames      Number of sample frames
+ *
+ * @return 0 for success, otherwise error code
+ */
+int aubuf_timeline_write(struct aubuf *ab, uint64_t start_frame,
+			 const int16_t *sampv, size_t frames)
+{
+	size_t i;
+
+	if (!ab || !ab->timeline)
+		return EINVAL;
+
+	mtx_lock(ab->lock);
+
+	if (frames == 0) {
+		mtx_unlock(ab->lock);
+		return 0;
+	}
+
+	if (!sampv) {
+		mtx_unlock(ab->lock);
+		return EINVAL;
+	}
+
+	if (start_frame < ab->tl_front ||
+	    frames > ab->tl_window ||
+	    start_frame - ab->tl_front > ab->tl_window - frames) {
+		mtx_unlock(ab->lock);
+		return ERANGE;
+	}
+
+	for (i = 0; i < frames; ++i) {
+		uint64_t f = start_frame + i;
+		size_t idx = (size_t)(f % ab->tl_window);
+
+		/* Never overwrite a sample that was already accepted. */
+		if (timeline_slot_valid(ab, idx) && ab->tl_frame[idx] == f)
+			continue;
+
+		if (ab->tl_ch == 1) {
+			ab->tl_sampv[idx] = sampv[i];
+		}
+		else {
+			ab->tl_sampv[idx * 2 + 0] = sampv[i * 2 + 0];
+			ab->tl_sampv[idx * 2 + 1] = sampv[i * 2 + 1];
+		}
+		ab->tl_frame[idx] = f;
+	}
+
+	mtx_unlock(ab->lock);
+
+	return 0;
+}
+
+
+/**
+ * Read up to `frames` interleaved sample frames from the timeline.
+ *
+ * Missing samples are replaced with silence.  The consumption front is
+ * advanced by exactly `frames` afterwards.  Reading never resurrects data
+ * which lies behind the front.
+ *
+ * @param ab     Audio buffer
+ * @param sampv  Output buffer for interleaved S16 samples
+ * @param frames Number of sample frames to read
+ *
+ * @return 0 for success, otherwise error code
+ */
+int aubuf_timeline_read(struct aubuf *ab, int16_t *sampv, size_t frames)
+{
+	size_t i;
+
+	if (!ab || !ab->timeline)
+		return EINVAL;
+
+	mtx_lock(ab->lock);
+
+	if (frames > ab->tl_window) {
+		mtx_unlock(ab->lock);
+		return EINVAL;
+	}
+
+	if (frames == 0) {
+		mtx_unlock(ab->lock);
+		return 0;
+	}
+
+	if (!sampv) {
+		mtx_unlock(ab->lock);
+		return EINVAL;
+	}
+
+	for (i = 0; i < frames; ++i) {
+		uint64_t f = ab->tl_front + i;
+		size_t idx = (size_t)(f % ab->tl_window);
+		bool valid = timeline_slot_valid(ab, idx) &&
+			     ab->tl_frame[idx] == f;
+
+		if (!valid) {
+			ab->tl_sampv[idx * ab->tl_ch + 0] = 0;
+			if (ab->tl_ch == 2)
+				ab->tl_sampv[idx * 2 + 1] = 0;
+		}
+
+		if (ab->tl_ch == 1) {
+			sampv[i] = ab->tl_sampv[idx];
+		}
+		else {
+			sampv[i * 2 + 0] = ab->tl_sampv[idx * 2 + 0];
+			sampv[i * 2 + 1] = ab->tl_sampv[idx * 2 + 1];
+		}
+
+		/* Invalidate the consumed slot so that late writes cannot
+		 * make data reappear behind the front. */
+		ab->tl_frame[idx] = UINT64_MAX;
+	}
+
+	ab->tl_front += frames;
+
+	mtx_unlock(ab->lock);
+
+	return 0;
 }
 
 
@@ -458,6 +660,14 @@ void aubuf_flush(struct aubuf *ab)
 	ab->cur_sz  = 0;
 	ab->wr_sz   = 0;
 	ab->ts      = 0;
+
+	if (ab->timeline) {
+		ab->tl_front = 0;
+		memset(ab->tl_sampv, 0,
+		       ab->tl_window * ab->tl_ch * sizeof(*ab->tl_sampv));
+		memset(ab->tl_frame, 0xff,
+		       ab->tl_window * sizeof(*ab->tl_frame));
+	}
 
 	mtx_unlock(ab->lock);
 }

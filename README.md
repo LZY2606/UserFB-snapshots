@@ -85,6 +85,86 @@ $ sudo ldconfig
 Coding examples are available from the
 [redemo](https://github.com/creytiv/redemo "creytiv/redemo: Demo example applications using libre") project.
 
+The `examples/pcm_replay.c` example synthesizes RTP L16 packets in memory
+and feeds them through the public `rtp_pcm` receiver, printing the decoded
+PCM values.  It uses neither a sound card nor the network.
+
+
+## RTP L16 PCM receiver
+
+`re_pcm.h` provides an opaque `struct rtp_pcm` that turns a stream of
+received RTP L16 (big-endian signed 16-bit) packets into a continuous
+interleaved `int16_t` PCM stream.  The RTP timestamp counts sample frames
+per channel; no resampling or clock-drift estimation is performed.
+
+The receiver reuses the RTP header parser (`rtp_hdr_decode`), the sequence
+number checks from `source.c` and the audio buffer.  The public API is:
+
+```c
+int  rtp_pcm_alloc(struct rtp_pcm **rxp, uint32_t ssrc, uint8_t pt,
+                   uint8_t channels, size_t window_frames);
+int  rtp_pcm_push(struct rtp_pcm *rx, struct mbuf *mb);
+int  rtp_pcm_read(struct rtp_pcm *rx, int16_t *out, size_t frames);
+void rtp_pcm_reset(struct rtp_pcm *rx);
+```
+
+`channels` is 1 or 2, `pt` at most 127 and `window_frames` in the range
+1..65536.  Objects are released with `mem_deref()`.
+
+The first valid packet anchors timeline frame 0 and its RTP timestamp.
+Subsequent packets are mapped with `int32_t(timestamp - anchor_timestamp)`,
+so timestamp wrap-around is handled as long as a single generation spans
+less than half a turn.  Packets that were already consumed or that fall
+outside the reorder window are rejected with `ERANGE`.
+
+### Consumption front
+
+The audio buffer has an optional sample-timeline mode
+(`aubuf_timeline_alloc`, `aubuf_timeline_write`, `aubuf_timeline_read`,
+declared in `rem_aubuf.h`).  Storage is proportional to `window_frames` and
+the number of channels only; it does not grow with playback time.
+
+* The consumption front starts at frame 0.
+* A write interval must lie completely inside
+  `[front, front + window_frames)`; otherwise `ERANGE` is returned and no
+  state changes.
+* The first samples written at a position win; overlapping writes never
+  overwrite accepted samples.
+* `aubuf_timeline_read()` emits existing samples plus silence for holes,
+  then advances the front by exactly the requested number of frames.
+  Consumed slots are invalidated, so late data cannot reappear.
+* `aubuf_flush()` keeps the configuration and re-zeroes the timeline.
+* These functions return `EINVAL` when used on a buffer allocated with the
+  legacy `aubuf_alloc()`.
+
+### Packet validation
+
+`rtp_pcm_push()` fully validates the version, SSRC/PT, CSRC list, header
+extension and padding.  After padding is removed the L16 payload must be
+non-empty and contain whole sample frames.  Format or parameter errors
+return `EINVAL`/`EBADMSG` and leave the mbuf position/end, the sequence
+state and the playback state untouched.
+
+### Sender restart
+
+Sequence checking reuses `source.c`.  `rtp_source_update_seq_ex()` returns
+`enum rtp_seq_event { RTP_SEQ_DROP, RTP_SEQ_ACCEPT, RTP_SEQ_RESTART }`
+while the legacy `rtp_source_update_seq()` keeps returning 0/1.  The
+RFC 3550 dropout/misorder and two-packet confirmation rules (including the
+65535 -> 0 wrap) are shared.
+
+An isolated large sequence jump returns `EAGAIN` and is only remembered as
+a restart candidate; the old audio keeps playing.  Once a second
+sequential packet confirms the restart, `RTP_SEQ_RESTART` is reported and
+the receiver clears the old PCM, the old anchor and the consumption front,
+then starts a new generation from that packet.  Ordinary reordering does
+not clear anything, and duplicate/overlapping data keeps the first
+accepted samples.  `rtp_pcm_reset()` clears the stream and any restart
+candidate while retaining the configuration.
+
+`rtp_pcm_read()` advances only by the frame count supplied by the caller;
+the receiver uses no threads, sleeps or real timers.
+
 
 ## License
 

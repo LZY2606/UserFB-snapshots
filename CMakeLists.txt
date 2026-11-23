@@ -160,6 +160,7 @@ set(HEADERS
   include/re_net.h
   include/re_odict.h
   include/re_pcp.h
+  include/re_pcm.h
   include/re_rtmp.h
   include/re_rtp.h
   include/re_rtpext.h
@@ -325,6 +326,7 @@ set(SRCS
   src/rtp/fb.c
   src/rtp/member.c
   src/rtp/ntp.c
+  src/rtp/pcm.c
   src/rtp/pkt.c
   src/rtp/rr.c
   src/rtp/rtcp.c

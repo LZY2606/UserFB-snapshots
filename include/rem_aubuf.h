@@ -6,6 +6,11 @@
 struct aubuf;
 
 int  aubuf_alloc(struct aubuf **abp, size_t min_sz, size_t max_sz);
+int  aubuf_timeline_alloc(struct aubuf **abp, uint8_t channels,
+			  size_t window_frames);
+int  aubuf_timeline_write(struct aubuf *ab, uint64_t start_frame,
+			  const int16_t *sampv, size_t frames);
+int  aubuf_timeline_read(struct aubuf *ab, int16_t *sampv, size_t frames);
 void aubuf_set_id(struct aubuf *ab, struct pl *id);
 void aubuf_set_live(struct aubuf *ab, bool live);
 int  aubuf_resize(struct aubuf *ab, size_t min_sz, size_t max_sz);

@@ -1,0 +1,14 @@
+mono playback (6 frames, gap at 2..3 -> silence):
+  pcm[0] = 10
+  pcm[1] = 20
+  pcm[2] = 0
+  pcm[3] = 0
+  pcm[4] = 50
+  pcm[5] = 60
+stereo playback:
+  frame[0] = 1000, -1000
+  frame[1] = 2000, -2000
+  frame[2] = 3000, -3000
+after restart (new generation):
+  frame[0] = 2000, -2000
+  frame[1] = 3000, -3000

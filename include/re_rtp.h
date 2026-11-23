@@ -394,7 +394,17 @@ struct rtp_source {
 
 /* Source */
 void rtp_source_init_seq(struct rtp_source *s, uint16_t seq);
+
+/** Sequence number update result */
+enum rtp_seq_event {
+	RTP_SEQ_DROP    = 0,  /**< Packet dropped (duplicate, misorder, ...) */
+	RTP_SEQ_ACCEPT  = 1,  /**< Packet accepted                            */
+	RTP_SEQ_RESTART = 2   /**< Sender restart confirmed                   */
+};
+
 int  rtp_source_update_seq(struct rtp_source *s, uint16_t seq);
+enum rtp_seq_event rtp_source_update_seq_ex(struct rtp_source *s,
+					    uint16_t seq);
 void rtp_source_calc_jitter(struct rtp_source *s, uint32_t rtp_ts,
 			uint32_t arrival);
 int  rtp_source_calc_lost(const struct rtp_source *s);

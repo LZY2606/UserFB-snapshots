@@ -1,0 +1,30 @@
+API_PROBE_COMPLETE
+CASE timeline variable_stereo checks=9
+CASE timeline overlap checks=8
+CASE timeline hole_silence checks=7
+CASE timeline late_reject checks=8
+CASE timeline window_recovery checks=12
+CASE timeline legacy_mode checks=3
+CASE timeline legacy_aubuf checks=5
+GROUP timeline cases=7 checks=52 COMPLETE
+CASE ingress basic checks=7
+CASE ingress silence_before checks=6
+CASE ingress reorder_overlap checks=8
+CASE ingress hole_and_late checks=8
+CASE ingress ext_padding checks=12
+CASE ingress pad_bad checks=10
+CASE ingress bad_header checks=9
+CASE ingress alloc_validation checks=6
+GROUP ingress cases=8 checks=66 COMPLETE
+CASE epochs seq_wrap checks=4
+CASE epochs double_wrap checks=9
+CASE epochs ts_wrap checks=6
+CASE epochs restart checks=8
+CASE epochs restart_clears checks=8
+CASE epochs reorder_no_restart checks=8
+CASE epochs reset checks=8
+CASE epochs window_no_seq_commit checks=7
+GROUP epochs cases=8 checks=58 COMPLETE
+TARGET_COMPLETE cases=23
+BASELINE rtp_payload=4 sequence_cycles=65536
+BASELINE aubuf_pcm=11,12,21,22 gap_metadata_us=250

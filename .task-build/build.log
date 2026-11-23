@@ -1,0 +1,4 @@
+[  1%] Building C object CMakeFiles/re-objs.dir/src/rtp/source.c.o
+[100%] Built target re-objs
+[100%] Linking C static library libre.a
+[100%] Built target re

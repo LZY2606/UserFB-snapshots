@@ -19,32 +19,17 @@ enum {
 	RTP_SEQ_MOD = 1<<16,
 };
 
-
-void rtp_source_init_seq(struct rtp_source *s, uint16_t seq)
+static enum rtp_seq_event update_seq(struct rtp_source *s, uint16_t seq)
 {
-	if (!s)
-		return;
-
-	s->base_seq = seq;
-	s->max_seq = seq;
-	s->bad_seq = RTP_SEQ_MOD + 1;   /* so seq == bad_seq is false */
-	s->cycles = 0;
-	s->received = 0;
-	s->received_prior = 0;
-	s->expected_prior = 0;
-	/* other initialization */
-}
-
-
-/*
- * See RFC 3550 - A.1 RTP Data Header Validity Checks
- */
-int rtp_source_update_seq(struct rtp_source *s, uint16_t seq)
-{
-	uint16_t udelta = seq - s->max_seq;
+	uint16_t udelta;
 	const int MAX_DROPOUT = 3000;
 	const int MAX_MISORDER = 100;
 	const int MIN_SEQUENTIAL = 2;
+
+	if (!s)
+		return RTP_SEQ_DROP;
+
+	udelta = seq - s->max_seq;
 
 	/*
 	 * Source is not valid until MIN_SEQUENTIAL packets with
@@ -59,14 +44,14 @@ int rtp_source_update_seq(struct rtp_source *s, uint16_t seq)
 			if (s->probation == 0) {
 				rtp_source_init_seq(s, seq);
 				s->received++;
-				return 1;
+				return RTP_SEQ_ACCEPT;
 			}
 		}
 		else {
 			s->probation = MIN_SEQUENTIAL - 1;
 			s->max_seq = seq;
 		}
-		return 0;
+		return RTP_SEQ_DROP;
 	}
 	else if (udelta < MAX_DROPOUT) {
 
@@ -89,10 +74,11 @@ int rtp_source_update_seq(struct rtp_source *s, uint16_t seq)
 			 * (i.e., pretend this was the first packet).
 			 */
 			rtp_source_init_seq(s, seq);
+			return RTP_SEQ_RESTART;
 		}
 		else {
 			s->bad_seq = (seq + 1) & (RTP_SEQ_MOD-1);
-			return 0;
+			return RTP_SEQ_DROP;
 		}
 	}
 	else {
@@ -100,7 +86,42 @@ int rtp_source_update_seq(struct rtp_source *s, uint16_t seq)
 	}
 
 	s->received++;
-	return 1;
+	return RTP_SEQ_ACCEPT;
+}
+
+
+void rtp_source_init_seq(struct rtp_source *s, uint16_t seq)
+{
+	if (!s)
+		return;
+
+	s->base_seq = seq;
+	s->max_seq = seq;
+	s->bad_seq = RTP_SEQ_MOD + 1;   /* so seq == bad_seq is false */
+	s->cycles = 0;
+	s->received = 0;
+	s->received_prior = 0;
+	s->expected_prior = 0;
+	/* other initialization */
+}
+
+
+/*
+ * See RFC 3550 - A.1 RTP Data Header Validity Checks
+ */
+int rtp_source_update_seq(struct rtp_source *s, uint16_t seq)
+{
+	return update_seq(s, seq) != RTP_SEQ_DROP;
+}
+
+
+/*
+ * Extended variant of rtp_source_update_seq() which also reports a
+ * detected sender restart.  The return value is one of enum rtp_seq_event.
+ */
+enum rtp_seq_event rtp_source_update_seq_ex(struct rtp_source *s, uint16_t seq)
+{
+	return update_seq(s, seq);
 }
 
 
