@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.20)
+project(pmp_intrinsic_transfer_contract LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(PMP ${ROOT}/src/pmp)
+add_library(pmp_contract STATIC ${PMP}/surface_mesh.cpp
+ ${PMP}/algorithms/numerics.cpp ${PMP}/algorithms/laplace.cpp
+ ${PMP}/algorithms/fairing.cpp ${PMP}/algorithms/subdivision.cpp
+ ${PMP}/algorithms/differential_geometry.cpp ${PMP}/algorithms/shapes.cpp
+ ${PMP}/algorithms/utilities.cpp)
+target_compile_definitions(pmp_contract PUBLIC PMP_SCALAR_TYPE_64)
+target_include_directories(pmp_contract PUBLIC ${ROOT}/src ${ROOT}/external/eigen-5.0.1)
+set(G ${ROOT}/external/googletest-1.18.0/googletest)
+add_library(gtest_contract STATIC ${G}/src/gtest-all.cc ${G}/src/gtest_main.cc)
+target_include_directories(gtest_contract PUBLIC ${G}/include PRIVATE ${G})
+find_package(Threads REQUIRED)
+target_link_libraries(gtest_contract PUBLIC Threads::Threads)
+add_executable(baseline ${CMAKE_CURRENT_LIST_DIR}/baseline.cpp)
+target_link_libraries(baseline PRIVATE pmp_contract)
+add_executable(old_tests ${ROOT}/tests/fairing_test.cpp ${ROOT}/tests/helpers.cpp)
+target_link_libraries(old_tests PRIVATE pmp_contract gtest_contract)
+
+# Compile implementation files added by the solver, never a prewritten answer.
+include(${CMAKE_CURRENT_LIST_DIR}/upstream_algorithms.cmake)
+file(GLOB ADDED_ALGORITHMS CONFIGURE_DEPENDS "${PMP}/algorithms/*.cpp")
+list(REMOVE_ITEM ADDED_ALGORITHMS ${UPSTREAM_ALGORITHMS})
+target_sources(pmp_contract PRIVATE ${ADDED_ALGORITHMS})
+add_executable(metric_baseline ${CMAKE_CURRENT_LIST_DIR}/metric_baseline.cpp)
+target_link_libraries(metric_baseline PRIVATE pmp_contract)
+option(TRANSFER_TARGET "Build the supplied contract cases" OFF)
+if(TRANSFER_TARGET)
+ set_source_files_properties(${ROOT}/task_support/driver.c PROPERTIES LANGUAGE CXX)
+ add_executable(transfer_target ${ROOT}/task_support/driver.c
+  ${ROOT}/tests/intrinsic_transfer_contract.cpp)
+ target_include_directories(transfer_target PRIVATE ${ROOT})
+ target_link_libraries(transfer_target PRIVATE pmp_contract)
+ set_target_properties(transfer_target PROPERTIES OUTPUT_NAME target)
+endif()
