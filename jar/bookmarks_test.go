@@ -1,53 +1,51 @@
 package jar
 
 import (
-	"github.com/headzoo/ut"
+	"github.com/headzoo/surf/internal/testassert"
 	"os"
 	"testing"
 )
 
 func TestMemoryBookmarks(t *testing.T) {
-	ut.Run(t)
 
 	b := NewMemoryBookmarks()
-	assertBookmarks(b)
+	assertBookmarks(t, b)
 }
 
 func TestFileBookmarks(t *testing.T) {
-	ut.Run(t)
 
 	b, err := NewFileBookmarks("./bookmarks.json")
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 	defer func() {
 		err = os.Remove("./bookmarks.json")
 	}()
-	assertBookmarks(b)
+	assertBookmarks(t, b)
 }
 
 // assertBookmarks tests the given bookmark jar.
-func assertBookmarks(b BookmarksJar) {
+func assertBookmarks(t *testing.T, b BookmarksJar) {
 	err := b.Save("test1", "http://localhost")
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 	err = b.Save("test2", "http://127.0.0.1")
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 	err = b.Save("test1", "http://localhost")
-	ut.AssertNotNil(err)
+	testassert.NotNil(t, err)
 
 	url, err := b.Read("test1")
-	ut.AssertNil(err)
-	ut.AssertEquals("http://localhost", url)
+	testassert.Nil(t, err)
+	testassert.Equal(t, "http://localhost", url)
 	url, err = b.Read("test2")
-	ut.AssertEquals("http://127.0.0.1", url)
+	testassert.Equal(t, "http://127.0.0.1", url)
 	url, err = b.Read("test3")
-	ut.AssertNotNil(err)
+	testassert.NotNil(t, err)
 
 	r := b.Remove("test2")
-	ut.AssertTrue(r)
+	testassert.True(t, r)
 	r = b.Remove("test3")
-	ut.AssertFalse(r)
+	testassert.False(t, r)
 
 	r = b.Has("test1")
-	ut.AssertTrue(r)
+	testassert.True(t, r)
 	r = b.Has("test4")
-	ut.AssertFalse(r)
+	testassert.False(t, r)
 }

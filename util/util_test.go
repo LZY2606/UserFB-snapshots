@@ -1,16 +1,15 @@
 package util
 
 import (
-	"github.com/headzoo/ut"
+	"github.com/headzoo/surf/internal/testassert"
 	"testing"
 )
 
 func TestFileExists(t *testing.T) {
-	ut.Run(t)
 
 	ex := FileExists("./util_test.go")
-	ut.AssertTrue(ex)
+	testassert.True(t, ex)
 
 	ex = FileExists("./util.txt")
-	ut.AssertFalse(ex)
+	testassert.False(t, ex)
 }

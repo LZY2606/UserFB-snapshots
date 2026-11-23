@@ -3,15 +3,15 @@ package surf
 import (
 	"bytes"
 	"fmt"
+	"github.com/headzoo/surf/internal/testassert"
 	"github.com/headzoo/surf/jar"
-	"github.com/headzoo/ut"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestGet(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/page1" {
 			fmt.Fprint(w, htmlPage1)
@@ -24,25 +24,25 @@ func TestGet(t *testing.T) {
 	bow := NewBrowser()
 
 	err := bow.Open(ts.URL + "/page1")
-	ut.AssertNil(err)
-	ut.AssertEquals("Surf Page 1", bow.Title())
-	ut.AssertContains("<p>Hello, Surf!</p>", bow.Body())
+	testassert.Nil(t, err)
+	testassert.Equal(t, "Surf Page 1", bow.Title())
+	testassert.Contains(t, "<p>Hello, Surf!</p>", bow.Body())
 
 	err = bow.Open(ts.URL + "/page2")
-	ut.AssertNil(err)
-	ut.AssertEquals("Surf Page 2", bow.Title())
+	testassert.Nil(t, err)
+	testassert.Equal(t, "Surf Page 2", bow.Title())
 
 	ok := bow.Back()
-	ut.AssertTrue(ok)
-	ut.AssertEquals("Surf Page 1", bow.Title())
+	testassert.True(t, ok)
+	testassert.Equal(t, "Surf Page 1", bow.Title())
 
 	ok = bow.Back()
-	ut.AssertFalse(ok)
-	ut.AssertEquals("Surf Page 1", bow.Title())
+	testassert.False(t, ok)
+	testassert.Equal(t, "Surf Page 1", bow.Title())
 }
 
 func TestPost(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == "POST" {
 			w.WriteHeader(200)
@@ -56,11 +56,11 @@ func TestPost(t *testing.T) {
 
 	bow := NewBrowser()
 	bow.Post(ts.URL, "application/x-www-form-urlencoded", nil)
-	ut.AssertEquals(200, bow.StatusCode())
+	testassert.Equal(t, 200, bow.StatusCode())
 }
 
 func TestHead(t *testing.T) {
-	ut.Run(t)
+
 	var r *http.Request
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -71,12 +71,12 @@ func TestHead(t *testing.T) {
 	bow := NewBrowser()
 
 	err := bow.Head(ts.URL + "/page1")
-	ut.AssertNil(err)
-	ut.AssertNotNil(r)
+	testassert.Nil(t, err)
+	testassert.NotNil(t, r)
 }
 
 func TestDownload(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, req.UserAgent())
 	}))
@@ -87,13 +87,13 @@ func TestDownload(t *testing.T) {
 
 	buff := &bytes.Buffer{}
 	l, err := bow.Download(buff)
-	ut.AssertNil(err)
-	ut.AssertGreaterThan(0, int(l))
-	ut.AssertEquals(int(l), buff.Len())
+	testassert.Nil(t, err)
+	testassert.Greater(t, 0, int(l))
+	testassert.Equal(t, int(l), buff.Len())
 }
 
 func TestDownloadContentType(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		b := bytes.NewBufferString("Hello")
 		fmt.Fprint(w, b)
@@ -105,11 +105,11 @@ func TestDownloadContentType(t *testing.T) {
 
 	buff := &bytes.Buffer{}
 	bow.Download(buff)
-	ut.AssertEquals("Hello", buff.String())
+	testassert.Equal(t, "Hello", buff.String())
 }
 
 func TestUserAgent(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, req.UserAgent())
 	}))
@@ -118,12 +118,12 @@ func TestUserAgent(t *testing.T) {
 	bow := NewBrowser()
 	bow.SetUserAgent("Testing/1.0")
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
-	ut.AssertEquals("Testing/1.0", bow.Body())
+	testassert.Nil(t, err)
+	testassert.Equal(t, "Testing/1.0", bow.Body())
 }
 
 func TestHeaders(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, req.Header.Get("X-Testing-1"))
 		fmt.Fprint(w, req.Header.Get("X-Testing-2"))
@@ -134,15 +134,15 @@ func TestHeaders(t *testing.T) {
 	bow.AddRequestHeader("X-Testing-1", "Testing-1")
 	bow.AddRequestHeader("X-Testing-2", "Testing-2")
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
-	ut.AssertContains("Testing-1", bow.Body())
-	ut.AssertContains("Testing-2", bow.Body())
+	testassert.Nil(t, err)
+	testassert.Contains(t, "Testing-1", bow.Body())
+	testassert.Contains(t, "Testing-2", bow.Body())
 }
 
 // TestHeadersSet
 // See: https://github.com/headzoo/surf/pull/19
 func TestHeadersBug19(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, req.Header.Get("X-Testing"))
 	}))
@@ -152,12 +152,12 @@ func TestHeadersBug19(t *testing.T) {
 	bow.AddRequestHeader("X-Testing", "Testing-1")
 	bow.AddRequestHeader("X-Testing", "Testing-2")
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
-	ut.AssertContains("Testing-2", bow.Body())
+	testassert.Nil(t, err)
+	testassert.Contains(t, "Testing-2", bow.Body())
 }
 
 func TestBookmarks(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, htmlPage1)
 	}))
@@ -169,17 +169,17 @@ func TestBookmarks(t *testing.T) {
 
 	bookmarks.Save("test1", ts.URL)
 	bow.OpenBookmark("test1")
-	ut.AssertEquals("Surf Page 1", bow.Title())
-	ut.AssertContains("<p>Hello, Surf!</p>", bow.Body())
+	testassert.Equal(t, "Surf Page 1", bow.Title())
+	testassert.Contains(t, "<p>Hello, Surf!</p>", bow.Body())
 
 	err := bow.Bookmark("test2")
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 	bow.OpenBookmark("test2")
-	ut.AssertEquals("Surf Page 1", bow.Title())
+	testassert.Equal(t, "Surf Page 1", bow.Title())
 }
 
 func TestClick(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			fmt.Fprint(w, htmlPage1)
@@ -191,15 +191,15 @@ func TestClick(t *testing.T) {
 
 	bow := NewBrowser()
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 
 	err = bow.Click("a:contains('click')")
-	ut.AssertNil(err)
-	ut.AssertContains("<p>Hello, Surf!</p>", bow.Body())
+	testassert.Nil(t, err)
+	testassert.Contains(t, "<p>Hello, Surf!</p>", bow.Body())
 }
 
 func TestLinks(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, htmlPage1)
 	}))
@@ -207,20 +207,20 @@ func TestLinks(t *testing.T) {
 
 	bow := NewBrowser()
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 
 	links := bow.Links()
-	ut.AssertEquals(2, len(links))
-	ut.AssertEquals("", links[0].ID)
-	ut.AssertEquals(ts.URL+"/page2", links[0].URL.String())
-	ut.AssertEquals("click", links[0].Text)
-	ut.AssertEquals("page3", links[1].ID)
-	ut.AssertEquals(ts.URL+"/page3", links[1].URL.String())
-	ut.AssertEquals("no clicking", links[1].Text)
+	testassert.Equal(t, 2, len(links))
+	testassert.Equal(t, "", links[0].ID)
+	testassert.Equal(t, ts.URL+"/page2", links[0].URL.String())
+	testassert.Equal(t, "click", links[0].Text)
+	testassert.Equal(t, "page3", links[1].ID)
+	testassert.Equal(t, ts.URL+"/page3", links[1].URL.String())
+	testassert.Equal(t, "no clicking", links[1].Text)
 }
 
 func TestImages(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, htmlPage1)
 	}))
@@ -228,29 +228,29 @@ func TestImages(t *testing.T) {
 
 	bow := NewBrowser()
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 
 	images := bow.Images()
-	ut.AssertEquals(2, len(images))
-	ut.AssertEquals("imgur-image", images[0].ID)
-	ut.AssertEquals("http://i.imgur.com/HW4bJtY.jpg", images[0].URL.String())
-	ut.AssertEquals("", images[0].Alt)
-	ut.AssertEquals("It's a...", images[0].Title)
+	testassert.Equal(t, 2, len(images))
+	testassert.Equal(t, "imgur-image", images[0].ID)
+	testassert.Equal(t, "http://i.imgur.com/HW4bJtY.jpg", images[0].URL.String())
+	testassert.Equal(t, "", images[0].Alt)
+	testassert.Equal(t, "It's a...", images[0].Title)
 
-	ut.AssertEquals("", images[1].ID)
-	ut.AssertEquals(ts.URL+"/Cxagv.jpg", images[1].URL.String())
-	ut.AssertEquals("A picture", images[1].Alt)
-	ut.AssertEquals("", images[1].Title)
+	testassert.Equal(t, "", images[1].ID)
+	testassert.Equal(t, ts.URL+"/Cxagv.jpg", images[1].URL.String())
+	testassert.Equal(t, "A picture", images[1].Alt)
+	testassert.Equal(t, "", images[1].Title)
 
 	buff := &bytes.Buffer{}
 	l, err := images[0].Download(buff)
-	ut.AssertNil(err)
-	ut.AssertGreaterThan(0, buff.Len())
-	ut.AssertEquals(int(l), buff.Len())
+	testassert.Nil(t, err)
+	testassert.Greater(t, 0, buff.Len())
+	testassert.Equal(t, int(l), buff.Len())
 }
 
 func TestStylesheets(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, htmlPage1)
 	}))
@@ -258,27 +258,27 @@ func TestStylesheets(t *testing.T) {
 
 	bow := NewBrowser()
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 
 	stylesheets := bow.Stylesheets()
-	ut.AssertEquals(2, len(stylesheets))
-	ut.AssertEquals("http://godoc.org/-/site.css", stylesheets[0].URL.String())
-	ut.AssertEquals("all", stylesheets[0].Media)
-	ut.AssertEquals("text/css", stylesheets[0].Type)
+	testassert.Equal(t, 2, len(stylesheets))
+	testassert.Equal(t, "http://godoc.org/-/site.css", stylesheets[0].URL.String())
+	testassert.Equal(t, "all", stylesheets[0].Media)
+	testassert.Equal(t, "text/css", stylesheets[0].Type)
 
-	ut.AssertEquals(ts.URL+"/print.css", stylesheets[1].URL.String())
-	ut.AssertEquals("print", stylesheets[1].Media)
-	ut.AssertEquals("text/css", stylesheets[1].Type)
+	testassert.Equal(t, ts.URL+"/print.css", stylesheets[1].URL.String())
+	testassert.Equal(t, "print", stylesheets[1].Media)
+	testassert.Equal(t, "text/css", stylesheets[1].Type)
 
 	buff := &bytes.Buffer{}
 	l, err := stylesheets[0].Download(buff)
-	ut.AssertNil(err)
-	ut.AssertGreaterThan(0, buff.Len())
-	ut.AssertEquals(int(l), buff.Len())
+	testassert.Nil(t, err)
+	testassert.Greater(t, 0, buff.Len())
+	testassert.Equal(t, int(l), buff.Len())
 }
 
 func TestScripts(t *testing.T) {
-	ut.Run(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, htmlPage1)
 	}))
@@ -286,21 +286,21 @@ func TestScripts(t *testing.T) {
 
 	bow := NewBrowser()
 	err := bow.Open(ts.URL)
-	ut.AssertNil(err)
+	testassert.Nil(t, err)
 
 	scripts := bow.Scripts()
-	ut.AssertEquals(2, len(scripts))
-	ut.AssertEquals("http://godoc.org/-/site.js", scripts[0].URL.String())
-	ut.AssertEquals("text/javascript", scripts[0].Type)
+	testassert.Equal(t, 2, len(scripts))
+	testassert.Equal(t, "http://godoc.org/-/site.js", scripts[0].URL.String())
+	testassert.Equal(t, "text/javascript", scripts[0].Type)
 
-	ut.AssertEquals(ts.URL+"/jquery.min.js", scripts[1].URL.String())
-	ut.AssertEquals("text/javascript", scripts[1].Type)
+	testassert.Equal(t, ts.URL+"/jquery.min.js", scripts[1].URL.String())
+	testassert.Equal(t, "text/javascript", scripts[1].Type)
 
 	buff := &bytes.Buffer{}
 	l, err := scripts[0].Download(buff)
-	ut.AssertNil(err)
-	ut.AssertGreaterThan(0, buff.Len())
-	ut.AssertEquals(int(l), buff.Len())
+	testassert.Nil(t, err)
+	testassert.Greater(t, 0, buff.Len())
+	testassert.Equal(t, int(l), buff.Len())
 }
 
 var htmlPage1 = `<!doctype html>

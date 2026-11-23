@@ -2,25 +2,23 @@ package browser
 
 import (
 	"bytes"
-	"github.com/headzoo/ut"
+	"github.com/headzoo/surf/internal/testassert"
 	"net/url"
 	"testing"
 )
 
 func TestDownload(t *testing.T) {
-	ut.Run(t)
 
 	out := &bytes.Buffer{}
 	u, _ := url.Parse("http://i.imgur.com/HW4bJtY.jpg")
 	asset := NewImageAsset(u, "", "", "")
 	l, err := DownloadAsset(asset, out)
-	ut.AssertNil(err)
-	ut.AssertGreaterThan(0, int(l))
-	ut.AssertEquals(int(l), out.Len())
+	testassert.Nil(t, err)
+	testassert.Greater(t, 0, int(l))
+	testassert.Equal(t, int(l), out.Len())
 }
 
 func TestDownloadAsync(t *testing.T) {
-	ut.Run(t)
 
 	ch := make(AsyncDownloadChannel, 1)
 	u1, _ := url.Parse("http://i.imgur.com/HW4bJtY.jpg")
@@ -37,11 +35,11 @@ func TestDownloadAsync(t *testing.T) {
 	for {
 		select {
 		case result := <-ch:
-			ut.AssertGreaterThan(0, int(result.Size))
+			testassert.Greater(t, 0, int(result.Size))
 			if result.Asset == asset1 {
-				ut.AssertEquals(int(result.Size), out1.Len())
+				testassert.Equal(t, int(result.Size), out1.Len())
 			} else if result.Asset == asset2 {
-				ut.AssertEquals(int(result.Size), out2.Len())
+				testassert.Equal(t, int(result.Size), out2.Len())
 			} else {
 				t.Failed()
 			}
@@ -54,5 +52,5 @@ func TestDownloadAsync(t *testing.T) {
 
 COMPLETE:
 	close(ch)
-	ut.AssertEquals(0, queue)
+	testassert.Equal(t, 0, queue)
 }
