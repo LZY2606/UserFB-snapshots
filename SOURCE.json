@@ -1,0 +1,586 @@
+{
+  "repo": "https://github.com/j0r1/JRTPLIB",
+  "commit": "1062537be247625f82a34091931a6dae1c82c489",
+  "license": "MIT",
+  "export": "git archive; file modes preserved",
+  "gitlinks": [],
+  "gitmodules": false,
+  "included": [
+    {
+      "path": "LICENSE.MIT",
+      "mode": "100644",
+      "git_blob": "c55f0707ee524a6f266afbce6fe234687a9f207c",
+      "sha256": "b99c4b5296e756ec85b5a7a56729c7e500ca298211f53f1f49b078406a497d27",
+      "modified": false
+    },
+    {
+      "path": "README.TXT",
+      "mode": "100644",
+      "git_blob": "67bca3d8047433a25503f5dfe6f982e73c734f72",
+      "sha256": "81a566ae510faea7e7731376f9e25527c74fa28ac4cde11d619dfb9984e0176c",
+      "modified": false
+    },
+    {
+      "path": "src/Makefile.am",
+      "mode": "100644",
+      "git_blob": "16bb23c9aa0f401098258aa304f2b420ca6ef056",
+      "sha256": "ef7b5a43c6f0c78153d332cc33e98640988efd7b34491307d8239b35075429df",
+      "modified": false
+    },
+    {
+      "path": "src/Makefile.in",
+      "mode": "100644",
+      "git_blob": "12753f0447965039a1379fc8c3161cd603a269e7",
+      "sha256": "f4934d858edea0804451e88c7e740f27d983012aca643389651d1ca6d792566e",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpapppacket.cpp",
+      "mode": "100644",
+      "git_blob": "3dde2540b592e8c98a3e5889618789a091a554e4",
+      "sha256": "124c43434303f3933c826b84a90c4b7f552a7cf5ade9cc7b0594a32a8ca49b6b",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpapppacket.h",
+      "mode": "100644",
+      "git_blob": "8f3bfe479f86b60e59959619f86bf45367f71866",
+      "sha256": "819b466d703a824d752ba575b955b70ff09cbfd292919b3f40d6eb514ee177ff",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpbyepacket.cpp",
+      "mode": "100644",
+      "git_blob": "daf0c5d5ab07fea3a817f36cdd3ada5de8b63fca",
+      "sha256": "b9715295ada52c3b18d876ff1396b8ad800e394d59d477de35b5cce51aa8b887",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpbyepacket.h",
+      "mode": "100644",
+      "git_blob": "0ac3e4f9b18e238517aa9299aba59846a81e82cb",
+      "sha256": "a1219b25a9eebd6c103118d8f4764a99510f674efa837e1956a0d77c645094cb",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpcompoundpacket.cpp",
+      "mode": "100644",
+      "git_blob": "792b55c234949b557192c7284f8a0ac8bb89e5a2",
+      "sha256": "3bb1e0df1f50dd31ed405d7b37deb2dab0dc926898c1377b198b6285666b1182",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpcompoundpacket.h",
+      "mode": "100644",
+      "git_blob": "ae4fe0f82da239baa6ef07dc8d0041bc589d4e2f",
+      "sha256": "dc6a5574c2997e50c78321d713c3084ee2779878dea2734edbe5e99078184015",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpcompoundpacketbuilder.cpp",
+      "mode": "100644",
+      "git_blob": "ec83d3f66d16b6997a48d4b682048065f22dba4d",
+      "sha256": "1502f94953475687706d240066391929d543f6e148c1b88e936cafcc38d5a65f",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpcompoundpacketbuilder.h",
+      "mode": "100644",
+      "git_blob": "c6c422cc07adb5d3d5bdceeb43e6c64a094ebf7e",
+      "sha256": "fb6fa592f1a76f7168eb1bfa909a2a8daeae4a1321f9473118b73c78aebcbb63",
+      "modified": false
+    },
+    {
+      "path": "src/rtcppacket.cpp",
+      "mode": "100644",
+      "git_blob": "6df64be4593ca861e257accf9e03217f84785b47",
+      "sha256": "05945428249736659c7d46f4fdc3cc597ff885e28654b9e043bf4167d6d426c0",
+      "modified": false
+    },
+    {
+      "path": "src/rtcppacket.h",
+      "mode": "100644",
+      "git_blob": "f94e8ce5bc6b810d690d49efdc6b0343724a31e7",
+      "sha256": "e42472905fe35cf8094b213b312004e884d4a4975130f009bf23ad93fb637fd2",
+      "modified": false
+    },
+    {
+      "path": "src/rtcppacketbuilder.cpp",
+      "mode": "100644",
+      "git_blob": "2fce89b4969500fda61e1d6af9294e46b499ee69",
+      "sha256": "eaba8227cdc422d9bea77ee610c70536336246916b9645e6c8276bef76ca7c4d",
+      "modified": false
+    },
+    {
+      "path": "src/rtcppacketbuilder.h",
+      "mode": "100644",
+      "git_blob": "7b4a31df6960a1e97695c505a829529629a153a4",
+      "sha256": "39379b459ed469123e2777a85d9ed06a263c7de78caf23f1215adeb3fc1e62ec",
+      "modified": false
+    },
+    {
+      "path": "src/rtcprrpacket.cpp",
+      "mode": "100644",
+      "git_blob": "d00ee538f355e4d06d8a11f6a3bd4a31c6a4c11c",
+      "sha256": "2d3caadab2198d46767d85728a35cc24fc59e72ea6f4dcef88de567e6c1a2499",
+      "modified": false
+    },
+    {
+      "path": "src/rtcprrpacket.h",
+      "mode": "100644",
+      "git_blob": "7111d0ed6ecf41c63ee61ec8da509d627052857a",
+      "sha256": "0379d236c6a20672e53b875e740ddc4476d6526e82764397bef8aabc468a7131",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpscheduler.cpp",
+      "mode": "100644",
+      "git_blob": "42d063740b54f26a124c97ecc10fe3bf817d1f6b",
+      "sha256": "6dea653a0b8fbe0aa0a37f26454f191ef2f55bd681ce81b58fb94b5af01ea18a",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpscheduler.h",
+      "mode": "100644",
+      "git_blob": "6418d9065cf7566dc732804e1968f2479e9d78d4",
+      "sha256": "9f348b472e0c038b62bb7e16c2a13b8c6f1c183915ac0eb798639d1ba1390395",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsdesinfo.cpp",
+      "mode": "100644",
+      "git_blob": "7e6b612c4d90c1970f2a419c4c6fc9c9e7db39a6",
+      "sha256": "21d4e4ec7edc53a26bc30e6dc6592d9ff5e5713c8e3418bb0134b38751501443",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsdesinfo.h",
+      "mode": "100644",
+      "git_blob": "2bdff2b3f181e7355c4ba25ddb82c215fd451388",
+      "sha256": "051e26c858b39453d7c67f8b1b2e1e0573dc58841d7130be50af225b7e8906a1",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsdespacket.cpp",
+      "mode": "100644",
+      "git_blob": "c50160f20efc6b00b8d4ed13c94ea7ecd87e5075",
+      "sha256": "7878f736eaab1e05cb284cb84c9347d836aa68a81277536843ce8686f513cffe",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsdespacket.h",
+      "mode": "100644",
+      "git_blob": "787113a8d164fefdea7cb0a530a27859e7b83124",
+      "sha256": "5a531fdfe4a79dee44669052c616221c30c43fc52046e48544f6c3ae31770868",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsrpacket.cpp",
+      "mode": "100644",
+      "git_blob": "fa9752ffbb35b7d2df0888cd5f5fb1a7db47e9af",
+      "sha256": "7617a1fe075027a4f1e2c8b8dabd41b577a9f4d6961aa6c757808c03d814efff",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpsrpacket.h",
+      "mode": "100644",
+      "git_blob": "d87e5a03f4d5637b135b7284a9efb8fa55825b78",
+      "sha256": "6444da5eb9d4c608e4fab76b14fa74b24d46e1ace8172588b3136aa0283a3cea",
+      "modified": false
+    },
+    {
+      "path": "src/rtcpunknownpacket.h",
+      "mode": "100644",
+      "git_blob": "35baa265d5d450a19f8112551f890d7beb36fb29",
+      "sha256": "e5ddaffde6ca49cb6ae96dc4dfa342a96c004d92320f66896ca2f41f82d8483f",
+      "modified": false
+    },
+    {
+      "path": "src/rtpaddress.h",
+      "mode": "100644",
+      "git_blob": "7626e44e800449f4b56f0cfbd4ba2e302d9d6553",
+      "sha256": "9d55ce46b8425e0bee6d0bbe850affb2762e6ec2f5286bbcd650e3dbae169eb1",
+      "modified": false
+    },
+    {
+      "path": "src/rtpcollisionlist.cpp",
+      "mode": "100644",
+      "git_blob": "6ba470b172030ba0a4f8b3ef50ac65f5a2d78340",
+      "sha256": "c5d4b45743b8fe8bfe0419850bfe7620d6a72eb65883b09eb070019c9cff31a7",
+      "modified": false
+    },
+    {
+      "path": "src/rtpcollisionlist.h",
+      "mode": "100644",
+      "git_blob": "6d2c5bc659e185650cc33c901e2f0c763f7fbc1a",
+      "sha256": "bf976606ba47b0f6029acf42a9981e640debb156582df04bcd1f61f6682e25af",
+      "modified": false
+    },
+    {
+      "path": "src/rtpconfig.h",
+      "mode": "100644",
+      "git_blob": "d4aab128b68223e15807b0e792fd42e85da8561e",
+      "sha256": "355550c3308723733a98d1a58f41d979c13264a28bfcb264accdbeb1df5f5704",
+      "modified": false
+    },
+    {
+      "path": "src/rtpconfig_unix.h.in",
+      "mode": "100644",
+      "git_blob": "7a24f8895002fce78f92bc77aed6c3356fd4c0aa",
+      "sha256": "3a4c6211d886abdffc7299516d2e71897e48c62beb05d98f30ad2e734d15e07e",
+      "modified": false
+    },
+    {
+      "path": "src/rtpconfig_win.h",
+      "mode": "100644",
+      "git_blob": "60758a14f1428ae1965066a65e8d72cd92cfb7cc",
+      "sha256": "bf7bf479fd2d4f58ab26d437e45ac49bb00f7db3c33f460f2ff96788099bb0d0",
+      "modified": false
+    },
+    {
+      "path": "src/rtpdebug.cpp",
+      "mode": "100644",
+      "git_blob": "c2a1acc4f9f4150094237c21339ef694007d3923",
+      "sha256": "6adc787270c98caa2a9a2de5bed29ae70b0a8a62dfd9d71cd17fd04082925b96",
+      "modified": false
+    },
+    {
+      "path": "src/rtpdebug.h",
+      "mode": "100644",
+      "git_blob": "887abedb971f12fdf415392a4e28655ace607c2e",
+      "sha256": "58e5203e2d54e842588c88e8f9886f6abacd798208eba100d4632c7f24968546",
+      "modified": false
+    },
+    {
+      "path": "src/rtpdefines.h",
+      "mode": "100644",
+      "git_blob": "b44335e15d97259a5fbacbadb42b202610890906",
+      "sha256": "c5105517274e62606f63aa570db1def325ac4d84c99b247bf7a8c1ed0530edcd",
+      "modified": false
+    },
+    {
+      "path": "src/rtperrors.cpp",
+      "mode": "100644",
+      "git_blob": "8cee35c8f76025ebb3badbe88845e74cf9882ca6",
+      "sha256": "339695bc84755f8a0a25374be52e258333456bf5bdf9153aea45703b4604e89a",
+      "modified": false
+    },
+    {
+      "path": "src/rtperrors.h",
+      "mode": "100644",
+      "git_blob": "602123b84887dd704cb0264fa6f80a0c2d533184",
+      "sha256": "5de17ea133a5f52e9dc85ff1737d4b78e6492c69318e7a3ad80208d73809a74f",
+      "modified": false
+    },
+    {
+      "path": "src/rtphashtable.h",
+      "mode": "100644",
+      "git_blob": "dcbb438f2b0177aef32d921d452c8fdbe3f63e0f",
+      "sha256": "b15f1011ca7d6340cc03e608ddadd13ead03b952e4393c07d0244dda9ba5c27b",
+      "modified": false
+    },
+    {
+      "path": "src/rtpinternalsourcedata.cpp",
+      "mode": "100644",
+      "git_blob": "d479dc349ef1c42a02365457dd57bb6c1ef5a04c",
+      "sha256": "a7e16f2c8a016ca1ff584c895a8c93030263c3aa43bd9651c13571a1bb5987c2",
+      "modified": false
+    },
+    {
+      "path": "src/rtpinternalsourcedata.h",
+      "mode": "100644",
+      "git_blob": "46b7ba788bf65d0db4abdbdf86adb9a464ec729a",
+      "sha256": "5b34fe98d9effe24805532b41db624c2327070a568013dca4bb0c4dc6a052311",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv4address.cpp",
+      "mode": "100644",
+      "git_blob": "de3ec47e844f44d4d4ff7eeebb043b5aa4ad0eac",
+      "sha256": "9e65e2c8c612e25f3b2a3608ec1eda3f75583617c655edbf76c8bd862aa71ce5",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv4address.h",
+      "mode": "100644",
+      "git_blob": "a55970e1af8af6d8210f60c9c3151af3ea440c4c",
+      "sha256": "6c7f87e969903f544f7bab20b6e9176a4c43f6e0f14f00047e9080a42757b281",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv4destination.h",
+      "mode": "100644",
+      "git_blob": "4fc377004e4724ecf7df14152c1222cea572f478",
+      "sha256": "088f354fe92cbd67bbbc4d55c88f69a683ee56a056223332c617f3dd421bbe8b",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv6address.cpp",
+      "mode": "100644",
+      "git_blob": "7ff8e252cd402ab858042923ae92f0b7b91bae6c",
+      "sha256": "eefe15835dfa98a18dd78582b76127d7e57dea827be9be7a769bc6308a849cba",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv6address.h",
+      "mode": "100644",
+      "git_blob": "1e92b8a48801b013a06019976366def01a5b7fd7",
+      "sha256": "ca0e82689cface4e42da0314ee7550500edff472740d0143c1c5160ccddc3a7c",
+      "modified": false
+    },
+    {
+      "path": "src/rtpipv6destination.h",
+      "mode": "100644",
+      "git_blob": "7a5d757b468858d0f2c46d4108489c6db5c1e057",
+      "sha256": "e3d6ef84186499bd69f3624ee2063d4abf32f1489c1f7f65dc3fc77871dafeca",
+      "modified": false
+    },
+    {
+      "path": "src/rtpkeyhashtable.h",
+      "mode": "100644",
+      "git_blob": "008aee344631787172870e0ead35891b4f271a0e",
+      "sha256": "1b80462077e54bf613caaab6eb47dbcbacc7d80b2bec6930cf40c1c0db28bee5",
+      "modified": false
+    },
+    {
+      "path": "src/rtplibraryversion.cpp",
+      "mode": "100644",
+      "git_blob": "26182e59eaba4045025900d9b5b9757bea47e054",
+      "sha256": "e2dfc98f7f3c500fcaa3d2e1c4793674f7ee3c927eee7c08719f052f3a8ed7d7",
+      "modified": false
+    },
+    {
+      "path": "src/rtplibraryversion.h",
+      "mode": "100644",
+      "git_blob": "94da6166381e4cafe196fefab6fd78445e8d7c91",
+      "sha256": "fcf6c956df91ed4072d67f01505cbe376983a8ec8c24bd9ecd98d925901795ef",
+      "modified": false
+    },
+    {
+      "path": "src/rtppacket.cpp",
+      "mode": "100644",
+      "git_blob": "8da982656a66dac45cf48cdc01b488cc4e2de134",
+      "sha256": "54cb631dcfa6beff6b554d3882b860a04b4e4f52c2f8788378ed77adaba61166",
+      "modified": false
+    },
+    {
+      "path": "src/rtppacket.h",
+      "mode": "100644",
+      "git_blob": "b40b370d863feaed2976d1deb636e959bed4f5cf",
+      "sha256": "af08935233093fa9f4cc59c125662b7da75db84c8a1dfb6280e64d297cc7e408",
+      "modified": false
+    },
+    {
+      "path": "src/rtppacketbuilder.cpp",
+      "mode": "100644",
+      "git_blob": "75aed2ab3757acd0d2690493d3b55e9392c99c0f",
+      "sha256": "319b617de209d345f3603056ce44629c3c337b764fbe13090691952d17a5df36",
+      "modified": false
+    },
+    {
+      "path": "src/rtppacketbuilder.h",
+      "mode": "100644",
+      "git_blob": "1dc95cb6b366dfd63b22c949ebeab1f25106b020",
+      "sha256": "7aacc9a015176c2b479f93511cb08b687bdbcb34adfc091325107b9774633e3c",
+      "modified": false
+    },
+    {
+      "path": "src/rtppollthread.cpp",
+      "mode": "100644",
+      "git_blob": "b97d256ea2227b59ab1ffe046145b96c4e4299c7",
+      "sha256": "f8b73e38ec8ede1c6374eb8168902517cb267255a30b62fb8b31f9c3a2835a10",
+      "modified": false
+    },
+    {
+      "path": "src/rtppollthread.h",
+      "mode": "100644",
+      "git_blob": "2fe2c987a577f20447e6f86abfabdbdd625d574d",
+      "sha256": "8c2bf7ac6aa8724b689063465141b50a984865dfe28278a41d08fd1e61561ec5",
+      "modified": false
+    },
+    {
+      "path": "src/rtprandom.cpp",
+      "mode": "100644",
+      "git_blob": "c8aae5bee7da98e34ca583bfc6ecef71de062858",
+      "sha256": "59cb15551641b45b49c6244b6b6552a7568ddbc77fcd81688c831ec5b53c8eb8",
+      "modified": true
+    },
+    {
+      "path": "src/rtprandom.h",
+      "mode": "100644",
+      "git_blob": "ce36a9ce04baf68960de0e7ea285e7a17b6a5c6f",
+      "sha256": "63212e4014faa1d2e2e241ef53d153d04beaeb41676162ff56d8d6027ccbb429",
+      "modified": false
+    },
+    {
+      "path": "src/rtprawpacket.h",
+      "mode": "100644",
+      "git_blob": "41f8719cf391c0dd80feb5faa967b1dba12e7029",
+      "sha256": "05d65ed19b211f4520879d23d1c54a516065f889dff4b68f47ddc44e71f29e4c",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsession.cpp",
+      "mode": "100644",
+      "git_blob": "76834e2dd5e636eb9f85d15b50bbbb4fe39cc911",
+      "sha256": "4b5c99e13f19c25b9598353247ead0f8c0f655eb9d1a8b7a8334427ab4e2e752",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsession.h",
+      "mode": "100644",
+      "git_blob": "466df17ecb20f09785f11791135af9d0915c3303",
+      "sha256": "285c6cf3a7d90bc97f3c04e9c6ee5afd9152f4d4fccfc559961f072cbdb964f5",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsessionparams.cpp",
+      "mode": "100644",
+      "git_blob": "5855313454a004844b5533e222f75e777a9bd35e",
+      "sha256": "ef786ff6f3be59fc530bc9772a41e43028f1ed0578cbf6825790c12b25079826",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsessionparams.h",
+      "mode": "100644",
+      "git_blob": "3fb6600b5f30e28b3b90a89d9b023be4e12f6a6d",
+      "sha256": "6bc48e4b16127c8d127260009c23f46bd7313e0bc67a9d05d22dbb9391f29d59",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsessionsources.cpp",
+      "mode": "100644",
+      "git_blob": "cc4b90608e10c09bde71c096b14c98d1e45371c5",
+      "sha256": "31db763b86c0a6a8e8c47dac334c2e625f4bad6e126e512277fae8f0ed913464",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsessionsources.h",
+      "mode": "100644",
+      "git_blob": "d04fbb8ce9d32bd926714f866c57c1a34ec9af03",
+      "sha256": "3d9637d02a38ff5c44c08851eedbee582f616c8b6a8caf2e54096a5037b44f5b",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsourcedata.cpp",
+      "mode": "100644",
+      "git_blob": "aacf63af05b648e3679a750a3fda18a161dd6b80",
+      "sha256": "bcfd3640967cca27d870567a26c5a5308c2930b1e18cd543635f711dfe491215",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsourcedata.h",
+      "mode": "100644",
+      "git_blob": "5630c53fa0f331200d0bb3ee3248f7c96743d0e3",
+      "sha256": "7588e43de1ffdf07999b7d8732029aa37611f7cb77e314091762537ee8e2ceb2",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsources.cpp",
+      "mode": "100644",
+      "git_blob": "4d1b7f69f876144c66cfaf59be25e769566d667f",
+      "sha256": "d500dbb45b2daf54c30c3617c102b73871810845c81680d98db5f73cfa00e7cb",
+      "modified": false
+    },
+    {
+      "path": "src/rtpsources.h",
+      "mode": "100644",
+      "git_blob": "b9b74305f77d31d602e08bf0ffbced8cb94036ea",
+      "sha256": "4d1191fe90603a34c9329c86ef56c8a5fa5bb6e6dd0bc233568b9b5a2727ba8c",
+      "modified": false
+    },
+    {
+      "path": "src/rtpstructs.h",
+      "mode": "100644",
+      "git_blob": "3739a86c6f86b04305769ee14253920c65fa380b",
+      "sha256": "c0a18dc08a482adad83035187f5b1567a15c23c4cca20b5e9fab310562463a67",
+      "modified": false
+    },
+    {
+      "path": "src/rtptimeutilities.h",
+      "mode": "100644",
+      "git_blob": "c833d01909117a59b77f496b925f0ea0ce54d83b",
+      "sha256": "65cd7b3212c20b5b54ca6107c567bf66e1bc01e1627678f438f02581c876f9f9",
+      "modified": false
+    },
+    {
+      "path": "src/rtptransmitter.h",
+      "mode": "100644",
+      "git_blob": "661a2d47a3469cec61008d8b4fccfee2d135991e",
+      "sha256": "811088467c30898a3af638c3864258a394f3e8fcdbc1f80bd0ba3af985386c1d",
+      "modified": false
+    },
+    {
+      "path": "src/rtptypes.h",
+      "mode": "100644",
+      "git_blob": "f03affe0efb60db24bc685c9798b3bc4799ad9f8",
+      "sha256": "9f72072b0776adc926ea12b28c616a0776d394eccc2079e8c82e5dcd787b8e54",
+      "modified": false
+    },
+    {
+      "path": "src/rtptypes_win.h",
+      "mode": "100644",
+      "git_blob": "7f90c11c9d2d3ebf8b3d04a5042a0dca83944b72",
+      "sha256": "7c8bd2c1ceb9f430175eb4cc7ad492f54ab41055792f62028a0d0676a5ed7d31",
+      "modified": false
+    },
+    {
+      "path": "src/rtpudpv4transmitter.cpp",
+      "mode": "100644",
+      "git_blob": "970a8f28a2f8ec3c1074b1c45c16ccf7fd72b3de",
+      "sha256": "3829c91ac51e6d9c8b6e93853fe01611a2bec70350d87aff32be26215c9e7850",
+      "modified": false
+    },
+    {
+      "path": "src/rtpudpv4transmitter.h",
+      "mode": "100644",
+      "git_blob": "6e6eab8d936b191bd95f3e5c286e56a81269e238",
+      "sha256": "aced05c59993b4019b0d017633fb02ca3b2ef0f1feedde74394babf6da35bdc0",
+      "modified": false
+    },
+    {
+      "path": "src/rtpudpv6transmitter.cpp",
+      "mode": "100644",
+      "git_blob": "61c58941d08768962b5aaa7e2cfa13c2185506dd",
+      "sha256": "4d8b6694b4c2544a59dc76462be4dd13a6edd7c805febc4ba527e0a4eec862b9",
+      "modified": false
+    },
+    {
+      "path": "src/rtpudpv6transmitter.h",
+      "mode": "100644",
+      "git_blob": "3a129d3feb9f9835bca53e1bf5d92849fddab52b",
+      "sha256": "20ea195a52c45ba8abcaf84cfb0022173e53989d59c9dd9a819350c56953075f",
+      "modified": false
+    }
+  ],
+  "excluded_unused": [
+    "ChangeLog",
+    "Makefile.am",
+    "Makefile.in",
+    "TODO",
+    "aclocal.m4",
+    "config.guess",
+    "config.sub",
+    "configure",
+    "configure.in",
+    "depcomp",
+    "doc/Makefile.am",
+    "doc/Makefile.in",
+    "doc/jrtplib.tex",
+    "install-sh",
+    "jrtplib.dsp",
+    "jrtplib.dsw",
+    "ltmain.sh",
+    "missing",
+    "mkinstalldirs",
+    "sphinxdoc/Makefile",
+    "sphinxdoc/README.md",
+    "sphinxdoc/source/_static/.dummy",
+    "sphinxdoc/source/_templates/.dummy",
+    "sphinxdoc/source/conf.py",
+    "tools/Makefile.am",
+    "tools/Makefile.in",
+    "tools/gettypes.cpp"
+  ],
+  "exclusion_reason": "Export all production src plus README and LICENSE; upstream documentation, build tooling and unused examples excluded. POSIX generated header equivalents in task_support/platform disable optional integrations. Only source change is pointer-to-uintptr_t narrowing compatibility."
+}

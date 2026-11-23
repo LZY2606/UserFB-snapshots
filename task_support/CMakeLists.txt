@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.18)
+project(task_jrtp LANGUAGES CXX)
+file(GLOB production CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp")
+add_library(jrtp STATIC ${production})
+target_compile_features(jrtp PUBLIC cxx_std_11)
+target_include_directories(jrtp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_SOURCE_DIR}/platform")
+target_compile_options(jrtp PRIVATE -include compat.h)
