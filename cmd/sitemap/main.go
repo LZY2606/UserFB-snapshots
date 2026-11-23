@@ -7,18 +7,25 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/frobware/grawler"
 )
 
-var concurrency int
+var (
+	concurrency int
+	perOrigin   int
+	originGap   time.Duration
+)
 
 func init() {
 	flag.IntVar(&concurrency, "j", 50, "number of concurrent downloads")
+	flag.IntVar(&perOrigin, "per-origin", 0, "maximum concurrent downloads per origin (defaults to -j)")
+	flag.DurationVar(&originGap, "origin-gap", 0, "minimum delay between responses and the next request at one origin (e.g. 250ms)")
 }
 
 var usage = func() {
-	fmt.Fprintf(os.Stderr, "%s [ -j <concurrency> ] URL\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "%s [ -j <concurrency> ] [ -per-origin <n> ] [ -origin-gap <duration> ] URL\n", os.Args[0])
 	flag.PrintDefaults()
 }
 
@@ -40,6 +47,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if perOrigin < 1 {
+		perOrigin = concurrency
+	}
+
 	baseURL, err := url.Parse(flag.Arg(0))
 
 	if err != nil {
@@ -50,8 +61,20 @@ func main() {
 		return sameHost(baseURL, URL)
 	}
 
-	fetcher := grawler.NewHTTPFetcher()
-	pages := grawler.Crawl(flag.Arg(0), concurrency, fetcher, filter)
+	pages, err := grawler.CrawlHTTP(
+		[]string{flag.Arg(0)},
+		grawler.HTTPOptions{
+			MaxWorkers:        concurrency,
+			MaxPerOrigin:      perOrigin,
+			MinOriginInterval: originGap,
+		},
+		filter,
+	)
+
+	if err != nil {
+		log.Fatal("error:", err)
+	}
+
 	b, err := json.MarshalIndent(pages, "", "  ")
 
 	if err != nil {

@@ -1,6 +1,7 @@
 package grawler
 
 import (
+	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -63,6 +64,37 @@ func dedupeAndFixLinks(baseURL *url.URL, links []string) []string {
 	return result
 }
 
+// errorRecordingReader remembers the first non-EOF read error so that
+// a body which fails halfway through parsing cannot silently yield a
+// truncated document.
+type errorRecordingReader struct {
+	r   io.Reader
+	err error
+}
+
+func (e *errorRecordingReader) Read(p []byte) (int, error) {
+	n, err := e.r.Read(p)
+	if err != nil && err != io.EOF && e.err == nil {
+		e.err = err
+	}
+	return n, err
+}
+
+// parseDocument is the shared HTML production pipeline: it tokenizes
+// the body, extracts links/assets and resolves links against baseURL.
+// A failure while reading the body is returned as an error and no
+// links or assets are exposed for it.
+func parseDocument(body io.Reader, baseURL *url.URL) (links []string, assets []string, err error) {
+	rec := &errorRecordingReader{r: body}
+	rawLinks, rawAssets := findLinksAndAssets(rec)
+
+	if rec.err != nil {
+		return nil, nil, rec.err
+	}
+
+	return dedupeAndFixLinks(baseURL, rawLinks), dedupeAssets(rawAssets), nil
+}
+
 func fetch(req request) *result {
 	result := &result{request: req}
 	body, err := req.Fetcher.Fetch(req.URL)
@@ -80,9 +112,14 @@ func fetch(req request) *result {
 		return result
 	}
 
-	links, assets := findLinksAndAssets(body)
-	result.links = dedupeAndFixLinks(pageURL, links)
-	result.assets = dedupeAssets(assets)
+	links, assets, err := parseDocument(body, pageURL)
+	if err != nil {
+		result.error = err
+		return result
+	}
+
+	result.links = links
+	result.assets = assets
 	return result
 }
 

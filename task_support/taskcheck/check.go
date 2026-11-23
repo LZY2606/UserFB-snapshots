@@ -17,6 +17,12 @@ func (c *C) Check(ok bool, message string, args ...interface{}) {
 	if !ok { c.t.Errorf(message, args...) }
 }
 
+// Helper marks the calling function as a test helper, delegating to
+// the underlying testing.T so failures report at the call site.
+func (c *C) Helper() {
+	c.t.Helper()
+}
+
 func Run(t *testing.T, body func(*C)) {
 	t.Helper()
 	c := &C{t: t}

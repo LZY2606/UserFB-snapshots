@@ -96,3 +96,56 @@ by the `-j <N>` argument.
   "URL": "http://gopl.io/ch1.pdf"
 }
 ```
+
+## Crawling several sites at once
+
+`CrawlHTTP` takes several seed URLs and schedules every physical GET
+under both a global worker limit and a per-origin limit
+(`scheme`/`host`/effective port). `MinOriginInterval` additionally
+forces a quiet period at each origin between the end of one response
+and the start of the next request. Because the limits are tracked per
+origin, an origin waiting out its interval never blocks another
+origin, and redirect hops — including hops that cross to a different
+host — are scheduled through the same gates instead of being followed
+transparently by `net/http`.
+
+```go
+pages, err := grawler.CrawlHTTP(
+    []string{
+        "http://example.com/index.html",
+        "http://example.org/start.html",
+    },
+    grawler.HTTPOptions{
+        MaxWorkers:        8,
+        MaxPerOrigin:      2,
+        MinOriginInterval: 250 * time.Millisecond,
+    },
+    func(URL string) bool {
+        // Ordinary discovered links must pass this filter; seeds and
+        // redirect destinations bypass it.
+        return true
+    },
+)
+if err != nil {
+    log.Fatal(err)
+}
+for _, page := range pages {
+    if page.FetcherError != nil {
+        log.Printf("%s failed: %v", page.URL, page.FetcherError)
+        continue
+    }
+    fmt.Println(page.URL, page.Links)
+}
+```
+
+Each accepted seed or discovered link yields one `Page` carrying its
+own logical URL, even when several entries converge (through redirect
+chains or ordinary links) on the same physical document: that
+document is fetched only once per call and its terminal content or
+error is shared. Redirect-only intermediates produce no `Page`,
+relative links are resolved against the final response URL, and a
+failure on one page never stops the independent pages. The `sitemap`
+command exposes the same scheduling through `-per-origin` and
+`-origin-gap`, keeping `-j` and its JSON output:
+
+	$ sitemap -j 8 -per-origin 2 -origin-gap 250ms http://gopl.io
