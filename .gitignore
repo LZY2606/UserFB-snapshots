@@ -10,3 +10,6 @@
 !/src/
 !/models/
 !/cmake/
+!/task_support/
+!/tests/
+!/examples/

@@ -22,6 +22,7 @@ freely, subject to the following restrictions:
 */
 
 #include "VoxelOctree.hpp"
+#include "RawOctreeBuilder.hpp"
 #include "VoxelData.hpp"
 #include "Debug.hpp"
 #include "Util.hpp"
@@ -120,6 +121,12 @@ void VoxelOctree::save(const char *path) {
         std::cout << "Octree size: " << prettyPrintMemory(_octreeSize*sizeof(uint32))
                   << " Compressed size: " << prettyPrintMemory(compressedSize) << std::endl;
     }
+}
+
+VoxelOctree::VoxelOctree(const char *rawPath, size_t cacheBytes, unsigned workers, BuildStats *stats)
+: _voxels(0)
+{
+    _octree = buildOctreeFromRaw(rawPath, cacheBytes, workers, _octreeSize, _center, stats);
 }
 
 VoxelOctree::VoxelOctree(VoxelData *voxels)

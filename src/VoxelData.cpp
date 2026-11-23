@@ -159,9 +159,14 @@ void VoxelData::buildTopLut() {
 
 void VoxelData::buildLowLut() {
     int threadCount = ThreadUtils::pool->threadCount();
+    // Partition the depth in pairs of slices, but cover the full buffered
+    // depth: for odd _bufferD (tail blocks of non power-of-two volumes) the
+    // last slice would otherwise never be scanned and its voxels would be
+    // missing from the low LUT.
+    int depthPairs = (_bufferD + 1)/2;
     ThreadUtils::pool->enqueue([&](uint32 id, uint32, uint32) {
-        int start = (((_bufferD/2)*id)/threadCount)*2;
-        int   end = (((_bufferD/2)*(id + 1))/threadCount)*2;
+        int start = int((depthPairs*id)/threadCount)*2;
+        int   end = std::min(int((depthPairs*(id + 1))/threadCount)*2, _bufferD);
 
         for (int z = start; z < end; ++z)
             for (int y = 0; y < _bufferH; ++y)

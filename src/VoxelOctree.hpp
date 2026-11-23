@@ -29,10 +29,21 @@ freely, subject to the following restrictions:
 #include "ChunkedAllocator.hpp"
 #include "IntTypes.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
 class VoxelData;
+
+// Statistics collected while building an octree from a raw voxel file with
+// the parallel VoxelOctree(rawPath, cacheBytes, workers, stats) constructor.
+struct BuildStats {
+    uint64 topLutBuilds;        // Number of full-file occupancy prescans actually performed
+    uint64 workersUsed;         // Distinct worker threads that read voxel blocks and built subtrees
+    uint64 peakInputCacheBytes; // Peak live bytes of top LUT + per-thread low LUTs + voxel windows
+
+    BuildStats() : topLutBuilds(0), workersUsed(0), peakInputCacheBytes(0) {}
+};
 
 class VoxelOctree {
     static const int32 MaxScale = 23;
@@ -48,12 +59,27 @@ class VoxelOctree {
 public:
     VoxelOctree(const char *path);
     VoxelOctree(VoxelData *voxels);
+    // Builds the octree directly from a raw voxel file (three int32
+    // dimensions followed by uint32 materials, 0 = empty) using up to
+    // `workers` concurrent subtree builder threads. cacheBytes bounds the
+    // simultaneously live input cache arrays (shared top LUT plus per-worker
+    // low LUTs and voxel windows). Throws std::invalid_argument if workers
+    // is 0 or the budget cannot hold the shared index plus one window.
+    VoxelOctree(const char *rawPath, size_t cacheBytes, unsigned workers, BuildStats *stats = nullptr);
 
     void save(const char *path);
     bool raymarch(const Vec3 &o, const Vec3 &d, float rayScale, uint32 &normal, float &t);
 
     Vec3 center() const {
         return _center;
+    }
+
+    uint64 descriptorCount() const {
+        return _octreeSize;
+    }
+
+    uint32 descriptor(uint64 index) const {
+        return _octree[index];
     }
 };
 
