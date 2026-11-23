@@ -2,6 +2,7 @@ set(LIBFUZZER_SOURCES
   FuzzerCrossOver.cpp
   FuzzerDataFlowTrace.cpp
   FuzzerDriver.cpp
+  FuzzerEpoch.cpp
   FuzzerExtFunctionsDlsym.cpp
   FuzzerExtFunctionsWeak.cpp
   FuzzerExtFunctionsWindows.cpp
@@ -30,6 +31,7 @@ set(LIBFUZZER_HEADERS
   FuzzerDataFlowTrace.h
   FuzzerDefs.h
   FuzzerDictionary.h
+  FuzzerEpoch.h
   FuzzerExtFunctions.def
   FuzzerExtFunctions.h
   FuzzerFlags.def

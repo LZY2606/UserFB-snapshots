@@ -26,6 +26,9 @@ struct FuzzingOptions {
   bool IgnoreTimeouts = true;
   bool IgnoreOOMs = true;
   bool IgnoreCrashes = false;
+  int ScheduleRounds = 0;
+  int ScheduleRuns = 0;
+  std::string ScheduleState;
   int MaxTotalTimeSec = 0;
   int RssLimitMb = 0;
   int MallocLimitMb = 0;

@@ -363,6 +363,10 @@ void CrashResistantMerge(const Vector<std::string> &Args,
   BaseCmd.removeFlag("merge");
   BaseCmd.removeFlag("fork");
   BaseCmd.removeFlag("collect_data_flow");
+  // Epoch schedule flags only make sense for the orchestrating process.
+  BaseCmd.removeFlag("schedule_rounds");
+  BaseCmd.removeFlag("schedule_runs");
+  BaseCmd.removeFlag("schedule_state");
   for (size_t Attempt = 1; Attempt <= NumAttempts; Attempt++) {
     Fuzzer::MaybeExitGracefully();
     VPrintf(V, "MERGE-OUTER: attempt %zd\n", Attempt);

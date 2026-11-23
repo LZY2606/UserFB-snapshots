@@ -652,6 +652,24 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   Options.IgnoreTimeouts = Flags.ignore_timeouts;
   Options.IgnoreOOMs = Flags.ignore_ooms;
   Options.IgnoreCrashes = Flags.ignore_crashes;
+  Options.ScheduleRounds = Flags.schedule_rounds;
+  Options.ScheduleRuns = Flags.schedule_runs;
+  if (Flags.schedule_state)
+    Options.ScheduleState = Flags.schedule_state;
+  bool ScheduleRequested = Flags.schedule_rounds || Flags.schedule_runs ||
+                           Flags.schedule_state;
+  if (ScheduleRequested && !Flags.fork) {
+    Printf("ERROR: -schedule_rounds/-schedule_runs/-schedule_state require "
+           "-fork=N\n");
+    return 1;
+  }
+  if (Flags.fork && ScheduleRequested &&
+      (Flags.schedule_rounds <= 0 || Flags.schedule_runs <= 0 ||
+       !Flags.schedule_state)) {
+    Printf("ERROR: epoch mode requires positive -schedule_rounds=N and "
+           "-schedule_runs=K together with -schedule_state=PATH\n");
+    return 1;
+  }
   Options.MaxTotalTimeSec = Flags.max_total_time;
   Options.DoCrossOver = Flags.cross_over;
   Options.MutateDepth = Flags.mutate_depth;

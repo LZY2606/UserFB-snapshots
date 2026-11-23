@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "FuzzerCommand.h"
+#include "FuzzerEpoch.h"
 #include "FuzzerFork.h"
 #include "FuzzerIO.h"
 #include "FuzzerInternal.h"
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -279,10 +281,353 @@ void WorkerThread(JobQueue *FuzzQ, JobQueue *MergeQ) {
   }
 }
 
+//===----------------------------------------------------------------------===//
+// Epoch (deterministic round replay) mode.
+//===----------------------------------------------------------------------===//
+
+// Deterministic per (round, slot) random seed.  Derived from nothing but the
+// round and slot numbers so two replays make the same assignments and runs.
+static unsigned EpochSeed(size_t Round, size_t Slot) {
+  uint64_t V = 0x9e3779b97f4a7c15ULL;
+  V ^= (uint64_t)Round + 0x9e3779b97f4a7c15ULL;
+  V = (V ^ (V >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  V ^= (uint64_t)Slot + 0x94d049bb133111ebULL;
+  V = (V ^ (V >> 27)) * 0x94d049bb133111ebULL;
+  V ^= V >> 31;
+  // Keep the lowest bit set so libFuzzer never treats 0 as "pick a seed".
+  return (unsigned)(V & 0xffffffffu) | 1u;
+}
+
+// The classification key is the full text of the first log line carrying an
+// "ERROR:" or "runtime error:" marker.  Addresses are never symbolized and no
+// crash input is constructed.  Returns an empty string when neither marker is
+// present; such a failure has no classification key.
+static std::string EpochDiagnosticKey(const std::string &LogPath) {
+  std::ifstream In(LogPath);
+  std::string Line;
+  while (std::getline(In, Line)) {
+    if (!Line.empty() && Line.back() == '\r')
+      Line.pop_back();
+    if (Line.find("ERROR:") != std::string::npos ||
+        Line.find("runtime error:") != std::string::npos)
+      return Line;
+  }
+  return "";
+}
+
+// Same features/merge collection path as GlobalEnv::RunOneMergeJob, but
+// returns the content SHA1 of every newly accepted input instead of touching
+// the schedule.  The crash-resistant merge / minimum-coverage algorithm itself
+// is reused unchanged.
+static void EpochMergeJob(GlobalEnv *Env, FuzzJob *Job,
+                          std::map<std::string, std::string> *ShaToPath,
+                          std::vector<std::string> *AddedShas) {
+  auto Stats = ParseFinalStatsFromLog(Job->LogPath);
+  Env->NumRuns += Stats.number_of_executed_units;
+
+  Vector<SizedFile> TempFiles, MergeCandidates;
+  GetSizedFilesFromDir(Job->CorpusDir, &TempFiles);
+  std::sort(TempFiles.begin(), TempFiles.end());
+  for (auto &F : TempFiles) {
+    auto FeatureFile = F.File;
+    FeatureFile.replace(0, Job->CorpusDir.size(), Job->FeaturesDir);
+    auto FeatureBytes = FileToVector(FeatureFile, 0, false);
+    assert((FeatureBytes.size() % sizeof(uint32_t)) == 0);
+    Vector<uint32_t> NewFeatures(FeatureBytes.size() / sizeof(uint32_t));
+    memcpy(NewFeatures.data(), FeatureBytes.data(), FeatureBytes.size());
+    for (auto Ft : NewFeatures) {
+      if (!Env->Features.count(Ft)) {
+        MergeCandidates.push_back(F);
+        break;
+      }
+    }
+  }
+  Printf("#%zd: epoch cov: %zd ft: %zd corp: %zd exec/s %zd job: %zd\n",
+         Env->NumRuns, Env->Cov.size(), Env->Features.size(),
+         Env->Files.size(), Stats.average_exec_per_sec, Job->JobId);
+
+  if (MergeCandidates.empty())
+    return;
+
+  Vector<std::string> FilesToAdd;
+  Set<uint32_t> NewFeatures, NewCov;
+  CrashResistantMerge(Env->Args, {}, MergeCandidates, &FilesToAdd,
+                      Env->Features, &NewFeatures, Env->Cov, &NewCov,
+                      Job->CFPath, false);
+  for (auto &Path : FilesToAdd) {
+    auto U = FileToVector(Path);
+    auto Sha = Hash(U);
+    if (ShaToPath->count(Sha))
+      continue; // Identical bytes already discovered earlier this round.
+    auto NewPath = DirPlusFile(Env->MainCorpusDir, Sha);
+    WriteToFile(U, NewPath);
+    (*ShaToPath)[Sha] = NewPath;
+    Env->Files.push_back(NewPath);
+    AddedShas->push_back(Sha);
+  }
+  Env->Features.insert(NewFeatures.begin(), NewFeatures.end());
+  Env->Cov.insert(NewCov.begin(), NewCov.end());
+}
+
+static std::unique_ptr<FuzzJob>
+CreateEpochJob(const Vector<std::string> &Args,
+               const Vector<std::string> &CorpusDirs,
+               const std::string &TempDir, const std::string &SeedPath,
+               size_t RoundNo, size_t Slot, size_t RunsPerSlot) {
+  std::unique_ptr<FuzzJob> Job(new FuzzJob);
+  Command Cmd(Args);
+  Cmd.removeFlag("fork");
+  Cmd.removeFlag("runs");
+  Cmd.removeFlag("max_total_time");
+  Cmd.removeFlag("collect_data_flow");
+  Cmd.removeFlag("schedule_rounds");
+  Cmd.removeFlag("schedule_runs");
+  Cmd.removeFlag("schedule_state");
+  for (auto &C : CorpusDirs) // Remove all corpora from the args.
+    Cmd.removeArgument(C);
+  Cmd.addFlag("reload", "0"); // Isolated dir; nothing to reload.
+  Cmd.addFlag("print_final_stats", "1");
+  Cmd.addFlag("print_funcs", "0");
+  // Fixed run budget per slot; wall-clock based exits are disabled.
+  Cmd.addFlag("runs", std::to_string(RunsPerSlot));
+  Cmd.addFlag("max_total_time", "0");
+  Cmd.addFlag("seed", std::to_string(EpochSeed(RoundNo, Slot)));
+  Job->SeedListPath = DirPlusFile(TempDir, "r" + std::to_string(RoundNo) +
+                                               ".s" + std::to_string(Slot) +
+                                               ".seeds");
+  WriteToFile(SeedPath, Job->SeedListPath);
+  Cmd.addFlag("seed_inputs", "@" + Job->SeedListPath);
+
+  Job->LogPath = DirPlusFile(TempDir, "r" + std::to_string(RoundNo) + ".s" +
+                                          std::to_string(Slot) + ".log");
+  Job->CorpusDir = DirPlusFile(TempDir, "r" + std::to_string(RoundNo) + ".s" +
+                                            std::to_string(Slot) + ".C");
+  Job->FeaturesDir = DirPlusFile(TempDir, "r" + std::to_string(RoundNo) +
+                                              ".s" + std::to_string(Slot) +
+                                              ".F");
+  Job->CFPath = DirPlusFile(TempDir, "r" + std::to_string(RoundNo) + ".s" +
+                                         std::to_string(Slot) + ".merge");
+  Job->JobId = Slot;
+
+  Cmd.addArgument(Job->CorpusDir);
+  Cmd.addFlag("features_dir", Job->FeaturesDir);
+  // Keep any crash artifact inside the per-job scratch dir; the FuzzJob
+  // destructor removes it together with the rest of the job.  Fault inputs are
+  // never reconstructed by the orchestrator.
+  Cmd.addFlag("artifact_prefix", DirPlusFile(Job->CorpusDir, "artifact-"));
+  for (auto &D : {Job->CorpusDir, Job->FeaturesDir}) {
+    RmDirRecursive(D);
+    MkDir(D);
+  }
+  Cmd.setOutputFile(Job->LogPath);
+  Cmd.combineOutAndErr();
+  Job->Cmd = Cmd;
+  return Job;
+}
+
+static void EpochFuzzWithFork(const FuzzingOptions &Options,
+                              const Vector<std::string> &Args,
+                              const Vector<std::string> &CorpusDirs,
+                              int NumJobs) {
+  if (NumJobs <= 0 || Options.ScheduleRounds <= 0 ||
+      Options.ScheduleRuns <= 0 || Options.ScheduleState.empty()) {
+    Printf("ERROR: epoch mode requires -fork=N -schedule_rounds=N "
+           "-schedule_runs=K -schedule_state=PATH with positive N and K\n");
+    exit(1);
+  }
+  if (CorpusDirs.empty()) {
+    Printf("ERROR: epoch mode requires a local corpus directory\n");
+    exit(1);
+  }
+  for (const auto &Dir : CorpusDirs) {
+    if (GetEpoch(Dir) == 0) {
+      Printf("ERROR: epoch mode only handles existing local directories: "
+             "%s\n",
+             Dir.c_str());
+      exit(1);
+    }
+  }
+
+  const size_t Slots = (size_t)NumJobs;
+  EpochParams Params;
+  Params.Slots = Slots;
+  Params.RunsPerSlot = (size_t)Options.ScheduleRuns;
+  Params.Rounds = (size_t)Options.ScheduleRounds;
+
+  Printf("INFO: -fork=%zd epoch mode: %zd rounds, %zd runs per slot, state "
+         "%s\n",
+         Slots, Params.Rounds, Params.RunsPerSlot,
+         Options.ScheduleState.c_str());
+
+  GlobalEnv Env;
+  Env.Args = Args;
+  Env.CorpusDirs = CorpusDirs;
+  Env.Verbosity = Options.Verbosity;
+  Env.ProcessStartTime = std::chrono::system_clock::now();
+  Env.MainCorpusDir = CorpusDirs[0];
+  Env.TempDir = TempPath(".epoch");
+  RmDirRecursive(Env.TempDir);
+  MkDir(Env.TempDir);
+
+  // Freeze the starting corpus through the same crash-resistant merge path.
+  Vector<SizedFile> SeedFiles;
+  for (auto &Dir : CorpusDirs)
+    GetSizedFilesFromDir(Dir, &SeedFiles);
+  std::sort(SeedFiles.begin(), SeedFiles.end());
+  auto InitialCFPath = DirPlusFile(Env.TempDir, "merge.txt");
+  CrashResistantMerge(Env.Args, {}, SeedFiles, &Env.Files, {}, &Env.Features,
+                      {}, &Env.Cov, InitialCFPath, false);
+  RemoveFile(InitialCFPath);
+
+  std::vector<std::string> DiskShas;
+  std::map<std::string, std::string> ShaToPath;
+  for (const auto &Path : Env.Files) {
+    auto Sha = Hash(FileToVector(Path));
+    DiskShas.push_back(Sha);
+    ShaToPath[Sha] = Path;
+  }
+
+  EpochStore Store(Options.ScheduleState, DiskShas, Params);
+  EpochSchedule Schedule;
+  if (Store.Exists()) {
+    std::string Error;
+    if (!Store.Load(&Schedule, &Error)) {
+      Printf("ERROR: cannot load epoch state '%s': %s; leaving the old state "
+             "untouched\n",
+             Options.ScheduleState.c_str(), Error.c_str());
+      exit(1);
+    }
+    Printf("INFO: epoch state resumed after round %zd\n", Schedule.Round());
+  } else {
+    for (const auto &Sha : DiskShas)
+      if (!Schedule.AddRoot(Sha)) {
+        Printf("ERROR: failed to register root corpus input %s\n",
+               Sha.c_str());
+        exit(1);
+      }
+    std::string Error;
+    if (!Store.Save(Schedule, &Error)) {
+      Printf("ERROR: cannot write epoch state: %s\n", Error.c_str());
+      exit(1);
+    }
+  }
+
+  JobQueue FuzzQ, MergeQ;
+  Vector<std::thread> Threads;
+  for (size_t T = 0; T < Slots; T++)
+    Threads.push_back(std::thread(WorkerThread, &FuzzQ, &MergeQ));
+
+  while (Schedule.Round() < Params.Rounds) {
+    const size_t RoundNo = Schedule.Round();
+    // Freeze the corpus available at the start of the round and assign every
+    // slot before any subprocess is launched.
+    std::vector<std::string> Assigned = Schedule.BeginRound(Slots);
+    if (Assigned.size() != Slots) {
+      Printf("ERROR: failed to begin round %zd\n", RoundNo);
+      exit(1);
+    }
+
+    std::vector<std::unique_ptr<FuzzJob>> Jobs(Slots);
+    for (size_t Slot = 0; Slot < Slots; Slot++) {
+      auto It = ShaToPath.find(Assigned[Slot]);
+      if (It == ShaToPath.end()) {
+        Printf("ERROR: round %zd slot %zd: no corpus file for %s\n", RoundNo,
+               Slot, Assigned[Slot].c_str());
+        exit(1);
+      }
+      Jobs[Slot] = CreateEpochJob(Args, CorpusDirs, Env.TempDir, It->second,
+                                  RoundNo, Slot, Params.RunsPerSlot);
+    }
+    // All seeds are assigned; only now do the workers start.
+    for (auto &Job : Jobs)
+      FuzzQ.Push(Job.get());
+
+    // Subprocesses may finish in any order.  Cache them, but only merge in
+    // slot order once the whole round is back.
+    std::vector<FuzzJob *> Finished(Slots, nullptr);
+    for (size_t Received = 0; Received < Slots; Received++) {
+      FuzzJob *Done = MergeQ.Pop();
+      if (!Done) {
+        Printf("ERROR: epoch worker stopped unexpectedly\n");
+        exit(1);
+      }
+      Finished[Done->JobId] = Done;
+      Fuzzer::MaybeExitGracefully();
+    }
+
+    for (size_t Slot = 0; Slot < Slots; Slot++) {
+      FuzzJob *Job = Finished[Slot];
+      std::string Diag = EpochDiagnosticKey(Job->LogPath);
+      if (Job->ExitCode != 0) {
+        if (Diag.empty()) {
+          // No classification key: the slot is still completed, but it must
+          // not be treated as a success and contributes nothing.
+          if (!Schedule.Fail(Slot)) {
+            Printf("ERROR: failed to record unclassified failure at round "
+                   "%zd slot %zd\n",
+                   RoundNo, Slot);
+            exit(1);
+          }
+          Printf("INFO: round %zd slot %zd failed (exit %d) without a "
+                 "classification key; ignored\n",
+                 RoundNo, Slot, Job->ExitCode);
+        } else {
+          if (!Schedule.Complete(Slot, {}, Diag)) {
+            Printf("ERROR: failed to record diagnostic at round %zd slot "
+                   "%zd\n",
+                   RoundNo, Slot);
+            exit(1);
+          }
+          Printf("INFO: round %zd slot %zd classified failure: %s\n", RoundNo,
+                 Slot, Diag.c_str());
+        }
+        continue;
+      }
+
+      std::vector<std::string> Children;
+      EpochMergeJob(&Env, Job, &ShaToPath, &Children);
+      if (!Schedule.Complete(Slot, Children, "")) {
+        Printf("ERROR: failed to record round %zd slot %zd\n", RoundNo, Slot);
+        exit(1);
+      }
+    }
+
+    if (!Schedule.CommitRound()) {
+      Printf("ERROR: failed to commit round %zd\n", RoundNo);
+      exit(1);
+    }
+    std::string Error;
+    if (!Store.Save(Schedule, &Error)) {
+      Printf("ERROR: cannot persist epoch state: %s\n", Error.c_str());
+      exit(1);
+    }
+    Printf("INFO: committed epoch round %zd/%zd\n", Schedule.Round(),
+           Params.Rounds);
+
+    // Jobs (and their scratch directories) are released after the commit.
+    for (auto &Job : Jobs)
+      Job.reset();
+  }
+
+  for (size_t T = 0; T < Slots; T++)
+    FuzzQ.Push(nullptr);
+  MergeQ.Push(nullptr);
+  for (auto &T : Threads)
+    T.join();
+  RmDirRecursive(Env.TempDir);
+
+  Printf("INFO: epoch replay finished after %zd rounds\n", Schedule.Round());
+  exit(0);
+}
+
 // This is just a skeleton of an experimental -fork=1 feature.
 void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
                   const Vector<std::string> &Args,
                   const Vector<std::string> &CorpusDirs, int NumJobs) {
+  if (Options.ScheduleRounds > 0 || Options.ScheduleRuns > 0 ||
+      !Options.ScheduleState.empty())
+    EpochFuzzWithFork(Options, Args, CorpusDirs, NumJobs);
+
   Printf("INFO: -fork=%d: fuzzing in separate process(s)\n", NumJobs);
 
   GlobalEnv Env;
