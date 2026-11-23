@@ -51,6 +51,11 @@ func main() {
 ### Documentation
 Complete documentation is available on [Read the Docs](http://surf.readthedocs.io/).
 
+Legacy pages encoded in Windows-1252 or Shift_JIS are decoded automatically,
+and forms taken from those pages are submitted back in the document charset.
+See [Legacy Encodings](docs/encodings.md) and the new
+`Browser.DocumentCharset()` method for details.
+
 
 ### Credits
 Surf uses the awesome [goquery](https://github.com/PuerkitoBio/goquery) by Martin Angers, and

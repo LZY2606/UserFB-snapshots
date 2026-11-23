@@ -187,6 +187,17 @@ type Browsable interface {
 	NewTab() (b *Browser)
 }
 
+// DocumentCharsetProvider is implemented by browsers that remember the
+// character set of the currently loaded document. The default *Browser type
+// implements it; custom Browsable implementations without encoding
+// information are treated as UTF-8.
+type DocumentCharsetProvider interface {
+	// DocumentCharset returns the canonical charset name of the current
+	// document: "utf-8", "windows-1252" or "shift_jis". Before any page has
+	// been opened it returns "utf-8".
+	DocumentCharset() string
+}
+
 // Browser is the default Browser implementation.
 type Browser struct {
 	// HTTP client
@@ -216,7 +227,8 @@ type Browser struct {
 	// relativeUrl makes from <base> or page url
 	relativeUrl *url.URL
 
-	// body of the current page.
+	// body of the current page: the raw, decompressed response bytes, kept
+	// in the original document encoding.
 	body []byte
 }
 
@@ -307,6 +319,98 @@ func (bow *Browser) PostMultipart(u string, fields url.Values, files FileSet) er
 
 	}
 	return bow.Post(u, writer.FormDataContentType(), body)
+}
+
+// openFormWithCharset works like OpenForm, but percent-encodes the query
+// after converting the values to the given submission charset instead of
+// handing the Unicode strings directly to url.Values.Encode.
+func (bow *Browser) openFormWithCharset(u string, data url.Values, charsetName string) error {
+	ul, err := url.Parse(u)
+	if err != nil {
+		return err
+	}
+	encoded, err := encodeFormValues(data, charsetName)
+	if err != nil {
+		return err
+	}
+	ul.RawQuery = encoded
+
+	return bow.Open(ul.String())
+}
+
+// postFormWithCharset works like PostForm, but transcodes the body into the
+// given submission charset before percent-encoding it.
+func (bow *Browser) postFormWithCharset(u string, data url.Values, charsetName string) error {
+	encoded, err := encodeFormValues(data, charsetName)
+	if err != nil {
+		return err
+	}
+	return bow.Post(u, "application/x-www-form-urlencoded", strings.NewReader(encoded))
+}
+
+// postMultipartWithCharset works like PostMultipart for the file parts, while
+// the ordinary text fields follow the same transcoding rules as the other
+// submissions: CRLF normalization, charset conversion and numeric character
+// references for unrepresentable runes. Attachment contents and file names
+// keep their original byte handling.
+func (bow *Browser) postMultipartWithCharset(u string, fields url.Values, files FileSet, charsetName string) error {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for k, vs := range fields {
+		for _, v := range vs {
+			if err := writeMultipartTextField(writer, k, v, charsetName); err != nil {
+				return err
+			}
+		}
+	}
+	for k, file := range files {
+		fw, err := writer.CreateFormFile(k, file.fileName)
+		if err != nil {
+			return err
+		}
+		if file.data != nil {
+			_, err = io.Copy(fw, file.data)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return bow.Post(u, writer.FormDataContentType(), body)
+}
+
+// writeMultipartTextField writes a single multipart text field, transcoding
+// its value into the submission charset. UTF-8 fields use the standard
+// writer output; legacy charsets add a per-part Content-Type so the receiver
+// knows how the bytes are encoded.
+func writeMultipartTextField(writer *multipart.Writer, name, value, charsetName string) error {
+	if charsetName == charsetUTF8 {
+		return writer.WriteField(name, normalizeLineEndings(value))
+	}
+	encoded, err := encodeFormText(value, charsetName)
+	if err != nil {
+		return err
+	}
+	headers := make(map[string][]string)
+	headers["Content-Disposition"] = []string{
+		"form-data; name=" + quoteMultipartField(name),
+	}
+	headers["Content-Type"] = []string{"text/plain; charset=" + charsetName}
+	part, err := writer.CreatePart(headers)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(encoded)
+	return err
+}
+
+// quoteMultipartField quotes a multipart field name the way the standard
+// library's multipart.Writer does: backslashes and double quotes are escaped.
+func quoteMultipartField(field string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(field) + `"`
 }
 
 // Back loads the previously requested page.
@@ -637,6 +741,17 @@ func (bow *Browser) Find(expr string) *goquery.Selection {
 	return bow.state.Dom.Find(expr)
 }
 
+// DocumentCharset returns the canonical charset name of the current
+// document: "utf-8", "windows-1252" or "shift_jis". Before any page has been
+// opened, or when the current state has no encoding information, it returns
+// "utf-8".
+func (bow *Browser) DocumentCharset() string {
+	if bow.state != nil && bow.state.Charset != "" {
+		return bow.state.Charset
+	}
+	return charsetUTF8
+}
+
 func (bow *Browser) NewTab() (b *Browser) {
 	b = &Browser{}
 	*b = *bow
@@ -745,14 +860,21 @@ func (bow *Browser) httpRequest(req *http.Request) error {
 		return err
 	}
 
-	buff := bytes.NewBuffer(bow.body)
+	// Resolve the document charset from the raw, decompressed entity bytes.
+	// The DOM and its charset are committed together: if parsing fails, the
+	// previous page stays in place. bow.body keeps the original bytes, so
+	// Download still returns the decompressed payload unchanged.
+	charsetName := determineCharset(bow.body, resp.Header.Get("Content-Type"))
+	decodedBody := decodeDocument(bow.body, charsetName)
+
+	buff := bytes.NewBuffer(decodedBody)
 	dom, err := goquery.NewDocumentFromReader(buff)
 	if err != nil {
 		return err
 	}
 
 	bow.history.Push(bow.state)
-	bow.state = jar.NewHistoryState(req, resp, dom)
+	bow.state = jar.NewHistoryStateWithCharset(req, resp, dom, charsetName)
 	bow.postSend()
 
 	return nil

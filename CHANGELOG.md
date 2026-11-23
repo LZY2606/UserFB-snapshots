@@ -1,3 +1,22 @@
+#### Unreleased
+* Pages are decoded into a Unicode DOM using the charset selected from the
+  UTF-8 BOM, the HTTP Content-Type header, a meta declaration in the first
+  1024 entity bytes, or UTF-8. UTF-8, Windows-1252 and Shift_JIS are
+  supported, with the case-insensitive aliases UTF8, latin1, ISO-8859-1 and
+  SJIS. Download still returns the decompressed original bytes.
+* Added `(*Browser).DocumentCharset() string`, which returns "utf-8",
+  "windows-1252" or "shift_jis" ("utf-8" before any page is opened).
+* Forms created from a decoded page submit in the document charset, or the
+  first supported entry of their accept-charset list. Field names, values
+  and button values are CRLF-normalized and transcoded before
+  percent-encoding; unrepresentable runes become decimal numeric character
+  references. Hidden `_charset_` controls report the canonical charset name.
+  Direct OpenForm, PostForm and PostMultipart calls remain UTF-8 only.
+* Back restores the charset together with the history entry. The Browsable
+  interface is unchanged; custom implementations without encoding
+  information keep the UTF-8 behavior.
+
+
 #### v1.0 - 2017/03/18
 * Officially tags v1.0.
 * Changes docs to show importing gopkg.in/headzoo/surf.v1.

@@ -252,10 +252,14 @@ type State struct {
 	Request  *http.Request
 	Response *http.Response
 	Dom      *goquery.Document
+	Charset  string
 }
 ```
 
-State represents a point in time.
+State represents a point in time. Charset is the canonical name of the
+character set used to decode the page body into Dom ("utf-8",
+"windows-1252" or "shift_jis"), so restoring a history entry restores its
+encoding together with the DOM.
 
 #### func  NewHistoryState
 
@@ -263,3 +267,12 @@ State represents a point in time.
 func NewHistoryState(req *http.Request, resp *http.Response, dom *goquery.Document) *State
 ```
 NewHistoryState creates and returns a new *State type.
+
+#### func  NewHistoryStateWithCharset
+
+```go
+func NewHistoryStateWithCharset(req *http.Request, resp *http.Response, dom *goquery.Document, charset string) *State
+```
+NewHistoryStateWithCharset creates and returns a new *State type with the
+canonical document charset recorded, so restoring a history entry restores
+its encoding together with the DOM.

@@ -12,15 +12,29 @@ type State struct {
 	Request  *http.Request
 	Response *http.Response
 	Dom      *goquery.Document
+
+	// Charset is the canonical name of the character set used to decode the
+	// page body into Dom, e.g. "utf-8", "windows-1252" or "shift_jis".
+	Charset string
 }
 
-// NewHistoryState creates and returns a new *State type.
+// NewHistoryState creates and returns a new *State type. The Charset field
+// is left empty; callers that know the document encoding should use
+// NewHistoryStateWithCharset instead.
 func NewHistoryState(req *http.Request, resp *http.Response, dom *goquery.Document) *State {
 	return &State{
 		Request:  req,
 		Response: resp,
 		Dom:      dom,
 	}
+}
+
+// NewHistoryStateWithCharset is NewHistoryState with the canonical
+// document charset recorded alongside the DOM.
+func NewHistoryStateWithCharset(req *http.Request, resp *http.Response, dom *goquery.Document, charset string) *State {
+	state := NewHistoryState(req, resp, dom)
+	state.Charset = charset
+	return state
 }
 
 // History is a type that records browser state.

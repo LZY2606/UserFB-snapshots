@@ -82,6 +82,33 @@ type Form struct {
 	checkboxs url.Values
 	selects   selects
 	files     FileSet
+
+	// documentCharset is the canonical charset name of the document that
+	// owned the form when it was created. It is captured once and never
+	// changes when the browser navigates to another page.
+	documentCharset string
+
+	// acceptCharset holds the form's accept-charset attribute, captured when
+	// the form is created.
+	acceptCharset string
+
+	// hasCharsetControl reports whether the form contains a successful
+	// control named "_charset_".
+	hasCharsetControl bool
+
+	// charsetControlAllHidden is true when every "_charset_" control is a
+	// hidden input.
+	charsetControlAllHidden bool
+}
+
+// formCharsetSubmitter is the charset aware submission interface implemented
+// by *Browser. Custom Browsable implementations without encoding information
+// do not implement it and keep the existing UTF-8 submission behavior.
+type formCharsetSubmitter interface {
+	DocumentCharset() string
+	openFormWithCharset(u string, values url.Values, charset string) error
+	postFormWithCharset(u string, values url.Values, charset string) error
+	postMultipartWithCharset(u string, values url.Values, files FileSet, charset string) error
 }
 
 // NewForm creates and returns a *Form type.
@@ -89,17 +116,51 @@ func NewForm(bow Browsable, s *goquery.Selection) *Form {
 	fields, buttons, checkboxs, selects, files := serializeForm(s)
 	method, action := formAttributes(bow, s)
 
-	return &Form{
-		bow:       bow,
-		selection: s,
-		method:    method,
-		action:    action,
-		fields:    fields,
-		buttons:   buttons,
-		checkboxs: checkboxs,
-		selects:   selects,
-		files:     files,
+	documentCharset := charsetUTF8
+	if provider, ok := bow.(DocumentCharsetProvider); ok {
+		documentCharset = provider.DocumentCharset()
 	}
+	acceptCharset, _ := s.Attr("accept-charset")
+	hasCharsetControl, charsetControlAllHidden := inspectCharsetControl(s)
+
+	return &Form{
+		bow:                     bow,
+		selection:               s,
+		method:                  method,
+		action:                  action,
+		fields:                  fields,
+		buttons:                 buttons,
+		checkboxs:               checkboxs,
+		selects:                 selects,
+		files:                   files,
+		documentCharset:         documentCharset,
+		acceptCharset:           acceptCharset,
+		hasCharsetControl:       hasCharsetControl,
+		charsetControlAllHidden: charsetControlAllHidden,
+	}
+}
+
+// inspectCharsetControl reports whether the form has a successful control
+// named "_charset_" and whether all of them are hidden inputs. Disabled
+// controls are ignored, matching the successful control rules.
+func inspectCharsetControl(s *goquery.Selection) (exists, allHidden bool) {
+	controls := s.Find("input,button,textarea,select")
+	count, hidden := 0, 0
+	controls.Each(func(_ int, el *goquery.Selection) {
+		name, ok := el.Attr("name")
+		if !ok || name != "_charset_" {
+			return
+		}
+		if disabled, ok := el.Attr("disabled"); ok && strings.ToLower(disabled) == "disabled" {
+			return
+		}
+		count++
+		inputType, _ := el.Attr("type")
+		if el.Is("input") && strings.EqualFold(inputType, "hidden") {
+			hidden++
+		}
+	})
+	return count > 0, count > 0 && hidden == count
 }
 
 // Method returns the form method, eg "GET" or "POST".
@@ -351,14 +412,48 @@ func (f *Form) send(buttonName, buttonValue string) error {
 		values.Set(buttonName, buttonValue)
 	}
 
+	// Custom Browsable implementations without charset information keep the
+	// historical UTF-8 submission behavior.
+	submitter, charsetAware := f.bow.(formCharsetSubmitter)
+	if !charsetAware {
+		return f.submitLegacy(aurl.String(), method, values)
+	}
+
+	wireCharset := formWireCharset(f.acceptCharset, f.documentCharset)
+	if f.hasCharsetControl && f.charsetControlAllHidden {
+		// The substitution is applied to a submitted copy only; Form.Get
+		// keeps returning the values stored on the form. Every successful
+		// hidden "_charset_" control reports the chosen canonical name.
+		if vals, ok := values["_charset_"]; ok {
+			substituted := make([]string, len(vals))
+			for i := range vals {
+				substituted[i] = wireCharset
+			}
+			values["_charset_"] = substituted
+		}
+	}
+
 	if strings.ToUpper(method) == "GET" {
-		return f.bow.OpenForm(aurl.String(), values)
+		return submitter.openFormWithCharset(aurl.String(), values, wireCharset)
 	}
 	enctype, _ := f.selection.Attr("enctype")
 	if enctype == "multipart/form-data" {
-		return f.bow.PostMultipart(aurl.String(), values, f.files)
+		return submitter.postMultipartWithCharset(aurl.String(), values, f.files, wireCharset)
 	}
-	return f.bow.PostForm(aurl.String(), values)
+	return submitter.postFormWithCharset(aurl.String(), values, wireCharset)
+}
+
+// submitLegacy reproduces the original UTF-8 based form submission for
+// Browsable implementations that do not carry document encoding information.
+func (f *Form) submitLegacy(action, method string, values url.Values) error {
+	if strings.ToUpper(method) == "GET" {
+		return f.bow.OpenForm(action, values)
+	}
+	enctype, _ := f.selection.Attr("enctype")
+	if enctype == "multipart/form-data" {
+		return f.bow.PostMultipart(action, values, f.files)
+	}
+	return f.bow.PostForm(action, values)
 }
 
 // serializeForm converts the form fields into a url.Values type.

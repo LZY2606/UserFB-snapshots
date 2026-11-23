@@ -11,6 +11,7 @@ pages:
 - ["settings.md", "User Guide", "Settings"]
 - ["user_agents.md", "User Guide", "User Agents"]
 - ["debugging.md", "User Guide", "Debugging"]
+- ["encodings.md", "User Guide", "Legacy Encodings"]
 - ["api/packages/surf.md", "Packages", "surf"]
 - ["api/packages/browser.md", "Packages", "browser"]
 - ["api/packages/agent.md", "Packages", "agent"]

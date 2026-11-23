@@ -290,6 +290,24 @@ type Browsable interface {
 
 Browsable represents an HTTP web browser.
 
+The Browsable interface is unchanged and stays compatible with custom
+implementations. Encoding support is exposed through the separate
+DocumentCharsetProvider interface:
+
+```go
+type DocumentCharsetProvider interface {
+	// DocumentCharset returns the canonical charset name of the current
+	// document: "utf-8", "windows-1252" or "shift_jis". Before any page has
+	// been opened it returns "utf-8".
+	DocumentCharset() string
+}
+```
+
+The default `*Browser` implements DocumentCharsetProvider. A custom
+Browsable implementation that does not implement it is assumed to work in
+UTF-8, and forms taken from it keep the historical UTF-8 submission
+behavior.
+
 #### type Browser
 
 ```go
@@ -348,6 +366,25 @@ func (bow *Browser) DelRequestHeader(name string)
 ```
 DelRequestHeader deletes a header so the browser will not send it with future
 requests.
+
+#### func (*Browser) DocumentCharset
+
+```go
+func (bow *Browser) DocumentCharset() string
+```
+DocumentCharset returns the canonical charset name of the current document:
+"utf-8", "windows-1252" or "shift_jis". Before any page has been opened, or
+when the current state carries no encoding information, it returns "utf-8".
+
+The charset is resolved from the decompressed response bytes in this order:
+a UTF-8 BOM, a valid charset in the HTTP Content-Type header, a valid meta
+charset or http-equiv/content declaration within the first 1024 entity
+bytes, and finally UTF-8. The labels utf-8/UTF8, windows-1252/latin1/
+iso-8859-1 and shift_jis/SJIS are accepted case-insensitively; declarations
+that name an unsupported charset are ignored and the search continues. The
+DOM and its charset are committed together, so a failed parse leaves the
+previous page untouched, and Back restores the charset together with the
+history entry.
 
 #### func (*Browser) Dom
 
@@ -659,6 +696,26 @@ type Form struct {
 ```
 
 Form is the default form element.
+
+A Form captures the charset of the document that owned it when the form was
+created. When the form is submitted through the default Browser, field
+names, ordinary field values and the clicked button value are normalized to
+CRLF line endings first and then transcoded into the submission charset.
+Runes the charset cannot represent, such as "😀" in Windows-1252, are
+written as decimal numeric character references ("&#128512;"). GET queries
+and urlencoded POST bodies percent-encode the transcoded bytes rather than
+the Unicode strings; multipart text fields follow the same text rules while
+attachment contents and file names keep their original byte handling.
+
+The submission charset is the first supported entry of the form's
+whitespace separated accept-charset list; if none is supported the captured
+document charset is used. The choice is fixed at form creation, so later
+navigation never changes it, and forms owned by different browsers are
+independent. A hidden "_charset_" control is replaced on the wire with the
+canonical name of the chosen charset without writing back to Form.Get; when
+the "_charset_" controls are not all hidden they are submitted as ordinary
+fields instead. Direct Browser.OpenForm, PostForm and PostMultipart calls
+continue to use UTF-8 exactly as before.
 
 #### func  NewForm
 
