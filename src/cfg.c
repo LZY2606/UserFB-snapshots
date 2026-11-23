@@ -202,6 +202,8 @@ int kvz_config_init(kvz_config *cfg)
 
   cfg->enable_cross_component_prediction = 0;
 
+  cfg->weighted_pred = 0;
+
   return 1;
 }
 
@@ -1104,6 +1106,8 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
   }
   else if OPT("bipred")
     cfg->bipred = atobool(value);
+  else if OPT("weighted-pred")
+    cfg->weighted_pred = atobool(value);
   else if OPT("bitrate") {
     cfg->target_bitrate = atoi(value);
     if (!cfg->rc_algorithm) {
@@ -1636,6 +1640,22 @@ int kvz_config_validate(const kvz_config *const cfg)
   if (cfg->ref_frames  < 1 || cfg->ref_frames >= MAX_REF_PIC_COUNT) {
     fprintf(stderr, "Input error: --ref out of range [1..%d]\n", MAX_REF_PIC_COUNT - 1);
     error = 1;
+  }
+
+  // Explicit weighted prediction is only implemented for the restricted
+  // low-delay configuration: 8-bit YUV 4:2:0, no B frames or GOP reordering,
+  // a single reference and no bi-prediction.
+  if (cfg->weighted_pred) {
+    if (cfg->input_bitdepth != 8 ||
+        cfg->chroma_format != KVZ_CSP_420 ||
+        cfg->gop_len != 0 ||
+        cfg->ref_frames != 1 ||
+        cfg->bipred != 0)
+    {
+      fprintf(stderr,
+              "Input error: --weighted-pred requires 8-bit YUV420, gop=0, ref=1 and bipred=0\n");
+      error = 1;
+    }
   }
 
   if (cfg->deblock_beta  < -6 || cfg->deblock_beta  > 6) {

@@ -42,6 +42,7 @@
 #include "strategies/strategies-ipol.h"
 #include "videoframe.h"
 #include "strategies/strategies-picture.h"
+#include "weighted_pred.h"
 
 
 typedef struct {
@@ -396,6 +397,25 @@ static unsigned inter_recon_unipred(const encoder_state_t * const state,
 {
   const int shift_w = SHIFT_W;
   const int shift_h = SHIFT_H;
+
+  // Weighted prediction uses a separate internal-precision path so the
+  // weight is applied before clipping to the 8-bit range. Bi-prediction is
+  // never enabled together with weighted prediction.
+  if (kvz_wp_frame_active(state)) {
+    kvz_wp_predict_unipred(state, ref,
+                           pu_x, pu_y, pu_w, pu_h,
+                           out_stride_luma, mv_param,
+                           yuv_px, predict_luma, predict_chroma);
+
+    const int8_t fractional_luma =
+      ((mv_param[0] & 3) || (mv_param[1] & 3));
+    const vector2d_t int_mv = { mv_param[0] >> 2, mv_param[1] >> 2 };
+    const int8_t fractional_chroma =
+      shift_w ? (int_mv.x & 1) || (int_mv.y & 1) : fractional_luma;
+    return fractional_luma |
+           ((fractional_luma || fractional_chroma) << 1);
+  }
+
   const vector2d_t int_mv = { mv_param[0] >> 2, mv_param[1] >> 2 };
   const vector2d_t int_mv_in_frame = {
     int_mv.x + pu_x + state->tile->offset_x,

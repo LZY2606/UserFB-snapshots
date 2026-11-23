@@ -107,6 +107,8 @@ static const struct option long_options[] = {
   { "gop",                required_argument, NULL, 0 },
   { "bipred",                   no_argument, NULL, 0 },
   { "no-bipred",                no_argument, NULL, 0 },
+  { "weighted-pred",            no_argument, NULL, 0 },
+  { "no-weighted-pred",         no_argument, NULL, 0 },
   { "bitrate",            required_argument, NULL, 0 },
   { "preset",             required_argument, NULL, 0 },
   { "mv-rdo",                   no_argument, NULL, 0 },
@@ -622,6 +624,10 @@ void print_help(void)
     "                               work at all. [disabled]\n"
     "      --tr-depth-intra <int> : Transform split depth for intra blocks [0]\n"
     "      --(no-)bipred          : Bi-prediction [enabled]\n"
+    "      --(no-)weighted-pred   : Explicit single-reference weighted prediction\n"
+    "                               for P slices. Requires 8-bit YUV420, gop=0,\n"
+    "                               ref=1 and bipred=0. Per-picture weights are\n"
+    "                               supplied through the library API. [disabled]\n"
     "      --cu-split-termination <string> : CU split search termination [zero]\n"
     "                                   - off: Don't terminate early.\n"
     "                                   - zero: Terminate when residual is zero.\n"

@@ -53,6 +53,7 @@
 #include "threadqueue.h"
 #include "videoframe.h"
 #include "rate_control.h"
+#include "weighted_pred.h"
 
 
 static void encoder_state_write_bitstream_aud(encoder_state_t *const state)
@@ -588,7 +589,7 @@ static void encoder_state_write_bitstream_pic_parameter_set(bitstream_t* stream,
   WRITE_SE(stream, 0, "pps_cb_qp_offset");
   WRITE_SE(stream, 0, "pps_cr_qp_offset");
   WRITE_U(stream, 0, 1, "pps_slice_chroma_qp_offsets_present_flag");
-  WRITE_U(stream, 0, 1, "weighted_pred_flag");
+  WRITE_U(stream, encoder->cfg.weighted_pred ? 1 : 0, 1, "weighted_pred_flag");
   WRITE_U(stream, 0, 1, "weighted_bipred_idc");
 
   //WRITE_U(stream, 0, 1, "dependent_slices_enabled_flag");
@@ -947,6 +948,25 @@ static void kvz_encoder_state_write_bitstream_slice_header_independent(
     int slice_qp_delta = state->frame->QP - (signal_qp_in_slice_header ? 26 : encoder->cfg.qp);
     if(encoder->cfg.set_qp_in_cu) slice_qp_delta = 0;
     WRITE_SE(stream, slice_qp_delta, "slice_qp_delta");
+  }
+
+  // pred_weight_table() follows slice_qp_delta in the HEVC slice header
+  // syntax. It is present for P slices whenever weighted prediction is
+  // enabled in the PPS, even when this particular picture uses the identity
+  // transform (all weight flags are zero then).
+  if (encoder->cfg.weighted_pred && state->frame->slicetype == KVZ_SLICE_P) {
+    if (state->frame->wp_active) {
+      kvz_wp_write_pred_weight_table(stream, &state->frame->wp);
+    } else {
+      // Explicit identity parameters: denom 0 with every component flag
+      // cleared so the decoder applies the default weight 1 / offset 0.
+      kvz_wp_params_t identity;
+      identity.enabled = 0;
+      identity.denom = 0;
+      identity.weight[0] = identity.weight[1] = identity.weight[2] = 1;
+      identity.offset[0] = identity.offset[1] = identity.offset[2] = 0;
+      kvz_wp_write_pred_weight_table(stream, &identity);
+    }
   }
 }
 

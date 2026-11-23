@@ -192,6 +192,17 @@ typedef struct encoder_state_config_frame_t {
 
   double *c_para;
   double *k_para;
+
+  /**
+   * \brief Weighted prediction parameters of the frame being encoded.
+   *
+   * Copied from the input picture's wp field at frame setup so that later
+   * frames or released input pictures can never leak parameters into this
+   * frame. wp_active tells whether the weights are actually applied; the
+   * first I picture and pictures with disabled wp use the identity path.
+   */
+  kvz_wp_params_t wp;
+  int wp_active;
 } encoder_state_config_frame_t;
 
 typedef struct encoder_state_config_tile_t {

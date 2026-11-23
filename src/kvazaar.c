@@ -51,6 +51,7 @@
 #include "threadqueue.h"
 #include "videoframe.h"
 #include "rate_control.h"
+#include "weighted_pred.h"
 
 
 static void kvazaar_close(kvz_encoder *encoder)
@@ -252,6 +253,17 @@ static int kvazaar_encode(kvz_encoder *enc,
   if (src_out) *src_out = NULL;
 
   encoder_state_t *state = &enc->states[enc->cur_state_num];
+
+  // Validate the per-picture weights before anything is done with the
+  // picture or the encoder state, so an invalid picture is returned to the
+  // caller untouched, no encoder state changes and no output is produced for
+  // this call.
+  if (pic_in != NULL && enc->control->cfg.weighted_pred &&
+      !kvz_wp_validate_picture(&pic_in->wp))
+  {
+    fprintf(stderr, "Input error: invalid weighted prediction parameters\n");
+    return 0;
+  }
 
   if (!state->frame->prepared) {
     kvz_encoder_prepare(state);

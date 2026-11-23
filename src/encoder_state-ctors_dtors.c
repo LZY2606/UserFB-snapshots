@@ -96,6 +96,11 @@ static int encoder_state_config_frame_init(encoder_state_t * const state) {
 
   state->frame->new_ratecontrol = state->encoder_control->rc_data;
 
+  // Weighted prediction parameters are filled in per frame; start with the
+  // identity transform and an inactive switch.
+  FILL(state->frame->wp, 0);
+  state->frame->wp_active = 0;
+
   return 1;
 }
 

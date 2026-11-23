@@ -506,7 +506,43 @@ typedef struct kvz_config
 
   uint8_t enable_cross_component_prediction; //!< \brief Enable cross-component prediction (4:4:4).
 
+  /**
+   * \brief Enable explicit single-reference weighted prediction for P slices.
+   *
+   * Default 0 (disabled). When enabled, only 8-bit YUV 4:2:0 input with
+   * gop=0, ref=1 and bipred=0 is supported; other combinations fail in
+   * encoder_open. Per-picture weights are taken from kvz_picture.wp.
+   */
+  int32_t weighted_pred;
+
 } kvz_config;
+
+/**
+ * \brief Per-picture weighted prediction parameters.
+ *
+ * Filled in by the caller for each input picture when
+ * kvz_config.weighted_pred is enabled. The parameters describe the weight
+ * applied to the current (coded) picture's P-slice prediction, never the
+ * reference picture's parameters.
+ *
+ * If enabled is 0, all other fields are ignored and the identity transform
+ * is used.
+ *
+ * If enabled is 1, the following must hold:
+ * - denom in 0..7
+ * - weight[c] - (1 << denom) in -128..127
+ * - offset[c] in -128..127
+ * - for the chroma components c = 1,2:
+ *   offset[c] - 128 + floor(128 * weight[c] / 2^denom) in -512..511
+ *
+ * The component order in the arrays is Y, U, V.
+ */
+typedef struct kvz_wp_params {
+  int enabled;        //!< \brief Whether weighted prediction is active for this picture.
+  int denom;          //!< \brief Log2 of the weight denominator (log2_weight_d_denom).
+  int weight[3];      //!< \brief Weight for Y, U and V.
+  int offset[3];      //!< \brief Final effective offset for Y, U and V.
+} kvz_wp_params_t;
 
 /**
  * \brief Struct which contains all picture data
@@ -555,6 +591,15 @@ typedef struct kvz_picture {
     int height;
     int8_t *roi_array;
   } roi;
+
+  /**
+   * \brief Weighted prediction parameters for this picture.
+   *
+   * Used only when kvz_config.weighted_pred is enabled; otherwise the field
+   * is ignored. The caller fills it in for every input picture. The first
+   * (I) picture never applies the weights.
+   */
+  struct kvz_wp_params wp;
 
 } kvz_picture;
 

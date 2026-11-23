@@ -48,6 +48,7 @@
 #include "strategies/strategies-picture.h"
 #include "transform.h"
 #include "videoframe.h"
+#include "weighted_pred.h"
 
 typedef struct {
   encoder_state_t *state;
@@ -240,17 +241,33 @@ static bool check_mv_cost(inter_search_info_t *info,
   if (!intmv_within_tile(info, x, y, info->ref_idx)) return false;
 
   double bitcost = 0;
-  double cost = kvz_image_calc_sad(
-      info->pic,
+  double cost;
+  if (kvz_wp_frame_active(info->state)) {
+    // The weighted distortion must be used for the ranking so that the
+    // selected vector matches the weighted prediction that is actually
+    // reconstructed and coded.
+    cost = kvz_wp_calc_sad(
+      info->state,
       info->ref,
       info->origin.x,
       info->origin.y,
       info->state->tile->offset_x + info->origin.x + x,
       info->state->tile->offset_y + info->origin.y + y,
       info->width,
-      info->height,
-      info->optimized_sad
-  );
+      info->height);
+  } else {
+    cost = kvz_image_calc_sad(
+        info->pic,
+        info->ref,
+        info->origin.x,
+        info->origin.y,
+        info->state->tile->offset_x + info->origin.x + x,
+        info->state->tile->offset_y + info->origin.y + y,
+        info->width,
+        info->height,
+        info->optimized_sad
+    );
+  }
   // On some platforms comparing two doubles give weird results, so add an offset
 #define KVZ_TEMP_DOUBLE_PRECISION 0.001
   if (cost + KVZ_TEMP_DOUBLE_PRECISION >= *best_cost) return false;
@@ -997,6 +1014,95 @@ static void search_mv_full(inter_search_info_t *info,
 
 
 /**
+ * \brief Fractional motion estimation for weighted prediction.
+ *
+ * Same two-stage scheme as the normal FME: evaluate the integer position and
+ * the eight half-pel positions, then the eight quarter-pel positions around
+ * the best half-pel position. Every candidate is scored against the weighted
+ * prediction, at internal precision, using a portable scalar implementation.
+ */
+static void search_frac_weighted(inter_search_info_t *info,
+                                 double *best_cost,
+                                 double *best_bits,
+                                 vector2d_t *best_mv)
+{
+  const encoder_state_t *state = info->state;
+
+  double cost = MAX_DOUBLE;
+  double bitcost = 0;
+  vector2d_t mv = *best_mv; // quarter-pel precision, multiple of four here.
+
+  // Half-pel offsets in quarter-pel units, including the integer position.
+  static const vector2d_t hpel[9] = {
+    { 0, 0 },
+    { 0, -2 }, { 0, 2 }, { -2, 0 }, { 2, 0 },
+    { -2, -2 }, { -2, 2 }, { 2, -2 }, { 2, 2 },
+  };
+
+  for (int i = 0; i < 9; ++i) {
+    const int cand_qx = mv.x + hpel[i].x;
+    const int cand_qy = mv.y + hpel[i].y;
+    if (!fracmv_within_tile(info, cand_qx, cand_qy, info->ref_idx)) {
+      continue;
+    }
+
+    double cand_bits = 0;
+    double cand_cost = kvz_wp_calc_satd_frac(state, info->ref,
+      info->origin.x, info->origin.y,
+      cand_qx >> 2, cand_qy >> 2,
+      info->width, info->height,
+      cand_qx & 3, cand_qy & 3);
+
+    cand_cost += info->mvd_cost_func(state,
+                                     cand_qx >> 2, cand_qy >> 2, 2,
+                                     info->mv_cand, NULL, 0,
+                                     info->ref_idx, &cand_bits);
+
+    if (cand_cost < cost) {
+      cost = cand_cost;
+      bitcost = cand_bits;
+      best_mv->x = cand_qx;
+      best_mv->y = cand_qy;
+    }
+  }
+
+  // Quarter-pel refinement around the best half-pel (or integer) position.
+  for (int dy = -1; dy <= 1; ++dy) {
+    for (int dx = -1; dx <= 1; ++dx) {
+      if (dx == 0 && dy == 0) continue;
+
+      const int cand_qx = best_mv->x + dx;
+      const int cand_qy = best_mv->y + dy;
+      if (!fracmv_within_tile(info, cand_qx, cand_qy, info->ref_idx)) {
+        continue;
+      }
+
+      double cand_bits = 0;
+      double cand_cost = kvz_wp_calc_satd_frac(state, info->ref,
+        info->origin.x, info->origin.y,
+        cand_qx >> 2, cand_qy >> 2,
+        info->width, info->height,
+        cand_qx & 3, cand_qy & 3);
+
+      cand_cost += info->mvd_cost_func(state,
+                                       cand_qx >> 2, cand_qy >> 2, 2,
+                                       info->mv_cand, NULL, 0,
+                                       info->ref_idx, &cand_bits);
+
+      if (cand_cost < cost) {
+        cost = cand_cost;
+        bitcost = cand_bits;
+        best_mv->x = cand_qx;
+        best_mv->y = cand_qy;
+      }
+    }
+  }
+
+  *best_cost = cost;
+  *best_bits = bitcost;
+}
+
+/**
  * \brief Do fractional motion estimation
  *
  * Algoritm first searches 1/2-pel positions around integer mv and after best match is found,
@@ -1007,6 +1113,11 @@ static void search_frac(inter_search_info_t *info,
                         double *best_bits,
                         vector2d_t *best_mv)
 {
+  if (kvz_wp_frame_active(info->state)) {
+    search_frac_weighted(info, best_cost, best_bits, best_mv);
+    return;
+  }
+
   // Map indexes to relative coordinates in the following way:
   // 5 3 6
   // 1 0 2
@@ -1417,15 +1528,27 @@ static void search_pu_inter_ref(inter_search_info_t *info,
 
   if (cfg->fme_level == 0 && best_cost < MAX_DOUBLE) {
     // Recalculate inter cost with SATD.
-    best_cost = kvz_image_calc_satd(
-      info->state->tile->frame->source,
-      info->ref,
-      info->origin.x,
-      info->origin.y,
-      info->state->tile->offset_x + info->origin.x + (best_mv.x >> 2),
-      info->state->tile->offset_y + info->origin.y + (best_mv.y >> 2),
-      info->width,
-      info->height);
+    if (kvz_wp_frame_active(info->state)) {
+      best_cost = kvz_wp_calc_satd_int(
+        info->state,
+        info->ref,
+        info->origin.x,
+        info->origin.y,
+        info->state->tile->offset_x + info->origin.x + (best_mv.x >> 2),
+        info->state->tile->offset_y + info->origin.y + (best_mv.y >> 2),
+        info->width,
+        info->height);
+    } else {
+      best_cost = kvz_image_calc_satd(
+        info->state->tile->frame->source,
+        info->ref,
+        info->origin.x,
+        info->origin.y,
+        info->state->tile->offset_x + info->origin.x + (best_mv.x >> 2),
+        info->state->tile->offset_y + info->origin.y + (best_mv.y >> 2),
+        info->width,
+        info->height);
+    }
     best_cost += best_bits * info->state->lambda_sqrt;
   }
 

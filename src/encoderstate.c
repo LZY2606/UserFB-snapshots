@@ -1465,6 +1465,12 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
 
   encoder_set_source_picture(state, frame);
 
+  // Snapshot the per-picture weighted prediction parameters together with
+  // the frame. The values belong to this picture only and must never be
+  // taken from a reference picture or reused by a later picture.
+  state->frame->wp = frame->wp;
+  state->frame->wp_active = 0;
+
   assert(!state->tile->frame->cu_array);
   state->tile->frame->cu_array = kvz_cu_array_alloc(
       state->tile->frame->width,
@@ -1671,6 +1677,15 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
     state->frame->slicetype = KVZ_SLICE_B;
   } else {
     state->frame->slicetype = KVZ_SLICE_P;
+  }
+
+  // Weighted prediction is only defined for P slices and the first I
+  // picture is never weighted even when the caller set wp.enabled.
+  if (cfg->weighted_pred &&
+      state->frame->slicetype == KVZ_SLICE_P &&
+      state->frame->wp.enabled)
+  {
+    state->frame->wp_active = 1;
   }
 
   if (cfg->target_bitrate > 0 && state->frame->num > cfg->owf) {

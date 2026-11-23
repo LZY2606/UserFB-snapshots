@@ -118,6 +118,8 @@ libkvazaar_la_SOURCES = \
 	transform.h \
 	videoframe.c \
 	videoframe.h \
+	weighted_pred.c \
+	weighted_pred.h \
 	strategies/generic/dct-generic.c \
 	strategies/generic/dct-generic.h \
 	strategies/generic/intra-generic.c \
