@@ -1,0 +1,1 @@
+-Isrc/core -Isrc/core/lo -Itask_support/parser -I. -O1 -D__DISABLE_MIDI__ -D__DISABLE_HID__ -D__ALTER_HID__ -D__DISABLE_SERIAL__ -D__DISABLE_KBHIT__ -D__DISABLE_OTF_SERVER__ -D__DISABLE_NETWORK__ -D__DISABLE_SHELL__

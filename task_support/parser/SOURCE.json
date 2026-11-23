@@ -1,0 +1,16 @@
+{
+  "source_commit": "401bbda10dc0b45ae5a16d408e8d34b8f0ed2e03",
+  "commands": [
+    "bison -d -b chuck -o task_support/parser/chuck.tab.c src/core/chuck.y",
+    "flex -otask_support/parser/chuck.yy.c src/core/chuck.lex"
+  ],
+  "tools": [
+    "Apple GNU Bison 2.3",
+    "Apple flex 2.6.4"
+  ],
+  "hashes": {
+    "chuck.tab.h": "2375d9ad2a98780c9c494962456a943a59353b04176fda0199bdfa3355a6a088",
+    "chuck.tab.c": "403f633e8c30c6f0c9c31d59b3c0d95490295d19563d0dbdbeb892fffa5efdff",
+    "chuck.yy.c": "a0cc7dc0499604297b3832ea3bdf617b1cd85030e2f32a91f6dcafbc49862c01"
+  }
+}
