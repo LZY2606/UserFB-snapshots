@@ -1,0 +1,11 @@
+{
+	"github.com/notedit/rtmp/format/rtmp": {
+		"lostcancel": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z02227/attempts/20261123T151149821316Z/repo/format/rtmp/client.go:64:7",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z02227/attempts/20261123T151149821316Z/repo/format/rtmp/client.go:64:8",
+				"message": "the cancel function returned by context.WithTimeout should be called, not discarded, to avoid a context leak"
+			}
+		]
+	}
+}

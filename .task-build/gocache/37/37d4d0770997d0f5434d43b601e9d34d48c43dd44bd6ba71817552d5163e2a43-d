@@ -1,0 +1,4 @@
+./reader.go
+./vec.go
+./writer.go
+./vec_test.go

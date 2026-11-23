@@ -15,12 +15,19 @@ type gopCacheSnapshot struct {
 }
 
 type gopCache struct {
+	// pkts holds the current GOP. idx is the absolute cache index one past
+	// the last packet stored, so a packet's absolute index is
+	// idx-len(pkts)+i. curst points at the latest immutable snapshot.
 	pkts  []av.Packet
 	idx   int
 	curst unsafe.Pointer
 }
 
 func (gc *gopCache) put(pkt av.Packet) {
+	// Copy the payload: publishers may reuse their packet buffers after
+	// ReadPacket and subscribers must not observe those mutations.
+	pkt = clonePacket(pkt)
+
 	if pkt.IsKeyFrame {
 		gc.pkts = []av.Packet{}
 	}
@@ -73,7 +80,7 @@ func (m *mergeSeqhdr) do(pkt av.Packet) {
 		pkt.ASeqHdr = m.hdrpkt.ASeqHdr
 		m.cb(pkt)
 	case av.Metadata:
-		m.hdrpkt.Metadata = pkt.Data
+		m.hdrpkt.Metadata = append([]byte(nil), pkt.Data...)
 	}
 }
 
@@ -109,7 +116,7 @@ func (s *splitSeqhdr) do(pkt av.Packet) error {
 				}); err != nil {
 					return err
 				}
-				s.hdrpkt.VSeqHdr = pkt.VSeqHdr
+				s.hdrpkt.VSeqHdr = append([]byte(nil), pkt.VSeqHdr...)
 			}
 		}
 		return s.cb(pkt)
@@ -124,7 +131,7 @@ func (s *splitSeqhdr) do(pkt av.Packet) error {
 			}); err != nil {
 				return err
 			}
-			s.hdrpkt.ASeqHdr = pkt.ASeqHdr
+			s.hdrpkt.ASeqHdr = append([]byte(nil), pkt.ASeqHdr...)
 		}
 		return s.cb(pkt)
 	}
@@ -194,7 +201,10 @@ func (s *PubSub) AddSub(close <-chan bool, w av.PacketWriter) {
 			}
 		} else {
 			for _, pkt := range pkts {
-				if err := seqsplit.do(pkt); err != nil {
+				// Hand the writer its own copy: a writer that mutates the
+				// received packet must not corrupt the cache or other
+				// subscribers.
+				if err := seqsplit.do(clonePacket(pkt)); err != nil {
 					return
 				}
 			}
@@ -226,6 +236,10 @@ func (s *PubSub) SetPub(r av.PacketReader) {
 	if oldsp != nil {
 		oldsp.cancel()
 	}
+	// Wake subscribers so a timed subscriber waiting on the previous
+	// publication cancels that wait and re-evaluates immediately, even before
+	// the new publication produces its first media packet.
+	s.notifySub()
 
 	seqmerge := mergeSeqhdr{
 		cb: func(pkt av.Packet) {
@@ -249,6 +263,3 @@ func (s *PubSub) SetPub(r av.PacketReader) {
 		seqmerge.do(pkt)
 	}
 }
-
-
-

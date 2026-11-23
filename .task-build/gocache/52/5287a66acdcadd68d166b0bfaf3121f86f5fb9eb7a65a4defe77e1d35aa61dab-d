@@ -1,0 +1,24 @@
+{
+	"github.com/notedit/rtmp/format": {
+		"unreachable": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z02227/attempts/20261123T151149821316Z/repo/format/format.go:209:3",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z02227/attempts/20261123T151149821316Z/repo/format/format.go:209:9",
+				"message": "unreachable code",
+				"suggested_fixes": [
+					{
+						"message": "Remove",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z02227/attempts/20261123T151149821316Z/repo/format/format.go",
+								"start": 3819,
+								"end": 3828,
+								"new": ""
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

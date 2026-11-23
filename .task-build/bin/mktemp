@@ -1,0 +1,7 @@
+#!/bin/bash
+# Sandbox helper: macOS mktemp ignores TMPDIR and writes to /var/folders,
+# which is not writable here. Redirect its default location into the repo.
+set -e
+dir="${TASK_TMPDIR:-$PWD/.task-build/tmp}"
+mkdir -p "$dir"
+exec /usr/bin/mktemp -p "$dir" "$@"
