@@ -31,19 +31,22 @@ namespace SoLoud
 	BusInstance::BusInstance(Bus *aParent)
 	{
 		mParent = aParent;
-		mFlags |= PROTECTED | INAUDIBLE_TICK;		
+		mFlags |= PROTECTED | INAUDIBLE_TICK;
 		for (int i = 0; i < MAX_CHANNELS; i++)
 			mVisualizationChannelVolume[i] = 0;
 		for (int i = 0; i < 256; i++)
 			mVisualizationWaveData[i] = 0;
 		mScratchSize = SAMPLE_GRANULARITY;
 		mScratch.init(mScratchSize * MAX_CHANNELS);
+		mSidechainCache = 0;
+		mSidechainCacheSize = 0;
+		mSidechainSeq = 0;
 	}
-	
+
 	unsigned int BusInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize)
 	{
 		int handle = mParent->mChannelHandle;
-		if (handle == 0) 
+		if (handle == 0)
 		{
 			// Avoid reuse of scratch data if this bus hasn't played anything yet
 			unsigned int i;
@@ -51,9 +54,9 @@ namespace SoLoud
 				aBuffer[i] = 0;
 			return aSamplesToRead;
 		}
-		
+
 		Soloud *s = mParent->mSoloud;
-		
+
 		s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);
 
 		int i;
@@ -96,7 +99,28 @@ namespace SoLoud
 				}
 			}
 		}
+
+		// Bake the bus' own filters into the block before it is resampled into
+		// the parent bus. Regular voices keep running their filters from
+		// mixBus_internal; bus voices are handled here so the sidechain sample
+		// point can sit after the filters but before volume/pan are applied.
+		for (i = 0; i < FILTERS_PER_STREAM; i++)
+		{
+			if (mFilter[i])
+			{
+				mFilter[i]->filter(aBuffer, aSamplesToRead, aBufferSize, mChannels, mSamplerate, s->mStreamTime);
+			}
+		}
+
+		// Apply this bus' sidechain envelope and publish the detector PCM.
+		s->sidechainProcessBlock_internal(this, aBuffer, aSamplesToRead, aBufferSize);
+
 		return aSamplesToRead;
+	}
+
+	bool BusInstance::isBus()
+	{
+		return true;
 	}
 
 	bool BusInstance::hasEnded()

@@ -102,6 +102,8 @@ namespace SoLoud
 		mDelaySamples = 0;
 		mOverallVolume = 0;
 		mOverallRelativePlaySpeed = 1;
+		mDucker = 0;
+		mSidechainDetector = false;
 	}
 
 	AudioSourceInstance::~AudioSourceInstance()
@@ -152,6 +154,11 @@ namespace SoLoud
 	result AudioSourceInstance::rewind()
 	{
 		return NOT_IMPLEMENTED;
+	}
+
+	bool AudioSourceInstance::isBus()
+	{
+		return false;
 	}
 
 	result AudioSourceInstance::seek(double aSeconds, float *mScratch, unsigned int mScratchSize)

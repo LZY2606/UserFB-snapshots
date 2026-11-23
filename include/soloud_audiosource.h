@@ -31,9 +31,10 @@ freely, subject to the following restrictions:
 
 namespace SoLoud
 {
-	class AudioSource;	
+	class AudioSource;
 	class AudioSourceInstance;
 	class AudioSourceInstance3dData;
+	class BusInstance;
 
 	class AudioCollider
 	{
@@ -188,10 +189,32 @@ namespace SoLoud
 		// When looping, start playing from this time
 		time mLoopPoint;
 
+		// Per-sample sidechain ducker state. Only attached to BusInstance
+		// voices; the object is owned by Soloud and stays valid for the whole
+		// mix, so no allocation happens on the audio thread. Null means the
+		// bus is not a sidechain target.
+		struct Ducker
+		{
+			// Handle of the detector bus; resolved per block, so a stopped or
+			// reused slot cannot reattach the connection by accident.
+			handle mDetectorHandle;
+			float mThreshold;
+			float mRatio;
+			float mAttackCoeff;
+			float mReleaseCoeff;
+			// Smoothed log gain, starts at 0 (unity gain)
+			float mLogGain;
+		};
+		Ducker *mDucker;
+		// True when at least one sidechain target listens to this bus
+		bool mSidechainDetector;
+
 		// Get N samples from the stream to the buffer. Report samples written.
 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize) = 0;
 		// Has the stream ended?
 		virtual bool hasEnded() = 0;
+		// True for BusInstance voices; used by the sidechain configuration.
+		virtual bool isBus();
 		// Seek to certain place in the stream. Base implementation is generic "tape" seek (and slow).
 		virtual result seek(time aSeconds, float *mScratch, unsigned int mScratchSize);
 		// Rewind stream. Base implementation returns NOT_IMPLEMENTED, meaning it can't rewind.

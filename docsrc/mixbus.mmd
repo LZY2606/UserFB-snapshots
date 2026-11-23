@@ -174,7 +174,7 @@ at the moment.
     if (sfxbus.getActiveVoiceCount() == 0) enjoy_the_silence();
 
 
-### Bus.getResampler(), Bus.setResampler()
+### Bus.setResampler(), Bus.getResampler()
 
 Set or get the resampler for this bus. The default is linear interpolator.
 
@@ -183,7 +183,70 @@ Setting the resampler does not change the resampler other busses or the main mix
     // Use point-sample resampler for the music
     gMusicBus.setResampler(SoLoud::Soloud::RESAMPLER_POINT);
 
-    
+
+### Soloud.setBusDucker()
+
+Per-sample sidechain compression between mixing busses. While the legacy
+DuckFilter only reacts to the visualization peak of another bus,
+setBusDucker() drives a target bus from the actual current-frame PCM of a
+detector bus, evaluated once per output sample.
+
+    result Soloud::setBusDucker(handle aTarget, handle aDetector,
+                                float aThreshold, float aRatio,
+                                float aAttackSeconds, float aReleaseSeconds);
+
+Both handles must name a single, currently active Bus voice in this Soloud
+instance; regular sound sources, voice groups and expired handles are
+rejected. A target has at most one detector: calling setBusDucker() again for
+the same target replaces the old connection during configuration and resets
+the gain to unity. Parameters must satisfy threshold > 0 (finite),
+ratio >= 1 (finite), and attack/release times finite and non-negative. A bus
+cannot listen to itself, and the sidechain edges must not form a cycle when
+combined with the bus containment hierarchy - for example, a child bus
+listening to its own parent is a cycle, because the parent cannot be mixed
+before the child it contains. Any invalid call returns INVALID_PARAMETER and
+leaves the previous configuration untouched.
+
+The sidechain graph is built for an offline mix: all busses are started
+before the first mix, and setBusDucker() must be called before the first
+mix() call. Configuring a ducker after mixing has started returns
+INVALID_PARAMETER.
+
+For each output sample the detector amplitude A is the maximum absolute value
+across the detector bus channels at that sample. When A is at or below the
+threshold the target gain is 1; otherwise the static target gain is
+
+    gain = (threshold / A) ^ (1 - 1/ratio)
+
+The gain is smoothed per sample in the natural-log domain. When the target
+log gain is lower than the previous frame's value the attack coefficient is
+used, otherwise the release coefficient is used:
+
+    coeff = exp(-1 / (samplerate * time))   (0 when time is 0)
+    newLogGain = coeff * oldLogGain + (1 - coeff) * targetLogGain
+
+The resulting exp(newLogGain) is applied to every channel of the target bus.
+
+#### Sidechain sample point
+
+The detector signal is the detector bus' PCM for the current frame after it
+has finished mixing its child sources, after its own filters and after its
+own sidechain processing, but before its parent bus applies its volume and
+pan. Consequently a detector bus whose own volume is zero still provides a
+control signal, and visualization does not need to be enabled. The target bus
+runs its own filters first and is compressed afterwards; the sidechain is
+never mixed in as an audible source.
+
+A detector bus is only evaluated once per audio block: its PCM, filter state
+and child source read positions advance a single time, and every target
+listening to it shares that same result. Nested busses are supported, and a
+music bus that is itself a detector can be used to build cascaded chains.
+Stopping a detector makes subsequent quanta evaluate against silence (a
+normal release), while stopping a target does not affect the other listeners.
+Connections follow the live play handles, so a voice slot reused by another
+source after a stop cannot reattach an old connection.
+
+
 ### Inherited 3d audio interfaces
 
 Like all other audio sources, the bus inherits the 3d audio interfaces. Please refer to the 3d audio chapter for details on:

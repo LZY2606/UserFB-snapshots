@@ -43,9 +43,23 @@ namespace SoLoud
 		// Mono-mixed wave data for visualization and for visualization FFT input
 		float mVisualizationWaveData[256];
 
+		// Sidechain block cache. Each entry holds one SAMPLE_GRANULARITY block
+		// keyed by its sequence number; mSidechainCacheSize is a power of two.
+		// Owned by the Soloud object, allocated when a sidechain is configured.
+		struct SidechainBlock
+		{
+			unsigned int mSeq;
+			float mPcm[SAMPLE_GRANULARITY * MAX_CHANNELS];
+		};
+		SidechainBlock *mSidechainCache;
+		unsigned int mSidechainCacheSize;
+		// Sequence number of the next block this bus produces
+		unsigned int mSidechainSeq;
+
 		BusInstance(Bus *aParent);
 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize);
 		virtual bool hasEnded();
+		virtual bool isBus();
 		virtual ~BusInstance();
 	};
 

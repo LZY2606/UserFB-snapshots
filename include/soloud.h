@@ -392,6 +392,15 @@ namespace SoLoud
 		// Enable or disable visualization data gathering
 		void setVisualizationEnable(bool aEnable);
 
+		// Configure a per-sample sidechain ducker: aTarget's gain is driven by
+		// the live post-filter PCM of aDetector. Both handles must name active
+		// Bus voices in this Soloud instance. Only one detector per target;
+		// reconfiguring replaces the old connection with unity initial gain.
+		// Must be called before the first mix() call. Returns INVALID_PARAMETER
+		// (and keeps the old connection) on bad arguments, self-listen, or a
+		// dependency cycle together with the bus containment hierarchy.
+		result setBusDucker(handle aTarget, handle aDetector, float aThreshold, float aRatio, float aAttackSeconds, float aReleaseSeconds);
+
 		// Calculate and get 256 floats of FFT data for visualization. Visualization has to be enabled before use.
 		float *calcFFT();
 
@@ -492,6 +501,19 @@ namespace SoLoud
 		void update3dVoices_internal(unsigned int *aVoiceList, unsigned int aVoiceCount);
 		// Clip the samples in the buffer
 		void clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1);
+
+		// Sidechain ducker internals. Configuration happens in setBusDucker();
+		// the processing helpers only touch preallocated state.
+		// Apply a bus voice's own ducker to a freshly produced block (after the
+		// bus filters) and publish the block for its listeners.
+		void sidechainProcessBlock_internal(BusInstance *aBus, float *aBlock, unsigned int aSamples, unsigned int aStride);
+		// Order active voices so every bus is mixed before the busses that
+		// depend on it through containment or sidechain links.
+		void orderSidechainVoices_internal();
+		// (Re)build the detector block caches for the current configuration.
+		void setupSidechainCaches_internal();
+		// Free all sidechain configuration and runtime caches.
+		void clearSidechain_internal();
 		// Remove all non-active voices from group
 		void trimVoiceGroup_internal(handle aVoiceGroupHandle);
 		// Get pointer to the zero-terminated array of voice handles in a voice group
@@ -589,6 +611,23 @@ namespace SoLoud
 		unsigned int mActiveVoiceCount;
 		// Active voices list needs to be recalculated
 		bool mActiveVoiceDirty;
+
+		// Sidechain ducker configuration. Built by setBusDucker() before the
+		// first mix; the audio thread only reads these and the per-voice
+		// runtime state attached to the bus instances.
+		AudioSourceInstance::Ducker **mDuckers;
+		// Target handle corresponding to each entry in mDuckers
+		handle *mDuckerTargets;
+		unsigned int mDuckerCount;
+		// Detector block cache pool, one entry per distinct detector bus
+		BusInstance::SidechainBlock **mSidechainCaches;
+		handle *mSidechainCacheHandles;
+		unsigned int mSidechainCacheCount;
+		// Preallocated scratch for the per-mix topological ordering, so the
+		// audio callback never needs large stack buffers or heap allocations.
+		unsigned int *mSidechainOrderScratch;
+		// Set once the first mix has run; sidechain configuration is frozen.
+		bool mMixStarted;
 	};
 };
 

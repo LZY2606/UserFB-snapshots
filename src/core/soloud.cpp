@@ -168,6 +168,14 @@ namespace SoLoud
 		mHighestVoice = 0;
 		mResampleData = NULL;
 		mResampleDataOwner = NULL;
+		mDuckers = NULL;
+		mDuckerTargets = NULL;
+		mDuckerCount = 0;
+		mSidechainCaches = NULL;
+		mSidechainCacheHandles = NULL;
+		mSidechainCacheCount = 0;
+		mSidechainOrderScratch = NULL;
+		mMixStarted = false;
 		for (i = 0; i < 3 * MAX_CHANNELS; i++)
 			m3dSpeakerPosition[i] = 0;
 	}
@@ -196,6 +204,8 @@ namespace SoLoud
 		unlockAudioMutex_internal();
 		SOLOUD_ASSERT(!mInsideAudioThreadMutex);
 		stopAll();
+		clearSidechain_internal();
+		mMixStarted = false;
 		if (mBackendCleanupFunc)
 			mBackendCleanupFunc(this);
 		mBackendCleanupFunc = 0;
@@ -1698,11 +1708,13 @@ namespace SoLoud
 						}
 
 					
-						// Run the per-stream filters to get our source data
+						// Run the per-stream filters to get our source data.
+						// Bus voices bake their filters in BusInstance::getAudio
+						// so the sidechain sample point can sit after them.
 
 						for (j = 0; j < FILTERS_PER_STREAM; j++)
 						{
-							if (voice->mFilter[j])
+							if (voice->mFilter[j] && !voice->isBus())
 							{
 								voice->mFilter[j]->filter(
 									voice->mResampleData[0],
@@ -2192,7 +2204,12 @@ namespace SoLoud
 
 		if (mActiveVoiceDirty)
 			calcActiveVoices_internal();
-	
+
+		// Sidechain configuration is frozen at the first mix.
+		mMixStarted = true;
+		// With sidechains, process detector busses before their targets.
+		orderSidechainVoices_internal();
+
 		mixBus_internal(mOutputScratch.mData, aSamples, aStride, mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler);
 
 		for (i = 0; i < FILTERS_PER_STREAM; i++)
