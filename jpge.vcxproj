@@ -172,6 +172,7 @@
   <ItemGroup>
     <ClCompile Include="jpgd.cpp" />
     <ClCompile Include="jpge.cpp" />
+    <ClCompile Include="jpeg_progressive.cpp" />
     <ClCompile Include="tga2jpg.cpp" />
     <ClCompile Include="timer.cpp" />
   </ItemGroup>

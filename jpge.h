@@ -4,6 +4,8 @@
 #ifndef JPEG_ENCODER_H
 #define JPEG_ENCODER_H
 
+#include <stddef.h>
+
 namespace jpge
 {
 	typedef unsigned char  uint8;
@@ -19,7 +21,7 @@ namespace jpge
 	// JPEG compression parameters structure.
 	struct params
 	{
-		inline params() : m_quality(85), m_subsampling(H2V2), m_no_chroma_discrim_flag(false), m_two_pass_flag(false), m_use_std_tables(false) { }
+		inline params() : m_quality(85), m_subsampling(H2V2), m_no_chroma_discrim_flag(false), m_two_pass_flag(false), m_use_std_tables(false), m_progressive(false) { }
 
 		inline bool check() const
 		{
@@ -44,9 +46,14 @@ namespace jpge
 
 		bool m_two_pass_flag;
 
-		// By default we use the same quantization tables as mozjpeg's default. 
+		// By default we use the same quantization tables as mozjpeg's default.
 		// Set to true to use the traditional tables from JPEG Annex K.
 		bool m_use_std_tables;
+
+		// Enables progressive (SOF2) output. The image is scanned once by the caller, then the
+		// encoder writes all the progressive scans when the final NULL scanline is submitted.
+		// Cannot be combined with m_two_pass_flag.
+		bool m_progressive;
 	};
 
 	// Writes JPEG image to a file. 
@@ -88,7 +95,9 @@ namespace jpge
 		// Deinitializes the compressor, freeing any allocated memory. May be called at any time.
 		void deinit();
 
-		uint get_total_passes() const { return m_params.m_two_pass_flag ? 2 : 1; }
+		// Progressive mode submits the source image once and writes all scans on the final
+		// NULL scanline, so it needs only a single pass. Two-pass Huffman optimization needs two.
+		uint get_total_passes() const { return (m_params.m_two_pass_flag && !m_params.m_progressive) ? 2 : 1; }
 		inline uint get_cur_pass() { return m_pass_num; }
 
 		// Call this method with each source scanline.
@@ -131,6 +140,45 @@ namespace jpge
 		uint m_bits_in;
 		uint8 m_pass_num;
 		bool m_all_stream_writes_succeeded;
+
+		// Progressive (SOF2) encoding state. The quantized coefficients of the whole image are
+		// kept so all progressive scans can be emitted after the source image is consumed. Only
+		// the quantized coefficients are retained, never the source RGB data.
+		int16* m_prog_coeffs;
+		size_t m_prog_coeffs_alloc;
+		size_t m_prog_comp_offset[3];
+		int m_prog_comp_w[3], m_prog_comp_h[3];   // padded block grid (interleaved MCUs)
+		int m_prog_true_w[3], m_prog_true_h[3];   // true block grid (non-interleaved scans)
+		int m_prog_mcu_y_ofs;
+
+		// Scan entropy-coder state.
+		bool m_prog_gather;                       // true while only counting symbols
+		uint32 m_prog_count[4][256];              // gathered symbol counts
+		int m_prog_cur_slot;                      // active Huffman slot
+		enum { PROG_CORR_BITS = 1000 };
+		uint32 m_prog_eobrun;
+		uint32 m_prog_be;
+		uint8 m_prog_bit_buf[PROG_CORR_BITS + 64];
+		int m_prog_last_dc[3];
+
+		bool prog_open();
+		bool prog_finish();
+		void prog_process_mcu_row();
+		void prog_transform_block(int component_num);   // forward DCT + quantization into m_coefficient_array
+		void prog_store_block(int component_num, int block_x, int block_y);
+		const int16* prog_block(int component_num, int block_x, int block_y) const;
+		void prog_emit_sof();
+		void prog_emit_sos(int num_comps, const int* comps, int ss, int se, int ah, int al);
+		void prog_emit_symbol(int slot, int sym);
+		void prog_emit_eobrun();
+		void prog_emit_buffered_bits(int ofs, int num_bits);
+		void prog_emit_corr_bits(const uint8* pBits, int num_bits);
+		void prog_flush_scan_bits();
+		void prog_run_scan(int num_comps, const int* comps, int ss, int se, int ah, int al);
+		void prog_scan_dc_first(int num_comps, const int* comps, int al);
+		void prog_scan_dc_refine(int num_comps, const int* comps, int al);
+		void prog_scan_ac_first(int component_num, int ss, int se, int al);
+		void prog_scan_ac_refine(int component_num, int ss, int se, int al);
 
 		void optimize_huffman_table(int table_num, int table_len);
 		void emit_byte(uint8 i);

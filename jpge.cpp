@@ -29,6 +29,7 @@
 // v1.05, March 25, 2020: Added Apache 2.0 alternate license
 
 #include "jpge.h"
+#include "jpge_progressive.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -532,6 +533,16 @@ namespace jpge {
 		m_out_buf_left = JPGE_OUT_BUF_SIZE;
 		m_pOut_buf = m_out_buf;
 
+		if (m_params.m_progressive)
+		{
+			// The quantized image is accumulated here and all scans are emitted when the
+			// caller's terminating NULL scanline arrives.
+			if (!prog_open()) return false;
+			first_pass_init();          // reset bit buffer / DC predictors
+			m_pass_num = 1;
+			return m_all_stream_writes_succeeded;
+		}
+
 		if (m_params.m_two_pass_flag)
 		{
 			clear_obj(m_huff_count);
@@ -604,6 +615,12 @@ namespace jpge {
 			pDst[4] = ((pSrc1[8 * 3] + pSrc1[9 * 3] + 1) >> 1) - 128; pDst[5] = ((pSrc1[10 * 3] + pSrc1[11 * 3] + 1) >> 1) - 128;
 			pDst[6] = ((pSrc1[12 * 3] + pSrc1[13 * 3] + 1) >> 1) - 128; pDst[7] = ((pSrc1[14 * 3] + pSrc1[15 * 3] + 1) >> 1) - 128;
 		}
+	}
+
+	void jpeg_encoder::prog_transform_block(int component_num)
+	{
+		DCT2D(m_sample_array);
+		load_quantized_coefficients(component_num);
 	}
 
 	void jpeg_encoder::load_quantized_coefficients(int component_num)
@@ -830,8 +847,14 @@ namespace jpge {
 					memcpy(m_mcu_lines[i], m_mcu_lines[m_mcu_y_ofs - 1], m_image_bpl_mcu);
 			}
 
-			process_mcu_row();
+			if (m_params.m_progressive)
+				prog_process_mcu_row();
+			else
+				process_mcu_row();
 		}
+
+		if (m_params.m_progressive)
+			return prog_finish();
 
 		if (m_pass_num == 1)
 			return terminate_pass_one();
@@ -879,7 +902,10 @@ namespace jpge {
 
 		if (++m_mcu_y_ofs == m_mcu_y)
 		{
-			process_mcu_row();
+			if (m_params.m_progressive)
+				prog_process_mcu_row();
+			else
+				process_mcu_row();
 			m_mcu_y_ofs = 0;
 		}
 	}
@@ -887,6 +913,8 @@ namespace jpge {
 	void jpeg_encoder::clear()
 	{
 		m_mcu_lines[0] = NULL;
+		m_prog_coeffs = NULL;
+		m_prog_coeffs_alloc = 0;
 		m_pass_num = 0;
 		m_all_stream_writes_succeeded = true;
 	}
@@ -905,6 +933,12 @@ namespace jpge {
 	{
 		deinit();
 		if (((!pStream) || (width < 1) || (height < 1)) || ((src_channels != 1) && (src_channels != 3) && (src_channels != 4)) || (!comp_params.check())) return false;
+
+		// Progressive and two-pass Huffman optimization are mutually exclusive: progressive
+		// output needs the fully quantized image before it can measure scan statistics, and
+		// both would otherwise claim the "two passes" protocol in conflicting ways.
+		if (comp_params.m_progressive && comp_params.m_two_pass_flag) return false;
+
 		m_pStream = pStream;
 		m_params = comp_params;
 		return jpg_open(width, height, src_channels);
@@ -913,6 +947,9 @@ namespace jpge {
 	void jpeg_encoder::deinit()
 	{
 		jpge_free(m_mcu_lines[0]);
+		jpge_free(m_prog_coeffs);
+		m_prog_coeffs = NULL;
+		m_prog_coeffs_alloc = 0;
 		clear();
 	}
 

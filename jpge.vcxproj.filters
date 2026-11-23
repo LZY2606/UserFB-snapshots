@@ -21,6 +21,9 @@
     <ClCompile Include="jpge.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="jpeg_progressive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="tga2jpg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

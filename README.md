@@ -27,6 +27,57 @@ See [tga2jpg.cpp](https://github.com/orian/jpeg-compressor/blob/master/tga2jpg.c
 
 You can also call the `jpge::jpeg_encoder class` directly if you need more control over the image source or how/where the output stream is written.
 
+## Progressive JPEG Output
+
+By default jpge writes baseline sequential JPEG files (SOF0), which is ideal for a fast,
+single-pass "encode and be done" workflow. For image previews that should show a coarse
+version quickly and refine it as more data arrives, set `params::m_progressive`:
+
+``` cpp
+jpge::params p;
+p.m_quality = 83;
+p.m_subsampling = jpge::H2V2;
+p.m_progressive = true;   // write a progressive (SOF2) file
+
+// The single-pass helper functions work unchanged: in progressive mode the source image
+// is submitted exactly once and all scans are written when the terminating NULL is reached.
+jpge::compress_image_to_jpeg_file("preview.jpg", width, height, 3, rgba_or_rgb, p);
+```
+
+Using the lower level class is also unchanged - `get_total_passes()` returns 1, you call
+`process_scanline()` for every row of the image and then once with `NULL`:
+
+``` cpp
+jpge::jpeg_encoder encoder;
+encoder.init(&my_output_stream, width, height, src_channels, p);   // returns false for
+                                                                   // progressive + two-pass
+for (int y = 0; y < height; ++y)
+    encoder.process_scanline(source + y * width * src_channels);
+encoder.process_scanline(NULL);   // writes every progressive scan and the EOI
+encoder.deinit();
+```
+
+The progressive scan script is fixed:
+
+1. all components interleaved, DC, `Ah=0 Al=1`
+2. one AC scan per component, `Ss=1 Se=63 Ah=0 Al=1`
+3. all components interleaved, DC refinement, `Ah=1 Al=0`
+4. one AC refinement scan per component, `Ss=1 Se=63 Ah=1 Al=0`
+
+The Y (grayscale) mode and the H1V1/H2V1/H2V2 color modes are all supported, plus 4-channel
+RGBA input (which is converted to three components). Progressive output is mutually
+exclusive with `m_two_pass_flag`; an encoder initialized with both returns `false`.
+
+**Coefficient cache.** A progressive file cannot be written until the whole image has been
+seen, because each scan revisits every block. Instead of buffering the source pixels, jpge
+keeps only the *quantized* DCT coefficients of the picture (in zig-zag order, as produced by
+the existing DCT and quantization paths). The cache is sized for the padded MCU block grid
+and is released by `deinit()` (or the destructor); the allocation size is checked for
+overflow before being made. Memory use is therefore roughly
+`(interleaved MCU columns * max horizontal sampling) * (interleaved MCU rows * max vertical
+sampling) * 64 * sizeof(int16)` per component, independent of the number of source channels.
+Baseline and two-pass output are bit-for-bit unchanged by the presence of this mode.
+
 ## Basic Usage (Decompression)
 
 Note: I suggest new projects use [stb_image_wuffs](https://github.com/richgel999/stb_image_wuffs/) for secure image decompression. jpgd is legacy code.
