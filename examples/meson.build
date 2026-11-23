@@ -1,6 +1,10 @@
 examples_req = examples.enabled()
 
 if examples_req
+  if decoder.enabled()
+    executable('CompactExample', 'CompactExample.c', dependencies: [zydis_dep])
+  endif
+
   if decoder.enabled() and formatter.enabled()
     executable('DisassembleSimple', 'DisassembleSimple.c', dependencies: [zydis_dep])
     executable('Disassemble', 'Disassemble.c', dependencies: [zydis_dep])

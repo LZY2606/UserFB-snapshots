@@ -14,3 +14,4 @@ __pycache__
 
 .cache
 compile_commands.json
+/.task-build

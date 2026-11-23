@@ -171,13 +171,16 @@ src = files(
 
 if decoder.enabled()
   hdrs_common += files(
+    'include/Zydis/Compact.h',
     'include/Zydis/Decoder.h',
     'include/Zydis/DecoderTypes.h',
   )
   hdrs_internal += files(
+    'include/Zydis/Internal/Compact.h',
     'include/Zydis/Internal/DecoderData.h',
   )
   src += files(
+    'src/Compact.c',
     'src/Decoder.c',
     'src/DecoderData.c',
   )

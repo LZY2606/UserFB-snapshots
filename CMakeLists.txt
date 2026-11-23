@@ -245,9 +245,12 @@ target_sources("Zydis"
 if (ZYDIS_FEATURE_DECODER)
     target_sources("Zydis"
         PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/include/Zydis/Compact.h"
             "${CMAKE_CURRENT_LIST_DIR}/include/Zydis/Decoder.h"
             "${CMAKE_CURRENT_LIST_DIR}/include/Zydis/DecoderTypes.h"
+            "${CMAKE_CURRENT_LIST_DIR}/include/Zydis/Internal/Compact.h"
             "${CMAKE_CURRENT_LIST_DIR}/include/Zydis/Internal/DecoderData.h"
+            "src/Compact.c"
             "src/Decoder.c"
             "src/DecoderData.c")
     if (ZYDIS_FEATURE_ENCODER)
@@ -339,6 +342,9 @@ endfunction()
 # =============================================================================================== #
 
 if (ZYDIS_BUILD_EXAMPLES AND NOT ZYAN_NO_LIBC)
+    if (ZYDIS_FEATURE_DECODER)
+        _add_example("CompactExample" "CompactExample.c" "Decoder")
+    endif ()
     if (ZYDIS_FEATURE_DECODER AND ZYDIS_FEATURE_FORMATTER AND (NOT ZYDIS_MINIMAL_MODE))
         _add_example("DisassembleSimple" "DisassembleSimple.c" "Decoder")
         _add_example("Disassemble" "Disassemble.c" "Decoder")

@@ -36,6 +36,7 @@
 #include <Zycore/Types.h>
 
 #if !defined(ZYDIS_DISABLE_DECODER)
+#   include <Zydis/Compact.h>
 #   include <Zydis/Decoder.h>
 #   include <Zydis/DecoderTypes.h>
 #endif
