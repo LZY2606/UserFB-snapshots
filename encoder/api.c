@@ -42,6 +42,7 @@ int  x264_8_encoder_delayed_frames( x264_t * );
 int  x264_8_encoder_maximum_delayed_frames( x264_t * );
 void x264_8_encoder_intra_refresh( x264_t * );
 int  x264_8_encoder_invalidate_reference( x264_t *, int64_t pts );
+int  x264_8_encoder_invalidate_reference_exact( x264_t *, int64_t pts );
 
 x264_t *x264_10_encoder_open( x264_param_t *, void * );
 void x264_10_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal );
@@ -54,6 +55,7 @@ int  x264_10_encoder_delayed_frames( x264_t * );
 int  x264_10_encoder_maximum_delayed_frames( x264_t * );
 void x264_10_encoder_intra_refresh( x264_t * );
 int  x264_10_encoder_invalidate_reference( x264_t *, int64_t pts );
+int  x264_10_encoder_invalidate_reference_exact( x264_t *, int64_t pts );
 
 typedef struct x264_api_t
 {
@@ -71,6 +73,7 @@ typedef struct x264_api_t
     int  (*encoder_maximum_delayed_frames)( x264_t * );
     void (*encoder_intra_refresh)( x264_t * );
     int  (*encoder_invalidate_reference)( x264_t *, int64_t pts );
+    int  (*encoder_invalidate_reference_exact)( x264_t *, int64_t pts );
 } x264_api_t;
 
 REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
@@ -92,6 +95,7 @@ REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
         api->encoder_maximum_delayed_frames = x264_8_encoder_maximum_delayed_frames;
         api->encoder_intra_refresh = x264_8_encoder_intra_refresh;
         api->encoder_invalidate_reference = x264_8_encoder_invalidate_reference;
+        api->encoder_invalidate_reference_exact = x264_8_encoder_invalidate_reference_exact;
 
         api->x264 = x264_8_encoder_open( param, api );
     }
@@ -110,6 +114,7 @@ REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
         api->encoder_maximum_delayed_frames = x264_10_encoder_maximum_delayed_frames;
         api->encoder_intra_refresh = x264_10_encoder_intra_refresh;
         api->encoder_invalidate_reference = x264_10_encoder_invalidate_reference;
+        api->encoder_invalidate_reference_exact = x264_10_encoder_invalidate_reference_exact;
 
         api->x264 = x264_10_encoder_open( param, api );
     }
@@ -196,4 +201,11 @@ REALIGN_STACK int x264_encoder_invalidate_reference( x264_t *h, int64_t pts )
     x264_api_t *api = (x264_api_t *)h;
 
     return api->encoder_invalidate_reference( api->x264, pts );
+}
+
+REALIGN_STACK int x264_encoder_invalidate_reference_exact( x264_t *h, int64_t pts )
+{
+    x264_api_t *api = (x264_api_t *)h;
+
+    return api->encoder_invalidate_reference_exact( api->x264, pts );
 }

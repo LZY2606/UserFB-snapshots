@@ -546,15 +546,24 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mv
 
     if( i_ref == 0 && h->frames.b_have_lowres )
     {
-        int idx = i_list ? h->fref[1][0]->i_frame-h->fenc->i_frame-1
-                         : h->fenc->i_frame-h->fref[0][0]->i_frame-1;
-        if( idx <= h->param.i_bframe )
+        /* The lowres MV tables are indexed by the temporal gap, so they only
+         * exist for a reference on its list's natural time side.  Reference
+         * feedback can legalize an emptied list with a frame from the opposite
+         * direction; such a frame has no lowres entry and must skip this. */
+        int b_natural_time_side = i_list ? h->fref[1][0]->i_frame > h->fenc->i_frame
+                                         : h->fref[0][0]->i_frame < h->fenc->i_frame;
+        if( b_natural_time_side )
         {
-            int16_t (*lowres_mv)[2] = h->fenc->lowres_mvs[i_list][idx];
-            if( lowres_mv[0][0] != 0x7fff )
+            int idx = i_list ? h->fref[1][0]->i_frame-h->fenc->i_frame-1
+                             : h->fenc->i_frame-h->fref[0][0]->i_frame-1;
+            if( idx <= h->param.i_bframe )
             {
-                M32( mvc[i] ) = (M32( lowres_mv[h->mb.i_mb_xy] )*2)&0xfffeffff;
-                i++;
+                int16_t (*lowres_mv)[2] = h->fenc->lowres_mvs[i_list][idx];
+                if( lowres_mv[0][0] != 0x7fff )
+                {
+                    M32( mvc[i] ) = (M32( lowres_mv[h->mb.i_mb_xy] )*2)&0xfffeffff;
+                    i++;
+                }
             }
         }
     }

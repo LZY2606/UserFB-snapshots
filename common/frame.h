@@ -167,6 +167,11 @@ typedef struct x264_frame
     /* interactive encoder control */
     int     b_corrupt;
 
+    /* exact reference-picture loss feedback (x264_param_t.b_reference_feedback) */
+    int     i_ref_used;                 /* number of distinct refs committed by this frame */
+    int64_t ref_used_pts[16];           /* PTS of those refs, strictly increasing */
+    uint8_t b_ref_lost;                 /* this frame is inside an invalidation closure */
+
     /* user sei */
     x264_sei_t extra_sei;
 

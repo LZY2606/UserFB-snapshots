@@ -27,7 +27,8 @@ SRCS_X = common/mc.c common/predict.c common/pixel.c common/macroblock.c \
          common/mvpred.c common/bitstream.c \
          encoder/analyse.c encoder/me.c encoder/ratecontrol.c \
          encoder/set.c encoder/macroblock.c encoder/cabac.c \
-         encoder/cavlc.c encoder/encoder.c encoder/lookahead.c
+         encoder/cavlc.c encoder/encoder.c encoder/lookahead.c \
+         encoder/ref_feedback.c
 
 SRCS_8 =
 
@@ -45,6 +46,7 @@ SRCSO =
 SRCCHK_X = tools/checkasm.c
 
 SRCEXAMPLE = example.c
+SRCEXAMPLE_REF_FEEDBACK = example_ref_feedback.c
 
 OBJS =
 OBJASM =
@@ -54,6 +56,7 @@ OBJCHK =
 OBJCHK_8 =
 OBJCHK_10 =
 OBJEXAMPLE =
+OBJEXAMPLE_REF_FEEDBACK =
 
 CONFIG := $(shell cat config.h)
 
@@ -258,6 +261,7 @@ OBJS   += $(SRCS:%.c=%.o)
 OBJCLI += $(SRCCLI:%.c=%.o)
 OBJSO  += $(SRCSO:%.c=%.o)
 OBJEXAMPLE += $(SRCEXAMPLE:%.c=%.o)
+OBJEXAMPLE_REF_FEEDBACK += $(SRCEXAMPLE_REF_FEEDBACK:%.c=%.o)
 
 ifneq ($(findstring HAVE_BITDEPTH8 1, $(CONFIG)),)
 OBJS      += $(SRCS_X:%.c=%-8.o) $(SRCS_8:%.c=%-8.o)
@@ -289,11 +293,12 @@ $(SONAME): $(OBJS) $(OBJASM) $(OBJSO)
 $(IMPLIBNAME): $(SONAME)
 
 ifneq ($(EXE),)
-.PHONY: x264 checkasm8 checkasm10 example
+.PHONY: x264 checkasm8 checkasm10 example example-ref-feedback
 x264: x264$(EXE)
 checkasm8: checkasm8$(EXE)
 checkasm10: checkasm10$(EXE)
 example: example$(EXE)
+example-ref-feedback: example_ref_feedback$(EXE)
 endif
 
 x264$(EXE): $(OBJCLI) $(CLI_LIBX264)
@@ -308,10 +313,13 @@ checkasm10$(EXE): $(OBJCHK) $(OBJCHK_10) $(LIBX264)
 example$(EXE): $(OBJEXAMPLE) $(LIBX264)
 	$(LD)$@ $(OBJEXAMPLE) $(LIBX264) $(LDFLAGS)
 
+example_ref_feedback$(EXE): $(OBJEXAMPLE_REF_FEEDBACK) $(LIBX264)
+	$(LD)$@ $(OBJEXAMPLE_REF_FEEDBACK) $(LIBX264) $(LDFLAGS)
+
 $(OBJS) $(OBJSO): CFLAGS += $(CFLAGSSO)
 $(OBJCLI): CFLAGS += $(CFLAGSCLI)
 
-$(OBJS) $(OBJASM) $(OBJSO) $(OBJCLI) $(OBJCHK) $(OBJCHK_8) $(OBJCHK_10) $(OBJEXAMPLE): .depend
+$(OBJS) $(OBJASM) $(OBJSO) $(OBJCLI) $(OBJCHK) $(OBJCHK_8) $(OBJCHK_10) $(OBJEXAMPLE) $(OBJEXAMPLE_REF_FEEDBACK): .depend
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< $(CC_O)
@@ -416,6 +424,7 @@ clean:
 	rm -f $(SONAME) *.a *.lib *.exp *.pdb x264$(EXE) x264_lookahead.clbin
 	rm -f checkasm8$(EXE) checkasm10$(EXE) $(OBJCHK) $(OBJCHK_8) $(OBJCHK_10)
 	rm -f example$(EXE) $(OBJEXAMPLE)
+	rm -f example_ref_feedback$(EXE) $(OBJEXAMPLE_REF_FEEDBACK)
 	rm -f $(OBJPROF:%.o=%.gcda) $(OBJPROF:%.o=%.gcno) *.dyn pgopti.dpi pgopti.dpi.lock *.pgd *.pgc
 
 distclean: clean

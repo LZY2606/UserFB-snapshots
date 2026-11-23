@@ -617,6 +617,13 @@ typedef struct x264_param_t
 
     /* For internal use only */
     void *opaque;
+
+    /* Enable exact reference-picture loss feedback (x264_encoder_invalidate_reference_exact).
+     * Off by default; when off, the encoder behaves exactly as before and the new feedback
+     * API and output fields are inactive.  When on, only single-threaded, 8-bit,
+     * progressive I420 encoding with strictly increasing input PTS is supported, and
+     * intra-refresh must be disabled; unsupported combinations fail in x264_encoder_open. */
+    int b_reference_feedback;
 } x264_param_t;
 
 X264_API void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal );
@@ -857,6 +864,17 @@ typedef struct x264_image_properties_t
 
     /* Out: Average effective CRF of the encoded frame */
     double f_crf_avg;
+
+    /* Out (only when x264_param_t.b_reference_feedback is enabled):
+     * the reference pictures that this output picture's final prediction actually used,
+     * listed by PTS in strictly increasing order, each PTS appearing at most once.
+     * i_ref_used is 0 for I pictures and for calls of x264_encoder_encode that produce
+     * no output; only direct dependencies are listed (no transitive ancestors), and
+     * references that were merely searched but not selected are not included.
+     * A reference used through both L0 and L1 is still listed only once.
+     * The fields belong to the picture returned in pic_out, including delayed output. */
+    int     i_ref_used;
+    int64_t ref_used_pts[16];
 } x264_image_properties_t;
 
 typedef struct x264_picture_t
@@ -1017,6 +1035,38 @@ X264_API void x264_encoder_intra_refresh( x264_t * );
  *
  *      Returns 0 on success, negative on failure. */
 X264_API int x264_encoder_invalidate_reference( x264_t *, int64_t pts );
+
+/* x264_encoder_invalidate_reference_exact:
+ *      Exact, dependency-aware reference loss feedback for B-frame (including B-pyramid)
+ *      encoding, enabled with x264_param_t.b_reference_feedback.  The legacy
+ *      x264_encoder_invalidate_reference keeps its original behavior and is unaffected.
+ *
+ *      The PTS must identify a picture that has already been delivered to the caller via
+ *      x264_encoder_encode and is still retained in the encoder's reference set.  The
+ *      invalidation closure is that picture plus every still-retained reference picture
+ *      whose final macroblock prediction directly or transitively depends on it; it is
+ *      never simply every picture with a larger PTS.  Dependencies are the references
+ *      actually committed by the final macroblock decisions (skip, direct, bipred and
+ *      BREF included), not candidates that were only searched.
+ *
+ *      Already emitted bytes are never modified; pictures still buffered for reordering
+ *      are encoded normally, but their prediction, L0/L1 reference lists and the in-stream
+ *      reference list reordering consistently avoid the closure.  If a temporally ordered
+ *      list would be empty, still-clean references are used to build a legal list; no
+ *      picture is dropped, B-frames are not disabled, the encoder is not reopened and no
+ *      forced IDR is used to clear the group.
+ *
+ *      Like x264_encoder_invalidate_reference, this must not be called from within
+ *      x264_encoder_encode.  Input PTS must be strictly increasing and unique for the
+ *      whole stream; the PTS used here is the user PTS reported on the encoded output.
+ *      Reporting the same retained picture more than once is allowed and succeeds while it
+ *      remains in the reference set.
+ *
+ *      Returns 0 on success.  Returns a negative value, without changing any state, if the
+ *      feature is not enabled, the PTS is unknown or identifies a non-reference picture,
+ *      the picture has already left the reference set, or the invalidation would leave no
+ *      clean reference for the pictures currently pending. */
+X264_API int x264_encoder_invalidate_reference_exact( x264_t *, int64_t pts );
 
 #ifdef __cplusplus
 }

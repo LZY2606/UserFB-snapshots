@@ -45,6 +45,7 @@
 #define x264_encoder_maximum_delayed_frames x264_template(encoder_maximum_delayed_frames)
 #define x264_encoder_intra_refresh x264_template(encoder_intra_refresh)
 #define x264_encoder_invalidate_reference x264_template(encoder_invalidate_reference)
+#define x264_encoder_invalidate_reference_exact x264_template(encoder_invalidate_reference_exact)
 
 /* This undef allows to rename the external symbol and force link failure in case
  * of incompatible libraries. Then the define enables templating as above. */
@@ -418,6 +419,13 @@ struct x264_t
     x264_frame_t    *fref[2][X264_REF_MAX+3];
     x264_frame_t    *fref_nearest[2];
     int             b_ref_reorder[2];
+
+    /* exact reference-picture loss feedback */
+    struct
+    {
+        int     b_active;               /* x264_param_t.b_reference_feedback */
+        int64_t i_last_input_pts;       /* strict PTS uniqueness check */
+    } ref_feedback;
 
     /* hrd */
     int initial_cpb_removal_delay;

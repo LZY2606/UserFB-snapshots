@@ -792,6 +792,9 @@ x264_frame_t *x264_frame_pop_unused( x264_t *h, int b_fdec )
     frame->b_scenecut = 1;
     frame->b_keyframe = 0;
     frame->b_corrupt = 0;
+    /* A recycled slot must never inherit the previous generation's feedback state. */
+    frame->i_ref_used = 0;
+    frame->b_ref_lost = 0;
     frame->i_slice_count = h->param.b_sliced_threads ? h->param.i_threads : 1;
 
     memset( frame->weight, 0, sizeof(frame->weight) );

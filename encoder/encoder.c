@@ -32,6 +32,7 @@
 #include "ratecontrol.h"
 #include "macroblock.h"
 #include "me.h"
+#include "ref_feedback.h"
 #if HAVE_INTEL_DISPATCHER
 #include "extras/intel_dispatcher.h"
 #endif
@@ -425,6 +426,17 @@ static int validate_parameters( x264_t *h, int b_open )
     if( !h->param.pf_log )
     {
         x264_log_internal( X264_LOG_ERROR, "pf_log not set! did you forget to call x264_param_default?\n" );
+        return -1;
+    }
+
+    /* Reference feedback requires single-threaded use.  This must run before
+     * the thread-count clamping below, which would otherwise hide a multi
+     * threaded request. */
+    if( b_open && h->param.b_reference_feedback &&
+        ( h->param.i_threads != 1 || h->param.b_sliced_threads ) )
+    {
+        x264_log( h, X264_LOG_ERROR,
+                  "b_reference_feedback requires single-threaded encoding\n" );
         return -1;
     }
 
@@ -1403,6 +1415,9 @@ static int validate_parameters( x264_t *h, int b_open )
     BOOLIFY( rc.b_filler );
 #undef BOOLIFY
 
+    if( b_open && x264_ref_feedback_validate_open( h ) < 0 )
+        return -1;
+
     return 0;
 }
 
@@ -1640,6 +1655,8 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
     if( h->param.analyse.i_weighted_pred > 0 )
         CHECKED_MALLOCZERO( h->frames.blank_unused, h->i_thread_frames * 4 * sizeof(x264_frame_t *) );
     h->i_ref[0] = h->i_ref[1] = 0;
+    h->ref_feedback.b_active = h->param.b_reference_feedback;
+    h->ref_feedback.i_last_input_pts = INT64_MIN;
     h->i_cpb_delay = h->i_coded_fields = h->i_disp_fields = 0;
     h->i_prev_duration = ((uint64_t)h->param.i_fps_den * h->sps->vui.i_time_scale) / ((uint64_t)h->param.i_fps_num * h->sps->vui.i_num_units_in_tick);
     h->i_disp_fields_last_frame = -1;
@@ -2134,8 +2151,9 @@ int x264_encoder_headers( x264_t *h, x264_nal_t **pp_nal, int *pi_nal )
 }
 
 /* Check to see whether we have chosen a reference list ordering different
- * from the standard's default. */
-static inline void reference_check_reorder( x264_t *h )
+ * from the standard's default.  Non-static so the reference-feedback filter
+ * can recompute the flags after removing invalidated entries. */
+void reference_check_reorder( x264_t *h )
 {
     /* The reorder check doesn't check for missing frames, so just
      * force a reorder if one of the reference list is corrupt. */
@@ -2971,6 +2989,10 @@ cont:
         /* save cache */
         x264_macroblock_cache_save( h );
 
+        /* Final macroblock commit point: the reference indices above are the
+         * frame's committed prediction.  No-op unless a test build hooks it. */
+        x264_ref_feedback_commit_hook( h, mb_xy );
+
         if( x264_ratecontrol_mb( h, mb_size ) < 0 )
         {
             bitstream_restore( h, &bs_bak[BS_BAK_ROW_VBV], &i_skip, 1 );
@@ -3358,6 +3380,13 @@ int     x264_encoder_encode( x264_t *h,
     /* ------------------- Setup new frame from picture -------------------- */
     if( pic_in != NULL )
     {
+        if( h->ref_feedback.b_active && pic_in->i_pts <= h->ref_feedback.i_last_input_pts )
+        {
+            x264_log( h, X264_LOG_ERROR,
+                      "b_reference_feedback requires strictly increasing, unique input PTS\n" );
+            return -1;
+        }
+
         if( h->lookahead->b_exit_thread )
         {
             x264_log( h, X264_LOG_ERROR, "lookahead thread is already stopped\n" );
@@ -3371,6 +3400,9 @@ int     x264_encoder_encode( x264_t *h,
 
         if( x264_frame_copy_picture( h, fenc, pic_in ) < 0 )
             return -1;
+
+        if( h->ref_feedback.b_active )
+            h->ref_feedback.i_last_input_pts = pic_in->i_pts;
 
         if( h->param.i_width != 16 * h->mb.i_mb_width ||
             h->param.i_height != 16 * h->mb.i_mb_height )
@@ -3581,6 +3613,7 @@ int     x264_encoder_encode( x264_t *h,
     /* ------------------- Init                ----------------------------- */
     /* build ref list 0/1 */
     reference_build_list( h, h->fdec->i_poc );
+    x264_ref_feedback_filter_lists( h );
 
     /* ---------------------- Write the bitstream -------------------------- */
     /* Init bitstream context */
@@ -3898,6 +3931,8 @@ int     x264_encoder_encode( x264_t *h,
         if( (intptr_t)slices_write( h ) )
             return -1;
 
+    x264_ref_feedback_record( h );
+
     return encoder_frame_end( thread_oldest, thread_current, pp_nal, pi_nal, pic_out );
 }
 
@@ -3916,6 +3951,7 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
     if( !h->out.i_nal )
     {
         pic_out->i_type = X264_TYPE_AUTO;
+        pic_out->prop.i_ref_used = 0;
         return 0;
     }
 
@@ -3980,6 +4016,15 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
 
     pic_out->hrd_timing = h->fenc->hrd_timing;
     pic_out->prop.f_crf_avg = h->fdec->f_crf_avg;
+    /* Always define the feedback output, even with the switch off, so the
+     * caller observes i_ref_used == 0 regardless of its own initialization. */
+    pic_out->prop.i_ref_used = h->param.b_reference_feedback ? h->fdec->i_ref_used : 0;
+    if( h->param.b_reference_feedback )
+    {
+        /* Delayed or not, the record belongs to the picture now being returned. */
+        memcpy( pic_out->prop.ref_used_pts, h->fdec->ref_used_pts,
+                h->fdec->i_ref_used * sizeof(int64_t) );
+    }
 
     /* Filler in AVC-Intra mode is written as zero bytes to the last slice
      * We don't know the size of the last slice until encapsulation so we add filler to the encapsulated NAL */
