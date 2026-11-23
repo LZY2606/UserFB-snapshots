@@ -60,6 +60,84 @@ supported for upsampling and downsampling. Full support is provided for
 various coordinate systems, including the various chroma siting conventions
 (e.g. JPEG and MPEG2) as well as interlaced images.
 
+### 3D LUT
+
+A three-dimensional color lookup table can be folded into the same filter
+graph with `zimg_filter_graph_build_with_lut`. It accepts the same source
+format, destination format, and builder parameters as
+`zimg_filter_graph_build`, plus a `zimg_lut3d` descriptor. The lookup is
+inserted after spatial resampling and conversion to linear RGB in the target
+primaries, and before the target transfer characteristics, YUV matrix
+coefficients, chroma subsampling, and bit depth quantization. The table is
+therefore evaluated on linear RGB relative to the target white point, and it
+runs even when the source and destination formats are identical.
+
+The table holds `size` cubed RGB triplets in R-fastest order (`R` changes
+fastest, then `G`, then `B`), and `data_count` is the number of floats. `size`
+must be between 2 and 65. Each channel has an independent input domain given
+by `domain_min` and `domain_max`; values outside the domain are clamped to the
+boundary, and values inside are interpolated with tetrahedral interpolation.
+Table values may lie outside the range `[0, 1]`; they are not clipped for
+floating-point output. The graph takes a private snapshot of the table, so the
+caller may modify or free the data immediately after building the graph.
+
+Both formats must specify color primaries and transfer characteristics, and a
+greyscale destination is not supported. Alpha is handled with the usual
+premultiplied-alpha rules; the lookup always operates on unpremultiplied color,
+and color under fully transparent pixels is forced to zero after the lookup.
+
+In C:
+
+```c
+zimg_image_format src, dst;
+zimg_image_format_default(&src, ZIMG_API_VERSION);
+zimg_image_format_default(&dst, ZIMG_API_VERSION);
+
+/* ... fill in width, height, pixel types, colorspace ... */
+src.color_family = ZIMG_COLOR_RGB;
+src.matrix_coefficients = ZIMG_MATRIX_RGB;
+src.transfer_characteristics = ZIMG_TRANSFER_IEC_61966_2_1;
+src.color_primaries = ZIMG_PRIMARIES_BT709;
+
+/* A 2x2x2 identity table over [0, 1]. */
+static const float table[2 * 2 * 2 * 3] = {
+	/* b=0, g=0: r=0, r=1 */ 0, 0, 0, 1, 0, 0,
+	/* b=0, g=1: r=0, r=1 */ 0, 1, 0, 1, 1, 0,
+	/* b=1, g=0: r=0, r=1 */ 0, 0, 1, 1, 0, 1,
+	/* b=1, g=1: r=0, r=1 */ 0, 1, 1, 1, 1, 1,
+};
+
+zimg_lut3d lut = { 0 };
+lut.size = 2;
+lut.data = table;
+lut.data_count = 2 * 2 * 2 * 3;
+lut.domain_min[0] = lut.domain_min[1] = lut.domain_min[2] = 0.0f;
+lut.domain_max[0] = lut.domain_max[1] = lut.domain_max[2] = 1.0f;
+
+zimg_filter_graph *graph = zimg_filter_graph_build_with_lut(&src, &dst, NULL, &lut);
+```
+
+In C++:
+
+```cpp
+zimgxx::zimage_format src_format;
+zimgxx::zimage_format dst_format;
+/* ... fill in dimensions and formats ... */
+
+std::vector<float> data(/* size^3 * 3 */);
+zimg_lut3d lut = {};
+lut.size = 33;
+lut.data = data.data();
+lut.data_count = data.size();
+for (int c = 0; c < 3; ++c) {
+	lut.domain_min[c] = 0.0f;
+	lut.domain_max[c] = 1.0f;
+}
+
+zimg_filter_graph *graph = zimg_filter_graph_build_with_lut(
+	&src_format, &dst_format, nullptr, &lut);
+```
+
 Performance
 -----
 "z" is optimized for Intel(R) Architecture and features faster processing times

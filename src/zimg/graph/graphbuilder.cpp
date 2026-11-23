@@ -16,6 +16,7 @@
 #include "filtergraph.h"
 #include "graphbuilder.h"
 #include "graphengine_except.h"
+#include "lut_filter.h"
 #include "simple_filters.h"
 
 
@@ -454,6 +455,56 @@ private:
 			result.alpha_from_luma();
 
 		return result;
+	}
+
+	// Intermediate state in which the LUT is evaluated: float 444 RGB, linear
+	// transfer, target primaries, unpremultiplied color.
+	internal_state make_lut_stage(const internal_state &target, bool has_alpha)
+	{
+		internal_state result = target;
+		result.color = ColorFamily::RGB;
+		result.colorspace = {
+			colorspace::MatrixCoefficients::RGB,
+			colorspace::TransferCharacteristics::LINEAR,
+			target.colorspace.primaries
+		};
+		result.alpha = has_alpha ? AlphaType::STRAIGHT : AlphaType::NONE;
+
+		result.planes[PLANE_Y].format = PixelFormat{ PixelType::FLOAT };
+		result.chroma_from_luma_444();
+		if (has_alpha)
+			result.alpha_from_luma();
+
+		return result;
+	}
+
+	void apply_lut(const Lut3D &lut, FilterObserver &observer)
+	{
+		iassert(m_state.color == ColorFamily::RGB);
+		check_is_444_float(false);
+
+		observer.lut3d();
+
+		auto filter = std::make_unique<Lut3dFilter>(
+			m_state.planes[PLANE_Y].width, m_state.planes[PLANE_Y].height, lut);
+		graphengine::node_id id = m_graph.add_transform(m_graph.save_filter(std::move(filter)), m_ids.data());
+		m_ids[PLANE_Y] = { id, 0 };
+		m_ids[PLANE_U] = { id, 1 };
+		m_ids[PLANE_V] = { id, 2 };
+	}
+
+	void zero_alpha(FilterObserver &observer)
+	{
+		iassert(m_state.has_alpha());
+		check_is_444_float(true);
+
+		auto filter = std::make_unique<AlphaZeroFilter>(
+			m_state.planes[PLANE_Y].width, m_state.planes[PLANE_Y].height);
+		for (unsigned p = 0; p < 3; ++p) {
+			graphengine::node_dep_desc deps[2] = { m_ids[p], m_ids[PLANE_A] };
+			m_ids[p] = { m_graph.add_transform(filter.get(), deps), 0 };
+		}
+		m_graph.save_filter(std::move(filter));
 	}
 
 	template <class Func>
@@ -1019,7 +1070,7 @@ private:
 		iassert(!m_state.has_chroma() || m_state.planes[PLANE_V] == target.planes[PLANE_V]);
 	}
 
-	void connect_internal(const internal_state &target, const params &params, FilterObserver &observer)
+	void connect_internal_plain(const internal_state &target, const params &params, FilterObserver &observer)
 	{
 		if (needs_premul(target)) {
 			internal_state::plane orig_alpha_plane = m_state.planes[PLANE_A];
@@ -1071,6 +1122,76 @@ private:
 		if (m_state != target)
 			error::throw_<error::InternalError>("failed to connect graph");
 	}
+	void connect_internal_lut(const internal_state &target, const params &params, const Lut3D &lut, FilterObserver &observer)
+	{
+		if (target.color == ColorFamily::GREY)
+			error::throw_<error::UnsupportedOperation>("3D LUT output to greyscale is not supported");
+
+		bool has_alpha = m_state.has_alpha();
+		internal_state lut_stage = make_lut_stage(target, has_alpha);
+
+		// Spatial scaling follows the existing premultiplied alpha rules. If a
+		// resize or colorspace conversion is required before the lookup, convert
+		// a straight-alpha source to premultiplied form first.
+		if (m_state.alpha == AlphaType::STRAIGHT && (needs_colorspace(lut_stage) || needs_interpolation(lut_stage))) {
+			internal_state tmp = make_float_444_state(m_state, true);
+			connect_color_channels(tmp, params, observer);
+			connect_plane(tmp, params, observer, ConnectMode::ALPHA, false);
+
+			premultiply(observer);
+		}
+
+		connect_color_channels(lut_stage, params, observer);
+		if (has_alpha)
+			connect_plane(lut_stage, params, observer, ConnectMode::ALPHA, false);
+
+		// The LUT always sees unpremultiplied color, and the alpha channel
+		// itself never passes through the lookup.
+		if (m_state.alpha == AlphaType::PREMULTIPLIED)
+			unpremultiply(observer);
+
+		apply_lut(lut, observer);
+
+		// Recombine according to the target alpha type. As with the existing
+		// premultiplied-alpha rules, a straight-alpha source is premultiplied
+		// when the target is not straight.
+		if (m_state.has_alpha() && target.alpha != AlphaType::STRAIGHT &&
+		    m_state.alpha != AlphaType::PREMULTIPLIED)
+		{
+			premultiply(observer);
+		}
+
+		// Suppress color under fully transparent pixels so that a non-zero black
+		// point in the LUT can not leak into the output.
+		if (m_state.has_alpha())
+			zero_alpha(observer);
+
+		connect_color_channels(target, params, observer);
+
+		if (m_state.has_alpha() && !target.has_alpha()) {
+			observer.discard_alpha();
+			drop_plane(PLANE_A);
+			m_state.alpha = AlphaType::NONE;
+		}
+		if (m_state.has_alpha()) {
+			iassert(m_state.alpha == target.alpha);
+			connect_plane(target, params, observer, ConnectMode::ALPHA, true);
+		}
+		if (!m_state.has_alpha() && target.has_alpha())
+			add_opaque_alpha(target.alpha, observer);
+
+		if (m_state != target)
+			error::throw_<error::InternalError>("failed to connect graph");
+	}
+
+	void connect_internal(const internal_state &target, const params &params, FilterObserver &observer)
+	{
+		if (params.lut)
+			connect_internal_lut(target, params, *params.lut, observer);
+		else
+			connect_internal_plain(target, params, observer);
+	}
+
 public:
 	impl() :
 		m_ids(),
@@ -1193,7 +1314,8 @@ GraphBuilder::params::params() noexcept :
 	peak_luminance{ NAN },
 	approximate_gamma{},
 	scene_referred{},
-	cpu{ CPUClass::AUTO }
+	cpu{ CPUClass::AUTO },
+	lut{}
 {
 	static const resize::BicubicFilter bicubic;
 	static const resize::BilinearFilter bilinear;

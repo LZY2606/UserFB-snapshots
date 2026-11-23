@@ -36,6 +36,10 @@ namespace zimg::unresize {
 struct UnresizeConversion;
 }
 
+namespace zimg::graph {
+struct Lut3D;
+}
+
 
 namespace zimg::graph {
 
@@ -61,6 +65,7 @@ public:
 	virtual void depth(const depth::DepthConversion &conv, int plane) {}
 	virtual void resize(const resize::ResizeConversion &conv, int plane) {}
 	virtual void unresize(const unresize::UnresizeConversion &conv, int plane) {}
+	virtual void lut3d() {}
 };
 
 /**
@@ -141,6 +146,9 @@ public:
 		bool scene_referred;
 		bool chromatic_adaptation;
 		CPUClass cpu;
+
+		// Optional 3D LUT applied to linear RGB in the target primaries.
+		const Lut3D *lut;
 
 		params() noexcept;
 	};

@@ -13,6 +13,7 @@ EXPORTS
 	zimg_image_format_default
 	zimg_graph_builder_params_default
 	zimg_filter_graph_build
+	zimg_filter_graph_build_with_lut
 	zimg_subgraph_free
 	zimg_subgraph_get_endpoint_ids
 	zimg_subgraph_get_subgraph

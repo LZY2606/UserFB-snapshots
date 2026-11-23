@@ -14,6 +14,7 @@
 #include "common/zassert.h"
 #include "graph/filtergraph.h"
 #include "graph/graphbuilder.h"
+#include "graph/lut_filter.h"
 #include "colorspace/colorspace.h"
 #include "depth/depth.h"
 #include "resize/filter.h"
@@ -401,7 +402,7 @@ void import_graph_state_common(const zimg_image_format &src, zimg::graph::GraphB
 		out->alpha = translate_alpha(src.alpha);
 }
 
-std::pair<zimg::graph::GraphBuilder::state, zimg::graph::GraphBuilder::state> import_graph_state(const zimg_image_format &src, const zimg_image_format &dst)
+std::pair<zimg::graph::GraphBuilder::state, zimg::graph::GraphBuilder::state> import_graph_state(const zimg_image_format &src, const zimg_image_format &dst, bool explicit_colorspace = false)
 {
 	API_VERSION_ASSERT(src.version);
 	API_VERSION_ASSERT(dst.version);
@@ -415,7 +416,11 @@ std::pair<zimg::graph::GraphBuilder::state, zimg::graph::GraphBuilder::state> im
 
 	if (src.version >= API_VERSION_2_0) {
 		// Accept unenumerated colorspaces if they form the basic no-op case.
-		if (src.color_family == dst.color_family &&
+		// When an explicit colorspace is required (e.g. the LUT path), the
+		// colorspace is always interpreted so that identical source and
+		// destination formats are still linearized for the lookup.
+		if (!explicit_colorspace &&
+		    src.color_family == dst.color_family &&
 		    src.matrix_coefficients == dst.matrix_coefficients &&
 		    src.transfer_characteristics == dst.transfer_characteristics &&
 		    src.color_primaries == dst.color_primaries)
@@ -430,6 +435,22 @@ std::pair<zimg::graph::GraphBuilder::state, zimg::graph::GraphBuilder::state> im
 			dst_state.colorspace.matrix = translate_matrix(dst.matrix_coefficients);
 			dst_state.colorspace.transfer = translate_transfer(dst.transfer_characteristics);
 			dst_state.colorspace.primaries = translate_primaries(dst.color_primaries);
+		}
+	}
+
+	if (explicit_colorspace) {
+		// In the explicit-colorspace path, an RGB image with unspecified matrix
+		// coefficients is unambiguously RGB. This avoids a spurious conversion
+		// failure when the LUT requires a well-defined working space.
+		if (src_state.color == zimg::graph::GraphBuilder::ColorFamily::RGB &&
+		    src_state.colorspace.matrix == zimg::colorspace::MatrixCoefficients::UNSPECIFIED)
+		{
+			src_state.colorspace.matrix = zimg::colorspace::MatrixCoefficients::RGB;
+		}
+		if (dst_state.color == zimg::graph::GraphBuilder::ColorFamily::RGB &&
+		    dst_state.colorspace.matrix == zimg::colorspace::MatrixCoefficients::UNSPECIFIED)
+		{
+			dst_state.colorspace.matrix = zimg::colorspace::MatrixCoefficients::RGB;
 		}
 	}
 
@@ -462,6 +483,22 @@ zimg::graph::GraphBuilder::params import_graph_params(const zimg_graph_builder_p
 	}
 
 	return params;
+}
+
+void validate_lut_formats(const zimg_image_format &src, const zimg_image_format &dst)
+{
+	auto has_colorspace = [](const zimg_image_format &format) {
+		return format.color_primaries != ZIMG_PRIMARIES_UNSPECIFIED &&
+		       format.transfer_characteristics != ZIMG_TRANSFER_UNSPECIFIED;
+	};
+
+	// Do not guess the meaning of unspecified colorspaces.
+	if (!has_colorspace(src))
+		zimg::error::throw_<zimg::error::IllegalArgument>("source format must specify color primaries and transfer characteristics");
+	if (!has_colorspace(dst))
+		zimg::error::throw_<zimg::error::IllegalArgument>("destination format must specify color primaries and transfer characteristics");
+	if (dst.color_family == ZIMG_COLOR_GREY)
+		zimg::error::throw_<zimg::error::UnsupportedOperation>("3D LUT output to greyscale is not supported");
 }
 
 } // namespace
@@ -660,27 +697,56 @@ void zimg_graph_builder_params_default(zimg_graph_builder_params *ptr, unsigned 
 	}
 }
 
+zimg_filter_graph *build_graph_impl(const zimg_image_format *src_format, const zimg_image_format *dst_format,
+                                    const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+{
+	zimg::graph::GraphBuilder::state src_state;
+	zimg::graph::GraphBuilder::state dst_state;
+	zimg::graph::GraphBuilder::params graph_params;
+	zimg::graph::Lut3D lut_snapshot{};
+
+	std::unique_ptr<zimg::resize::Filter> filters[2];
+
+	if (lut) {
+		validate_lut_formats(*src_format, *dst_format);
+		lut_snapshot = zimg::graph::parse_lut3d(lut->size, lut->data, lut->data_count, lut->domain_min, lut->domain_max);
+	}
+
+	std::tie(src_state, dst_state) = import_graph_state(*src_format, *dst_format, lut != nullptr);
+	if (params)
+		graph_params = import_graph_params(*params, filters);
+	if (lut)
+		graph_params.lut = &lut_snapshot;
+
+	zimg::graph::GraphBuilder builder;
+	return builder.set_source(src_state)
+		.connect(dst_state, params || lut ? &graph_params : nullptr)
+		.build_graph()
+		.release();
+}
+
 zimg_filter_graph *zimg_filter_graph_build(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params)
 {
 	zassert_d(src_format, "null pointer");
 	zassert_d(dst_format, "null pointer");
 
 	try {
-		zimg::graph::GraphBuilder::state src_state;
-		zimg::graph::GraphBuilder::state dst_state;
-		zimg::graph::GraphBuilder::params graph_params;
+		return build_graph_impl(src_format, dst_format, params, nullptr);
+	} catch (...) {
+		handle_exception(std::current_exception());
+		return nullptr;
+	}
+}
 
-		std::unique_ptr<zimg::resize::Filter> filters[2];
+zimg_filter_graph *zimg_filter_graph_build_with_lut(const zimg_image_format *src_format, const zimg_image_format *dst_format,
+                                                    const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+{
+	zassert_d(src_format, "null pointer");
+	zassert_d(dst_format, "null pointer");
+	zassert_d(lut, "null pointer");
 
-		std::tie(src_state, dst_state) = import_graph_state(*src_format, *dst_format);
-		if (params)
-			graph_params = import_graph_params(*params, filters);
-
-		zimg::graph::GraphBuilder builder;
-		return builder.set_source(src_state)
-			.connect(dst_state, params ? &graph_params : nullptr)
-			.build_graph()
-			.release();
+	try {
+		return build_graph_impl(src_format, dst_format, params, lut);
 	} catch (...) {
 		handle_exception(std::current_exception());
 		return nullptr;
