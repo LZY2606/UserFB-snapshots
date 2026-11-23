@@ -3,3 +3,4 @@ qemu-prof
 *.gcda
 *.gcno
 *.gcov
+.task-build/

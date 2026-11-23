@@ -311,6 +311,42 @@ void H264E_set_vbv_state(
     int vbv_fullness_bytes              ///< New VBV fulness, -1 = no change
 );
 
+/**
+*   Optional macroblock statistics hook (used by the two-pass module).
+*
+*   When the hook below is installed on a persistent encoder object, the
+*   production bit-writing path reports, for every macroblock it encodes,
+*   the QP actually used for that macroblock and the number of VCL syntax
+*   bits the macroblock contributed (excluding NAL/slice headers, the
+*   rbsp stop bit and any emulation-prevention bytes).
+*
+*   Deferred mb_skip_run values are attributed to the last macroblock of
+*   the run (and to that macroblock's QP); a run still pending at the end
+*   of a slice is settled on the last macroblock of that slice.
+*
+*   The callback receives its caller-supplied token.  Installing a hook does
+*   not change the coded bitstream in any way.
+*/
+typedef struct H264E_mb_stats_hook_tag
+{
+    // Called once per encoded macroblock, in coding order.
+    //   mb_index  - zero based macroblock number within the frame
+    //   qp        - QP used to encode this macroblock
+    //   bits      - VCL syntax bits attributed to this macroblock
+    void (*on_mb)(void *token, int mb_index, int qp, unsigned bits);
+
+    // Called once after the whole access unit has been written.
+    //   au_bytes  - complete Annex-B byte count returned by H264E_encode
+    void (*on_au)(void *token, int au_bytes);
+
+    void *token;
+} H264E_mb_stats_hook_t;
+
+void H264E_set_mb_stats_hook(
+    H264E_persist_t *enc,               ///< Encoder object (NULL clears)
+    const H264E_mb_stats_hook_t *hook   ///< Hook, or NULL to remove
+);
+
 #ifdef __cplusplus
 }
 #endif
@@ -668,6 +704,12 @@ typedef struct H264E_persist_tag
 
         point_t mv_skip_pred;       // Skip MV predictor
     } mb;
+
+    // Optional per-macroblock measurement hook (see H264E_set_mb_stats_hook)
+    H264E_mb_stats_hook_t mb_stats;
+    int mb_stats_skip_mb;           // last skipped MB of a pending run, -1 if none
+    int mb_stats_skip_qp;           // QP of that skipped MB
+    int mb_stats_skip_count;        // length of the pending skip run
 
     H264E_io_yuv_t ref;             // Current reference picture
     H264E_io_yuv_t dec;             // Reconstructed current macroblock
@@ -8983,6 +9025,8 @@ static void encode_slice_header(h264e_enc_t *enc, int frame_type, int long_term_
     // slice reset
     enc->slice.start_mb_num = enc->mb.num;
     enc->mb.skip_run = 0;
+    enc->mb_stats_skip_mb = -1;     // a run never crosses a slice boundary
+    enc->mb_stats_skip_count = 0;
     memset(enc->i4x4mode, -1, (enc->frame.nmbx + 1)*4);
     memset(enc->nnz, NNZ_NA, (enc->frame.nmbx + 1)*8);    // DF ignore slice borders, but uses it's own nnz's
 
@@ -9177,6 +9221,7 @@ static void encode_slice_header(h264e_enc_t *enc, int frame_type, int long_term_
 static void mb_write(h264e_enc_t *enc, int enc_type, int base_mode)
 {
     int i, uv, mb_type, cbpc, cbpl, cbp;
+    unsigned mb_stats_bits = h264e_bs_get_pos_bits(enc->bs);
     scratch_t *qv = enc->scratch;
     //int base_mode = enc_type > 0 ? 1 : 0;
     int mb_type_svc = base_mode ? -2 : enc->mb.type;
@@ -9207,6 +9252,14 @@ l_skip:
 
         // Increment run count
         enc->mb.skip_run++;
+
+        // Optional statistics: remember who owns the deferred skip-run code
+        if (enc->mb_stats.on_mb)
+        {
+            enc->mb_stats_skip_mb = enc->mb.num;
+            enc->mb_stats_skip_qp = enc->rc.qp;
+            enc->mb_stats_skip_count = enc->mb.skip_run;
+        }
 
         // Update predictors
         *(uint32_t*)(nnz_top + 4) = *(uint32_t*)(nnz_left + 4) = 0; // set chroma NNZ to 0
@@ -9510,6 +9563,31 @@ l_skip:
             left[i] = mb[n - 1 + i*enc->dec.stride[uv]];
             top[i] = mb[(n - 1)*enc->dec.stride[uv] + i];
         }
+    }
+
+    // Optional statistics: report the bits this macroblock submitted, and
+    // settle any deferred skip-run on the macroblock that owns it.
+    if (enc->mb_stats.on_mb)
+    {
+        unsigned bits = h264e_bs_get_pos_bits(enc->bs) - mb_stats_bits;
+        if (enc->mb_stats_skip_count > 0 && enc->mb_stats_skip_mb >= 0 &&
+            enc->mb_stats_skip_mb < enc->mb.num)
+        {
+            // A run of skipped MBs was flushed by this coded MB: the
+            // mb_skip_run code belongs to the last skipped MB of the run.
+            unsigned run_bits = (unsigned)bitsize_ue(
+                enc->mb_stats_skip_count);
+            if (run_bits > bits)
+            {
+                run_bits = bits;
+            }
+            enc->mb_stats.on_mb(enc->mb_stats.token, enc->mb_stats_skip_mb,
+                enc->mb_stats_skip_qp, run_bits);
+            bits -= run_bits;
+            enc->mb_stats_skip_count = 0;
+            enc->mb_stats_skip_mb = -1;
+        }
+        enc->mb_stats.on_mb(enc->mb_stats.token, enc->mb.num, enc->rc.qp, bits);
     }
 }
 
@@ -11249,7 +11327,19 @@ static void encode_slice(h264e_enc_t *enc, int frame_type, int long_term_idx_use
 
     if (enc->mb.skip_run)
     {
+        unsigned pos_before = h264e_bs_get_pos_bits(enc->bs);
         UE(enc->mb.skip_run);
+
+        // Optional statistics: a run still open at the end of the slice is
+        // settled on the last skipped macroblock of that run.
+        if (enc->mb_stats.on_mb && enc->mb_stats_skip_mb >= 0)
+        {
+            unsigned bits = h264e_bs_get_pos_bits(enc->bs) - pos_before;
+            enc->mb_stats.on_mb(enc->mb_stats.token, enc->mb_stats_skip_mb,
+                enc->mb_stats_skip_qp, bits);
+            enc->mb_stats_skip_mb = -1;
+            enc->mb_stats_skip_count = 0;
+        }
     }
 
     nal_end(enc);
@@ -11499,6 +11589,8 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
 #endif
 
     enc->out_pos = 0;   // reset output bitbuffer position
+    enc->mb_stats_skip_mb = -1;
+    enc->mb_stats_skip_count = 0;
 
     if (opt)
     {
@@ -11659,6 +11751,10 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
 
     *sizeof_coded_data = enc->out_pos;
     *coded_data = enc->out;
+    if (enc->mb_stats.on_au)
+    {
+        enc->mb_stats.on_au(enc->mb_stats.token, enc->out_pos);
+    }
     return H264E_STATUS_SUCCESS;
 }
 
@@ -11711,6 +11807,26 @@ void H264E_set_vbv_state(
             enc->rc.vbv_bits = vbv_fullness_bytes*8;
             enc->rc.vbv_target_level = enc->rc.vbv_bits;
         }
+    }
+}
+
+/**
+*   Install or remove the optional macroblock statistics hook.
+*   See header file for details.
+*/
+void H264E_set_mb_stats_hook(H264E_persist_t *enc, const H264E_mb_stats_hook_t *hook)
+{
+    if (!enc)
+    {
+        return;
+    }
+    if (hook)
+    {
+        enc->mb_stats = *hook;
+    }
+    else
+    {
+        memset(&enc->mb_stats, 0, sizeof(enc->mb_stats));
     }
 }
 #endif

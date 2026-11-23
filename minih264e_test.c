@@ -6,6 +6,7 @@
 #define MINIH264_IMPLEMENTATION
 //#define MINIH264_ONLY_SIMD
 #include "minih264e.h"
+#include "minih264e_2pass.h"
 
 #define DEFAULT_GOP 20
 #define DEFAULT_QP 33
@@ -114,7 +115,12 @@ struct
 {
     const char *input_file;
     const char *output_file;
+    const char *pass1_file;     // -pass1<stats>
+    const char *pass2_file;     // -pass2<stats>
+    const char *target_bytes;   // -targetbytes<N>
     int gen, gop, qp, kbps, max_frames, threads, speed, denoise, stats, psnr;
+    int qp_min, qp_max;         // -qpmin / -qpmax (two-pass QP window)
+    int qp_set;                 // -qp given explicitly on the command line
 } cmdline[1];
 
 static int str_equal(const char *pattern, char **p)
@@ -135,6 +141,8 @@ static int read_cmdline_options(int argc, char *argv[])
     memset(cmdline, 0, sizeof(*cmdline));
     cmdline->gop = DEFAULT_GOP;
     cmdline->qp = DEFAULT_QP;
+    cmdline->qp_min = 10;
+    cmdline->qp_max = 51;
     cmdline->max_frames = DEFAULT_MAX_FRAMES;
     cmdline->kbps = 0;
     //cmdline->kbps = 2048;
@@ -154,6 +162,13 @@ static int read_cmdline_options(int argc, char *argv[])
             } else if (str_equal(("qp"), &p))
             {
                 cmdline->qp = atoi(p);
+                cmdline->qp_set = 1;
+            } else if (str_equal(("qpmin"), &p))
+            {
+                cmdline->qp_min = atoi(p);
+            } else if (str_equal(("qpmax"), &p))
+            {
+                cmdline->qp_max = atoi(p);
             } else if (str_equal(("kbps"), &p))
             {
                 cmdline->kbps = atoi(p);
@@ -175,6 +190,30 @@ static int read_cmdline_options(int argc, char *argv[])
             } else if (str_equal(("psnr"), &p))
             {
                 cmdline->psnr = 1;
+            } else if (str_equal(("pass1"), &p))
+            {
+                if (!*p)
+                {
+                    printf("ERROR: -pass1 requires a statistics path\n");
+                    return 0;
+                }
+                cmdline->pass1_file = p;
+            } else if (str_equal(("pass2"), &p))
+            {
+                if (!*p)
+                {
+                    printf("ERROR: -pass2 requires a statistics path\n");
+                    return 0;
+                }
+                cmdline->pass2_file = p;
+            } else if (str_equal(("targetbytes"), &p))
+            {
+                if (!*p)
+                {
+                    printf("ERROR: -targetbytes requires a value\n");
+                    return 0;
+                }
+                cmdline->target_bytes = p;
             } else
             {
                 printf("ERROR: Unknown option %s\n", p - 1);
@@ -208,7 +247,15 @@ static int read_cmdline_options(int argc, char *argv[])
                "    -speed<n>       - speed [0..10], 0 means best quality\n"
                "    -denoise        - use temporal noise supression\n"
                "    -stats          - print frame statistics\n"
-               "    -psnr           - print psnr statistics\n");
+               "    -psnr           - print psnr statistics\n"
+               "    -pass1<stats>   - two-pass pass 1: encode and write mb statistics\n"
+               "    -pass2<stats>   - two-pass pass 2: plan per-frame QP from statistics\n"
+               "    -targetbytes<n> - whole clip byte target for -pass2 (ignored by -pass1)\n"
+               "    -qpmin<n>       - pass-2 lower QP bound [10..51], default 10\n"
+               "    -qpmax<n>       - pass-2 upper QP bound [10..51], default 51\n"
+               "\n"
+               "Two-pass mode requires a single spatial layer, single thread, no\n"
+               "long-term reference, no denoise, and no VBV stuffing/dropping.\n");
         return 0;
     }
     return 1;
@@ -426,6 +473,29 @@ int main(int argc, char *argv[])
 
     if (!read_cmdline_options(argc, argv))
         return 1;
+
+    if (cmdline->pass1_file && cmdline->pass2_file)
+    {
+        printf("ERROR: -pass1 and -pass2 are separate processes\n");
+        return 1;
+    }
+    if (cmdline->pass2_file && !cmdline->target_bytes)
+    {
+        printf("ERROR: -pass2 requires -targetbytes<N>\n");
+        return 1;
+    }
+    if (cmdline->target_bytes && !cmdline->pass1_file && !cmdline->pass2_file)
+    {
+        printf("ERROR: -targetbytes is only valid with -pass1 or -pass2\n");
+        return 1;
+    }
+    if ((cmdline->pass1_file || cmdline->pass2_file) &&
+        (cmdline->threads || cmdline->denoise))
+    {
+        printf("ERROR: two-pass mode does not support -threads or -denoise\n");
+        return 1;
+    }
+
     fnin  = cmdline->input_file;
     fnout = cmdline->output_file;
 
@@ -505,8 +575,61 @@ int main(int argc, char *argv[])
         int sizeof_persist = 0, sizeof_scratch = 0, error;
         H264E_persist_t *enc = NULL;
         H264E_scratch_t *scratch = NULL;
+        H264E_2pass_writer_t *p1writer = NULL;
+        H264E_2pass_file_t *p2file = NULL;
+        H264E_2pass_planner_t *planner = NULL;
+        double target_bytes = 0.0;
         if (cmdline->psnr)
             psnr_init();
+
+        if (cmdline->pass2_file)
+        {
+            error = H264E_2pass_file_open(cmdline->pass2_file, &p2file);
+            if (error)
+            {
+                printf("ERROR: pass2 stats %s: %s\n", cmdline->pass2_file,
+                    H264E_2pass_strerror(error));
+                return 1;
+            }
+            target_bytes = strtod(cmdline->target_bytes, NULL);
+            if (!(target_bytes > 0.0))
+            {
+                printf("ERROR: -targetbytes must be positive\n");
+                return 1;
+            }
+            if (H264E_2pass_file_width(p2file) != g_w ||
+                H264E_2pass_file_height(p2file) != g_h ||
+                H264E_2pass_file_gop(p2file) != cmdline->gop)
+            {
+                printf("ERROR: pass2 stats do not match this clip "
+                       "(size %dx%d gop %d)\n",
+                       H264E_2pass_file_width(p2file),
+                       H264E_2pass_file_height(p2file),
+                       H264E_2pass_file_gop(p2file));
+                return 1;
+            }
+            error = H264E_2pass_planner_open(&planner,
+                H264E_2pass_file_record(p2file, 0),
+                H264E_2pass_file_frames(p2file), target_bytes,
+                cmdline->qp_set ? cmdline->qp : cmdline->qp_min,
+                cmdline->qp_set ? cmdline->qp : cmdline->qp_max);
+            if (error)
+            {
+                printf("ERROR: planner: %s\n", H264E_2pass_strerror(error));
+                return 1;
+            }
+        }
+        if (cmdline->pass1_file)
+        {
+            error = H264E_2pass_writer_open(&p1writer, cmdline->pass1_file,
+                g_w, g_h, cmdline->gop);
+            if (error)
+            {
+                printf("ERROR: pass1 stats %s: %s\n", cmdline->pass1_file,
+                    H264E_2pass_strerror(error));
+                return 1;
+            }
+        }
 
         error = H264E_sizeof(&create_param, &sizeof_persist, &sizeof_scratch);
         if (error)
@@ -518,6 +641,13 @@ int main(int argc, char *argv[])
         enc     = (H264E_persist_t *)ALIGNED_ALLOC(64, sizeof_persist);
         scratch = (H264E_scratch_t *)ALIGNED_ALLOC(64, sizeof_scratch);
         error = H264E_init(enc, &create_param);
+
+        if (p1writer)
+        {
+            H264E_mb_stats_hook_t hook;
+            H264E_2pass_writer_hook(p1writer, &hook);
+            H264E_set_mb_stats_hook(enc, &hook);
+        }
 
         if (fin)
             fseek(fin, 0, SEEK_SET);
@@ -550,6 +680,54 @@ int main(int argc, char *argv[])
             } else
             {
                 run_param.qp_min = run_param.qp_max = cmdline->qp;
+            }
+
+            if (planner)
+            {
+                H264E_2pass_plan_t plan;
+                const H264E_2pass_record_t *rec;
+                int is_idr;
+
+                error = H264E_2pass_planner_next(planner, &plan);
+                if (error)
+                {
+                    printf("ERROR: pass2 frame %d: %s (statistics end after "
+                           "%d frames)\n", i, H264E_2pass_strerror(error),
+                           H264E_2pass_planner_frames(planner));
+                    return 1;
+                }
+                // Before encoding: verify this frame is the one the record
+                // describes, with the same size and the same I/P class.
+                rec = H264E_2pass_file_record(p2file, plan.record_index);
+                if (plan.record_index != i || !rec ||
+                    rec->width != g_w || rec->height != g_h ||
+                    rec->fnv1a != H264E_2pass_fnv1a_i420(&yuv, g_w, g_h))
+                {
+                    printf("ERROR: pass2 frame %d does not match record "
+                           "(identity/size)\n", i);
+                    return 1;
+                }
+                is_idr = !i || (cmdline->gop && !(i % cmdline->gop));
+                if (rec->is_idr != is_idr)
+                {
+                    printf("ERROR: pass2 frame %d type mismatch: record %d, "
+                           "expected %d\n", i, rec->is_idr, is_idr);
+                    return 1;
+                }
+                // One fixed QP for the whole frame drives mode selection,
+                // quantisation, reconstruction and deblocking in pass 2.
+                run_param.qp_min = run_param.qp_max = plan.q;
+                run_param.desired_frame_bytes = 0;
+            }
+            if (p1writer)
+            {
+                error = H264E_2pass_writer_begin(p1writer, i, &yuv);
+                if (error)
+                {
+                    printf("ERROR: pass1 record: %s\n",
+                        H264E_2pass_strerror(error));
+                    return 1;
+                }
             }
 
 #if ENABLE_TEMPORAL_SCALABILITY
@@ -588,6 +766,43 @@ int main(int argc, char *argv[])
             error = H264E_encode(enc, scratch, &run_param, &yuv, &coded_data, &sizeof_coded_data);
             assert(!error);
 
+            if (p1writer)
+            {
+                H264E_2pass_frame_stats_t stats;
+                error = H264E_2pass_writer_end(p1writer, sizeof_coded_data,
+                    H264E_2pass_au_is_idr(coded_data, sizeof_coded_data) == 1,
+                    &stats);
+                if (error)
+                {
+                    printf("ERROR: pass1 record: %s\n",
+                        H264E_2pass_strerror(error));
+                    return 1;
+                }
+                if (cmdline->stats)
+                    printf("pass1 frame=%d bytes=%d c=%.3f h=%.3f idr=%d\n",
+                        stats.input_index, sizeof_coded_data,
+                        stats.c, stats.h, stats.is_idr);
+            }
+            if (planner)
+            {
+                H264E_2pass_diag_t diag;
+                error = H264E_2pass_planner_commit(planner,
+                    sizeof_coded_data);
+                if (error || H264E_2pass_planner_diag(planner, &diag))
+                {
+                    printf("ERROR: pass2 commit: %s\n",
+                        H264E_2pass_strerror(error));
+                    return 1;
+                }
+                if (cmdline->stats)
+                    printf("pass2 frame=%d q=%d pred=%.0f actual=%ld "
+                           "left=%.0f a_i=%.4f a_p=%.4f sat=%d%s\n",
+                        diag.record_index, diag.q,
+                        diag.frame_predicted_bits, diag.actual_bits,
+                        diag.remaining_bytes, diag.a_i, diag.a_p,
+                        diag.saturated, diag.saturated ? " SATURATED" : "");
+            }
+
             if (i)
             {
                 sum_bytes += sizeof_coded_data - 4;
@@ -595,8 +810,9 @@ int main(int argc, char *argv[])
                 if (max_bytes < sizeof_coded_data - 4) max_bytes = sizeof_coded_data - 4;
             }
 
+            frames++;
             if (cmdline->stats)
-                printf("frame=%d, bytes=%d\n", frames++, sizeof_coded_data);
+                printf("frame=%d, bytes=%d\n", frames - 1, sizeof_coded_data);
 
             if (fout)
             {
@@ -613,6 +829,38 @@ int main(int argc, char *argv[])
 
         if (cmdline->psnr)
             psnr_print(psnr_get());
+
+        if (p1writer)
+        {
+            int recorded = 0;
+            error = H264E_2pass_writer_close(p1writer, &recorded);
+            if (error)
+            {
+                printf("ERROR: pass1 close: %s\n",
+                    H264E_2pass_strerror(error));
+                return 1;
+            }
+            printf("pass1 frames=%d stats=%s\n", recorded, cmdline->pass1_file);
+            H264E_2pass_writer_destroy(p1writer);
+            p1writer = NULL;
+        }
+        if (planner)
+        {
+            if (!H264E_2pass_planner_done(planner))
+            {
+                printf("ERROR: pass2 ended with %d unprocessed records\n",
+                    H264E_2pass_planner_remaining(planner));
+                return 1;
+            }
+            printf("pass2 target_bytes=%.0f\n", target_bytes);
+            H264E_2pass_planner_close(planner);
+            planner = NULL;
+            if (p2file)
+            {
+                H264E_2pass_file_close(p2file);
+                p2file = NULL;
+            }
+        }
 
         if (enc)
             free(enc);
