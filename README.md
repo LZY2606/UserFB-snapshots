@@ -180,8 +180,105 @@ The "help" display from the command-line app:
  Web:       Visit www.github.com/dbry/audio-resampler for latest version and info
 ```
 
-## Caveats
+## Clock-tracking mode
 
+Some systems have a capture device and a playback device that each run on their
+own sample clock. They do not share a crystal, so the ratio between the two
+frame rates drifts slowly. The optional clock bridge (`task_src/clock_bridge.h`)
+wraps a resampler and steers its position from paired hardware counters instead
+of from a fixed ratio, while leaving the FIR engine (startup delay, filter
+tables, coefficient interpolation and convolution order) untouched.
+
+The application reports observations of the form `(k, s, p)`: before output
+frame `k` is produced, the capture hardware had counted `s` frames and the
+playback hardware `p` frames, sampled at the same instant. Counters may start
+near 2^60; they are differenced in the integer domain before any floating-point
+math, so low bits are not lost. Observations are queued (up to a capacity
+chosen at creation) and applied before the frame they name, so they can be
+submitted ahead of time. An observation is rejected — without changing the
+queue, the window or the audio state — if `k` is in the past, the queue is full,
+or `s`/`p` are not strictly increasing with steps of at most 2^32.
+
+After each applied observation the bridge fits `s` against `p` with an ordinary
+least-squares line (intercept included) over at most the last eight pairs, and
+clamps the slope to `q0 * [0.998, 1.002]`, where `q0 = Fs / Fd`. That target
+`T` drives a one-pole servo once per generated output frame: `q` moves toward
+`T` by at most `q0 * 1e-6` per frame (with a `/64` gain), and the nominal source
+position advances by the updated `q`. The position is kept as an integer part
+plus a fraction, so large counters are never accumulated in a single double.
+Only frames that are actually generated advance the servo and consume events.
+
+Requirements and limits for this mode: `PATH_WIDTH=64`, 1 to 8 channels,
+integer nominal rates from 8000 to 192000 Hz, and `Fs / Fd` in `[0.25, 4]`.
+Threads and endpoint extrapolation are not required for it; the ordinary 32-bit
+and 64-bit conversions are unchanged. `CLOCK_BRIDGE_MAX_EVENTS` (64) bounds the
+pending queue, and the fit window is at most 8 pairs.
+
+### Example (no hardware required)
+
+```c
+#include "clock_bridge.h"
+#include <math.h>
+#include <stdio.h>
+
+#define CHANNELS 2
+#define FRAMES   4096
+
+int main (void)
+{
+    double input [CHANNELS][FRAMES];
+    artsample_t output [CHANNELS][8192];
+    const artsample_t *in [CHANNELS];
+    artsample_t *out [CHANNELS];
+    ClockBridgeInfo info;
+    ClockBridge *bridge;
+    uint64_t base = (uint64_t) 1 << 60;
+    int c, i;
+
+    for (i = 0; i < FRAMES; ++i)
+        for (c = 0; c < CHANNELS; ++c)
+            input [c][i] = 0.2 * sin (i * (0.03 + c * 0.01));
+
+    for (c = 0; c < CHANNELS; ++c) {
+        in [c] = input [c];
+        out [c] = output [c];
+    }
+
+    // 48 kHz capture into a 44.1 kHz playback device; the playback clock runs
+    // very slightly fast, expressed by the second observation
+
+    bridge = clockBridgeCreate (CHANNELS, 64, 128, 48000, 44100,
+        SUBSAMPLE_INTERPOLATE | BLACKMAN_HARRIS, 64);
+
+    if (!bridge)
+        return 1;
+
+    clockBridgeSubmit (bridge, 0, base, base);
+    clockBridgeSubmit (bridge, 1000, base + 48000 * 1100 / 1000,
+        base + 44100 * 1100 / 1000);
+
+    // submit as many input frames as are available; output space is a hard cap
+
+    clockBridgeProcess (bridge, in, FRAMES, out, 8192);
+
+    clockBridgeQuery (bridge, &info);
+    printf ("output frames: %llu  position: %llu + %.9f  q: %.12f T: %.12f window: %d\n",
+        (unsigned long long) info.frames,
+        (unsigned long long) info.position_int, info.position_frac,
+        info.q, info.target, info.window);
+
+    clockBridgeFree (bridge);
+    return 0;
+}
+```
+
+`clockBridgeProcessInterleaved()` is the single-buffer equivalent. Both share
+one frame clock, while per-channel history is independent and the caller may
+consume only part of the input. There is no EOF or flush: append zero frames
+explicitly if a tail is needed. `clockBridgeReset()` discards history, pending
+observations and the fit window and returns to `q0` with `U = 0`.
+
+## Caveats
 - The resampling engine is a single C file, with another C file for the biquad filters (now 4th-order),
 another for the decimation and one for the extrapolation. Don't expect the quality and performance of
 more advanced libraries utilizing multi-stage filters, but also don't expect much difficulty integrating

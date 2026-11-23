@@ -20,6 +20,9 @@ static double subsample_interpolate_precise (Resample *cxt, artsample_t *source,
 static double subsample_no_interpolate (Resample *cxt, artsample_t *source, double offset);
 static double subsample_interpolate (Resample *cxt, artsample_t *source, double offset);
 static unsigned long gcd (unsigned long a, unsigned long b);
+static double clock_buffer_position (ClockTrackState *t);
+static ResampleResult resampleClockProcess (Resample *cxt, const artsample_t *const *input, int numInputFrames,
+    artsample_t *const *output, int numOutputFrames, int stride);
 
 // There are now two functions to initialize a resampler context. The legacy version is for
 // arbitrary resampling operations with no fixed ratio (i.e., ASRCs), and its API is unchanged
@@ -432,6 +435,9 @@ static void postfillAllChannels (Resample *cxt);
 
 ResampleResult resampleProcess (Resample *cxt, const artsample_t *const *input, int numInputFrames, artsample_t *const *output, int numOutputFrames, double ratio)
 {
+    if (cxt->track)                         // position is owned by the clock bridge
+        return resampleClockProcess (cxt, input, numInputFrames, output, numOutputFrames, 1);
+
     if (cxt->flags & RESAMPLE_FIXED_RATIO)  // override any supplied ratio if doing fixed ratio resampling
         ratio = cxt->fixedRatio;
 
@@ -549,6 +555,9 @@ ResampleResult resampleProcess (Resample *cxt, const artsample_t *const *input, 
 
 ResampleResult resampleProcessInterleaved (Resample *cxt, const artsample_t *input, int numInputFrames, artsample_t *output, int numOutputFrames, double ratio)
 {
+    if (cxt->track)                         // position is owned by the clock bridge
+        return resampleClockProcess (cxt, &input, numInputFrames, &output, numOutputFrames, cxt->numChannels);
+
     if (cxt->flags & RESAMPLE_FIXED_RATIO)  // override any supplied ratio if doing fixed ratio resampling
         ratio = cxt->fixedRatio;
 
@@ -682,6 +691,88 @@ static void postfillAllChannels (Resample *cxt)
 
     cxt->flags |= RESAMPLER_FLUSHED;
     cxt->inputIndex += cxt->numTaps / 2;
+}
+
+// Proactively slide the history buffers during clock-tracked processing so
+// that the buffer index of the current position never runs off the end even
+// when a single interleaved block is very long.
+
+void resamplerClockEnsureRoom (Resample *cxt)
+{
+    if (cxt->inputIndex == cxt->numSamples) {
+        int drop = cxt->numSamples - cxt->numTaps, i;
+
+        for (i = 0; i < cxt->numChannels; ++i)
+            memmove (cxt->buffers [i], cxt->buffers [i] + drop, cxt->numTaps * sizeof (artsample_t));
+
+        resamplerClockSlide (cxt, drop);
+        cxt->inputIndex -= drop;
+    }
+}
+
+// Clock-tracked processing. This is separate from the legacy loop because the
+// source position is not derived from an accumulating offset in the history
+// buffer: it is the nominal position U maintained by the clock bridge, and it
+// must only advance for frames that are really produced. Both the planar and
+// interleaved entry points route here when a clock context is attached; the
+// "stride" argument is 1 for planar buffers and the channel count for a single
+// interleaved buffer.
+
+static ResampleResult resampleClockProcess (Resample *cxt, const artsample_t *const *input, int numInputFrames,
+    artsample_t *const *output, int numOutputFrames, int stride)
+{
+    int half_taps = cxt->numTaps / 2, i;
+    ResampleResult res = { 0, 0 };
+
+    while (numOutputFrames > 0) {
+        ClockTrackState *t = cxt->track;
+        double pos = clock_buffer_position (t);
+
+        // The history can still supply this frame while the fractional sample
+        // position stays at least half a tap below the newest sample written.
+
+        if (pos >= (double) cxt->inputIndex - half_taps) {
+            if (numInputFrames > 0) {
+                resamplerClockEnsureRoom (cxt);
+
+                if (stride == 1) {
+                    for (i = 0; i < cxt->numChannels; ++i)
+                        cxt->buffers [i] [cxt->inputIndex] = input [i] [res.input_used];
+                }
+                else {
+                    for (i = 0; i < cxt->numChannels; ++i)
+                        cxt->buffers [i] [cxt->inputIndex] = input [0] [res.input_used * stride + i];
+                }
+
+                cxt->inputIndex++;
+                res.input_used++;
+                numInputFrames--;
+            }
+            else
+                break;                      // no input and not enough history: produce nothing
+        }
+        else {
+            // this frame will really be generated, so apply any event due now,
+            // run the unchanged FIR at U_k, then advance the servo once
+
+            resamplerClockBeginFrame (cxt);
+
+            if (stride == 1) {
+                for (i = 0; i < cxt->numChannels; ++i)
+                    output [i] [res.output_generated] = cxt->subsample (cxt, cxt->buffers [i], pos);
+            }
+            else {
+                for (i = 0; i < cxt->numChannels; ++i)
+                    output [0] [res.output_generated * stride + i] = cxt->subsample (cxt, cxt->buffers [i], pos);
+            }
+
+            res.output_generated++;
+            numOutputFrames--;
+            resamplerClockAdvance (cxt);
+        }
+    }
+
+    return res;
 }
 
 // Extrapolate the samples received so far back into the sample buffers.
@@ -1005,6 +1096,98 @@ static unsigned long gcd (unsigned long a, unsigned long b)
     }
 
     return a;
+}
+
+// Clock-tracking support, used only when the context was linked to a clock
+// bridge (see clock_bridge.c). The FIR kernel itself is untouched: tracking
+// mode still calls cxt->subsample() with the existing filter tables, tap count
+// and interpolation order. What changes is how the sample offset is chosen, so
+// that the nominal source position U advances by "q" per output frame while
+// the update is only applied to frames that are really produced.
+//
+// U is stored as an absolute integer part plus a fraction in [0, 1); "origin"
+// is the history-buffer index that corresponds to source position zero and it
+// slides with the buffers. The buffer index handed to the FIR is therefore
+// (origin + u_int) + u_frac, where the two integers are added exactly before a
+// single conversion of the small, bounded result, so no large absolute frame
+// count is ever accumulated in or converted to a double as a whole.
+
+static void clock_carry (ClockTrackState *t)
+{
+    if (t->u_frac < 0.0) {
+        int64_t whole = (int64_t) ceil (-t->u_frac);
+
+        t->u_int -= whole;
+        t->u_frac += (double) whole;
+    }
+    else {
+        int64_t whole = (int64_t) floor (t->u_frac);
+
+        if (whole) {
+            t->u_int += whole;
+            t->u_frac -= (double) whole;
+        }
+    }
+}
+
+// Return the integer part of the nominal source position U; *frac receives the
+// fractional part in [0, 1). This is what the public query reports and is a
+// pure read: u_frac is kept normalized on every advance.
+
+uint64_t resamplerClockSourceIndex (Resample *cxt, double *frac)
+{
+    ClockTrackState *t = cxt->track;
+
+    *frac = t->u_frac;
+    return t->u_int;
+}
+
+// Buffer index of the current position, as a double suitable for subsample().
+// The integer parts are added exactly before the conversion, so only the small
+// difference between the sliding origin and U reaches the double.
+
+static double clock_buffer_position (ClockTrackState *t)
+{
+    int64_t buffer_int = t->origin + (int64_t) t->u_int;
+
+    return (double) buffer_int + t->u_frac;
+}
+
+void resamplerClockBeginFrame (Resample *cxt)
+{
+    ClockTrackState *t = cxt->track;
+    double target = t->T;               // T persists between observations
+
+    if (t->frame_begin)
+        t->frame_begin (t->user, t->frames, &target);
+
+    t->T = target;
+    t->frames++;                        // k is the frame being produced now
+}
+
+void resamplerClockAdvance (Resample *cxt)
+{
+    ClockTrackState *t = cxt->track;
+    double step = (t->T - t->q) / 64.0;
+    double limit = t->q0 * 1e-6;
+
+    if (step > limit)
+        step = limit;
+    else if (step < -limit)
+        step = -limit;
+
+    t->u_frac += t->q + step;           // U_next = U_k + q_next
+    clock_carry (t);
+
+    t->q += step;                       // q_next = q + clamped correction
+}
+
+// Called whenever the legacy sample-history buffers are slid by "drop" samples
+// so that the source-position bookkeeping tracks the buffer contents exactly.
+
+void resamplerClockSlide (Resample *cxt, int drop)
+{
+    cxt->track->origin -= drop;
 }
 
 // This is the basic convolution operation that is the core of the resampler and utilizes the

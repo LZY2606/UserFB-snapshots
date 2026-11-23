@@ -41,11 +41,32 @@ typedef struct {
     unsigned int input_used, output_generated;
 } ResampleResult;
 
+// State for the optional clock-tracking mode (used by clock_bridge.c). The
+// resampler owns the FIR and sample-history machinery and advances this state
+// once for every output frame that is actually produced. The nominal position
+// "U" is kept as an integer part plus a fractional part so that large frame
+// counts are never accumulated in a single absolute double.
+
+typedef struct {
+    double q0;          // nominal source frames per output frame (Fs / Fd)
+    double q;           // current source frames per output frame
+    double T;           // target rate from the clock estimator
+    uint64_t frames;    // cumulative output frames produced since creation/reset
+    uint64_t u_int;     // integer part of the absolute nominal source position U
+    double u_frac;      // fractional part of U, always in [0, 1)
+    int64_t origin;     // buffer index of U = 0 (includes the filter startup delay)
+    void *user;         // caller pointer passed to frame_begin()
+    void (*frame_begin)(void *user, uint64_t frame, double *target);
+} ClockTrackState;
+
 typedef struct resample {
     int numChannels, numSamples, numFilters, numTaps, inputIndex, flags;
     double *tempFilter, outputOffset, fixedRatio, lowpassRatio;
     double (*subsample)(struct resample *cxt, artsample_t *source, double offset);
     artsample_t **buffers, **filters;
+
+    // optional clock-tracking mode (see clock_bridge.c); active when track != NULL
+    ClockTrackState *track;
 
 #ifdef ENABLE_THREADS
     Workers *workers;
@@ -76,6 +97,16 @@ int resampleGetNumFilters (Resample *cxt);
 int resampleInterpolationUsed (Resample *cxt);
 void resampleReset (Resample *cxt);
 void resampleFree (Resample *cxt);
+
+// Internal entry points used by the clock-tracking bridge (clock_bridge.c).
+// These are not part of the legacy API and are only valid while a clock
+// tracking state has been attached to the context.
+
+uint64_t resamplerClockSourceIndex (Resample *cxt, double *frac);
+void resamplerClockBeginFrame (Resample *cxt);
+void resamplerClockAdvance (Resample *cxt);
+void resamplerClockSlide (Resample *cxt, int drop);
+void resamplerClockEnsureRoom (Resample *cxt);
 
 #ifdef __cplusplus
 }
