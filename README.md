@@ -47,6 +47,40 @@ int main()
 }
 ```
 
+## Intrinsic Transfer of Scalar Fields
+
+The `pmp::IntrinsicTransfer` class (in
+`src/pmp/algorithms/intrinsic_transfer.h`) provides an intrinsic edge-flip
+editing session for continuous piecewise linear scalar fields living on a
+triangle surface, e.g. painted thickness values.
+
+The session owns a private deep copy of the input mesh. Its intrinsic
+metric is defined by the 3D edge lengths of the input mesh: flipping an
+edge unfolds the two incident triangles into the plane and replaces the
+diagonal of the resulting quadrilateral, so the new edge length is the
+unfolded distance, not the 3D chord of the new endpoints. Vertex
+identities, positions, and custom properties are preserved.
+
+A source field is given by one value per initial vertex slot
+(`vertices_size()` of the input mesh) and is always interpreted as the
+piecewise linear field on the initial surface. `project()` transfers it
+onto the current triangulation by solving the consistent mass matrix
+system `M_current u = b`, where `b` integrates the source field against
+the current hat functions through the exact common refinement of the
+initial and current triangulations. Repeated calls do not accumulate, and
+flipping an edge back restores the original field.
+
+```cpp
+#include <pmp/algorithms/intrinsic_transfer.h>
+
+pmp::IntrinsicTransfer session(mesh);
+auto e = mesh.find_edge(v0, v1);
+if (session.flip(e))
+    std::cout << "new intrinsic length: " << session.edge_length(e) << "\n";
+// transfer per-vertex source values onto the current triangulation
+std::vector<double> u = session.project(source_values);
+```
+
 ## Read the Docs
 
 The [user guide](https://www.pmp-library.org/guide.html) contains all you need to get started using PMP, including a [tutorial](https://www.pmp-library.org/tutorial.html) covering mesh processing basics.

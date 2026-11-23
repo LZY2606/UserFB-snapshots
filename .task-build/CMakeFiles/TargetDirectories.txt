@@ -1,0 +1,7 @@
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/pmp_contract.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/gtest_contract.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/baseline.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/old_tests.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/metric_baseline.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1790/attempts/20261123T151559758882Z/repo/.task-build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/metric_baseline.dir/metric_baseline.cpp.o -o metric_baseline  libpmp_contract.a

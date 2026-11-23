@@ -30,6 +30,10 @@ file(COPY ${PROJECT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 # source files
 file(GLOB SOURCES ./*.cpp)
 
+# the intrinsic transfer contract cases are registered through
+# task_support/check.h and built by task_support/run.sh, not by gtest
+list(FILTER SOURCES EXCLUDE REGEX ".*intrinsic_transfer_contract\\.cpp$")
+
 if(NOT PMP_BUILD_REGRESSIONS)
   list(FILTER SOURCES EXCLUDE REGEX ".*regression_test\\.cpp$")
 endif()
