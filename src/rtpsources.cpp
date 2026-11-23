@@ -44,6 +44,7 @@
 #include "rtcpsrpacket.h"
 #include "rtcprrpacket.h"
 #include "rtptransmitter.h"
+#include "rtppacketbuilder.h"
 
 #ifdef RTPDEBUG
 	#include <iostream>
@@ -71,6 +72,7 @@ RTPSources::~RTPSources()
 void RTPSources::Clear()
 {
 	ClearSourceList();
+	pcmumixer.Reset();
 }
 
 void RTPSources::ClearSourceList()
@@ -144,10 +146,54 @@ void RTPSources::SentRTPPacket()
 		return;
 
 	bool prevsender = owndata->IsSender();
-	
+
 	owndata->SentRTPPacket();
 	if (!prevsender && owndata->IsSender())
 		sendercount++;
+}
+
+int RTPSources::ConfigurePCMUMix(const std::vector<RTPPCMUMixInput>& inputs,
+                                 uint64_t start_us,size_t window_slots)
+{
+	if (pcmumixer.IsConfigured())
+		return ERR_RTP_PACKBUILD_ALREADYINIT;
+	if (inputs.empty() || inputs.size() > RTPPCMUMixer::MaxInputs)
+		return ERR_RTP_PACKET_ILLEGALBUFFERSIZE;
+	if (window_slots < 1 || window_slots > RTPPCMUMixer::MaxWindowSlots)
+		return ERR_RTP_PACKET_ILLEGALBUFFERSIZE;
+
+	// The input SSRCs must be unknown to the source table: once a source
+	// exists its packets follow the normal ownership rules, so mixing can
+	// only be set up before any of them have been seen.
+	for (size_t i = 0 ; i < inputs.size() ; i++)
+	{
+		if (GotEntry(inputs[i].ssrc))
+			return ERR_RTP_SOURCES_SSRCEXISTS;
+	}
+
+	int status = pcmumixer.Configure(inputs,start_us,window_slots);
+	if (status < 0)
+		return status;
+	return 0;
+}
+
+int RTPSources::BuildPCMUMixPacket(uint64_t now_us,RTPPacketBuilder& builder,
+                                   std::vector<u_int8_t>& packet)
+{
+	if (!pcmumixer.IsConfigured())
+		return ERR_RTP_PACKBUILD_NOTINIT;
+	if (owndata == 0 || !owndata->IsOwnSSRC() || owndata->GetSSRC() != builder.GetSSRC())
+		return ERR_RTP_SOURCES_DONTHAVEOWNSSRC;
+
+	int status = pcmumixer.BuildPacket(now_us,builder,packet);
+	if (status < 0)
+		return status;			// builder, head, samples and packet all kept
+	if (status == 1)
+		return 1;				// head slot not due yet; nothing changed
+
+	// Register the real transmission so RTCP SR reports actual counts.
+	SentRTPPacket();
+	return 0;
 }
 
 int RTPSources::ProcessRawPacket(RTPRawPacket *rawpack,RTPTransmitter *rtptrans,bool acceptownpackets)
@@ -307,7 +353,27 @@ int RTPSources::ProcessRTPPacket(RTPPacket *rtppack,const RTPTime &receivetime,c
 		if (CheckCollision(srcdat,senderaddress,true))
 			return 0; // ignore packet on collision
 	}
-	
+
+	if (pcmumixer.IsMember(ssrc))
+	{
+		// Configured mix member: keep the reception statistics, but samples
+		// are owned by the mixer and the legacy queue never sees the packet.
+		bool prevsender2 = srcdat->IsSender();
+		bool prevactive2 = srcdat->IsActive();
+
+		if ((status = srcdat->ProcessMixerRTPPacket(rtppack,receivetime)) < 0)
+			return status;
+		pcmumixer.ProcessPacket(rtppack);
+
+		if (!prevsender2 && srcdat->IsSender())
+			sendercount++;
+		if (!prevactive2 && srcdat->IsActive())
+			activecount++;
+		if (created)
+			OnNewSource(srcdat);
+		return 0;
+	}
+
 	bool prevsender = srcdat->IsSender();
 	bool prevactive = srcdat->IsActive();
 	
@@ -896,6 +962,7 @@ void RTPSources::Timeout(const RTPTime &curtime,const RTPTime &timeoutdelay)
 			
 			sourcelist.DeleteCurrentElement();
 
+			pcmumixer.RemoveMember(srcdat->GetSSRC());
 			OnTimeout(srcdat);
 			OnRemoveSource(srcdat);
 			delete srcdat;
@@ -1014,6 +1081,7 @@ void RTPSources::BYETimeout(const RTPTime &curtime,const RTPTime &timeoutdelay)
 				if (srcdat->IsActive())
 					activecount--;
 				sourcelist.DeleteCurrentElement();
+				pcmumixer.RemoveMember(srcdat->GetSSRC());
 				OnBYETimeout(srcdat);
 				OnRemoveSource(srcdat);
 				delete srcdat;
@@ -1224,6 +1292,7 @@ void RTPSources::MultipleTimeouts(const RTPTime &curtime,const RTPTime &senderti
 				OnBYETimeout(srcdat);
 			if (normaltimeout)
 				OnTimeout(srcdat);
+			pcmumixer.RemoveMember(srcdat->GetSSRC());
 			delete srcdat;
 		}
 	}	

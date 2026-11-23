@@ -40,6 +40,7 @@
 #include "rtprandom.h"
 #include "rtptimeutilities.h"
 #include "rtptypes.h"
+#include <vector>
 
 class RTPSources;
 
@@ -61,6 +62,11 @@ public:
 	int BuildPacket(const void *data,size_t len);
 	int BuildPacket(const void *data,size_t len,
 	                u_int8_t pt,bool mark,u_int32_t timestampinc);
+	// Builds one packet using csrcs for this call only; the persistent CSRC
+	// list is restored whether the build succeeds or fails.
+	int BuildPacketWithCSRC(const void *data,size_t len,
+	                        u_int8_t pt,bool mark,u_int32_t timestampinc,
+	                        const std::vector<u_int32_t>& csrcs);
 	int BuildPacketEx(const void *data,size_t len,
 	                  u_int16_t hdrextID,const void *hdrextdata,size_t numhdrextwords);
 	int BuildPacketEx(const void *data,size_t len,

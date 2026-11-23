@@ -39,6 +39,8 @@
 #include "rtpkeyhashtable.h"
 #include "rtcpsdespacket.h"
 #include "rtptypes.h"
+#include "rtppcmumixer.h"
+#include <vector>
 
 #define RTPSOURCES_HASHSIZE							8317
 
@@ -47,10 +49,11 @@
 #else // can't use inline function as template parameter
 	int RTPSources_GetHashIndex(const u_int32_t &ssrc);
 #endif // RTP_SUPPORT_INLINETEMPLATEPARAM
-	
+
 class RTPNTPTime;
 class RTPTransmitter;
 class RTCPAPPPacket;
+class RTPPacketBuilder;
 
 class RTPSources
 {
@@ -104,6 +107,13 @@ public:
 	bool GotEntry(u_int32_t ssrc);
 	RTPSourceData *GetOwnSourceInfo()								{ return owndata; }
 
+	// PCMU conference mixing. Configuration is only accepted while no mix
+	// is active and none of the input SSRCs is present in the source table.
+	int ConfigurePCMUMix(const std::vector<RTPPCMUMixInput>& inputs,
+	                     uint64_t start_us,size_t window_slots);
+	int BuildPCMUMixPacket(uint64_t now_us,RTPPacketBuilder& builder,
+	                       std::vector<u_int8_t>& packet);
+
 	void Timeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
 	void SenderTimeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
 	void BYETimeout(const RTPTime &curtime,const RTPTime &timeoutdelay);
@@ -146,14 +156,15 @@ private:
 	int ObtainSourceDataInstance(u_int32_t ssrc,RTPInternalSourceData **srcdat,bool *created);
 	int GetRTCPSourceData(u_int32_t ssrc,const RTPAddress *senderaddress,RTPInternalSourceData **srcdat,bool *newsource);
 	bool CheckCollision(RTPInternalSourceData *srcdat,const RTPAddress *senderaddress,bool isrtp);
-	
+
 	RTPKeyHashTable<const u_int32_t,RTPInternalSourceData*,RTPSources_GetHashIndex,RTPSOURCES_HASHSIZE> sourcelist;
-	
+
 	int sendercount;
 	int totalcount;
 	int activecount;
 
 	RTPInternalSourceData *owndata;
+	RTPPCMUMixer pcmumixer;
 };
 
 #endif // RTPSOURCES_H

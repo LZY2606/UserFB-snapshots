@@ -1,0 +1,3 @@
+/Users/lzy/pro/UserFB/workspace/Z02500/attempts/20261123T151104225562Z/repo/.task-build/lib/CMakeFiles/jrtp.dir
+/Users/lzy/pro/UserFB/workspace/Z02500/attempts/20261123T151104225562Z/repo/.task-build/lib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02500/attempts/20261123T151104225562Z/repo/.task-build/lib/CMakeFiles/rebuild_cache.dir

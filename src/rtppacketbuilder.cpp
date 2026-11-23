@@ -205,6 +205,46 @@ int RTPPacketBuilder::BuildPacket(const void *data,size_t len,
 	return PrivateBuildPacket(data,len,pt,mark,timestampinc,false);
 }
 
+int RTPPacketBuilder::BuildPacketWithCSRC(const void *data,size_t len,
+                u_int8_t pt,bool mark,u_int32_t timestampinc,
+                const std::vector<u_int32_t>& csrclist)
+{
+	if (!init)
+		return ERR_RTP_PACKBUILD_NOTINIT;
+	if (csrclist.size() > RTP_MAXCSRCS)
+		return ERR_RTP_PACKET_TOOMANYCSRCS;
+
+	int i,j;
+	for (i = 0 ; i < (int)csrclist.size() ; i++)
+	{
+		for (j = i+1 ; j < (int)csrclist.size() ; j++)
+		{
+			if (csrclist[i] == csrclist[j])
+				return ERR_RTP_PACKBUILD_CSRCALREADYINLIST;
+		}
+	}
+
+	// Use the supplied list for this packet only, restoring the persistent
+	// list on every exit path. PrivateBuildPacket only updates counters,
+	// sequence number and timestamp after a successful build, so a failed
+	// build leaves all durable state untouched.
+	u_int32_t savedcsrcs[RTP_MAXCSRCS];
+	int savednumcsrcs = numcsrcs;
+	for (i = 0 ; i < numcsrcs ; i++)
+		savedcsrcs[i] = csrcs[i];
+
+	numcsrcs = (int)csrclist.size();
+	for (i = 0 ; i < numcsrcs ; i++)
+		csrcs[i] = csrclist[i];
+
+	int status = PrivateBuildPacket(data,len,pt,mark,timestampinc,false);
+
+	numcsrcs = savednumcsrcs;
+	for (i = 0 ; i < numcsrcs ; i++)
+		csrcs[i] = savedcsrcs[i];
+	return status;
+}
+
 int RTPPacketBuilder::BuildPacketEx(const void *data,size_t len,
                   u_int16_t hdrextID,const void *hdrextdata,size_t numhdrextwords)
 {

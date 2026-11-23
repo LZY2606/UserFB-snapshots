@@ -117,7 +117,28 @@ int RTPInternalSourceData::ProcessRTPPacket(RTPPacket *rtppack,const RTPTime &re
 			done = true;
 		}
 	}
-	
+
+	return 0;
+}
+
+int RTPInternalSourceData::ProcessMixerRTPPacket(RTPPacket *rtppack,const RTPTime &receivetime)
+{
+	bool accept;
+	double tsunit;
+
+	if (timestampunit < 0)
+		tsunit = INF_GetEstimatedTimestampUnit();
+	else
+		tsunit = timestampunit;
+	stats.ProcessPacket(rtppack,receivetime,tsunit,ownssrc,&accept);
+	if (!accept)
+		return 0;
+
+	// Same validation and sender bookkeeping as the normal path, but the
+	// packet stays owned by the caller and is never placed in the queue.
+	validated = true;
+	if (!ownssrc)
+		issender = true;
 	return 0;
 }
 

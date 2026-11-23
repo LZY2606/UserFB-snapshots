@@ -46,6 +46,10 @@ public:
 	~RTPInternalSourceData();
 
 	int ProcessRTPPacket(RTPPacket *rtppack,const RTPTime &receivetime,bool *stored);
+	// Statistics-only path for sources whose samples are consumed by the
+	// PCMU mixer: identical bookkeeping to ProcessRTPPacket, but the packet
+	// is never queued and the caller remains responsible for deleting it.
+	int ProcessMixerRTPPacket(RTPPacket *rtppack,const RTPTime &receivetime);
 	void ProcessSenderInfo(const RTPNTPTime &ntptime,u_int32_t rtptime,u_int32_t packetcount,
 	                       u_int32_t octetcount,const RTPTime &receivetime)				{ SRprevinf = SRinf; SRinf.Set(ntptime,rtptime,packetcount,octetcount,receivetime); stats.SetLastMessageTime(receivetime); }
 	void ProcessReportBlock(u_int8_t fractionlost,int32_t lostpackets,u_int32_t exthighseqnr,

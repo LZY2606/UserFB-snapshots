@@ -1,0 +1,6 @@
+input source 111: PCMU 0x42 -> linear -1756
+input source 222: PCMU 0x72 -> linear -104 (slot 0 only)
+independent slot-0 sum before saturation: -1860
+slot 0: wire=180 marker=1 pt=0 seq=28449 ts=606193279 payload=160 csrc=2 [111,222] first samples (PCMU -> linear): 0x40->-1884 0x40->-1884 0x40->-1884 0x40->-1884
+slot 1: wire=176 marker=0 pt=0 seq=28450 ts=606193439 payload=160 csrc=1 [111] first samples (PCMU -> linear): 0x42->-1756 0x42->-1756 0x42->-1756 0x42->-1756
+builder packets=2 payload octets=320
