@@ -86,3 +86,8 @@ if(NOT LIBMXF_BUILD_LIB_ONLY)
     add_subdirectory(examples)
     add_subdirectory(tools)
 endif()
+
+option(LIBMXF_BUILD_PCMWRAP "Build the streaming PCM OP1a frame wrapper" ON)
+if(LIBMXF_BUILD_PCMWRAP)
+    add_subdirectory(examples/pcmwrap)
+endif()
