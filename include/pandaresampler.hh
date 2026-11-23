@@ -6,6 +6,7 @@
 #include <memory>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 
 /* ------------------------ configuration ---------------------------- */
 
@@ -118,6 +119,12 @@ class Resampler2 {
     virtual double delay() const = 0;
     virtual void   reset() = 0;
     virtual bool   sse_enabled() const = 0;
+    /* PeriodicPlan support: number of scalar IIR polyphase coefficients and
+     * the production coefficient values actually stored in the filter. Non-IIR
+     * implementations report 0 and leave the buffer untouched.
+     */
+    virtual uint   iir_ncoefs() const { return 0; }
+    virtual void   iir_export_coefs (double *) const { }
     virtual
     ~Impl()
     {
@@ -314,6 +321,18 @@ public:
   {
     return impl_x2->sse_enabled();
   }
+  /**
+   * Scalar IIR coefficient introspection for a factor-2 stage (stage_ratio is
+   * 2, 4 or 8). Returns the number of polyphase coefficients, or 0 if this is
+   * not an IIR resampler or the stage does not exist. Additive helper; it does
+   * not change any processing behavior.
+   */
+  uint  iir_stage_ncoefs (uint stage_ratio) const;
+  /**
+   * Copy the IIR polyphase coefficients of \a stage_ratio into \a out, which
+   * must hold iir_stage_ncoefs() doubles. No-op when the count is 0.
+   */
+  void  iir_stage_coefs (uint stage_ratio, double *out) const;
 protected:
   /* Creates implementation from filter coefficients and Filter implementation class
    *
@@ -354,6 +373,102 @@ protected:
   void
   init_stage (std::unique_ptr<Impl>& impl,
               uint                   stage_ratio);
+
+  friend class PeriodicPlan;
+};
+
+/**
+ * \brief Periodically steady-stated, multi-channel IIR resampling plan
+ *
+ * A PeriodicPlan resamples a finite, looping source buffer (planar PCM) with
+ * the same scalar IIR filters used by Resampler2 (FILTER_IIR, SSE disabled).
+ * Unlike a freshly constructed Resampler2 - whose IIR memories start at zero
+ * and therefore need many repetitions of the loop before their transient has
+ * decayed - a PeriodicPlan computes the exact all-pass filter state that the
+ * infinite repetition of the source loop would have reached in steady state.
+ * The very first rendered sample therefore already equals the stable periodic
+ * response; there is no zero-state ramp-up, no warm-up and no cross-fade.
+ *
+ * Only the scalar (FPU) IIR path is supported: ratio must be 2, 4 or 8 and
+ * precision must be one of PREC_48DB, PREC_96DB or PREC_144DB.
+ *
+ * The construction cost is a finite, deterministic periodic boundary
+ * calculation (it grows with the loop length, ratio and filter order, but not
+ * with any convergence/iteration count). render() always runs the real IIR
+ * recursion with the production coefficients and state topology; it never
+ * allocates or frees heap memory and never plays back a precomputed table.
+ *
+ * The causal group delay of the underlying filters is left untouched (no
+ * extra group-delay compensation), and the conversion phase is identical to
+ * running Resampler2::process_block() starting at source frame 0.
+ */
+class PeriodicPlan {
+public:
+  /**
+   * \param mode       UP or DOWN resampling
+   * \param ratio      2, 4 or 8
+   * \param precision  PREC_48DB, PREC_96DB or PREC_144DB
+   * \param channels   number of planar channels, 1..8
+   * \param source     array of \a channels planar float buffers, each holding
+   *                   the same number N of frames, 1 <= N <= 65536; the data
+   *                   is copied
+   *
+   * \throws std::invalid_argument for non-finite samples, zero/out-of-range
+   * channels or ratio/precision, an empty or too long loop, unequal channel
+   * lengths being impossible by construction, or null pointers. A failed
+   * construction leaves every other, independently used converter untouched.
+   */
+  PeriodicPlan (Resampler2::Mode       mode,
+                uint                   ratio,
+                Resampler2::Precision  precision,
+                uint                   channels,
+                const float * const   *source,
+                size_t                 frames);
+  ~PeriodicPlan();
+
+  PeriodicPlan (const PeriodicPlan&) = delete;
+  PeriodicPlan& operator= (const PeriodicPlan&) = delete;
+
+  /**
+   * \brief length, in output frames, of one fully closed output period
+   *
+   * For upsampling this is N*ratio. For downsampling by R this is
+   * N/gcd(N,R): the decimation lattice and the filter histories only close
+   * together after R/gcd(N,R) source loops, which is taken into account
+   * internally.
+   */
+  uint64_t period() const;
+
+  /**
+   * \brief render \a frames output frames, planar, continuing the stream
+   *
+   * Output is independent of how the request is split into blocks and of the
+   * length of the final remainder. A zero-length call does not advance the
+   * stream. No heap memory is allocated or freed during the call.
+   *
+   * \throws std::invalid_argument if output or any of its channel pointers is
+   * null (the stream position is left unchanged in that case).
+   */
+  void render (float *const *output, size_t frames);
+
+  /**
+   * \brief position the next output sample at global output frame \a frame
+   *
+   * The already solved periodic start state is restored and the stream is
+   * advanced within a single period, so the cost does not grow with the
+   * absolute frame number. Positions above 2^53 are reduced modulo the period
+   * with integer arithmetic and are never converted through double first.
+   */
+  void seek (uint64_t frame);
+
+  /**
+   * \brief return to the solved periodic start (equivalent to seek(0))
+   */
+  void reset();
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 } /* namespace PandaResampler */

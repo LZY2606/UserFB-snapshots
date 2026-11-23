@@ -1108,6 +1108,18 @@ public:
   {
     return false;
   }
+  uint
+  iir_ncoefs() const override
+  {
+    return ORDER;
+  }
+  void
+  iir_export_coefs (double *out) const override
+  {
+    const hiir::StageDataFpu<float> *stages = downs.use_stages();
+    for (uint i = 0; i < ORDER; i++)
+      out[i] = stages[i + 2]._coef;
+  }
 };
 
 template<uint ORDER>
@@ -1144,6 +1156,18 @@ public:
   sse_enabled() const override
   {
     return false;
+  }
+  uint
+  iir_ncoefs() const override
+  {
+    return ORDER;
+  }
+  void
+  iir_export_coefs (double *out) const override
+  {
+    const hiir::StageDataFpu<float> *stages = ups.use_stages();
+    for (uint i = 0; i < ORDER; i++)
+      out[i] = stages[i + 2]._coef;
   }
 };
 
@@ -1404,6 +1428,29 @@ Resampler2::test_filter_impl (bool verbose)
         printf ("SSE filter implementation not tested: no SSE support available\n");
       return true;
     }
+}
+
+PANDA_RESAMPLER_FN
+uint
+Resampler2::iir_stage_ncoefs (uint stage_ratio) const
+{
+  const Impl *impl = nullptr;
+  if (stage_ratio == 2) impl = impl_x2.get();
+  else if (stage_ratio == 4) impl = impl_x4.get();
+  else if (stage_ratio == 8) impl = impl_x8.get();
+  return impl ? impl->iir_ncoefs() : 0;
+}
+
+PANDA_RESAMPLER_FN
+void
+Resampler2::iir_stage_coefs (uint stage_ratio, double *out) const
+{
+  const Impl *impl = nullptr;
+  if (stage_ratio == 2) impl = impl_x2.get();
+  else if (stage_ratio == 4) impl = impl_x4.get();
+  else if (stage_ratio == 8) impl = impl_x8.get();
+  if (impl && impl->iir_ncoefs())
+    impl->iir_export_coefs (out);
 }
 
 } // namespace PandaResampler

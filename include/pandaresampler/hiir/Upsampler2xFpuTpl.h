@@ -67,6 +67,14 @@ public:
 	void           process_block (DataType out_ptr [], const DataType in_ptr [], long nbr_spl);
 	void           clear_buffers ();
 
+	// Direct access to the production stage state (coefficients and memories).
+	// This does not change any processing; it lets external periodic steady
+	// state code reuse the exact filter topology and coefficients.
+	hiir_FORCEINLINE const StageDataFpu <DataType> *
+	               use_stages () const { return (_filter.data ()); }
+	hiir_FORCEINLINE StageDataFpu <DataType> *
+	               use_stages () { return (_filter.data ()); }
+
 
 
 /*\\\ PROTECTED \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\*/
