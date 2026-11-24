@@ -36,6 +36,7 @@ static void conn_destructor(void *data)
 
 	list_flush(&conn->ctransl);
 	list_flush(&conn->streaml);
+	list_flush(&conn->sendq);
 
 	mem_deref(conn->dnsq6);
 	mem_deref(conn->dnsq4);
@@ -44,6 +45,7 @@ static void conn_destructor(void *data)
 	mem_deref(conn->tc);
 	mem_deref(conn->mb);
 	mem_deref(conn->dechunk);
+	mem_deref(conn->flow);
 	mem_deref(conn->uri);
 	mem_deref(conn->app);
 	mem_deref(conn->host);
@@ -187,7 +189,14 @@ static int rtmp_dechunk_handler(const struct rtmp_header *hdr,
 			return EBADMSG;
 
 		val = ntohl(mbuf_read_u32(mb));
-		(void)val;
+
+		/* a valid ACK releases window credit and may resume media;
+		 * duplicate, stale and future ACKs change nothing */
+		if (rtmp_flow_handle_ack(conn->flow, val)) {
+			err = rtmp_send_drain(conn);
+			if (err)
+				return err;
+		}
 		break;
 
 	case RTMP_TYPE_AMF0:
@@ -199,6 +208,9 @@ static int rtmp_dechunk_handler(const struct rtmp_header *hdr,
 			return EBADMSG;
 
 		was = ntohl(mbuf_read_u32(mb));
+
+		/* receive-side acknowledgement threshold only; this never
+		 * releases sender window credit or unblocks the media queue */
 		if (was != 0)
 			conn->window_ack_size = was;
 		break;
@@ -209,14 +221,22 @@ static int rtmp_dechunk_handler(const struct rtmp_header *hdr,
 
 		was = ntohl(mbuf_read_u32(mb));
 		limit = mbuf_read_u8(mb);
-		(void)limit;
 
-		if (was != 0)
-			conn->window_ack_size = was;
+		/* sender window only; the receive acknowledgement threshold
+		 * (window_ack_size) is intentionally not changed here */
+		if (conn->flow) {
+			err = rtmp_flow_set_bandwidth(conn->flow, was, limit);
+			if (err)
+				return err;
+		}
 
 		err = rtmp_control(conn, RTMP_TYPE_WINDOW_ACK_SIZE,
 				   (uint32_t)WINDOW_ACK_SIZE);
-		break;
+		if (err)
+			return err;
+
+		/* a larger window may resume queued media immediately */
+		return rtmp_send_drain(conn);
 
 	case RTMP_TYPE_USER_CONTROL_MSG:
 		err = handle_user_control_msg(conn, mb);
@@ -276,6 +296,14 @@ static struct rtmp_conn *rtmp_conn_alloc(bool is_client,
 	conn->send_chunk_size = RTMP_DEFAULT_CHUNKSIZE;
 	conn->window_ack_size = WINDOW_ACK_SIZE;
 
+	list_init(&conn->streaml);
+	list_init(&conn->sendq);
+	list_init(&conn->ctransl);
+
+	err = rtmp_flow_alloc(&conn->flow);
+	if (err)
+		goto out;
+
 	err = rtmp_dechunker_alloc(&conn->dechunk, RTMP_DEFAULT_CHUNKSIZE,
 				   rtmp_dechunk_handler, conn);
 	if (err)
@@ -324,6 +352,9 @@ static int send_packet(struct rtmp_conn *conn, const uint8_t *pkt, size_t len)
 	if (err)
 		goto out;
 
+	/* handshake bytes belong to the cumulative sender position */
+	rtmp_flow_commit(conn->flow, len);
+
  out:
 	mem_deref(mb);
 
@@ -360,6 +391,9 @@ static int handshake_start(struct rtmp_conn *conn)
 static void conn_close(struct rtmp_conn *conn, int err)
 {
 	rtmp_close_h *closeh;
+
+	/* release everything still waiting for window credit or ACKs */
+	rtmp_send_flush(conn);
 
 	conn->sc = mem_deref(conn->sc);
 	conn->tc = mem_deref(conn->tc);
@@ -399,9 +433,8 @@ int rtmp_send_amf_command(const struct rtmp_conn *conn,
 	if (!conn || !cmd || !len)
 		return EINVAL;
 
-	return rtmp_chunker(format, chunk_id, 0, 0, type_id, msg_stream_id,
-			    cmd, len, conn->send_chunk_size,
-			    conn->tc);
+	return rtmp_send_submit((struct rtmp_conn *)conn, format, chunk_id, 0, 0,
+				type_id, msg_stream_id, cmd, len);
 }
 
 
@@ -692,6 +725,11 @@ static int req_connect(struct rtmp_conn *conn)
 		conn->last_ack = 0;
 		conn->total_bytes = 0;
 		conn->mb = mem_deref(conn->mb);
+
+		/* a fresh TCP connection inherits neither queue nor window */
+		rtmp_send_flush(conn);
+		rtmp_flow_reset(conn->flow);
+
 		conn->sc = mem_deref(conn->sc);
 		conn->tc = mem_deref(conn->tc);
 
@@ -961,10 +999,10 @@ int rtmp_conn_send_msg(const struct rtmp_conn *conn,
 	if (!conn || !payload || !payload_len)
 		return EINVAL;
 
-	return rtmp_chunker(format, chunk_id, timestamp, timestamp_delta,
-			    msg_type_id, msg_stream_id, payload, payload_len,
-			    conn->send_chunk_size,
-			    conn->tc);
+	return rtmp_send_submit((struct rtmp_conn *)conn, format, chunk_id,
+				timestamp, timestamp_delta,
+				msg_type_id, msg_stream_id,
+				payload, payload_len);
 }
 
 
@@ -1060,6 +1098,12 @@ int rtmp_conn_debug(struct re_printf *pf, const struct rtmp_conn *conn)
 	err |= re_hprintf(pf, "chunk_size:    send=%u\n",
 			  conn->send_chunk_size);
 	err |= re_hprintf(pf, "bytes:         %zu\n", conn->total_bytes);
+	err |= re_hprintf(pf, "send window:   %s window=%u sent=%llu acked=%llu\n",
+			  rtmp_flow_is_limited(conn->flow) ? "limited" : "open",
+			  rtmp_flow_window(conn->flow),
+			  (unsigned long long)rtmp_flow_sent(conn->flow),
+			  (unsigned long long)rtmp_flow_acked(conn->flow));
+	err |= re_hprintf(pf, "send queue:    %u\n", list_count(&conn->sendq));
 	err |= re_hprintf(pf, "streams:       %u\n",
 			  list_count(&conn->streaml));
 

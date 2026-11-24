@@ -10,12 +10,34 @@ enum {
 	RTMP_DEFAULT_CHUNKSIZE = 128,
 	RTMP_HANDSHAKE_SIZE    = 1536,
 	RTMP_MESSAGE_LEN_MAX   = 524288,
+
+	/* basic header (3) + message header (11) + extended timestamp (4) */
+	RTMP_HDR_MAX           = 18,
+
+	/* effective sender window must stay below 2^31 bytes */
+	RTMP_FLOW_WINDOW_MAX   = 1u << 31,
+	RTMP_FLOW_WRAP_HALF    = 1u << 31,
 };
 
 /* Chunk IDs */
 enum {
 	RTMP_CHUNK_ID_CONTROL  = 2,
 	RTMP_CHUNK_ID_CONN     = 3,
+};
+
+/**
+ * Sender flow-control state.
+ *
+ * sent/acked are cumulative byte positions from connection establishment,
+ * including the handshake and every RTMP header and payload byte handed to
+ * TCP.  window/limit/limited describe the peer acknowledgement window.
+ */
+struct rtmp_flow {
+	uint64_t sent;
+	uint64_t acked;
+	uint32_t window;
+	uint8_t limit;
+	bool limited;
 };
 
 /** Defines the RTMP Handshake State */
@@ -31,7 +53,9 @@ enum rtmp_handshake_state {
  */
 struct rtmp_conn {
 	struct list streaml;
+	struct list sendq;              /* struct rtmp_send_entry, media + control */
 	struct rtmp_dechunker *dechunk;
+	struct rtmp_flow *flow;         /* sender window and cumulative positions */
 	struct tcp_conn *tc;
 	struct tls_conn *sc;
 	struct mbuf *mb;                        /* TCP reassembly buffer */
@@ -41,6 +65,7 @@ struct rtmp_conn {
 	uint32_t window_ack_size;
 	uint32_t send_chunk_size;
 	unsigned chunk_id_counter;
+	bool drain_active;              /* re-entrancy guard for queue draining */
 	bool is_client;
 	bool connected;
 	rtmp_estab_h *estabh;
@@ -132,11 +157,45 @@ int  rtmp_ctrans_response(const struct list *ctransl,
  * RTMP Chunk
  */
 
-int rtmp_chunker(unsigned format, uint32_t chunk_id,
-		 uint32_t timestamp, uint32_t timestamp_delta,
-		 uint8_t msg_type_id, uint32_t msg_stream_id,
-		 const uint8_t *payload, size_t payload_len,
-		 size_t max_chunk_sz, struct tcp_conn *tc);
+int rtmp_chunk_encode(struct mbuf *mb, const struct rtmp_header *hdr,
+		      const uint8_t *payload, size_t payload_len);
+
+
+/*
+ * RTMP Sender flow control
+ */
+
+int  rtmp_flow_alloc(struct rtmp_flow **flp);
+void rtmp_flow_reset(struct rtmp_flow *fl);
+int  rtmp_flow_set_bandwidth(struct rtmp_flow *fl, uint32_t window,
+			     uint8_t limit);
+bool rtmp_flow_handle_ack(struct rtmp_flow *fl, uint32_t seq);
+void rtmp_flow_commit(struct rtmp_flow *fl, size_t n);
+bool rtmp_flow_media_allowed(const struct rtmp_flow *fl);
+bool rtmp_flow_is_limited(const struct rtmp_flow *fl);
+uint64_t rtmp_flow_sent(const struct rtmp_flow *fl);
+uint64_t rtmp_flow_acked(const struct rtmp_flow *fl);
+uint32_t rtmp_flow_window(const struct rtmp_flow *fl);
+uint8_t  rtmp_flow_limit(const struct rtmp_flow *fl);
+void rtmp_flow_set_counters(struct rtmp_flow *fl, uint64_t sent,
+			    uint64_t acked);
+
+
+/*
+ * RTMP Sender queue
+ */
+
+int  rtmp_send_submit(struct rtmp_conn *conn,
+		      unsigned format, uint32_t chunk_id,
+		      uint32_t timestamp, uint32_t timestamp_delta,
+		      uint8_t msg_type_id, uint32_t msg_stream_id,
+		      const uint8_t *payload, size_t payload_len);
+int  rtmp_send_drain(struct rtmp_conn *conn);
+void rtmp_send_flush(struct rtmp_conn *conn);
+uint32_t rtmp_send_queue_count(const struct rtmp_conn *conn);
+bool rtmp_send_head_is_control(const struct rtmp_conn *conn);
+size_t rtmp_send_head_offset(const struct rtmp_conn *conn);
+size_t rtmp_send_head_len(const struct rtmp_conn *conn);
 
 
 /*

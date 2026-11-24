@@ -1,0 +1,19 @@
+CASE limits hard_soft_dynamic checks=26
+CASE limits invalid_bandwidth checks=18
+CASE limits independent_thresholds checks=12
+CASE limits per_connection_window checks=9
+GROUP limits cases=4 checks=65 COMPLETE
+CASE credit window_stall_resume_next checks=27
+CASE credit control_overtakes_media checks=20
+CASE credit ack_wrap_and_validation checks=15
+CASE credit tiny_window_one_chunk checks=7
+CASE credit reentrant_control_recv checks=9
+CASE credit caller_releases_payload checks=11
+CASE credit close_releases_queue checks=7
+GROUP credit cases=7 checks=96 COMPLETE
+CASE wire unlimited_normal_path checks=17
+CASE wire handwritten_headers checks=11
+CASE wire throttle_wire_bytes checks=19
+CASE wire handshake_accounting checks=8
+GROUP wire cases=4 checks=55 COMPLETE
+TARGET_COMPLETE cases=15

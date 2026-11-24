@@ -1,0 +1,5 @@
+[ 97%] Built target re-objs
+[ 97%] Built target re
+[ 98%] Building C object CMakeFiles/task_target.dir/test/peer_bandwidth.c.o
+[100%] Linking C executable task_target
+[100%] Built target task_target

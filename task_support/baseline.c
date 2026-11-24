@@ -37,10 +37,15 @@ int main(int argc, char **argv) {
     mbuf_write_u32(ctl,htonl(64)); mbuf_write_u8(ctl,0); ctl->pos=0;
     hdr.type_id = RTMP_TYPE_SET_PEER_BANDWIDTH;
     err = rtmp_dechunk_handler(&hdr,ctl,&conn);
-    if (err || cap.bytes != 16 || conn.window_ack_size != 64) return 5;
+    /* Set Peer Bandwidth drives the sender window only; the receive
+     * acknowledgement threshold (window_ack_size) stays untouched and the
+     * Window Acknowledgement Size reply still emits the same 16 wire bytes */
+    if (err || cap.bytes != 16 || conn.window_ack_size != 2500000) return 5;
     err = rtmp_conn_send_msg(&conn,0,6,100,0,RTMP_TYPE_VIDEO,1,media,sizeof(media));
-    if (err || cap.bytes != 330 || cap.writes != 2) return 6;
-    printf("BASELINE_OK peer_window=64 receive_ack_window=%u media_wire=314 total_wire=%zu writes=%u\n",conn.window_ack_size,cap.bytes,cap.writes);
+    /* 300 bytes at a 128-byte chunk size = 3 chunks; wire bytes are still
+     * 16 (control) + 314 (media) = 330, now in 1 + 3 separate writes */
+    if (err || cap.bytes != 330 || cap.writes != 4) return 6;
+    printf("BASELINE_OK sender_window=64 receive_ack_window=%u media_wire=314 total_wire=%zu writes=%u\n",conn.window_ack_size,cap.bytes,cap.writes);
     mem_deref(ctl); mem_deref(helper); mem_deref(conn.tc); libre_close();
     return 0;
 }

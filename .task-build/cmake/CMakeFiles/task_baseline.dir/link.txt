@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/task_baseline.dir/task_support/baseline.c.o -o task_baseline  libre.a -lresolv -framework SystemConfiguration -framework CoreFoundation -lm

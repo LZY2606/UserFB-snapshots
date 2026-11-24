@@ -1,0 +1,12 @@
+[  1%] Building C object CMakeFiles/re-objs.dir/src/rtmp/send.c.o
+[ 97%] Built target re-objs
+[ 97%] Linking C static library libre.a
+[ 97%] Built target re
+[ 98%] Linking C executable task_target
+[100%] Built target task_target
+[ 98%] Built target re-objs
+[ 98%] Built target re
+[100%] Linking C executable task_baseline
+[100%] Built target task_baseline
+[100%] Built target re-objs
+[100%] Built target re

@@ -471,7 +471,9 @@ if(USE_RTMP)
     src/rtmp/control.c
     src/rtmp/ctrans.c
     src/rtmp/dechunk.c
+    src/rtmp/flow.c
     src/rtmp/hdr.c
+    src/rtmp/send.c
     src/rtmp/stream.c
   )
 endif()
@@ -786,6 +788,7 @@ target_include_directories(task_baseline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} inc
 target_link_libraries(task_baseline PRIVATE re)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/peer_bandwidth.c")
   add_executable(task_target task_support/driver.c test/peer_bandwidth.c)
+  target_compile_definitions(task_target PRIVATE ${RE_DEFINITIONS})
   target_include_directories(task_target PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} include src/rtmp)
   target_link_libraries(task_target PRIVATE re)
 endif()

@@ -1,0 +1,5 @@
+[ 98%] Built target re-objs
+[ 98%] Built target re
+[ 98%] Building C object CMakeFiles/task_baseline.dir/task_support/baseline.c.o
+[100%] Linking C executable task_baseline
+[100%] Built target task_baseline
