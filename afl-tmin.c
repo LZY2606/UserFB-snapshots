@@ -34,6 +34,7 @@
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
+#include "afl-tool-runner.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -53,6 +54,10 @@
 #include <sys/resource.h>
 
 static s32 child_pid;                 /* PID of the tested program         */
+
+static afl_tool_runner *tool_runner;  /* Shared exec/forkserver backend    */
+
+static u8 forkserver_mode;            /* Reuse target initialization?      */
 
 static u8 *trace_bits,                /* SHM with instrumentation bitmap   */
           *mask_bitmap;               /* Mask for trace bits (-B)          */
@@ -167,6 +172,7 @@ static inline u8 anything_set(void) {
 static void remove_shm(void) {
 
   if (prog_in) unlink(prog_in); /* Ignore errors */
+  if (trace_bits && trace_bits != (void *)-1) shmdt(trace_bits);
   shmctl(shm_id, IPC_RMID, NULL);
 
 }
@@ -260,82 +266,25 @@ static void handle_timeout(int sig) {
 
 static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 
-  static struct itimerval it;
   int status = 0;
-
-  s32 prog_in_fd;
   u32 cksum;
 
   memset(trace_bits, 0, MAP_SIZE);
   MEM_BARRIER();
 
-  prog_in_fd = write_to_file(prog_in, mem, len);
+  if (afl_tool_runner_run(tool_runner, mem, len, &status) < 0) {
 
-  child_pid = fork();
+    if (stop_soon) {
 
-  if (child_pid < 0) PFATAL("fork() failed");
-
-  if (!child_pid) {
-
-    struct rlimit r;
-
-    if (dup2(use_stdin ? prog_in_fd : dev_null_fd, 0) < 0 ||
-        dup2(dev_null_fd, 1) < 0 ||
-        dup2(dev_null_fd, 2) < 0) {
-
-      *(u32*)trace_bits = EXEC_FAIL_SIG;
-      PFATAL("dup2() failed");
+      SAYF(cRST cLRD "\n+++ Minimization aborted by user +++\n" cRST);
+      close(write_to_file(out_file, in_data, in_len));
+      exit(1);
 
     }
 
-    close(dev_null_fd);
-    close(prog_in_fd);
-
-    setsid();
-
-    if (mem_limit) {
-
-      r.rlim_max = r.rlim_cur = ((rlim_t)mem_limit) << 20;
-
-#ifdef RLIMIT_AS
-
-      setrlimit(RLIMIT_AS, &r); /* Ignore errors */
-
-#else
-
-      setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
-
-#endif /* ^RLIMIT_AS */
-
-    }
-
-    r.rlim_max = r.rlim_cur = 0;
-    setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
-
-    execv(target_path, argv);
-
-    *(u32*)trace_bits = EXEC_FAIL_SIG;
-    exit(0);
+    FATAL("%s", afl_tool_runner_error(tool_runner));
 
   }
-
-  close(prog_in_fd);
-
-  /* Configure timeout, wait for child, cancel timeout. */
-
-  child_timed_out = 0;
-  it.it_value.tv_sec = (exec_tmout / 1000);
-  it.it_value.tv_usec = (exec_tmout % 1000) * 1000;
-
-  setitimer(ITIMER_REAL, &it, NULL);
-
-  if (waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
-
-  child_pid = 0;
-  it.it_value.tv_sec = 0;
-  it.it_value.tv_usec = 0;
-
-  setitimer(ITIMER_REAL, &it, NULL);
 
   MEM_BARRIER();
 
@@ -826,6 +775,7 @@ static void usage(u8* argv0) {
        "  -f file       - input file read by the tested program (stdin)\n"
        "  -t msec       - timeout for each run (%u ms)\n"
        "  -m megs       - memory limit for child process (%u MB)\n"
+       "  -F            - reuse target initialization through fork server\n"
        "  -Q            - use binary-only instrumentation (QEMU mode)\n\n"
 
        "Minimization settings:\n\n"
@@ -990,7 +940,7 @@ int main(int argc, char** argv) {
 
   SAYF(cCYA "afl-tmin " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
 
-  while ((opt = getopt(argc,argv,"+i:o:f:m:t:B:xeQV")) > 0)
+  while ((opt = getopt(argc,argv,"+i:o:f:m:t:B:xeFQV")) > 0)
 
     switch (opt) {
 
@@ -1074,6 +1024,12 @@ int main(int argc, char** argv) {
 
         break;
 
+      case 'F':
+
+        if (forkserver_mode) FATAL("Multiple -F options not supported");
+        forkserver_mode = 1;
+        break;
+
       case 'Q':
 
         if (qemu_mode) FATAL("Multiple -Q options not supported");
@@ -1115,6 +1071,9 @@ int main(int argc, char** argv) {
 
   if (optind == argc || !in_file || !out_file) usage(argv[0]);
 
+  if (forkserver_mode && qemu_mode)
+    FATAL("Options -F and -Q are mutually exclusive");
+
   setup_shm();
   setup_signal_handlers();
 
@@ -1130,9 +1089,37 @@ int main(int argc, char** argv) {
 
   exact_mode = !!getenv("AFL_TMIN_EXACT");
 
+  struct afl_tool_runner_options runner_opts = {
+
+    .mode = forkserver_mode ? AFL_TOOL_RUNNER_FORKSRV
+                            : AFL_TOOL_RUNNER_EXEC,
+    .target_path = target_path,
+    .argv = use_argv,
+    .prog_in = prog_in,
+    .trace_bits = trace_bits,
+    .dev_null_fd = dev_null_fd,
+    .timeout_ms = exec_tmout,
+    .mem_limit_mb = mem_limit,
+    .use_stdin = use_stdin,
+    .new_session = 1,
+    .child_pid = &child_pid,
+    .timed_out = &child_timed_out,
+    .stop_soon = &stop_soon
+
+  };
+
+  tool_runner = afl_tool_runner_create(&runner_opts);
+
   SAYF("\n");
 
   read_initial_file();
+
+  if (forkserver_mode && afl_tool_runner_start(tool_runner) < 0) {
+
+    if (stop_soon) exit(1);
+    FATAL("%s", afl_tool_runner_error(tool_runner));
+
+  }
 
   ACTF("Performing dry run (mem limit = %llu MB, timeout = %u ms%s)...",
        mem_limit, exec_tmout, edges_only ? ", edges only" : "");
@@ -1157,6 +1144,8 @@ int main(int argc, char** argv) {
   }
 
   minimize(use_argv);
+
+  afl_tool_runner_destroy(&tool_runner);
 
   ACTF("Writing output to '%s'...", out_file);
 
