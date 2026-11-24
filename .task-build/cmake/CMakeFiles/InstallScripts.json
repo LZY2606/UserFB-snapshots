@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/UFB100026/attempts/20261124T160756528562Z/repo/.task-build/cmake/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/UFB100026/attempts/20261124T160756528562Z/repo/.task-build/cmake/src/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/UFB100026/attempts/20261124T160756528562Z/repo/.task-build/cmake/src/Examples/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

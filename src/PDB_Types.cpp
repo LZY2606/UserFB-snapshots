@@ -8,5 +8,8 @@
 // https://github.com/Microsoft/microsoft-pdb/blob/master/PDB/msf/msf.cpp#L962
 const char PDB::SuperBlock::MAGIC[30u] = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53";
 
+const uint32_t PDB::SmallMSFHeader::MagicSize = 44u;
+const char PDB::SmallMSFHeader::MAGIC[44u] = "Microsoft C/C++ program database 2.00\r\n\x1aJG";
+
 const uint32_t PDB::HashTableHeader::Signature = 0xffffffffu;
 const uint32_t PDB::HashTableHeader::Version = 0xeffe0000u + 19990810u;

@@ -1,0 +1,7 @@
+input_id	container_format	block_size	free_block_map_index	block_count	directory_size	module_name	stream_number	record_offset_dec	record_offset_hex	record_size	variable_name	type_index_hex	type_index_dec	section_number	section_offset_hex	section_offset_dec	physical_range_count	physical_ranges_dec_offset:length	physical_ranges_hex	image_file
+input1_msf7	MSF7	512	1	17	64	alpha.obj	6	1008	0x3f0	20	state	0x1000	4096	1	0x40	64	2	4080:16;4608:4	0xff0:16;0x1200:4	input1_msf7.pdb
+input1_msf7	MSF7	512	1	17	64	beta.obj	7	1008	0x3f0	20	state	0x1001	4097	2	0x88	136	2	7152:16;7680:4	0x1bf0:16;0x1e00:4	input1_msf7.pdb
+input2_small_msf2	SmallMSF2	1024	1	48	84	alpha.obj	6	1008	0x3f0	20	state	0x1000	4096	1	0x40	64	2	41968:16;43008:4	0xa3f0:16;0xa800:4	input2_small_msf2.pdb
+input2_small_msf2	SmallMSF2	1024	1	48	84	beta.obj	7	1008	0x3f0	20	state	0x1001	4097	2	0x88	136	2	46064:16;47104:4	0xb3f0:16;0xb800:4	input2_small_msf2.pdb
+input3_small_msf2_alpha60_firstpage80	SmallMSF2	1024	1	88	84	alpha.obj	6	1008	0x3f0	20	state	0x1000	4096	1	0x60	96	2	82928:16;83968:4	0x143f0:16;0x14800:4	input3_small_msf2_alpha60_firstpage80.pdb
+input3_small_msf2_alpha60_firstpage80	SmallMSF2	1024	1	88	84	beta.obj	7	1008	0x3f0	20	state	0x1001	4097	2	0x88	136	2	87024:16;88064:4	0x153f0:16;0x15800:4	input3_small_msf2_alpha60_firstpage80.pdb

@@ -66,6 +66,25 @@ namespace PDB
 		PDB_FLEXIBLE_ARRAY_MEMBER(uint32_t, directoryBlockIndices);		// indices of the blocks that make up the directory indices
 	};
 
+	// Small MSF 2.00 header. Unlike SuperBlock (MSF 7.00), page numbers are 16-bit and
+	// the directory data page numbers follow the fixed header directly.
+	// See task_support/FORMAT.md for the full layout.
+	struct PDB_NO_DISCARD SmallMSFHeader
+	{
+		static const uint32_t MagicSize;
+		static const char MAGIC[44u];
+
+		char fileMagic[44u];
+		uint32_t blockSize;
+		uint16_t freeBlockMapIndex;							// index of the free block map
+		uint16_t blockCount;								// number of blocks in the file
+		uint32_t directorySize;								// size of the stream directory in bytes
+		uint32_t unknownMemoryPointer;						// obsolete, opaque memory pointer slot
+		PDB_FLEXIBLE_ARRAY_MEMBER(uint16_t, directoryBlockIndices);	// indices of the blocks making up the directory
+	};
+
+	static_assert(sizeof(SmallMSFHeader) == 60u, "Size mismatch.");
+
 	// https://llvm.org/docs/PDB/PdbStream.html#stream-header
 	struct Header
 	{

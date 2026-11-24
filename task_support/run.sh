@@ -7,7 +7,7 @@ bash task_support/build.sh
 if [[ $mode == target ]]; then
   ${CXX:-c++} -x c++ -std=c++17 -I. -c task_support/driver.c -o .task-build/driver.o
 ${CXX:-c++} -std=c++17 -O0 -I. -Isrc tests/small_msf.cpp .task-build/driver.o .task-build/libraw_pdb.a -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp 2>/dev/null || mktemp "${TMPDIR:-/tmp}/raw_pdb_target.XXXXXX" 2>/dev/null || echo ".task-build/target-output.$$.log")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

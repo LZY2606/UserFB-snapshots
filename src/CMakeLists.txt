@@ -39,6 +39,8 @@ set(SOURCES
 	PDB_ModuleLineStream.h
 	PDB_ModuleSymbolStream.cpp
 	PDB_ModuleSymbolStream.h
+	PDB_ModuleDataSymbolAnalysis.cpp
+	PDB_ModuleDataSymbolAnalysis.h
 	PDB_NamesStream.cpp
 	PDB_NamesStream.h
 	PDB_PCH.cpp

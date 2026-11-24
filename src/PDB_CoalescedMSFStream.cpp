@@ -17,6 +17,12 @@ namespace
 	{
 		const uint32_t blockCount = PDB::ConvertSizeToBlockCount(streamSize, blockSize);
 
+		// nil/empty streams have no block indices at all, so do not dereference blockIndices[0].
+		if (blockCount == 0u)
+		{
+			return true;
+		}
+
 		// start with the first index, checking if all following indices are contiguous (N, N+1, N+2, ...)
 		uint32_t expectedIndex = blockIndices[0];
 		for (uint32_t i = 1u; i < blockCount; ++i)
@@ -84,6 +90,12 @@ PDB::CoalescedMSFStream::CoalescedMSFStream(const void* data, uint32_t blockSize
 	, m_data(nullptr)
 	, m_size(streamSize)
 {
+	// zero-length (including nil) streams consume no block and must not dereference a page number.
+	if (streamSize == 0u)
+	{
+		return;
+	}
+
 	if (AreBlockIndicesContiguous(blockIndices, blockSize, streamSize))
 	{
 		// fast path, all block indices are contiguous, so we don't have to copy any data at all.
@@ -136,6 +148,12 @@ PDB::CoalescedMSFStream::CoalescedMSFStream(const DirectMSFStream& directStream,
 	, m_data(nullptr)
 	, m_size(size)
 {
+	// empty sub-windows never touch a block index.
+	if (size == 0u)
+	{
+		return;
+	}
+
 	const DirectMSFStream::IndexAndOffset indexAndOffset = directStream.GetBlockIndexForOffset(offset);
 
 	// Note: we need to add the offset within the block to the size of the stream to determine if the block

@@ -40,6 +40,12 @@ void PDB::DirectMSFStream::ReadAtOffset(void* destination, size_t size, size_t o
 	PDB_ASSERT(destination != nullptr, "Destination buffer not set");
 	PDB_ASSERT(offset + size <= m_size, "Not enough data left to read.");
 
+	// zero-byte reads never index a block, which matters for nil/empty streams without a page number.
+	if (size == 0u)
+	{
+		return;
+	}
+
 	// work out which block and offset within the block the read offset corresponds to
 	size_t blockIndex = offset >> m_blockSizeLog2;
 	const size_t offsetWithinBlock = offset & (m_blockSize - 1u);

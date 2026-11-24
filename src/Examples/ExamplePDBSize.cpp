@@ -28,11 +28,15 @@ void ExamplePDBSize(const PDB::RawFile& rawPdbFile, const PDB::DBIStream& dbiStr
 	printf("General\n");
 	printf("-------\n");
 	{
-		const PDB::SuperBlock* superBlock = rawPdbFile.GetSuperBlock();
-		printf("PDB page size (block size): %u\n", superBlock->blockSize);
-		printf("PDB block count: %u\n", superBlock->blockCount);
+		// Use the normalized container information so both MSF7 and Small MSF 2.00 work.
+		// GetSuperBlock() is only non-null for MSF7 and must not be dereferenced unconditionally.
+		const PDB::ContainerInfo containerInfo = rawPdbFile.GetContainerInfo();
+		const char* formatName = (containerInfo.format == PDB::ContainerFormat::SmallMSF2) ? "Small MSF 2.00" : "MSF 7.00";
+		printf("Container format: %s\n", formatName);
+		printf("PDB page size (block size): %u\n", containerInfo.blockSize);
+		printf("PDB block count: %u\n", containerInfo.blockCount);
 
-		const size_t rawSize = static_cast<size_t>(superBlock->blockSize) * static_cast<size_t>(superBlock->blockCount);
+		const size_t rawSize = static_cast<size_t>(containerInfo.blockSize) * static_cast<size_t>(containerInfo.blockCount);
 		printf("PDB raw size: %zu MiB (%zu GiB)\n", rawSize >> 20u, rawSize >> 30u);
 	}
 
