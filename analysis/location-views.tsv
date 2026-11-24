@@ -1,0 +1,5 @@
+object	variable_name	die_offset	begin_pc	end_pc	has_views	begin_view	end_view	expression_hex	location_description	view_source_kind	view_section_offset	view_byte_length	address_entry_section_offset	expression_section_offset	coordinate_check
+plain.elf	value	0x19	0x1000	0x1000	0	0	0	50	DWARF register 0 (DW_OP_reg0)	0	0x0	0	0x15	0x19	empty-same-pc-no-view
+plain.elf	value	0x19	0x1000	0x1010	0	0	0	51	DWARF register 1 (DW_OP_reg1)	0	0x0	0	0x1a	0x1e	nonempty-pc-range
+views.elf	value	0x19	0x1000	0x1000	1	1	2	50	DWARF register 0 (DW_OP_reg0)	1	0x15	3	0x18	0x1c	nonempty-same-pc-view
+views.elf	value	0x19	0x1000	0x1010	1	0	0	51	DWARF register 1 (DW_OP_reg1)	1	0x1d	3	0x20	0x24	nonempty-pc-range

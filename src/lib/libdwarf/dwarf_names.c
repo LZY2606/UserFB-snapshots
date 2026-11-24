@@ -2436,6 +2436,9 @@ dwarf_get_LLE_name (unsigned int val,
     case DW_LLE_start_length:
         *s_out = "DW_LLE_start_length";
         return DW_DLV_OK;
+    case DW_LLE_GNU_view_pair:
+        *s_out = "DW_LLE_GNU_view_pair";
+        return DW_DLV_OK;
     default: break;
     }
     return DW_DLV_NO_ENTRY;

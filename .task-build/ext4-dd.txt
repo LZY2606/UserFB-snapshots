@@ -1,0 +1,26 @@
+ERROR: dwarfdump found no dwarfdump.conf file in any of the standard places
+(precede all arguments with option --show-dwarfdump-conf to see what file paths tried)
+If no print/check arguments also provided dwarfdump may silently just stop.
+Frame not configured due to configure error(s), using generic 100 registers.
+Frame section access suppressed.
+
+.debug_info
+
+COMPILE_UNIT<header overall offset = 0x00000000>:
+< 0><0x0000000b>  DW_TAG_compile_unit
+
+LOCAL_SYMBOLS:
+< 1><0x0000000c>    DW_TAG_variable
+                      DW_AT_name                  ext4
+                      DW_AT_location              0x00000004
+      .debug_loc      offset  : 0x00000004
+      <loclist at offset 0x00000004 with 2 entries follows>
+   [ 0]<low,hi addrs       0x00001000 , 0x00001000>
+                          views=[(0x00001000,1),(0x00001000,2)) view_source=external view_section=.debug_loc view_offset=0x00000000 view_length=2
+                          DW_OP_reg0
+   [ 1]<low,hi addrs       0x00001000 , 0x00001010>
+                          views=[(0x00001000,0),(0x00001010,0)) view_source=external view_section=.debug_loc view_offset=0x00000002 view_length=2
+                          DW_OP_reg1
+                      DW_AT_GNU_locviews          0x00000000
+
+There was 1 DWARF error reported: see ERROR above.

@@ -152,7 +152,12 @@ counted_loc_descr(Dwarf_Debug dbg,
     *loc_ops_overall_size = ops_len+leblen;
     *loc_ops_len = ops_len;
     *opsdata = data;
-    *opsoffset = offset +leblen;
+    /*  data now points at the first expression byte.  Derive its
+        section offset from the pointer so callers passing an entry
+        offset (rather than the counted-length offset) still work. */
+    *opsoffset = (Dwarf_Unsigned)(data -
+        dbg->de_debug_loclists.dss_data);
+    (void)offset;
     return DW_DLV_OK;
 }
 
@@ -306,6 +311,15 @@ read_single_lle_entry(Dwarf_Debug dbg,
         }
         count += loc_ops_overall_size;
         data +=  loc_ops_overall_size;
+        }
+        break;
+    case DW_LLE_GNU_view_pair: {
+        DECODE_LEB128_UWORD_LEN_CK(data,val1,leblen,
+            dbg,error,enddata);
+        count += leblen;
+        DECODE_LEB128_UWORD_LEN_CK(data,val2,leblen,
+            dbg,error,enddata);
+        count += leblen;
         }
         break;
     default: {
@@ -1078,6 +1092,21 @@ _dwarf_which_loclists_context(Dwarf_Debug dbg,
     return DW_DLV_ERROR;
 }
 
+static Dwarf_Bool
+lle_is_address_range(unsigned int code)
+{
+    switch(code) {
+    case DW_LLE_startx_endx:
+    case DW_LLE_startx_length:
+    case DW_LLE_offset_pair:
+    case DW_LLE_start_end:
+    case DW_LLE_start_length:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 /*  Caller will eventually free as appropriate. */
 static int
 alloc_rle_and_append_to_list(Dwarf_Debug dbg,
@@ -1130,6 +1159,11 @@ build_array_of_lle(Dwarf_Debug dbg,
     Dwarf_Unsigned bytescounttotal= 0;
     int            done           = FALSE;
     Dwarf_Unsigned i              = 0;
+    Dwarf_Bool     pending_view   = FALSE;
+    Dwarf_Unsigned pending_begin  = 0;
+    Dwarf_Unsigned pending_end    = 0;
+    Dwarf_Unsigned pending_offset = 0;
+    Dwarf_Unsigned pending_length = 0;
 
     for ( ; !done  ; ) {
         unsigned int    entrylen = 0;
@@ -1152,6 +1186,32 @@ build_array_of_lle(Dwarf_Debug dbg,
         if (res != DW_DLV_OK) {
             return res;
         }
+        if (code == DW_LLE_GNU_view_pair) {
+            if (pending_view) {
+                _dwarf_error_string(dbg,error,
+                    DW_DLE_LOCLISTS_ERROR,
+                    "DW_DLE_LOCLISTS_ERROR: duplicate "
+                    "DW_LLE_GNU_view_pair prefix");
+                return DW_DLV_ERROR;
+            }
+            pending_view = TRUE;
+            pending_begin = val1;
+            pending_end = val2;
+            pending_offset = dataoffset;
+            pending_length = entrylen;
+            data += entrylen;
+            dataoffset += entrylen;
+            bytescounttotal += entrylen;
+            continue;
+        }
+        if (pending_view && !lle_is_address_range(code)) {
+            _dwarf_error_string(dbg,error,
+                DW_DLE_LOCLISTS_ERROR,
+                "DW_DLE_LOCLISTS_ERROR: "
+                "DW_LLE_GNU_view_pair prefix may only modify "
+                "an address-range location entry");
+            return DW_DLV_ERROR;
+        }
         res = alloc_rle_and_append_to_list(dbg,rctx,&e,error);
         if (res != DW_DLV_OK) {
             return res;
@@ -1169,7 +1229,17 @@ build_array_of_lle(Dwarf_Debug dbg,
         e->ld_rawhigh = val2;
         e->ld_opsblock = eops;
         e->ld_lle_bytecount = entrylen;
+        if (pending_view) {
+            e->ld_view_present = TRUE;
+            e->ld_begin_view = pending_begin;
+            e->ld_end_view = pending_end;
+            e->ld_view_source = DW_LOCVIEW_SOURCE_INLINE;
+            e->ld_view_section_offset = pending_offset;
+            e->ld_view_byte_length = pending_length;
+            pending_view = FALSE;
+        }
         data += entrylen;
+        dataoffset += entrylen;
         bytescounttotal += entrylen;
         if (code == DW_LLE_end_of_list) {
             /*  This terminates the entries for a loclist portion.*/

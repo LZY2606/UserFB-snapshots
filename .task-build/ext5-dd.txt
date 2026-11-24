@@ -1,0 +1,59 @@
+ERROR: dwarfdump found no dwarfdump.conf file in any of the standard places
+(precede all arguments with option --show-dwarfdump-conf to see what file paths tried)
+If no print/check arguments also provided dwarfdump may silently just stop.
+Frame not configured due to configure error(s), using generic 100 registers.
+Frame section access suppressed.
+
+.debug_info
+
+COMPILE_UNIT<header overall offset = 0x00000000>:
+< 0><0x0000000c>  DW_TAG_compile_unit
+                    DW_AT_low_pc                0x00001000
+                    DW_AT_loclists_base         0x0000000c
+
+LOCAL_SYMBOLS:
+< 1><0x00000019>    DW_TAG_variable
+                      DW_AT_name                  ext_a
+                      DW_AT_location              0x00000010
+      .debug_loclists offset  : 0x00000010
+      <debug_loclists offset 0x00000010 with 4 entries follows>
+   [0x00000010][0x00000010][ 0]<new base address     0x00001000>
+   [ 1]<start,end            0x00001000 0x00001000>
+                          views=[(0x00001000,1),(0x00001000,2)) view_source=external view_section=.debug_loclists view_offset=0x0000000c view_length=2
+                          DW_OP_reg0
+   [ 2]<start,end            0x00001000 0x00001010>
+                          views=[(0x00001000,0),(0x00001010,0)) view_source=external view_section=.debug_loclists view_offset=0x0000000e view_length=2
+                          DW_OP_reg1
+   [ 3]<end-of-list>
+                      DW_AT_GNU_locviews          0x0000000c
+< 1><0x00000028>    DW_TAG_variable
+                      DW_AT_name                  ext_b
+                      DW_AT_location              0x00000028
+      .debug_loclists offset  : 0x00000028
+      <debug_loclists offset 0x00000028 with 4 entries follows>
+   [0x00000028][0x00000028][ 0]<new base address     0x00001000>
+   [ 1]<start,end            0x00001000 0x00001000>
+                          views=[(0x00001000,7),(0x00001000,8)) view_source=external view_section=.debug_loclists view_offset=0x00000024 view_length=2
+                          DW_OP_reg0
+   [ 2]<start,end            0x00001000 0x00001010>
+                          views=[(0x00001000,9),(0x00001010,10)) view_source=external view_section=.debug_loclists view_offset=0x00000026 view_length=2
+                          DW_OP_reg1
+   [ 3]<end-of-list>
+                      DW_AT_GNU_locviews          0x00000024
+< 1><0x00000037>    DW_TAG_variable
+                      DW_AT_name                  base_sw
+                      DW_AT_location              0x00000040
+      .debug_loclists offset  : 0x00000040
+      <debug_loclists offset 0x00000040 with 5 entries follows>
+   [0x00000040][0x00000040][ 0]<new base address     0x00001000>
+   [ 1]<start,end            0x00001000 0x00001000>
+                          views=[(0x00001000,11),(0x00001000,12)) view_source=external view_section=.debug_loclists view_offset=0x0000003c view_length=2
+                          DW_OP_reg0
+   [ 2]<new base address     0x00002000>
+   [ 3]<start,end            0x00002000 0x00002010>
+                          views=[(0x00002000,13),(0x00002010,14)) view_source=external view_section=.debug_loclists view_offset=0x0000003e view_length=2
+                          DW_OP_reg1
+   [ 4]<end-of-list>
+                      DW_AT_GNU_locviews          0x0000003c
+
+There was 1 DWARF error reported: see ERROR above.

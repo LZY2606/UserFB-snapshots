@@ -227,6 +227,11 @@ print_single_lle(Dwarf_Unsigned lineoffset,
             " 0x%" DW_PR_XZEROS DW_PR_DUx
             " 0x%" DW_PR_XZEROS DW_PR_DUx ,v1,v2);
         break;
+    case DW_LLE_GNU_view_pair:
+        printf(
+            " views 0x%" DW_PR_XZEROS DW_PR_DUx
+            " 0x%" DW_PR_XZEROS DW_PR_DUx,v1,v2);
+        break;
     default:
         printf(" ERROR: Unknown LLE code in .debug_loclists. %s\n",
             esb_get_string(&m));

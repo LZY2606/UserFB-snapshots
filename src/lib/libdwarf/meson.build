@@ -36,6 +36,7 @@ libdwarf_src = [
   'dwarf_leb.c',
   'dwarf_line.c',
   'dwarf_loc.c',
+  'dwarf_location_views.c',
   'dwarf_locationop_read.c',
   'dwarf_local_malloc.c',
   'dwarf_loclists.c',

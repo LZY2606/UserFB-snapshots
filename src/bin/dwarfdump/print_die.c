@@ -6837,9 +6837,10 @@ print_location_list(Dwarf_Debug dbg,
         return lres;
     }
     {
-        /* Preferred interface. Deals with DWARF2,3,4,5. */
-        lres = dwarf_get_loclist_c(attr,&loclist_head,
-            &no_of_elements,llerr);
+        /* Preferred interface. Deals with DWARF2,3,4,5 and
+           GNU location-view companions. */
+        lres = dwarf_get_loclist_views_c(die,attr,
+            &loclist_head,&no_of_elements,llerr);
         if (lres == DW_DLV_ERROR) {
             print_error_and_continue(
                 "ERROR: dwarf_get_loclist_c fails",
@@ -6942,6 +6943,7 @@ print_location_list(Dwarf_Debug dbg,
     for (llent = 0; llent < no_of_elements; ++llent) {
         Dwarf_Unsigned locdesc_offset = 0;
         Dwarf_Locdesc_c locentry = 0; /* 2015 */
+        Dwarf_Locview locview;
         Dwarf_Unsigned rawlowpc = 0;
         Dwarf_Unsigned rawhipc = 0;
         Dwarf_Unsigned ulocentry_count = 0;
@@ -6978,6 +6980,15 @@ print_location_list(Dwarf_Debug dbg,
                 dwarf_dealloc_loc_head_c(loclist_head);
                 return lres;
             }
+        }
+        memset(&locview,0,sizeof(locview));
+        lres = dwarf_get_locdesc_views(locentry,&locview,llerr);
+        if (lres == DW_DLV_ERROR) {
+            print_error_and_continue(
+                "ERROR: dwarf_get_locdesc_views fails",
+                lres,*llerr);
+            dwarf_dealloc_loc_head_c(loclist_head);
+            return lres;
         }
         if (loclist_source == DW_LKIND_expression &&
             lle_value != DW_LLE_start_end) {
@@ -7108,6 +7119,48 @@ print_location_list(Dwarf_Debug dbg,
                     locdesc_offset,
                     details,
                     &bError);
+            }
+        }
+        if (locview.has_views) {
+            const char *view_source = "none";
+            const char *view_section = ".debug_loc";
+
+            if (locview.source_kind == DW_LOCVIEW_SOURCE_INLINE) {
+                view_source = "inline";
+            } else if (locview.source_kind ==
+                DW_LOCVIEW_SOURCE_EXTERNAL) {
+                view_source = "external";
+            }
+            if (loclist_source == DW_LKIND_loclists) {
+                view_section = ".debug_loclists";
+            }
+            esb_append(details,
+                "\n                          views=[(0x");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUx,lopc);
+            esb_append(details,",");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUu,locview.begin_view);
+            esb_append(details,"),(0x");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUx,hipc);
+            esb_append(details,",");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUu,locview.end_view);
+            esb_append(details,")) view_source=");
+            esb_append_printf_s(details,"%s",view_source);
+            esb_append(details," view_section=");
+            esb_append_printf_s(details,"%s",view_section);
+            esb_append(details," view_offset=0x");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUx,
+                locview.section_offset);
+            esb_append(details," view_length=");
+            esb_append_printf_u(details,
+                "%" DW_PR_DUu,locview.byte_length);
+            if (checking && lopc == hipc &&
+                locview.begin_view == locview.end_view) {
+                esb_append(details," (empty (PC,view) range)");
             }
         }
         lres = dwarfdump_print_expression_operations(dbg,

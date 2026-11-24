@@ -346,6 +346,29 @@ typedef struct Dwarf_Locdesc_c_s * Dwarf_Locdesc_c;
 */
 typedef struct Dwarf_Loc_Head_c_s * Dwarf_Loc_Head_c;
 
+#define DW_LOCVIEW_SOURCE_NONE      0
+#define DW_LOCVIEW_SOURCE_INLINE    1
+#define DW_LOCVIEW_SOURCE_EXTERNAL  2
+
+/*! @struct Dwarf_Locview_s
+    View coordinates attached to one address-range location record.
+
+    has_views is false when the producer supplied no view pair.
+    An explicit pair of (0,0) still sets has_views true.
+    section_offset is relative to the section containing the bytes.
+    For an inline DW_LLE_GNU_view_pair, byte_length includes the
+    opcode; for DW_AT_GNU_locviews data it covers only two ULEB128
+    values.
+*/
+typedef struct Dwarf_Locview_s {
+    Dwarf_Bool     has_views;
+    Dwarf_Unsigned begin_view;
+    Dwarf_Unsigned end_view;
+    Dwarf_Small    source_kind;
+    Dwarf_Unsigned section_offset;
+    Dwarf_Unsigned byte_length;
+} Dwarf_Locview;
+
 /*! @typedef  Dwarf_Gnu_Index_Head
 
     A pointer to a struct Dwarf_Gnu_Index_Head_s
@@ -4981,6 +5004,20 @@ DW_API int dwarf_get_loclist_c(Dwarf_Attribute dw_attr,
     Dwarf_Unsigned   * dw_locentry_count,
     Dwarf_Error      * dw_error);
 
+/*! @brief Read a location list and associate GNU location views.
+
+    This is like dwarf_get_loclist_c(), but dw_die is the DIE owning
+    dw_attr.  A DW_AT_GNU_locviews companion on that same DIE identifies
+    an external ULEB128 view-pair table.  Without that companion the
+    result is equivalent to dwarf_get_loclist_c(), including inline
+    DW_LLE_GNU_view_pair prefixes.
+*/
+DW_API int dwarf_get_loclist_views_c(Dwarf_Die       dw_die,
+    Dwarf_Attribute    dw_attr,
+    Dwarf_Loc_Head_c * dw_loclist_head,
+    Dwarf_Unsigned   * dw_locentry_count,
+    Dwarf_Error      * dw_error);
+
 #define DW_LKIND_expression   0 /* DWARF2,3,4,5 */
 #define DW_LKIND_loclist      1 /* DWARF 2,3,4 */
 #define DW_LKIND_GNU_exp_list 2 /* GNU DWARF4 .dwo extension */
@@ -5107,6 +5144,15 @@ DW_API int dwarf_get_locdesc_entry_e(Dwarf_Loc_Head_c dw_loclist_head,
     Dwarf_Unsigned *  dw_expression_offset_out,
     Dwarf_Unsigned *  dw_locdesc_offset_out,
     Dwarf_Error    *  dw_error);
+
+/*! @brief Retrieve GNU location-view information for one record.
+
+    The output structure is cleared first.  Records without an explicit
+    view pair return DW_DLV_OK with has_views set to FALSE.
+*/
+DW_API int dwarf_get_locdesc_views(Dwarf_Locdesc_c dw_locdesc,
+    Dwarf_Locview   * dw_view,
+    Dwarf_Error     * dw_error);
 
 /*! @brief Get the raw values from a single location operation
 

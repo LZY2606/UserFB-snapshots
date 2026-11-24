@@ -1,0 +1,14 @@
+-- Building dwarfexample... OFF
+-- Building api tests   ... OFF
+-- HAVE_UINTPTR_T 1: uintptr_t defined in stdint.h... YES
+-- uintptr_t value considered NO 
+-- HAVE_INTPTR_T 1: intptr_t defined in stdint.h... YES
+-- intptr_t value considered NO 
+-- ENABLE_DECOMPRESSION : OFF
+-- Build with zlib and zstd: NO
+-- CMAKE_SIZEOF_VOID_P ... : 8
+-- Compiler warning options... NO
+-- Install prefix ... /usr/local
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/UFB100021/attempts/20261124T161548739406Z/repo/.task-build

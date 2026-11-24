@@ -75,6 +75,12 @@ _dwarf_locdesc_c_constructor(Dwarf_Debug dbg, void *locd)
     }
     ldp->ld_lle_value = DW_LLE_VALUE_BOGUS;
     ldp->ld_lkind = DW_LKIND_unknown;
+    ldp->ld_view_present = FALSE;
+    ldp->ld_begin_view = 0;
+    ldp->ld_end_view = 0;
+    ldp->ld_view_source = DW_LOCVIEW_SOURCE_NONE;
+    ldp->ld_view_section_offset = 0;
+    ldp->ld_view_byte_length = 0;
     return DW_DLV_OK;
 }
 
@@ -243,6 +249,7 @@ _dwarf_read_loc_section(Dwarf_Debug dbg,
     return_block->bl_section_offset =
         ((Dwarf_Small *) return_block->bl_data) -
         dbg->de_debug_loc.dss_data;
+    return_block->bl_locdesc_offset = sec_offset;
     return DW_DLV_OK;
 }
 

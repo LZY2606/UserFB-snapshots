@@ -159,6 +159,14 @@ struct Dwarf_Locdesc_c_s {
     /* Section (not CU) offset where location descr begins*/
     Dwarf_Unsigned   ld_locdesc_offset;
 
+    /* GNU location views attached to an address-range entry. */
+    Dwarf_Bool       ld_view_present;
+    Dwarf_Unsigned   ld_begin_view;
+    Dwarf_Unsigned   ld_end_view;
+    Dwarf_Small      ld_view_source;
+    Dwarf_Unsigned   ld_view_section_offset;
+    Dwarf_Unsigned   ld_view_byte_length;
+
     /* Pointer to our header (in which we are located). */
     Dwarf_Loc_Head_c ld_loclist_head;
     Dwarf_Locdesc_c  ld_next; /*helps building the locdescs*/

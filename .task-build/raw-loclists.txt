@@ -1,0 +1,30 @@
+ERROR: dwarfdump found no dwarfdump.conf file in any of the standard places
+(precede all arguments with option --show-dwarfdump-conf to see what file paths tried)
+If no print/check arguments also provided dwarfdump may silently just stop.
+Frame not configured due to configure error(s), using generic 100 registers.
+Frame section access suppressed.
+
+.debug_loclists
+
+ Number of loclists contexts:  1
+  Context number         :   0
+   Version               :   5
+   address size          :   8
+   offset size           :   4
+   segment selector size :   0
+   offset entry count    :   0
+   loclist size in bytes :  38
+   Offset in section     : 0x00000000
+   Offset  of offsets    : 0x0000000c
+   Offsetof first loc    : 0x0000000c
+   Offset past locations : 0x00000026
+   LocationList (raw)
+   [goff      ][loff      ] entryname           val1     val2   entrylen
+   [0x0000000c][0x0000000c] DW_LLE_base_address  0x00001000            9
+   [0x00000015][0x00000015] DW_LLE_GNU_view_pair views 0x00000001 0x00000002 3
+   [0x00000018][0x00000018] DW_LLE_offset_pair   0x00000000 0x00000000 5
+   [0x0000001d][0x0000001d] DW_LLE_GNU_view_pair views 0x00000000 0x00000000 3
+   [0x00000020][0x00000020] DW_LLE_offset_pair   0x00000000 0x00000010 5
+   [0x00000025][0x00000025] DW_LLE_end_of_list                         1
+
+There was 1 DWARF error reported: see ERROR above.

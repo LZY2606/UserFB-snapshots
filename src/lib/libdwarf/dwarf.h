@@ -1074,6 +1074,7 @@ most-likely-useful name. */
 #define DW_LLE_base_address         0x06     /* DWARF5 */
 #define DW_LLE_start_end            0x07     /* DWARF5 */
 #define DW_LLE_start_length         0x08     /* DWARF5 */
+#define DW_LLE_GNU_view_pair        0x09     /* GNU location views */
 
 /* DWARF5 Range List Entries */
 #define DW_RLE_end_of_list          0x00     /* DWARF5 */
