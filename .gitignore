@@ -1,4 +1,6 @@
 .idea/
+# Task runner local build output
+.task-build/
 # CMake
 cmake-build-*/
 amf0/

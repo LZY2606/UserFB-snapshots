@@ -125,6 +125,59 @@ demuxer.decode(&lIn);
 
 ```
 
+## H.264 access unit output
+
+`esOutCallback` keeps delivering PES frames exactly as before. In addition, an
+optional `h264OutCallback` can be installed. When it is set, PMT elementary
+streams with `stream_type = 0x1b` are framed into H.264 access units
+(see `mpegts/h264_access_unit.h`); every other stream still uses
+`esOutCallback`. Start codes and NAL units may be split across PES boundaries
+and AUD NAL units are optional. SPS/PPS are parsed per PID to apply the
+H.264 picture identity rules, so several slices of the same picture are
+reported as one access unit. `annexB` preserves the original NAL order and
+escaped payload, with every start code normalized to four bytes.
+
+The callback receives a borrowed `const H264AccessUnit&`; copy `annexB` (or
+the whole structure) inside the callback if it must outlive the call. PTS/DTS
+are the raw 33 bit values with their presence flags and are bound by the PES
+carrying the first zero byte of the first VCL start code of a picture.
+
+```cpp
+#include "mpegts_demuxer.h"
+
+MpegTsDemuxer demuxer;
+
+demuxer.h264OutCallback = [](const mpegts::H264AccessUnit& au) {
+    // au.pid      - elementary PID
+    // au.annexB   - normalized Annex-B bytes (00 00 00 01 + NAL...)
+    // au.hasPts / au.pts, au.hasDts / au.dts (raw 33 bit values)
+    // au.isIdr    - derived from the first VCL NAL, not the TS RAI flag
+    consumeAccessUnit(au.pid, au.annexB.data(), au.annexB.size(),
+                     au.pts, au.dts, au.hasPts, au.hasDts, au.isIdr);
+};
+
+// Optional: malformed NAL headers, unknown parameter sets and unsupported
+// partition/extension NALs are reported here. The pending picture/tail is
+// dropped; parsed SPS/PPS survive and framing resumes at a new legal IDR.
+demuxer.h264ErrorCallback = [](uint16_t pid, const std::string& message) {
+    logH264Error(pid, message);
+};
+
+while (receiveTsPacketOrChunk(buffer)) {
+    mpegts::SimpleBuffer in;
+    in.append(buffer.data(), buffer.size());
+    demuxer.decode(in);
+}
+
+// Flush a complete zero length PES and the last access unit. Calling finish()
+// more than once does not invoke the callbacks again.
+demuxer.finish();
+```
+
+`task_support/run.sh target` builds the regression suite in
+`tests/h264_access_units.cpp` (pictures, timestamps and lifecycle groups)
+together with the production sources.
+
 Muxer ->
  
 ```cpp

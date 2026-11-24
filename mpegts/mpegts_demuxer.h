@@ -9,12 +9,15 @@
 #include "common.h"
 #include "ts_packet.h"
 #include "simple_buffer.h"
+#include "h264_access_unit.h"
 
 #include <cstdint>
 #include <memory>
 #include <map>
 #include <functional>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 
 namespace mpegts {
 
@@ -27,7 +30,18 @@ public:
 
     uint8_t decode(SimpleBuffer &rIn);
 
+    // Flush the complete zero length PES and the last H.264 access units.
+    // Calling finish() more than once does not repeat any callbacks.
+    void finish();
+
     std::function<void(const EsFrame& pEs)> esOutCallback = nullptr;
+
+    // Optional H.264 access unit output. When set, PMT PIDs with stream_type
+    // 0x1b are framed into H264AccessUnits; all other streams keep using
+    // esOutCallback. esOutCallback itself keeps its original behavior.
+    std::function<void(const H264AccessUnit& rAccessUnit)> h264OutCallback = nullptr;
+    std::function<void(uint16_t lPid, const std::string& rMessage)> h264ErrorCallback = nullptr;
+
     std::function<void(uint64_t lPcr)> pcrOutCallback = nullptr;
     std::function<void(LogLevel level, const std::string&)> streamInfoCallback = nullptr;
     std::function<void(uint16_t pid, uint8_t expectedCC, uint8_t actualCC)> ccErrorCallback = nullptr;
@@ -81,6 +95,11 @@ private:
     std::map<int, EsFrame> mEsFrames;
     int mPcrId = 0;
     SimpleBuffer mRestData;
+
+    // H.264 access unit framers, one per stream_type 0x1b PID.
+    H264AccessUnitFramer& getH264Framer(uint16_t lPid);
+    std::map<uint16_t, std::unique_ptr<H264AccessUnitFramer>> mH264Framers;
+    bool mFinished = false;
 
     // Continuity counters. Map from PID to current CC value.
     std::unordered_map<uint16_t, uint8_t> mCCs;

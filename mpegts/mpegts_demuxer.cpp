@@ -53,6 +53,56 @@ uint8_t MpegTsDemuxer::decode(SimpleBuffer &rIn) {
     return 0;
 }
 
+H264AccessUnitFramer& MpegTsDemuxer::getH264Framer(uint16_t lPid) {
+    auto lIt = mH264Framers.find(lPid);
+    if (lIt == mH264Framers.end()) {
+        std::unique_ptr<H264AccessUnitFramer> lpFramer(new H264AccessUnitFramer(lPid));
+        // Forward through the demuxer callbacks so callbacks installed or
+        // replaced after PMT parsing are always used.
+        MpegTsDemuxer* lpSelf = this;
+        lpFramer->accessUnitCallback = [lpSelf](const H264AccessUnit& rAu) {
+            if (lpSelf->h264OutCallback) {
+                lpSelf->h264OutCallback(rAu);
+            }
+        };
+        lpFramer->errorCallback = [lpSelf](uint16_t lErrorPid, const std::string& rMessage) {
+            if (lpSelf->h264ErrorCallback) {
+                lpSelf->h264ErrorCallback(lErrorPid, rMessage);
+            }
+        };
+        lIt = mH264Framers.emplace(lPid, std::move(lpFramer)).first;
+    }
+    return *lIt->second;
+}
+
+void MpegTsDemuxer::finish() {
+    if (mFinished) {
+        return;
+    }
+    mFinished = true;
+
+    // Flush PES frames still open. A PES packet length of zero means an
+    // unbounded video PES which is complete at the end of the stream.
+    for (auto& rPair : mEsFrames) {
+        EsFrame& rEsFrame = rPair.second;
+        if (!rEsFrame.mData->empty()) {
+            if (esOutCallback) {
+                if (rEsFrame.mExpectedPesPacketLength == 0) {
+                    rEsFrame.mCompleted = true;
+                } else {
+                    rEsFrame.mBroken = true;
+                }
+                esOutCallback(rEsFrame);
+            }
+            rEsFrame.reset();
+        }
+    }
+
+    for (auto& rPair : mH264Framers) {
+        rPair.second->finish();
+    }
+}
+
 void MpegTsDemuxer::parseTsPacket(mpegts::SimpleBuffer& rSb) {
     const size_t lTSPacketStartPos = rSb.pos();
 
@@ -208,6 +258,10 @@ bool MpegTsDemuxer::parsePes(const mpegts::TsHeader& rTsHeader, uint8_t randomAc
     size_t lPesStartPos = rSb.pos();
 
     EsFrame& lEsFrame = mEsFrames[rTsHeader.mPid];
+
+    // PTS/DTS origin of this PES, also used for H.264 access unit timing.
+    H264TimeInfo lH264Time;
+
     if (rTsHeader.mPayloadUnitStartIndicator == 0x01) {
         // TODO: Transport streams with no PES packet size set on video streams will not output the very
         // last frame, since there will be no final packet with mPayloadUnitStartIndicator set. Add a flush
@@ -244,10 +298,19 @@ bool MpegTsDemuxer::parsePes(const mpegts::TsHeader& rTsHeader, uint8_t randomAc
         if (lPesHeader.mPtsDtsFlags == 0x02) {
             lEsFrame.mPts = readPts(rSb);
             lEsFrame.mDts = lEsFrame.mPts;
+            lH264Time.hasPts = true;
+            lH264Time.pts = lEsFrame.mPts;
+            // DTS defaults to PTS, but its presence flag stays false.
+            lH264Time.hasDts = false;
+            lH264Time.dts = lEsFrame.mPts;
         } else if (lPesHeader.mPtsDtsFlags == 0x03) {
             lEsFrame.mPts = readPts(rSb);
             // readPts function reads a "PTS", but the bitstream syntax is the same for DTS
             lEsFrame.mDts = readPts(rSb);
+            lH264Time.hasPts = true;
+            lH264Time.pts = lEsFrame.mPts;
+            lH264Time.hasDts = true;
+            lH264Time.dts = lEsFrame.mDts;
         }
 
         if (lPesHeader.mPesPacketLength != 0) {
@@ -272,7 +335,22 @@ bool MpegTsDemuxer::parsePes(const mpegts::TsHeader& rTsHeader, uint8_t randomAc
     }
     size_t bytesLeftOfPayload = payloadSize - (rSb.pos() - lPesStartPos);
 
-    lEsFrame.mData->append(rSb.currentData(), bytesLeftOfPayload);
+    const uint8_t* lpPayload = rSb.currentData();
+    lEsFrame.mData->append(lpPayload, bytesLeftOfPayload);
+
+    // When an H.264 output or error callback is installed, additionally frame
+    // stream_type 0x1b PIDs into access units. esOutCallback keeps being
+    // served as before.
+    static constexpr uint8_t kAvcStreamType = 0x1b;
+    bool h264Enabled = h264OutCallback != nullptr || h264ErrorCallback != nullptr;
+    if (h264Enabled && lEsFrame.mStreamType == kAvcStreamType) {
+        H264AccessUnitFramer& rFramer = getH264Framer(rTsHeader.mPid);
+        if (rTsHeader.mPayloadUnitStartIndicator == 0x01) {
+            rFramer.beginPes(lH264Time);
+        }
+        rFramer.feed(lpPayload, bytesLeftOfPayload);
+    }
+
     rSb.skip(bytesLeftOfPayload);
 
     // Enough data to deliver?
