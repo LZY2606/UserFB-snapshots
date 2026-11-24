@@ -30,6 +30,7 @@
 #include "../../MCRegisterInfo.h"
 #include "../../utils.h"
 #include "ARMMapping.h"
+#include "ARMITContext.h"
 
 #define GET_SUBTARGETINFO_ENUM
 #include "ARMGenSubtargetInfo.inc"
@@ -285,6 +286,8 @@ static const name_map insn_update_flgs[] = {
 
 void ARM_post_printer(csh ud, cs_insn *insn, char *insn_asm, MCInst *mci)
 {
+	ARM_it_fill_detail((cs_struct *)ud, insn);
+
 	if (((cs_struct *)ud)->detail != CS_OPT_ON)
 		return;
 

@@ -188,6 +188,7 @@ if(CAPSTONE_ARM_SUPPORT)
     set(SOURCES_ARM
         arch/ARM/ARMDisassembler.c
         arch/ARM/ARMInstPrinter.c
+        arch/ARM/ARMITContext.c
         arch/ARM/ARMMapping.c
         arch/ARM/ARMModule.c
     )
@@ -196,6 +197,7 @@ if(CAPSTONE_ARM_SUPPORT)
         arch/ARM/ARMBaseInfo.h
         arch/ARM/ARMDisassembler.h
         arch/ARM/ARMInstPrinter.h
+        arch/ARM/ARMITContext.h
         arch/ARM/ARMMapping.h
         arch/ARM/ARMGenAsmWriter.inc
         arch/ARM/ARMGenDisassemblerTables.inc

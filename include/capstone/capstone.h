@@ -270,6 +270,7 @@ typedef enum cs_opt_type {
 	CS_OPT_MNEMONIC,       ///< Customize instruction mnemonic
 	CS_OPT_UNSIGNED,       ///< print immediate operands in unsigned form
 	CS_OPT_NO_BRANCH_OFFSET, ///< ARM, prints branch immediates without offset.
+	CS_OPT_ARM_IT_CONTEXT, ///< ARM/Thumb: preserve IT context across adjacent disasm calls. Default off.
 } cs_opt_type;
 
 /// Runtime option value (associated with option type above)

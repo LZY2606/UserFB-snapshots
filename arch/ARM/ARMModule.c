@@ -9,6 +9,7 @@
 #include "ARMInstPrinter.h"
 #include "ARMMapping.h"
 #include "ARMModule.h"
+#include "ARMITContext.h"
 
 cs_err ARM_global_init(cs_struct *ud)
 {
@@ -40,7 +41,11 @@ cs_err ARM_global_init(cs_struct *ud)
 cs_err ARM_option(cs_struct *handle, cs_opt_type type, size_t value)
 {
 	switch(type) {
+		case CS_OPT_ARM_IT_CONTEXT:
+			return ARM_it_set_option(handle, value);
+
 		case CS_OPT_MODE:
+			ARM_it_mode_changed(handle, (cs_mode)value);
 			if (value & CS_MODE_THUMB)
 				handle->disasm = Thumb_getInstruction;
 			else

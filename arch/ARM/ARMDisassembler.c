@@ -30,6 +30,7 @@
 
 #include "ARMDisassembler.h"
 #include "ARMMapping.h"
+#include "ARMITContext.h"
 
 #define GET_SUBTARGETINFO_ENUM
 #include "ARMGenSubtargetInfo.inc"
@@ -686,8 +687,10 @@ static DecodeStatus AddThumbPredicate(cs_struct *ud, MCInst *MI)
 	if (CC == 0xF) 
 		CC = ARMCC_AL;
 
-	if (ITStatus_instrInITBlock(&(ud->ITBlock)))
+	if (ITStatus_instrInITBlock(&(ud->ITBlock))) {
+		ARM_it_record_controlled_slot(ud);
 		ITStatus_advanceITState(&(ud->ITBlock));
+	}
 
 	OpInfo = ARMInsts[MCInst_getOpcode(MI)].OpInfo;
 	NumOps = ARMInsts[MCInst_getOpcode(MI)].NumOperands;
@@ -730,8 +733,10 @@ static void UpdateThumbVFPPredicate(cs_struct *ud, MCInst *MI)
 	unsigned i;
 
 	CC = ITStatus_getITCC(&(ud->ITBlock));
-	if (ITStatus_instrInITBlock(&(ud->ITBlock)))
+	if (ITStatus_instrInITBlock(&(ud->ITBlock))) {
+		ARM_it_record_controlled_slot(ud);
 		ITStatus_advanceITState(&(ud->ITBlock));
+	}
 
 	OpInfo = ARMInsts[MCInst_getOpcode(MI)].OpInfo;
 	NumOps = ARMInsts[MCInst_getOpcode(MI)].NumOperands;
@@ -814,6 +819,7 @@ static DecodeStatus _Thumb_getInstruction(cs_struct *ud, MCInst *MI, const uint8
 			Firstcond = (unsigned int)MCOperand_getImm(MCInst_getOperand(MI, 0));
 			Mask = (unsigned int)MCOperand_getImm(MCInst_getOperand(MI, 1));
 			ITStatus_setITState(&(ud->ITBlock), (char)Firstcond, (char)Mask);
+			ARM_it_record_it(ud, Address, Firstcond, Mask);
 
 			// An IT instruction that would give a 'NV' predicate is unpredictable.
 			// if (Firstcond == ARMCC_AL && !isPowerOf2_32(Mask))

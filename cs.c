@@ -54,6 +54,7 @@
 
 #include "arch/AArch64/AArch64Module.h"
 #include "arch/ARM/ARMModule.h"
+#include "arch/ARM/ARMITContext.h"
 #include "arch/EVM/EVMModule.h"
 #include "arch/WASM/WASMModule.h"
 #include "arch/M680X/M680XModule.h"
@@ -873,6 +874,7 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 	const uint8_t *buffer_org;
 	unsigned int cache_size = INSN_CACHE_SIZE;
 	size_t next_offset;
+	ARM_ITCheckpoint arm_it_checkpoint;
 
 	handle = (struct cs_struct *)(uintptr_t)ud;
 	if (!handle) {
@@ -883,8 +885,9 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 
 	handle->errnum = CS_ERR_OK;
 
-	// reset IT block of ARM structure
-	if (handle->arch == CS_ARCH_ARM)
+	// Reset IT block of ARM structure. With CS_OPT_ARM_IT_CONTEXT enabled,
+	// continuity is checked against the virtual PC before each fetch below.
+	if (handle->arch == CS_ARCH_ARM && !handle->it_context.enabled)
 		handle->ITBlock.size = 0;
 
 #ifdef CAPSTONE_USE_SYS_DYN_MEM
@@ -930,10 +933,16 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 		mci.flat_insn->op_str[0] = '\0';
 #endif
 
+		if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+			ARM_it_fetch_begin(handle, offset, &arm_it_checkpoint);
+
 		r = handle->disasm(ud, buffer, size, &mci, &insn_size, offset, handle->getinsn_info);
 		if (r) {
 			SStream ss;
 			SStream_Init(&ss);
+
+			if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+				ARM_it_fetch_commit(handle, offset, insn_size);
 
 			mci.flat_insn->size = insn_size;
 
@@ -951,6 +960,9 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 			next_offset = insn_size;
 		} else	{
 			// encounter a broken instruction
+
+			if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+				ARM_it_fetch_rollback(handle, &arm_it_checkpoint);
 
 			// free memory of @detail pointer
 			if (handle->detail) {
@@ -994,6 +1006,8 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 			insn_cache->detail = NULL;
 
 			next_offset = skipdata_bytes;
+			if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+				ARM_it_data_break(handle, offset, skipdata_bytes);
 		}
 
 		// one more instruction entering the cache
@@ -1116,6 +1130,7 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 	uint16_t insn_size;
 	MCInst mci;
 	bool r;
+	ARM_ITCheckpoint arm_it_checkpoint;
 
 	handle = (struct cs_struct *)(uintptr_t)ud;
 	if (!handle) {
@@ -1123,6 +1138,15 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 	}
 
 	handle->errnum = CS_ERR_OK;
+
+	// Also support a cs_insn allocated before CS_OPT_DETAIL was re-enabled.
+	if (handle->detail && insn && !insn->detail) {
+		insn->detail = cs_mem_malloc(sizeof(cs_detail));
+		if (!insn->detail) {
+			handle->errnum = CS_ERR_MEM;
+			return false;
+		}
+	}
 
 	MCInst_Init(&mci);
 	mci.csh = handle;
@@ -1139,10 +1163,16 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 	mci.flat_insn->op_str[0] = '\0';
 #endif
 
+	if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+		ARM_it_fetch_begin(handle, *address, &arm_it_checkpoint);
+
 	r = handle->disasm(ud, *code, *size, &mci, &insn_size, *address, handle->getinsn_info);
 	if (r) {
 		SStream ss;
 		SStream_Init(&ss);
+
+		if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+			ARM_it_fetch_commit(handle, *address, insn_size);
 
 		mci.flat_insn->size = insn_size;
 
@@ -1163,6 +1193,9 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 	} else { 	// encounter a broken instruction
 		size_t skipdata_bytes;
 
+		if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+			ARM_it_fetch_rollback(handle, &arm_it_checkpoint);
+
 		// if there is no request to skip data, or remaining data is too small,
 		// then bail out
 		if (!handle->skipdata || handle->skipdata_size > *size)
@@ -1182,8 +1215,13 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 			skipdata_bytes = handle->skipdata_size;
 
 		// we have to skip some amount of data, depending on arch & mode
+		if (handle->arch == CS_ARCH_ARM && handle->it_context.enabled)
+			ARM_it_data_break(handle, *address, skipdata_bytes);
+
 		insn->id = 0;	// invalid ID for this "data" instruction
 		insn->address = *address;
+		if (handle->arch == CS_ARCH_ARM && insn->detail)
+			memset(&insn->detail->arm.it, 0, sizeof(insn->detail->arm.it));
 		insn->size = (uint16_t)MIN(skipdata_bytes, sizeof(insn->bytes));
 		memcpy(insn->bytes, *code,
 		       MIN(skipdata_bytes, sizeof(insn->bytes)));

@@ -38,6 +38,40 @@ typedef struct ARM_ITStatus {
 	unsigned int size;
 } ARM_ITStatus;
 
+// Stable identity of the IT instruction that created an IT condition stack.
+typedef struct ARM_ITSource {
+	bool valid;
+	uint64_t block_address;
+	uint8_t mask;
+	uint8_t slot_count;
+	arm_cc first_cc;
+} ARM_ITSource;
+
+// Persistent optional IT continuity context for one csh handle.
+typedef struct ARM_ITContext {
+	bool enabled;
+	bool cursor_valid;
+	uint64_t next_pc;
+	ARM_ITSource source;
+
+	// Attribution of the instruction currently being decoded.
+	bool last_present;
+	bool last_is_it;
+	uint8_t last_slot;
+} ARM_ITContext;
+
+// Snapshot used to make a failed fetch leave the current IT slot unconsumed.
+typedef struct ARM_ITCheckpoint {
+	ARM_ITStatus block;
+	ARM_ITSource source;
+	bool cursor_valid;
+	uint64_t next_pc;
+	bool last_present;
+	bool last_is_it;
+	uint8_t last_slot;
+	bool contiguous;
+} ARM_ITCheckpoint;
+
 // Customize mnemonic for instructions with alternative name.
 struct customized_mnem {
 	// ID of instruction to be customized.
@@ -65,6 +99,7 @@ struct cs_struct {
 	PostPrinter_t post_printer;
 	cs_err errnum;
 	ARM_ITStatus ITBlock;	// for Arm only
+	ARM_ITContext it_context; // optional cross-entry Thumb IT provenance
 	cs_opt_value detail, imm_unsigned;
 	int syntax;	// asm syntax for simple printer such as ARM, Mips & PPC
 	bool doing_mem;	// handling memory operand in InstPrinter code

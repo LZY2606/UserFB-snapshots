@@ -436,6 +436,17 @@ typedef struct cs_arm_op {
 	int8_t neon_lane;
 } cs_arm_op;
 
+/// Provenance and slot information for a Thumb IT block.
+typedef struct cs_arm_it {
+	bool present;		///< True for the IT instruction and instructions controlled by it
+	bool is_it;		///< True only for the original IT instruction
+	uint64_t block_address;	///< Virtual address of the original IT instruction
+	uint8_t mask;		///< Original four-bit IT mask
+	uint8_t slot_index;	///< Zero for IT, 1..slot_count for controlled instructions
+	uint8_t slot_count;	///< Total number of instruction slots in the IT block
+	arm_cc first_cc;	///< First condition code encoded by the original IT
+} cs_arm_it;
+
 /// Instruction structure
 typedef struct cs_arm {
 	bool usermode;	///< User-mode registers to be loaded (for LDM/STM instructions)
@@ -454,6 +465,9 @@ typedef struct cs_arm {
 	uint8_t op_count;
 
 	cs_arm_op operands[36];	///< operands for this instruction.
+
+	/// Thumb IT-block provenance. All zero outside an IT block.
+	cs_arm_it it;
 } cs_arm;
 
 /// ARM instruction
