@@ -145,6 +145,9 @@ where
     encoding: Encoding,
     length: Offset,
     debug_info_offset: DebugInfoOffset<Offset>,
+    segment_size: u8,
+    /// The section-absolute offset of the first tuple in this contribution.
+    entries_offset: DebugArangesOffset<Offset>,
     entries: R,
 }
 
@@ -154,6 +157,7 @@ where
     Offset: ReaderOffset,
 {
     fn parse(input: &mut R, offset: DebugArangesOffset<Offset>) -> Result<Self> {
+        let contribution_start = input.clone();
         let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
@@ -169,17 +173,25 @@ where
         let debug_info_offset = rest.read_offset(format).map(DebugInfoOffset)?;
         let address_size = rest.read_address_size()?;
         let segment_size = rest.read_u8()?;
-        if segment_size != 0 {
-            return Err(Error::UnsupportedSegmentSize(segment_size));
+        match segment_size {
+            0 | 1 | 2 | 4 | 8 => {}
+            _ => return Err(Error::UnsupportedSegmentSize(segment_size)),
         }
 
         // unit_length + version + offset + address_size + segment_size
         let header_length = format.initial_length_size() + 2 + format.word_size() + 1 + 1;
 
         // The first tuple following the header in each set begins at an offset that is
-        // a multiple of the size of a single tuple (that is, twice the size of an address).
-        let tuple_length = address_size
-            .checked_mul(2)
+        // a multiple of the size of a single tuple (that is, the segment selector plus
+        // twice the size of an address). The alignment is computed relative to the
+        // start of this contribution, so adjacent contributions in the same section
+        // may use different segment sizes, address sizes and DWARF 32/64 formats.
+        let tuple_length = segment_size
+            .checked_add(
+                address_size
+                    .checked_mul(2)
+                    .ok_or(Error::UnsupportedAddressSize(address_size))?,
+            )
             .ok_or(Error::UnsupportedAddressSize(address_size))?;
         if tuple_length == 0 {
             return Err(Error::UnsupportedAddressSize(address_size));
@@ -191,6 +203,12 @@ where
         };
         rest.skip(R::Offset::from_u8(padding))?;
 
+        let entries_offset = DebugArangesOffset(
+            offset
+                .0
+                .wrapping_add(rest.offset_from(&contribution_start)),
+        );
+
         let encoding = Encoding {
             format,
             version,
@@ -201,6 +219,8 @@ where
             encoding,
             length,
             debug_info_offset,
+            segment_size,
+            entries_offset,
             entries: rest,
         })
     }
@@ -229,12 +249,33 @@ where
         self.debug_info_offset
     }
 
+    /// Return the size in bytes of a segment selector in each arange tuple.
+    ///
+    /// A value of 0 means the tuples omit the selector entirely, so the entries
+    /// describe a single flat address space. Nonzero widths are 1, 2, 4 or 8
+    /// bytes. The selector and the offset are always kept apart; this reader
+    /// never combines them into a host pointer.
+    #[inline]
+    pub fn segment_size(&self) -> u8 {
+        self.segment_size
+    }
+
+    /// Return the section-absolute offset of the first tuple in this
+    /// contribution, immediately after the header and its alignment padding.
+    #[inline]
+    pub fn entries_offset(&self) -> DebugArangesOffset<Offset> {
+        self.entries_offset
+    }
+
     /// Return the arange entries in this set.
     #[inline]
     pub fn entries(&self) -> ArangeEntryIter<R> {
         ArangeEntryIter {
             input: self.entries.clone(),
+            base: self.entries.clone(),
+            entries_offset: self.entries_offset,
             encoding: self.encoding,
+            segment_size: self.segment_size,
         }
     }
 }
@@ -243,7 +284,10 @@ where
 #[derive(Debug, Clone)]
 pub struct ArangeEntryIter<R: Reader> {
     input: R,
+    base: R,
+    entries_offset: DebugArangesOffset<R::Offset>,
     encoding: Encoding,
+    segment_size: u8,
 }
 
 impl<R: Reader> ArangeEntryIter<R> {
@@ -276,7 +320,13 @@ impl<R: Reader> ArangeEntryIter<R> {
             return Ok(None);
         }
 
-        match ArangeEntry::parse(&mut self.input, self.encoding) {
+        match ArangeEntry::parse(
+            &mut self.input,
+            &self.base,
+            self.entries_offset,
+            self.encoding,
+            self.segment_size,
+        ) {
             Ok(Some(entry)) => Ok(Some(entry)),
             Ok(None) => {
                 self.input.empty();
@@ -329,32 +379,73 @@ impl<R: Reader> Iterator for ArangeEntryIter<R> {
 /// A single parsed arange.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArangeEntry {
+    /// The section-absolute byte offset of this tuple within
+    /// `.debug_aranges`.
+    tuple_offset: u64,
+    segment: u64,
     range: Range,
     length: u64,
 }
 
 impl ArangeEntry {
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse<R: Reader>(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
+    fn parse<R: Reader>(
+        input: &mut R,
+        base: &R,
+        entries_offset: DebugArangesOffset<R::Offset>,
+        encoding: Encoding,
+        segment_size: u8,
+    ) -> Result<Option<Self>> {
         let address_size = encoding.address_size;
 
-        let tuple_length = R::Offset::from_u8(2 * address_size);
+        let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
         if tuple_length > input.len() {
             input.empty();
             return Ok(None);
         }
 
+        let tuple_offset = entries_offset.0.into_u64() + input.offset_from(base).into_u64();
+
+        let segment = if segment_size == 0 {
+            0
+        } else {
+            input.read_address(segment_size)?
+        };
         let begin = input.read_address(address_size)?;
         let length = input.read_address(address_size)?;
         let range = Range { begin, end: 0 };
 
-        match (begin, length) {
+        match (segment, begin, length) {
             // This is meant to be a null terminator, but in practice it can occur
             // before the end, possibly due to a linker omitting a function and
-            // leaving an unrelocated entry.
-            (0, 0) => Self::parse(input, encoding),
-            _ => Ok(Some(ArangeEntry { range, length })),
+            // leaving an unrelocated entry. Only the all-zero tuple is treated as
+            // null: a nonzero selector with a zero offset is a legal range and
+            // must be preserved.
+            (0, 0, 0) => Self::parse(input, base, entries_offset, encoding, segment_size),
+            _ => Ok(Some(ArangeEntry {
+                tuple_offset,
+                segment,
+                range,
+                length,
+            })),
         }
+    }
+
+    /// Return the section-absolute byte offset of this tuple within
+    /// `.debug_aranges`.
+    #[inline]
+    pub fn tuple_offset(&self) -> u64 {
+        self.tuple_offset
+    }
+
+    /// Return the segment selector of this arange.
+    ///
+    /// This is 0 for contributions whose header has a zero segment selector
+    /// size. The selector is independent of the offset returned by
+    /// [`Self::address`] and is never combined with it into a host pointer.
+    #[inline]
+    pub fn segment(&self) -> u64 {
+        self.segment
     }
 
     /// Return the beginning address of this arange.
@@ -488,6 +579,8 @@ mod tests {
                 },
                 length: 0x1c,
                 debug_info_offset: DebugInfoOffset(0x0403_0201),
+                segment_size: 0,
+                entries_offset: DebugArangesOffset(0x20),
                 entries: EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian),
             }
         );
@@ -582,7 +675,10 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next().expect("should parse entry ok");
         assert_eq!(
@@ -592,6 +688,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 0,
+                segment: 0,
                 range: Range {
                     begin: 0x0403_0201,
                     end: 0x0403_0201 + 0x0807_0605,
@@ -621,7 +719,10 @@ mod tests {
         ];
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next().expect("should parse entry ok");
         assert_eq!(
@@ -631,6 +732,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 8,
+                segment: 0,
                 range: Range {
                     begin: 0x0403_0201,
                     end: 0x0403_0201 + 0x0807_0605,
@@ -658,7 +761,10 @@ mod tests {
         ];
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next();
         assert_eq!(
@@ -686,7 +792,10 @@ mod tests {
         ];
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next();
         assert_eq!(
@@ -719,7 +828,10 @@ mod tests {
 
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next_raw().unwrap();
         assert_eq!(
@@ -729,6 +841,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 0,
+                segment: 0,
                 range: Range {
                     begin: 0xffff_ffff,
                     end: 0,
@@ -739,7 +853,10 @@ mod tests {
 
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next().unwrap();
         assert_eq!(
@@ -749,6 +866,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 8,
+                segment: 0,
                 range: Range {
                     begin: 0x0403_0201,
                     end: 0x0403_0201 + 0x0807_0605,
@@ -781,7 +900,10 @@ mod tests {
 
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next_raw().unwrap();
         assert_eq!(
@@ -791,6 +913,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 0,
+                segment: 0,
                 range: Range {
                     begin: 0xffff_ffff_ffff_ffff,
                     end: 0,
@@ -801,7 +925,10 @@ mod tests {
 
         let mut iter = ArangeEntryIter {
             input: EndianSlice::new(&buf, LittleEndian),
+            base: EndianSlice::new(&buf, LittleEndian),
+            entries_offset: DebugArangesOffset(0),
             encoding,
+            segment_size: 0,
         };
         let entry = iter.next().unwrap();
         assert_eq!(
@@ -811,6 +938,8 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
+                tuple_offset: 16,
+                segment: 0,
                 range: Range {
                     begin: 0x0403_0201,
                     end: 0x0403_0201 + 0x0807_0605,

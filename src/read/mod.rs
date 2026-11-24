@@ -220,6 +220,11 @@ pub use self::pubtypes::*;
 mod rnglists;
 pub use self::rnglists::*;
 
+#[cfg(feature = "read")]
+mod segmented;
+#[cfg(feature = "read")]
+pub use self::segmented::*;
+
 mod str;
 pub use self::str::*;
 

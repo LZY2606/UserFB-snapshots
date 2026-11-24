@@ -2,6 +2,38 @@
 
 --------------------------------------------------------------------------------
 
+## Unreleased
+
+### Added
+
+* `read::ArangeHeader::segment_size`, `read::ArangeEntry::segment` and
+  `read::ArangeEntry::tuple_offset` now parse segmented `.debug_aranges`
+  contributions. Selector widths of 0, 1, 2, 4 and 8 are supported, tuple
+  alignment is computed per contribution, and the selector is kept separate
+  from the segment-relative offset. A nonzero selector with a zero offset is a
+  legal range and is no longer confused with the all-zero null tuple.
+
+* `read::LineProgramHeader::segment_size`, `read::LineRow::segment`,
+  `read::LineSequence::segment` and the new
+  `read::LineInstruction::SetSegmentedAddress` variant support DWARF 5 line
+  programs with a nonzero segment selector size. The segmented
+  `DW_LNE_set_address` operand is read as selector then offset; address
+  advances only ever modify the offset, every sequence starts at selector 0 and
+  the terminating row retains the sequence's selector.
+
+* New `read::segmented_lookup` analysis API and its `SegmentedSections`,
+  `SegmentedQuery`, `BankMapping` and `SegmentedLookupResult` types for
+  segment-relative CU, subprogram and source-line attribution with section byte
+  offset evidence.
+
+### Changed
+
+* Converting a segmented line program through the `write` module now returns
+  `ConvertError::UnsupportedLineInstruction` instead of silently dropping the
+  selector.
+
+--------------------------------------------------------------------------------
+
 ## 0.34.0
 
 Released 2026/06/25.

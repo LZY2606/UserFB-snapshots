@@ -1383,6 +1383,11 @@ mod convert {
                             .push(self.program.add_file(from_name, from_dir, from_info));
                         continue;
                     }
+                    // Writing segmented line programs is not supported. Report it
+                    // explicitly instead of silently dropping the selector.
+                    read::LineInstruction::SetSegmentedAddress { .. } => {
+                        return Err(ConvertError::UnsupportedLineInstruction);
+                    }
                     _ => {}
                 }
                 if !self.from_row.execute(instruction, &mut self.from_program)? {
