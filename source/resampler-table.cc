@@ -65,12 +65,14 @@ Resampler_table  *Resampler_table::_list = 0;
 Resampler_mutex   Resampler_table::_mutex;
 
 
-Resampler_table::Resampler_table (double fr, unsigned int hl, unsigned int np) :
+Resampler_table::Resampler_table (double fr, unsigned int hl,
+                                  unsigned int np, unsigned int den) :
     _next (0),
     _refc (0),
     _fr (fr),
     _hl (hl),
-    _np (np)
+    _np (np),
+    _den (den)
 {
     unsigned int  i, j, n;
     double        t;
@@ -106,23 +108,38 @@ Resampler_table::~Resampler_table (void)
 }
 
 
-Resampler_table *Resampler_table::create (double fr, unsigned int hl, unsigned int np)
+Resampler_table *Resampler_table::create (double fr, unsigned int hl,
+                                          unsigned int np, unsigned int den)
 {
     Resampler_table *P;
+    unsigned int     d, pd, dmin, dmax;
 
+    if (den == 0) den = np;
     _mutex.lock ();
     P = _list;
     while (P)
     {
-	if ((fr >= P->_fr * 0.999) && (fr <= P->_fr * 1.001) && (hl == P->_hl) && (np == P->_np))
+	if ((fr >= P->_fr * 0.999) && (fr <= P->_fr * 1.001)
+            && (hl == P->_hl) && (np == P->_np))
 	{
-	    P->_refc++;
-            _mutex.unlock ();
-            return P;
+            // The coefficient rows are shared only when the logical phase
+            // denominators lie on the same equidistant grid, i.e. the larger
+            // one is an integer multiple of the smaller. The cut-off (fr),
+            // window length (hl) and physical table size (np) must match.
+            d = den;
+            pd = P->_den ? P->_den : P->_np;
+            dmin = (d < pd) ? d : pd;
+            dmax = (d < pd) ? pd : d;
+            if ((dmax % dmin) == 0)
+            {
+	        P->_refc++;
+                _mutex.unlock ();
+                return P;
+            }
 	}
 	P = P->_next;
     }
-    P = new Resampler_table (fr, hl, np);
+    P = new Resampler_table (fr, hl, np, den);
     P->_refc = 1;
     P->_next = _list;
     _list = P;
@@ -168,7 +185,8 @@ void Resampler_table::print_list (void)
     printf ("Resampler table\n----\n");
     for (P = _list; P; P = P->_next)
     {
-	printf ("refc = %3d   fr = %10.6lf  hl = %4d  np = %4d\n", P->_refc, P->_fr, P->_hl, P->_np);
+	printf ("refc = %3d   fr = %10.6lf  hl = %4d  np = %4d  den = %4d\n",
+                P->_refc, P->_fr, P->_hl, P->_np, P->_den ? P->_den : P->_np);
     }
     printf ("----\n\n");
 }

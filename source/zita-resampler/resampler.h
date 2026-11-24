@@ -43,12 +43,32 @@ public:
                 unsigned int hlen,
                 double       frel);
 
+    // Compact variants take the same parameters as the setup() overloads
+    // above plus a phase_budget in [32, 1024]: the maximum number of
+    // equidistant phase intervals kept in the coefficient table (the endpoint
+    // may take one extra row). The exact rational clock still advances with
+    // the true, unreduced sample rates; only the coefficient lookup is mapped
+    // onto the smaller table. This allows logical output phase denominators
+    // beyond the legacy limit of 1000.
+    int  setup_compact (unsigned int fs_inp,
+                        unsigned int fs_out,
+                        unsigned int nchan,
+                        unsigned int hlen,
+                        unsigned int phase_budget);
+
+    int  setup_compact (unsigned int fs_inp,
+                        unsigned int fs_out,
+                        unsigned int nchan,
+                        unsigned int hlen,
+                        double       frel,
+                        unsigned int phase_budget);
+
     void   clear (void);
     int    reset (void);
     int    nchan (void) const { return _nchan; }
     int    filtlen (void) const { return inpsize (); } // Deprecated
     int    inpsize (void) const;
-    double inpdist (void) const; 
+    double inpdist (void) const;
     int    process (void);
 
     unsigned int         inp_count;
@@ -60,6 +80,16 @@ public:
 
 private:
 
+    // Shared implementation. The public compact entry points enforce the
+    // 32..1024 budget range; the legacy setup() entry may pass the exact
+    // reduced denominator, which can be smaller.
+    int  _setup_compact (unsigned int fs_inp,
+                         unsigned int fs_out,
+                         unsigned int nchan,
+                         unsigned int hlen,
+                         double       frel,
+                         unsigned int phase_budget);
+
     Resampler_table     *_table;
     unsigned int         _nchan;
     unsigned int         _inmax;
@@ -68,8 +98,9 @@ private:
     unsigned int         _nzero;
     unsigned int         _phase;
     unsigned int         _pstep;
+    unsigned int         _np;     // logical output phase denominator
     float               *_buff;
-    void                *_dummy [8];
+    void                *_dummy [7];
 };
 
 

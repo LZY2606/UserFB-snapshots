@@ -41,6 +41,21 @@ public:
                 unsigned int hlen,
                 double       frel);
 
+    // Compact variants: the coefficient table keeps at most phase_budget
+    // (32..1024) equidistant phase intervals, the endpoint taking one extra
+    // row. The phase clock, set_phase (), set_rratio (), set_rrfilt () and
+    // inpdist () continue to operate on the true fractional input position.
+    int  setup_compact (double       ratio,
+                        unsigned int nchan,
+                        unsigned int hlen,
+                        unsigned int phase_budget);
+
+    int  setup_compact (double       ratio,
+                        unsigned int nchan,
+                        unsigned int hlen,
+                        double       frel,
+                        unsigned int phase_budget);
+
     void   clear (void);
     int    reset (void);
     int    nchan (void) const { return _nchan; }
@@ -69,6 +84,7 @@ private:
     unsigned int         _index;
     unsigned int         _nread;
     unsigned int         _nzero;
+    unsigned int         _np;     // logical phase scale of the phase clock
     double               _ratio;
     double               _phase;
     double               _pstep;
@@ -77,7 +93,7 @@ private:
     float               *_buff;
     float               *_c1;
     float               *_c2;
-    void                *_dummy [8];
+    void                *_dummy [7];
 };
 
 

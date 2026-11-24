@@ -56,7 +56,7 @@ public:
 
 private:
 
-    Resampler_table (double fr, unsigned int hl, unsigned int np);
+    Resampler_table (double fr, unsigned int hl, unsigned int np, unsigned int den);
     ~Resampler_table (void);
 
     friend class Resampler;
@@ -68,8 +68,16 @@ private:
     double               _fr;
     unsigned int         _hl;
     unsigned int         _np;
+    unsigned int         _den;
 
-    static Resampler_table *create (double fr, unsigned int hl, unsigned int np);
+    // The coefficient table always holds np + 1 equidistant phase rows.
+    // For compact tables den is the (larger) logical phase denominator the
+    // table is shared for; den == 0 means the table is indexed at its own
+    // granularity (legacy tables, and compact tables that did not compress).
+    // Tables are shared only while fr, hl and the physical layout np match
+    // and the logical denominators are compatible.
+    static Resampler_table *create (double fr, unsigned int hl,
+                                    unsigned int np, unsigned int den = 0);
     static void destroy (Resampler_table *T);
 
     static Resampler_table  *_list;

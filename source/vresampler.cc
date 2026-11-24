@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------------------
 //
 //  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
-//    
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -39,6 +39,7 @@ VResampler::VResampler (void) :
     _c1 (0),
     _c2 (0)
 {
+    _np = 0;
     reset ();
 }
 
@@ -70,13 +71,13 @@ int VResampler::setup (double       ratio,
     if (!nchan || (64 * ratio < 1.0) || (ratio > 64))
     {
 	clear ();
-        return 1; 
+        return 1;
     }
 
     dp = NPHASE / ratio;
     hl = hlen;
     mi = 32;
-    if (ratio < 1.0) 
+    if (ratio < 1.0)
     {
         frel *= ratio;
         hl = (unsigned int)(ceil (hl / ratio));
@@ -95,17 +96,91 @@ int VResampler::setup (double       ratio,
 	posix_memalign ((void **)(&_buff), 16, n * sizeof (float));
 	posix_memalign ((void **)(&_c1), 16, hl * sizeof (float));
 	posix_memalign ((void **)(&_c2), 16, hl * sizeof (float));
-#else	
+#else
 	_buff  = new float [n];
 	_c1 = new float [hl];
 	_c2 = new float [hl];
-#endif	
+#endif
 	_nchan = nchan;
  	_ratio = ratio;
 	_inmax = mi;
 	_pstep = dp;
 	_qstep = dp;
 	_wstep = 1;
+	_np = NPHASE;
+	return reset ();
+    }
+    else return 1;
+}
+
+
+int VResampler::setup_compact (double       ratio,
+                               unsigned int nchan,
+                               unsigned int hlen,
+                               unsigned int phase_budget)
+{
+    if ((hlen < 8) || (hlen > 96) || (16 * ratio < 1) || (ratio > 256)) return 1;
+    return setup_compact (ratio, nchan, hlen, 1.0 - 2.6 / hlen, phase_budget);
+}
+
+
+int VResampler::setup_compact (double       ratio,
+                               unsigned int nchan,
+                               unsigned int hlen,
+                               double       frel,
+                               unsigned int phase_budget)
+{
+    unsigned int       hl, mi, n, tnp;
+    double             dp;
+    Resampler_table    *T = 0;
+
+    if (!nchan || (64 * ratio < 1.0) || (ratio > 64)
+        || (phase_budget < 32) || (phase_budget > 1024))
+    {
+	clear ();
+        return 1;
+    }
+
+    dp = NPHASE / ratio;
+    hl = hlen;
+    mi = 32;
+    if (ratio < 1.0)
+    {
+        // Downsampling: cut-off and window length follow the ratio, not the
+        // compressed number of phase rows.
+        frel *= ratio;
+        hl = (unsigned int)(ceil (hl / ratio));
+        mi = (unsigned int)(ceil (mi / ratio));
+    }
+#ifdef ENABLE_VEC4
+	    hl = (hl + 3) & ~3;
+#endif
+    // The phase clock keeps its NPHASE scale so set_phase (), set_rratio (),
+    // set_rrfilt () and inpdist () keep their original meaning. Only the
+    // coefficient table is compressed onto an equidistant grid.
+    tnp = (NPHASE < phase_budget) ? NPHASE : phase_budget;
+    T = Resampler_table::create (frel, hl, tnp, NPHASE);
+    clear ();
+    if (T)
+    {
+	_table = T;
+        n = nchan * (2 * hl + mi);
+#ifdef ENABLE_VEC4
+	posix_memalign ((void **)(&_buff), 16, n * sizeof (float));
+	posix_memalign ((void **)(&_c1), 16, hl * sizeof (float));
+	posix_memalign ((void **)(&_c2), 16, hl * sizeof (float));
+#else
+	_buff  = new float [n];
+	_c1 = new float [hl];
+	_c2 = new float [hl];
+#endif
+	_nchan = nchan;
+ 	_ratio = ratio;
+	_inmax = mi;
+	_pstep = dp;
+	_qstep = dp;
+	_wstep = 1;
+	_np = NPHASE;
 	return reset ();
     }
     else return 1;
@@ -123,7 +198,7 @@ void VResampler::clear (void)
     delete[] _buff;
     delete[] _c1;
     delete[] _c2;
-#endif    
+#endif
     _buff  = 0;
     _c1 = 0;
     _c2 = 0;
@@ -133,6 +208,7 @@ void VResampler::clear (void)
     _pstep = 0;
     _qstep = 0;
     _wstep = 1;
+    _np = 0;
     reset ();
 }
 
@@ -140,7 +216,7 @@ void VResampler::clear (void)
 void VResampler::set_phase (double p)
 {
     if (!_table) return;
-    _phase = (p - floor (p)) * _table->_np;
+    _phase = (p - floor (p)) * _np;
 }
 
 
@@ -156,14 +232,16 @@ void VResampler::set_rratio (double r)
     if (!_table) return;
     if (r > 16.0) r = 16.0;
     if (r < 0.95) r = 0.95;
-    _qstep = _table->_np / (_ratio * r);
+    _qstep = _np / (_ratio * r);
 }
 
 
 double VResampler::inpdist (void) const
 {
     if (!_table) return 0;
-    return (int)(_table->_hl + 1 - _nread) - _phase / _table->_np;
+    // Measured in true input sample periods, using the phase clock scale,
+    // never the compressed table size.
+    return (int)(_table->_hl + 1 - _nread) - _phase / _np;
 }
 
 
@@ -185,12 +263,12 @@ int VResampler::reset (void)
     _index = 0;
     _nread = 0;
     _nzero = 0;
-    _phase = 0; 
+    _phase = 0;
     if (_table)
-    {	
+    {
         _nread = 2 * _table->_hl;
 	return 0;
-    }	
+    }
     return 1;
 }
 
@@ -198,14 +276,15 @@ int VResampler::reset (void)
 int VResampler::process (void)
 {
     int            nr, np, hl, nz, di, i, n;
-    unsigned int   in, j;
-    double         ph, dp, dd; 
+    unsigned int   in, j, ti, tnp;
+    double         ph, dp, dd;
     float          a, b, *p1, *p2, *q1, *q2;
 
     if (!_table) return 1;
 
     hl = _table->_hl;
-    np = _table->_np;
+    tnp = _table->_np;  // physical table: tnp + 1 phase rows
+    np = _np;           // phase clock scale, independent of table size
     in = _index;
     nr = _nread;
     nz = _nzero;
@@ -241,15 +320,29 @@ int VResampler::process (void)
 	{
 	    if (nz < 2 * hl)
 	    {
-		n = (unsigned int) ph;
-		b = (float)(ph - n);
+		// Exact fractional position on the NPHASE clock, mapped onto
+		// the equidistant compressed table. Rows ti and ti + 1 bracket
+		// it; ti + 1 is at most the endpoint row tnp, and the mirrored
+		// lookup reaches at most row 0, so both ends stay continuous.
+		// Without compression this is exactly the legacy interpolation.
+		if (tnp == (unsigned int) np)
+		{
+		    ti = (unsigned int) ph;
+		    b = (float)(ph - ti);
+		}
+		else
+		{
+		    double u = ph * (double) tnp / (double) np;
+		    ti = (unsigned int) u;
+		    b = (float)(u - ti);
+		}
 		a = 1.0f - b;
-		q1 = _table->_ctab + hl * n;
-		q2 = _table->_ctab + hl * (np - n);
+		q1 = _table->_ctab + hl * ti;
+		q2 = _table->_ctab + hl * (tnp - ti);
 
 #if defined(ENABLE_SSE2)
                 __m128 C1, C2, Q1, Q2, S;
-   	        C1 = _mm_load1_ps (&a);
+    	        C1 = _mm_load1_ps (&a);
 		C2 = _mm_load1_ps (&b);
 		for (i = 0; i < hl; i += 4)
 		{
@@ -301,7 +394,7 @@ int VResampler::process (void)
 		    }
 		    *out_data++ = s - 1e-20f;
 		}
-#endif		
+#endif
 	    }
 	    else
 	    {
@@ -335,7 +428,7 @@ int VResampler::process (void)
             }
         }
     }
-    
+
     _index = in;
     _nread = nr;
     _phase = ph;
@@ -344,4 +437,3 @@ int VResampler::process (void)
 
     return 0;
 }
-

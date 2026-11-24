@@ -15,6 +15,7 @@
 <ul>
 <li><a href = "#introduction">Introduction</a>
 <li><a href = "#algorithm">The algorithm</a>
+<li><a href = "#compact">Compact phase tables</a>
 <li><a href = "#description">API description</a>
 <li><a href = "#reference">API reference</a>
 </ul>
@@ -59,10 +60,15 @@ Libzita-resampler provides two classes:
 </p>
 <p>
 The <b>Resampler</b> class performs resampling at a fixed ratio <b>F_out / F_in</b>
-which is required to be <b>&ge; 1/64</b>  and be reducible to the form <b> b / a</b>
-with <b>a, b</b> integer and <b>b &le; 1000</b>. This includes all the 'standard'
-ratios, e.g. 96000 / 44100 = 320 / 147. These restrictions allow for a more efficient
-implementation.
+which is required to be <b>&ge; 1/64</b>. Ratios reducible to the form <b>b / a</b>
+with <b>a, b</b> integer and <b>b &le; 1000</b>, which includes all the 'standard'
+ratios (e.g. 96000 / 44100 = 320 / 147), use a coefficient table with one row per
+exact phase and are bit-identical to earlier releases. Ratios with a larger reduced
+denominator, such as a measured 48000 / 47999, were previously rejected; they are
+now accepted through a <i>compact phase table</i> (see <a href = "#compact">below</a>)
+that keeps at most 1024 equidistant phase rows while the rational clock still
+advances with the exact, unreduced sample rates. The same compact mode is available
+explicitly for both classes through the <b>setup_compact ()</b> members.
 </p>
 <p>
 The <b>VResampler</b> class provides an arbitrary ratio <b>r</b> in the range
@@ -174,6 +180,52 @@ while <b>hlen = 48</b> should be sufficient for an <b>F_min</b> of
 of listening tests. If fact the conclusion of these test was that even
 at 44.1 kHz the subjects (all audio specialists or musicians) could not
 detect any significant difference between <b>hlen</b> values of 32 and 96.
+</p>
+
+<br>
+<a name = "compact"></a>
+<h2>Compact phase tables</h2>
+<p>
+The fixed-ratio <b>Resampler</b> advances an exact rational clock built from the
+reduced sample rates: the output phase is the remainder, modulo the reduced output
+denominator <b>b</b>, of a counter stepped by the reduced input denominator. The
+filter table stores one windowed-sinc row per phase, so its size would grow with
+<b>b</b>. Two measured rates such as 48000 and 47999 are already coprime, which
+would require a table of 47999 phase rows and was therefore refused by earlier
+releases.
+</p>
+<p>
+A compact table stores only <b>N + 1</b> equidistant phase rows, where the
+<b>phase_budget</b> <b>N</b> is in the range <b>32 &le; N &le; 1024</b> (the extra
+row is the endpoint). This bounds the table memory independently of the rational
+denominator: it never holds more than <b>N + 1</b> rows of <b>hlen</b> coefficients,
+no matter how many coprime denominators are in use. The rational clock is untouched
+- sample rates are never rounded to a nearby integer, and the logical phase
+denominator is not replaced by the table size. Each exact phase is mapped onto the
+compressed grid using integer quotient and remainder arithmetic, so rates close to
+<b>UINT_MAX</b> cannot overflow 32-bit counters. The fixed engine selects the nearest
+stored row; the variable <b>VResampler</b> keeps its linear interpolation between
+the two bracketing rows.
+</p>
+<p>
+The phase rows are shared, reference-counted objects like all other coefficient
+tables. Two configurations share a table only when their normalised cut-off
+frequency, their window length and the physical number of rows agree <i>and</i> their
+logical phase denominators lie on the same equidistant grid (the larger denominator
+is an integer multiple of the smaller). Compressing the phase table therefore never
+mixes filters with a different cut-off frequency or window length. On downsampling
+the window is lengthened and the cut-off narrowed by exactly the ratio, as before,
+independent of the budget.
+</p>
+<p>
+The budget trades coefficient-table memory against phase quantisation only; it does
+not change the clock, the cut-off frequency or the window length. With
+<b>phase_budget = 1024</b> and <b>hlen = 32</b>, the maximum absolute error against a
+directly evaluated windowed-sinc reference stays below <b>2 &times; 10<sup>-4</sup></b>
+for finite PCM bounded by unit amplitude; measured values are typically around
+10<sup>-7</sup>. A smaller budget uses proportionally less memory and remains close
+to the reference, while a logical denominator that is itself below the budget keeps
+its exact, uncompressed table.
 </p>
 
 <br>
@@ -324,7 +376,9 @@ Functions listed without a class prefix are available for both classes.
 <li><a href = "#vresampler">VResampler ()</a>
 <li><a href = "#vresampler">~VResampler ()</a>
 <li><a href = "#res_setup">Reampler::setup ()</a>
+<li><a href = "#res_setup_compact">Resampler::setup_compact ()</a>
 <li><a href = "#vres_setup">VResampler::setup ()</a>
+<li><a href = "#vres_setup_compact">VResampler::setup_compact ()</a>
 <li><a href = "#clear">clear ()</a>
 <li><a href = "#reset">reset ()</a>
 <li><a href = "#process">process ()</a>
@@ -376,8 +430,9 @@ or re-uses existing ones, allocates some internal resources, and returns via <a 
 </p>
 <p class="indent">
 <b>fs_inp, fs_out:</b> The input and output sample rates. The ratio <b>fs_out
-/ fs_inp</b> must be <b> &ge; 1/64</b> and reducible to the form <b>b / a</b>
-with <b>a, b</b> integer and <b>b &le; 1000</b>.
+/ fs_inp</b> must be <b> &ge; 1/64</b>. When it reduces to the form <b>b / a</b>
+with <b>b &le; 1000</b> the exact phase table is used; larger reduced denominators
+are accepted automatically and use a compact phase table with a budget of 1024.
 <br><br>
 <b>nchan:</b> Number of channels, must not be zero.
 <br><br>
@@ -394,6 +449,32 @@ cpu load will be roughly proportional to <b>hlen</b>. The valid range is
 having called <a href="#clear"><b>clear ()</b></a> first. If only the number
 of channels is changed, doing this will avoid recalculation of the filter tables
 even if they are not shared.
+<br><br>
+<b>RT-safe:</b> No
+</p>
+
+<a name="res_setup_compact"></a>
+<br><p class="apihdr">int &nbsp Resampler::setup_compact (unsigned int fs_inp, unsigned int fs_out, unsigned int nchan, unsigned int hlen, unsigned int phase_budget);<br>
+int &nbsp Resampler::setup_compact (unsigned int fs_inp, unsigned int fs_out, unsigned int nchan, unsigned int hlen, double frel, unsigned int phase_budget);</p>
+<p>
+<b>Description:</b> Like <a href="#res_setup"><b>setup ()</b></a>, but the
+coefficient table keeps at most <b>phase_budget</b> equidistant phase intervals
+(the endpoint may take one extra row). The exact rational clock still uses the true,
+unreduced sample rates; only the filter phase lookup is mapped onto the compressed
+table. See <a href="#compact">compact phase tables</a> for the memory and accuracy
+trade-off.
+<br><br>
+<b>Parameters:</b>
+</p>
+<p class="indent">
+<b>phase_budget:</b> Maximum number of equidistant phase intervals retained, in the
+range <b>32 &le; phase_budget &le; 1024</b>. A reduced denominator below the budget
+keeps its exact table. With 1024 intervals and <b>hlen = 32</b> the maximum absolute
+PCM error against a directly evaluated windowed-sinc reference is below
+2 &times; 10<sup>-4</sup> for unit-bounded input.
+</p>
+<p>
+<b>Returns:</b> Zero on success, non-zero otherwise.
 <br><br>
 <b>RT-safe:</b> No
 </p>
@@ -426,6 +507,22 @@ cpu load will be roughly proportional to <b>hlen</b>. The valid range is
 having called <a href="#clear"><b>clear ()</b></a> first. If only the number
 of channels is changed, doing this will avoid recalculation of the filter tables
 even if they are not shared.
+<br><br>
+<b>RT-safe:</b> No
+</p>
+
+<a name="vres_setup_compact"></a>
+<br><p class="apihdr">int &nbsp VResampler::setup_compact (double ratio, unsigned int nchan, unsigned int hlen, unsigned int phase_budget);<br>
+int &nbsp VResampler::setup_compact (double ratio, unsigned int nchan, unsigned int hlen, double frel, unsigned int phase_budget);</p>
+<p>
+<b>Description:</b> Like <a href="#vres_setup"><b>setup ()</b></a>, but bounds the
+coefficient table to <b>phase_budget</b> equidistant phase intervals. The phase clock
+keeps its original scale, so <b>set_phase ()</b>, <b>set_rratio ()</b>,
+<b>set_rrfilt ()</b> and <b>inpdist ()</b> are unaffected and keep operating on the
+true fractional input position; only the interpolated coefficient lookup uses the
+compressed table. The legacy <b>setup ()</b> entry is unchanged.
+<br><br>
+<b>Returns:</b> Zero on success, non-zero otherwise.
 <br><br>
 <b>RT-safe:</b> No
 </p>

@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------------------
 //
 //  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
-//    
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 #undef ENABLE_VEC4
 #if defined(ENABLE_SSE2)
@@ -50,8 +51,8 @@ static unsigned int gcd (unsigned int a, unsigned int b)
             if (b == 0) return a;
             if (b == 1) return 1;
         }
-    }    
-    return 1; 
+    }
+    return 1;
 }
 
 
@@ -60,6 +61,7 @@ Resampler::Resampler (void) :
     _nchan (0),
     _buff  (0)
 {
+    _np = 0;
     reset ();
 }
 
@@ -86,7 +88,69 @@ int Resampler::setup (unsigned int fs_inp,
                       unsigned int hlen,
                       double       frel)
 {
-    unsigned int       np, dp, mi, hl, n;
+    unsigned int       np, n;
+    double             r;
+
+    if (!fs_inp || !fs_out || !nchan)
+    {
+	clear ();
+	return 1;
+    }
+
+    r = (double) fs_out / (double) fs_inp;
+    n = gcd (fs_out, fs_inp);
+    np = fs_out / n;
+    if (64 * r < 1.0)
+    {
+	clear ();
+	return 1;
+    }
+
+    // Ratios accepted by the original implementation keep the exact,
+    // uncompressed phase table. Ratios only rejected because the reduced
+    // output denominator exceeds 1000 now use a compact table holding at
+    // most 1024 phase intervals; the rational clock is unchanged.
+    if (np <= 1000) return _setup_compact (fs_inp, fs_out, nchan, hlen, frel, np);
+    return _setup_compact (fs_inp, fs_out, nchan, hlen, frel, 1024);
+}
+
+
+int Resampler::setup_compact (unsigned int fs_inp,
+                              unsigned int fs_out,
+                              unsigned int nchan,
+                              unsigned int hlen,
+                              unsigned int phase_budget)
+{
+    if ((hlen < 8) || (hlen > 96)) return 1;
+    return setup_compact (fs_inp, fs_out, nchan, hlen,
+                          1.0 - 2.6 / hlen, phase_budget);
+}
+
+
+int Resampler::setup_compact (unsigned int fs_inp,
+                              unsigned int fs_out,
+                              unsigned int nchan,
+                              unsigned int hlen,
+                              double       frel,
+                              unsigned int phase_budget)
+{
+    if ((phase_budget < 32) || (phase_budget > 1024))
+    {
+        clear ();
+        return 1;
+    }
+    return _setup_compact (fs_inp, fs_out, nchan, hlen, frel, phase_budget);
+}
+
+
+int Resampler::_setup_compact (unsigned int fs_inp,
+                               unsigned int fs_out,
+                               unsigned int nchan,
+                               unsigned int hlen,
+                               double       frel,
+                               unsigned int phase_budget)
+{
+    unsigned int       np, dp, tnp, hl, mi, n;
     double             r;
     Resampler_table    *T = 0;
 
@@ -95,12 +159,12 @@ int Resampler::setup (unsigned int fs_inp,
 	clear ();
 	return 1;
     }
-    
+
     r = (double) fs_out / (double) fs_inp;
     n = gcd (fs_out, fs_inp);
     np = fs_out / n;
     dp = fs_inp / n;
-    if ((64 * r < 1.0) || (np > 1000))
+    if (64 * r < 1.0)
     {
 	clear ();
 	return 1;
@@ -108,8 +172,11 @@ int Resampler::setup (unsigned int fs_inp,
 
     hl = hlen;
     mi = 32;
-    if (r < 1.0) 
+    if (r < 1.0)
     {
+        // Downsampling: narrow the cut-off to the lower rate and lengthen
+        // the window accordingly. This depends on the ratio only, never on
+        // the compressed table size.
         frel *= r;
         hl = (unsigned int)(ceil (hl / r));
         mi = (unsigned int)(ceil (mi / r));
@@ -117,7 +184,10 @@ int Resampler::setup (unsigned int fs_inp,
 #ifdef ENABLE_VEC4
     hl = (hl + 3) & ~3;
 #endif
-    T = Resampler_table::create (frel, hl, np);
+    // The table keeps at most phase_budget equidistant intervals; when the
+    // logical denominator is smaller the table keeps its exact resolution.
+    tnp = (np < phase_budget) ? np : phase_budget;
+    T = Resampler_table::create (frel, hl, tnp, np);
 
     clear ();
     if (T)
@@ -127,12 +197,13 @@ int Resampler::setup (unsigned int fs_inp,
 #ifdef ENABLE_VEC4
 	posix_memalign ((void **)(&_buff), 16, n * sizeof (float));
         memset (_buff, 0, n * sizeof (float));
-#else       
+#else
         _buff = new float [n];
-#endif      
+#endif
         _nchan = nchan;
         _inmax = mi;
         _pstep = dp;
+        _np = np;
         return reset ();
     }
     else return 1;
@@ -146,12 +217,13 @@ void Resampler::clear (void)
     free (_buff);
 #else
     delete[] _buff;
-#endif    
+#endif
     _buff  = 0;
     _table = 0;
     _nchan = 0;
     _inmax = 0;
     _pstep = 0;
+    _np = 0;
     reset ();
 }
 
@@ -159,7 +231,9 @@ void Resampler::clear (void)
 double Resampler::inpdist (void) const
 {
     if (!_table) return 0;
-    return (int)(_table->_hl + 1 - _nread) - (double)_phase / _table->_np;
+    // The distance is measured against the true input position, using the
+    // logical phase denominator, not the compressed table size.
+    return (int)(_table->_hl + 1 - _nread) - (double)_phase / _np;
 }
 
 
@@ -181,7 +255,7 @@ int Resampler::reset (void)
     _index = 0;
     _nread = 0;
     _nzero = 0;
-    _phase = 0; 
+    _phase = 0;
     if (_table)
     {
         _nread = 2 * _table->_hl;
@@ -193,12 +267,14 @@ int Resampler::reset (void)
 
 int Resampler::process (void)
 {
-    unsigned int   hl, np, ph, dp, in, nr, nz, di, i, j, n;
+    unsigned int   hl, np, tnp, in, nr, nz, di, i, j, n, ti;
+    uint64_t       ph, dp, q, step;
     float          *c1, *c2, *p1, *p2, *q1, *q2;
 
     if (!_table) return 1;
     hl = _table->_hl;
-    np = _table->_np;
+    tnp = _table->_np;   // physical table: tnp + 1 phase rows
+    np = _np;            // logical output phase denominator
     dp = _pstep;
     in = _index;
     nr = _nread;
@@ -234,10 +310,21 @@ int Resampler::process (void)
         {
             if (nz < 2 * hl)
             {
-                c1 = _table->_ctab + hl * ph;
-                c2 = _table->_ctab + hl * (np - ph);
+                // Map the exact rational phase onto the compressed,
+                // equidistant table. Integer quotient/remainder math keeps
+                // rates near UINT_MAX free of 32-bit overflow and rounding.
+                // When the table is not compressed the lookup is exactly the
+                // legacy one, keeping legacy setups bit-identical.
+                if (tnp == np) ti = (unsigned int) ph;
+                else
+                {
+                    q = ph * (uint64_t) tnp;
+                    ti = (unsigned int)(q / (uint64_t) np);
+                }
+                c1 = _table->_ctab + hl * ti;
+                c2 = _table->_ctab + hl * (tnp - ti);
 
-#if defined(ENABLE_SSE2)              
+#if defined(ENABLE_SSE2)
                 __m128 C1, C2, Q1, Q2, S;
                 for (j = 0; j < _nchan; j++)
                 {
@@ -284,8 +371,9 @@ int Resampler::process (void)
         ph += dp;
         if (ph >= np)
         {
-            nr = ph / np;
-            ph -= nr * np;
+            step = ph / (uint64_t) np;
+            ph -= step * (uint64_t) np;
+            nr = (unsigned int) step;
             in += nr;
             p1 += nr;
             if (in >= _inmax)
@@ -305,10 +393,8 @@ int Resampler::process (void)
 
     _index = in;
     _nread = nr;
-    _phase = ph;
+    _phase = (unsigned int) ph;
     _nzero = nz;
 
     return 0;
 }
-
-

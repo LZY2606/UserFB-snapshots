@@ -10,8 +10,7 @@ c++ -std=c++11 -O2 -I. -Isource -pthread -c source/resampler-table.cc -o .task-b
 c++ -std=c++11 -O2 -I. -Isource -pthread task_support/baseline.cc .task-build/resampler.o .task-build/vresampler.o .task-build/table.o -o .task-build/baseline
 if [[ $mode == target ]]; then
   c++ -std=c++11 -O2 -I. -Isource -pthread -x c++ task_support/driver.c tests/compact_phase.cc -x none .task-build/resampler.o .task-build/vresampler.o .task-build/table.o -o .task-build/target
-  output_log=$(mktemp)
-  trap 'rm -f "$output_log"' EXIT
+  output_log=.task-build/target.log
   set +e
   .task-build/target >"$output_log" 2>&1
   status=$?

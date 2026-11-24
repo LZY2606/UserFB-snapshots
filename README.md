@@ -5,6 +5,29 @@ audio signals. Full documentation is available in HTML format,
 see the 'docs' directory.
 
 
+Unreleased
+----------
+
+* Resampler and VResampler gain `setup_compact ()` overloads taking a
+  `phase_budget` (32..1024): the coefficient table keeps at most that many
+  equidistant phase intervals (the endpoint may take one extra row), so its
+  memory no longer grows with the rational phase denominator.
+* The fixed-ratio Resampler now accepts any positive sample rates in the
+  unsigned int range with ratio >= 1/64. Ratios previously rejected only
+  because the reduced output denominator exceeds 1000 (e.g. a measured
+  48000 / 47999) use a compact table with a budget of 1024; previously
+  supported ratios keep their exact, bit-identical tables.
+* The exact rational clock is unchanged: rates are not rounded and the
+  logical phase denominator is kept, with 64-bit quotient/remainder
+  arithmetic so rates near UINT_MAX cannot overflow. `inpdist ()` always
+  reflects the true input position, never the table index.
+* Compact tables are shared only when the cut-off frequency, window length,
+  physical layout and logical phase grids are compatible. With a budget of
+  1024 and hlen 32 the maximum absolute error against a directly evaluated
+  windowed-sinc reference is below 2e-4 for unit-bounded PCM (typically
+  around 1e-7). See docs/resampler.html for the memory/accuracy trade-off.
+
+
 Release 1.8.0  (30/12/2020)
 ---------------------------
 
