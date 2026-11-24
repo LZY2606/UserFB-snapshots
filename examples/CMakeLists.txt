@@ -10,3 +10,6 @@ target_link_libraries(bw64_create_sine bw64)
 
 add_executable(bw64_read_write bw64_read_write.cpp)
 target_link_libraries(bw64_read_write bw64)
+
+add_executable(bw64_stream_copy bw64_stream_copy.cpp)
+target_link_libraries(bw64_stream_copy bw64)

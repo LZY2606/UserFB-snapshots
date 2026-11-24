@@ -50,6 +50,7 @@ namespace bw64 {
     Bw64Writer(const char* filename, uint16_t channels, uint32_t sampleRate,
                uint16_t bitDepth,
                std::vector<std::shared_ptr<Chunk>> additionalChunks) {
+      output_ = &fileStream_;
       fileStream_.open(filename, std::fstream::out | std::fstream::binary);
       if (!fileStream_.is_open()) {
         std::stringstream errorString;
@@ -74,6 +75,101 @@ namespace bw64 {
       writeChunk(dataChunk);
     }
 
+    /**
+     * @brief Open a new RIFF or BW64 stream for forward writing
+     *
+     * Writes a complete, final header (up to and including the `data` chunk
+     * header) to a non-seekable stream, based on the exact number of frames
+     * and the metadata known up-front. Depending on the resulting file size,
+     * either a RIFF or a BW64 header (with a `ds64` chunk holding the real
+     * sizes) is written. Afterwards, exactly `frames` frames of audio data
+     * must be written with write(); close() does not rewrite any part of the
+     * header.
+     *
+     * The stream is owned by the caller and is not closed by this class.
+     * Sizes which can not be represented are reported before any byte is
+     * written. setChnaChunk(), setAxmlChunk() and useRf64Id() are not
+     * supported in this mode and throw `std::logic_error`.
+     *
+     * @note For convenience, you might consider using the `writeStream`
+     * helper function.
+     */
+    Bw64Writer(std::ostream& stream, uint64_t frames, uint16_t channels,
+               uint32_t sampleRate, uint16_t bitDepth,
+               std::shared_ptr<ChnaChunk> chnaChunk,
+               std::shared_ptr<AxmlChunk> axmlChunk)
+        : output_(&stream), forwardMode_(true), declaredFrames_(frames) {
+      auto formatChunk =
+          std::make_shared<FormatInfoChunk>(channels, sampleRate, bitDepth);
+
+      // checked size of the data chunk payload
+      uint16_t blockAlignment = formatChunk->blockAlignment();
+      if (blockAlignment != 0 &&
+          frames > (std::numeric_limits<uint64_t>::max)() / blockAlignment) {
+        throw std::runtime_error(
+            "number of frames is too large to be represented");
+      }
+      uint64_t dataSize = frames * blockAlignment;
+
+      std::vector<std::shared_ptr<Chunk>> preDataChunks;
+      preDataChunks.push_back(formatChunk);
+      if (chnaChunk) preDataChunks.push_back(chnaChunk);
+      if (axmlChunk) preDataChunks.push_back(axmlChunk);
+
+      // ds64 table entries for oversized chunks other than the data chunk
+      std::map<uint32_t, uint64_t> ds64Table;
+      for (auto& chunk : preDataChunks) {
+        if (chunk->size() >= UINT32_MAX) ds64Table[chunk->id()] = chunk->size();
+      }
+      uint64_t ds64Size = 28u + 12u * ds64Table.size();
+
+      // checked size of a chunk on disk: header + payload + padding
+      auto chunkTotalSize = [](uint64_t payloadSize) {
+        return utils::safeAdd<uint64_t>(
+            utils::safeAdd<uint64_t>(8u, payloadSize), payloadSize % 2);
+      };
+      auto riffSizeFor = [&](bool withDs64) {
+        uint64_t size = 4u;  // WAVE id
+        if (withDs64) size = utils::safeAdd<uint64_t>(size, 8u + ds64Size);
+        for (auto& chunk : preDataChunks) {
+          size = utils::safeAdd<uint64_t>(size, chunkTotalSize(chunk->size()));
+        }
+        return utils::safeAdd<uint64_t>(size, chunkTotalSize(dataSize));
+      };
+
+      bool need64 = dataSize >= UINT32_MAX || !ds64Table.empty();
+      uint64_t riffSize = riffSizeFor(need64);
+      if (!need64 && riffSize > UINT32_MAX) {
+        need64 = true;
+        riffSize = riffSizeFor(true);
+      }
+
+      if (need64) {
+        utils::writeValue(out(), utils::fourCC("BW64"));
+        utils::writeValue(out(), (std::numeric_limits<uint32_t>::max)());
+        utils::writeValue(out(), utils::fourCC("WAVE"));
+        auto ds64Chunk = std::make_shared<DataSize64Chunk>(
+            riffSize, dataSize, ds64Table);
+        ds64Chunk->dummySize(frames);  // sample count
+        writeChunk(ds64Chunk);
+      } else {
+        utils::writeValue(out(), utils::fourCC("RIFF"));
+        utils::writeValue(out(), utils::safeCast<uint32_t>(riffSize));
+        utils::writeValue(out(), utils::fourCC("WAVE"));
+      }
+
+      for (auto& chunk : preDataChunks) {
+        writeChunk(chunk);
+      }
+
+      auto dataChunk = std::make_shared<DataChunk>();
+      dataChunk->setSize(dataSize);
+      writeChunk(dataChunk);
+
+      if (!out().good())
+        throw std::runtime_error("stream error while writing header");
+    }
+
     /// finalise and close the file
     ///
     /// Write all yet-to-be-written chunks to the file and finalize all
@@ -83,6 +179,24 @@ namespace bw64 {
     /// exceptions. If it does throw, this object may be in an invalid state,
     /// so do not try again without creating a new object.
     void close() {
+      if (forwardMode_) {
+        if (forwardClosed_) return;
+        // mark closed first, so the destructor does not throw the same
+        // exception again
+        forwardClosed_ = true;
+        if (forwardFramesWritten_ != declaredFrames_)
+          throw std::runtime_error(
+              "fewer frames written than declared in the header");
+        // the header is final; only the data chunk padding may be missing
+        if (dataChunk()->size() % 2 == 1) {
+          utils::writeValue(out(), '\0');
+        }
+        out().flush();
+        if (!out().good())
+          throw std::runtime_error("stream error detected when closing");
+        return;
+      }
+
       if (!fileStream_.is_open()) return;
 
       try {
@@ -105,8 +219,13 @@ namespace bw64 {
 
     /// destructor; this will finalise and close the file if it has not
     /// already been done, but it is recommended to call close() first to
-    /// handle exceptions
-    ~Bw64Writer() { close(); }
+    /// handle exceptions. Exceptions are not propagated from the destructor.
+    ~Bw64Writer() {
+      try {
+        close();
+      } catch (...) {
+      }
+    }
 
     /// @brief Get format tag
     uint16_t formatTag() const { return formatChunk()->formatTag(); };
@@ -118,6 +237,7 @@ namespace bw64 {
     uint16_t bitDepth() const { return formatChunk()->bitsPerSample(); };
     /// @brief Get number of frames
     uint64_t framesWritten() const {
+      if (forwardMode_) return forwardFramesWritten_;
       return dataChunk()->size() / formatChunk()->blockAlignment();
     }
 
@@ -177,9 +297,17 @@ namespace bw64 {
     }
 
     /// @brief Use RF64 ID for outer chunk (when >4GB) rather than BW64
-    void useRf64Id(bool state) { useRf64Id_ = state; }
+    void useRf64Id(bool state) {
+      if (forwardMode_)
+        throw std::logic_error(
+            "useRf64Id is not supported in forward writing mode");
+      useRf64Id_ = state;
+    }
 
     void setChnaChunk(std::shared_ptr<ChnaChunk> chunk) {
+      if (forwardMode_)
+        throw std::logic_error(
+            "setChnaChunk is not supported in forward writing mode");
       if (chunk->numUids() > 1024) {
         // TODO: make pre data chunk chna chunk a JUNK chunk and add chnaChunk
         // to postDataChunks_?
@@ -191,6 +319,9 @@ namespace bw64 {
     }
 
     void setAxmlChunk(std::shared_ptr<Chunk> chunk) {
+      if (forwardMode_)
+        throw std::logic_error(
+            "setAxmlChunk is not supported in forward writing mode");
       postDataChunks_.push_back(chunk);
     }
 
@@ -267,10 +398,11 @@ namespace bw64 {
     template <typename ChunkType>
     void writeChunk(std::shared_ptr<ChunkType> chunk) {
       if (chunk) {
-        uint64_t position = fileStream_.tellp();
+        uint64_t position =
+            forwardMode_ ? 0 : static_cast<uint64_t>(out().tellp());
         chunkHeaders_.push_back(
             ChunkHeader(chunk->id(), chunk->size(), position));
-        utils::writeChunk<ChunkType>(fileStream_, chunk,
+        utils::writeChunk<ChunkType>(out(), chunk,
                                      chunkSizeForHeader(chunk->id()));
         chunks_.push_back(chunk);
       }
@@ -329,19 +461,42 @@ namespace bw64 {
     template <typename T, typename std::enable_if<
                               std::is_floating_point<T>::value, int>::type = 0>
     uint64_t write(T* inBuffer, uint64_t frames) {
+      if (forwardMode_) {
+        if (forwardClosed_)
+          throw std::logic_error("cannot write to a closed Bw64Writer");
+        if (frames > declaredFrames_ - forwardFramesWritten_)
+          throw std::runtime_error(
+              "write would exceed the number of frames declared in the "
+              "header");
+      }
       uint64_t bytesWritten = frames * formatChunk()->blockAlignment();
       rawDataBuffer_.resize(bytesWritten);
-      utils::encodePcmSamples(inBuffer, &rawDataBuffer_[0],
+      utils::encodePcmSamples(inBuffer, rawDataBuffer_.data(),
                               frames * formatChunk()->channelCount(),
                               formatChunk()->bitsPerSample());
-      fileStream_.write(&rawDataBuffer_[0], bytesWritten);
-      dataChunk()->setSize(dataChunk()->size() + bytesWritten);
-      chunkHeader(utils::fourCC("data")).size = dataChunk()->size();
+      if (bytesWritten) {
+        out().write(rawDataBuffer_.data(), bytesWritten);
+      }
+      if (forwardMode_) {
+        if (!out().good())
+          throw std::runtime_error("stream error while writing frames");
+        forwardFramesWritten_ += frames;
+      } else {
+        dataChunk()->setSize(dataChunk()->size() + bytesWritten);
+        chunkHeader(utils::fourCC("data")).size = dataChunk()->size();
+      }
       return frames;
     }
 
    private:
+    std::ostream& out() { return *output_; }
+
     std::ofstream fileStream_;
+    std::ostream* output_ = nullptr;
+    bool forwardMode_ = false;
+    bool forwardClosed_ = false;
+    uint64_t declaredFrames_ = 0;
+    uint64_t forwardFramesWritten_ = 0;
     std::vector<char> rawDataBuffer_;
     std::vector<std::shared_ptr<Chunk>> chunks_;
     std::vector<ChunkHeader> chunkHeaders_;

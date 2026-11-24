@@ -138,9 +138,8 @@ namespace bw64 {
     utils::readValue(stream, uid);
     utils::readValue(stream, trackRef);
     utils::readValue(stream, packRef);
-    stream.seekg(1, std::ios::cur);  // skip padding
-    if (!stream.good())
-      throw std::runtime_error("file error while seeking past audioId padding");
+    char padding = 0;
+    utils::readValue(stream, padding);  // skip padding
 
     return AudioId(trackIndex, std::string(uid, 12), std::string(trackRef, 14),
                    std::string(packRef, 11));
@@ -220,12 +219,21 @@ namespace bw64 {
       utils::readValue(stream, size);
       table[id] = size;
     }
-    // skip junk data
-    stream.seekg(size - minSize, std::ios::cur);
-    if (!stream.good())
-      throw std::runtime_error("file error while seeking past ds64 chunk");
+    // skip junk data by reading and discarding it, so that this also works
+    // on non-seekable streams
+    uint64_t junkSize = size - minSize;
+    char junkBuffer[4096];
+    while (junkSize > 0) {
+      size_t blockSize = junkSize < sizeof(junkBuffer)
+                             ? static_cast<size_t>(junkSize)
+                             : sizeof(junkBuffer);
+      utils::readChunk(stream, junkBuffer, blockSize);
+      junkSize -= blockSize;
+    }
 
-    return std::make_shared<DataSize64Chunk>(bw64Size, dataSize, table);
+    auto ds64Chunk = std::make_shared<DataSize64Chunk>(bw64Size, dataSize, table);
+    ds64Chunk->dummySize(dummySize);  // sample count
+    return ds64Chunk;
   }
 
   inline std::shared_ptr<DataChunk> parseDataChunk(std::istream& /* stream */,

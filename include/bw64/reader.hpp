@@ -39,6 +39,7 @@ namespace bw64 {
      * function.
      */
     Bw64Reader(const char* filename) {
+      input_ = &fileStream_;
       fileStream_.open(filename, std::fstream::in | std::fstream::binary);
       if (!fileStream_.is_open()) {
         std::stringstream errorString;
@@ -81,11 +82,90 @@ namespace bw64 {
       seek(0);
     }
 
+    /**
+     * @brief Open a RIFF, BW64 or RF64 stream for forward reading
+     *
+     * Opens a non-seekable stream for reading, consuming input only up to the
+     * start of the `data` chunk payload. The `fmt ` chunk must appear before
+     * the `data` chunk. Afterwards, audio data can be read in blocks with
+     * read(); chunks following the `data` chunk are parsed once the audio data
+     * has been consumed (see read() and finish()).
+     *
+     * The stream is owned by the caller and is neither closed nor repositioned
+     * by this class. Only the scope declared by the RIFF/BW64/RF64 header is
+     * consumed, so a concatenated file directly after this one is left
+     * untouched. seek() is not supported in this mode and throws
+     * `std::logic_error`.
+     *
+     * @note For convenience, you might consider using the `readStream` helper
+     * function.
+     */
+    Bw64Reader(std::istream& stream) : input_(&stream), forwardMode_(true) {
+      readRiffChunk();
+      forwardPos_ = 12;
+      uint64_t riffSize = fileSize_;
+      if (fileFormat_ == utils::fourCC("BW64") ||
+          fileFormat_ == utils::fourCC("RF64")) {
+        auto chunkHeader = readChunkHeaderForward();
+        if (chunkHeader.id != utils::fourCC("ds64")) {
+          throw std::runtime_error(
+              "mandatory ds64 chunk for BW64 or RF64 file not found");
+        }
+        auto ds64Chunk =
+            parseDataSize64Chunk(in(), chunkHeader.id, chunkHeader.size);
+        forwardPos_ += chunkHeader.size;
+        consumeChunkPaddingForward(chunkHeader.size);
+        chunks_.push_back(ds64Chunk);
+        chunkHeaders_.push_back(chunkHeader);
+        riffSize = ds64Chunk->bw64Size();
+      }
+      // absolute end of the scope declared by the RIFF/BW64/RF64 header
+      riffEnd_ = utils::safeAdd<uint64_t>(riffSize, 8u);
+      if (forwardPos_ > riffEnd_)
+        throw std::runtime_error("chunk ends after end of RIFF scope");
+
+      bool foundDataChunk = false;
+      while (riffEnd_ - forwardPos_ >= 8 && !foundDataChunk) {
+        auto chunkHeader = readChunkHeaderForward();
+        checkChunkFitsForward(chunkHeader);
+        if (chunkHeader.id == utils::fourCC("data")) {
+          if (!formatChunk())
+            throw std::runtime_error("fmt chunk must precede data chunk");
+          auto chunk = parseDataChunk(in(), chunkHeader.id, chunkHeader.size);
+          chunks_.push_back(chunk);
+          chunkHeaders_.push_back(chunkHeader);
+          foundDataChunk = true;
+        } else {
+          chunks_.push_back(parseChunkPayloadForward(chunkHeader));
+          chunkHeaders_.push_back(chunkHeader);
+        }
+      }
+      if (!foundDataChunk)
+        throw std::runtime_error("mandatory data chunk not found");
+
+      auto fmtChunk = formatChunk();
+      if (!fmtChunk) {
+        throw std::runtime_error("mandatory fmt chunk not found");
+      }
+      channelCount_ = fmtChunk->channelCount();
+      formatTag_ = fmtChunk->formatTag();
+      sampleRate_ = fmtChunk->sampleRate();
+      bitsPerSample_ = fmtChunk->bitsPerSample();
+    }
+
     /// close the file
     ///
     /// It is recommended to call this before the destructor, to handle
     /// exceptions.
+    ///
+    /// In forward reading mode this only releases the reader; the remaining
+    /// input is left untouched and the stream itself is not closed, as it is
+    /// owned by the caller.
     void close() {
+      if (forwardMode_) {
+        closed_ = true;
+        return;
+      }
       if (!fileStream_.is_open()) return;
 
       fileStream_.close();
@@ -217,8 +297,14 @@ namespace bw64 {
 
     /**
      * @brief Seek a frame position in the DataChunk
+     *
+     * @warning Not supported in forward reading mode; throws
+     * `std::logic_error` without changing the read position.
      */
     void seek(int32_t offset, std::ios_base::seekdir way = std::ios::beg) {
+      if (forwardMode_)
+        throw std::logic_error("seek is not supported in forward reading mode");
+
       auto numberOfFramesInt = utils::safeCast<int64_t>(numberOfFrames());
 
       // where to seek relative to according to way
@@ -261,6 +347,31 @@ namespace bw64 {
     template <typename T, typename std::enable_if<
                               std::is_floating_point<T>::value, int>::type = 0>
     uint64_t read(T* outBuffer, uint64_t frames) {
+      if (forwardMode_) {
+        if (closed_)
+          throw std::logic_error("cannot read from a closed Bw64Reader");
+        uint64_t remainingFrames = numberOfFrames() - tell();
+        if (frames > remainingFrames) {
+          frames = remainingFrames;
+        }
+
+        if (frames) {
+          uint64_t bytesToRead = frames * blockAlignment();
+          rawDataBuffer_.resize(utils::safeCast<size_t>(bytesToRead));
+          utils::readChunk(in(), rawDataBuffer_.data(), rawDataBuffer_.size());
+          dataBytesRead_ += bytesToRead;
+          forwardPos_ += bytesToRead;
+
+          utils::decodePcmSamples(rawDataBuffer_.data(), outBuffer,
+                                  frames * channels(), bitDepth());
+        } else if (remainingFrames == 0) {
+          // all frames consumed: parse the chunks after the data chunk
+          parseTrailerForward();
+        }
+
+        return frames;
+      }
+
       if (tell() + frames > numberOfFrames()) {
         frames = numberOfFrames() - tell();
       }
@@ -286,6 +397,7 @@ namespace bw64 {
      * @returns current frame position of the dataChunk
      */
     uint64_t tell() {
+      if (forwardMode_) return dataBytesRead_ / blockAlignment();
       return ((uint64_t)fileStream_.tellg() -
               getChunkHeader(utils::fourCC("data")).position - 8u) /
              formatChunk()->blockAlignment();
@@ -298,12 +410,113 @@ namespace bw64 {
      */
     bool eof() { return tell() == numberOfFrames(); }
 
+    /**
+     * @brief Discard remaining audio data and parse trailing chunks
+     *
+     * In forward reading mode, this discards all audio data which has not
+     * been read yet and parses the chunks after the `data` chunk, consuming
+     * input up to the end of the scope declared by the RIFF/BW64/RF64 header.
+     * Afterwards tell() equals numberOfFrames(). May be called multiple
+     * times. In file mode this is a no-op, as all chunks are parsed on
+     * construction.
+     */
+    void finish() {
+      if (!forwardMode_ || closed_) return;
+      parseTrailerForward();
+    }
+
    private:
+    std::istream& in() { return *input_; }
+
+    /// read a chunk header in forward mode, advancing forwardPos_
+    ChunkHeader readChunkHeaderForward() {
+      uint32_t chunkId;
+      uint32_t chunkSize;
+      uint64_t position = forwardPos_;
+      utils::readValue(in(), chunkId);
+      utils::readValue(in(), chunkSize);
+      forwardPos_ += 8;
+      return ChunkHeader(chunkId, getChunkSize64(chunkId, chunkSize), position);
+    }
+
+    /// check that a chunk payload fits into the remaining RIFF scope
+    void checkChunkFitsForward(const ChunkHeader& chunkHeader) {
+      if (chunkHeader.size > riffEnd_ - forwardPos_)
+        throw std::runtime_error("chunk ends after end of RIFF scope");
+    }
+
+    /// read and discard the padding byte of an odd-sized chunk, if it is
+    /// part of the declared RIFF scope
+    void consumeChunkPaddingForward(uint64_t chunkSize) {
+      if (chunkSize % 2 == 1 && forwardPos_ < riffEnd_) {
+        char padding = 0;
+        utils::readValue(in(), padding);
+        forwardPos_ += 1;
+      }
+    }
+
+    /// parse a non-data chunk payload (plus padding) in forward mode
+    std::shared_ptr<Chunk> parseChunkPayloadForward(
+        const ChunkHeader& chunkHeader) {
+      std::shared_ptr<Chunk> chunk;
+      if (chunkHeader.id == utils::fourCC("ds64")) {
+        chunk = parseDataSize64Chunk(in(), chunkHeader.id, chunkHeader.size);
+      } else if (chunkHeader.id == utils::fourCC("fmt ")) {
+        chunk = parseFormatInfoChunk(in(), chunkHeader.id, chunkHeader.size);
+      } else if (chunkHeader.id == utils::fourCC("axml")) {
+        chunk = parseAxmlChunk(in(), chunkHeader.id, chunkHeader.size);
+      } else if (chunkHeader.id == utils::fourCC("chna")) {
+        chunk = parseChnaChunk(in(), chunkHeader.id, chunkHeader.size);
+      } else {
+        chunk = std::make_shared<UnknownChunk>(in(), chunkHeader.id,
+                                               chunkHeader.size);
+      }
+      forwardPos_ += chunkHeader.size;
+      consumeChunkPaddingForward(chunkHeader.size);
+      return chunk;
+    }
+
+    /// read and discard count bytes of input in forward mode
+    void discardForward(uint64_t count) {
+      char buffer[8192];
+      while (count > 0) {
+        size_t blockSize =
+            count < sizeof(buffer) ? static_cast<size_t>(count) : sizeof(buffer);
+        utils::readChunk(in(), buffer, blockSize);
+        forwardPos_ += blockSize;
+        count -= blockSize;
+      }
+    }
+
+    /// discard any unread audio data and parse all chunks after the data
+    /// chunk, up to the end of the RIFF scope
+    void parseTrailerForward() {
+      if (trailerParsed_) return;
+
+      uint64_t dataSize = dataChunk()->size();
+      if (dataBytesRead_ < dataSize) {
+        discardForward(dataSize - dataBytesRead_);
+        dataBytesRead_ = dataSize;
+      }
+      consumeChunkPaddingForward(dataSize);
+
+      while (riffEnd_ - forwardPos_ >= 8) {
+        auto chunkHeader = readChunkHeaderForward();
+        checkChunkFitsForward(chunkHeader);
+        chunks_.push_back(parseChunkPayloadForward(chunkHeader));
+        chunkHeaders_.push_back(chunkHeader);
+      }
+      if (forwardPos_ != riffEnd_)
+        throw std::runtime_error("truncated chunk header at end of RIFF scope");
+
+      trailerParsed_ = true;
+    }
+
     void readRiffChunk() {
       uint32_t riffType;
-      utils::readValue(fileStream_, fileFormat_);
-      utils::readValue(fileStream_, fileSize_);
-      utils::readValue(fileStream_, riffType);
+      utils::readValue(in(), fileFormat_);
+      utils::readValue(in(), fileSize_);
+      utils::readValue(in(), riffType);
 
       if (fileFormat_ != utils::fourCC("RIFF") &&
           fileFormat_ != utils::fourCC("BW64") &&
@@ -385,6 +598,16 @@ namespace bw64 {
     }
 
     std::ifstream fileStream_;
+    std::istream* input_ = nullptr;
+    bool forwardMode_ = false;
+    bool closed_ = false;
+    // absolute number of bytes consumed in forward reading mode
+    uint64_t forwardPos_ = 0;
+    // absolute end of the scope declared by the RIFF/BW64/RF64 header
+    uint64_t riffEnd_ = 0;
+    // number of data chunk payload bytes consumed in forward reading mode
+    uint64_t dataBytesRead_ = 0;
+    bool trailerParsed_ = false;
     uint32_t fileFormat_;
     uint32_t fileSize_;
     uint16_t channelCount_;
