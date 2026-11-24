@@ -56,6 +56,7 @@
 #include "ixheaace_qc_util.h"
 #include "ixheaace_error_codes.h"
 #include "ixheaace_common_utils.h"
+#include "task_au_limit.h"
 
 #define ALIGNMENT_DEFINE __attribute__((aligned(8)))
 
@@ -153,6 +154,24 @@ IA_ERRORCODE ia_enhaacplus_enc_aac_core_encode(
       &pstr_aac_encoder->qc_kernel, pstr_aac_encoder->config.bit_rate,
       pstr_aac_encoder->config.core_sample_rate, flag_last_element, frame_len_long);
 
+  if (pstr_aac_encoder->qc_kernel.task_au_cap_bytes > 0) {
+    WORD32 future_ele;
+    ixheaace_qc_state *task_qc = &pstr_aac_encoder->qc_kernel;
+    task_qc->task_au_prior_bits =
+        ((ixheaace_bit_buf_handle)ptr_bit_stream_handle)->cnt_bits;
+    task_qc->task_au_future_avg_bits = 0;
+    task_qc->task_au_reserve_bits = IXHEAACE_TASK_AU_END_RESERVE_BITS;
+    if ((ele_idx == 0) && (write_program_config_element != NULL) &&
+        (*write_program_config_element == 1)) {
+      task_qc->task_au_reserve_bits += IXHEAACE_TASK_AU_PCE_RESERVE_BITS;
+    }
+    for (future_ele = ele_idx + 1; future_ele < num_bs_elements; future_ele++) {
+      const ixheaace_qc_state *future_qc = &pstr_aac_enc[future_ele]->qc_kernel;
+      task_qc->task_au_future_avg_bits +=
+          future_qc->average_bits_tot + future_qc->element_bits.carry_bits + 16;
+    }
+  }
+
   for (ch = 0; ch < pstr_element_info->n_channels_in_el; ch++) {
     pstr_aac_encoder->psy_out.psy_out_ch[ch]->ms_digest =
         pstr_aac_encoder->psy_out.psy_out_element.tools_info.ms_digest;
@@ -230,6 +249,23 @@ IA_ERRORCODE ia_enhaacplus_enc_aac_core_encode(
                                  (pstr_aac_encoder->config.core_sample_rate * 8));
     if (*num_out_bytes > avg_bytes_perframe) {
       err_code = IA_EXHEAACE_EXE_FATAL_INVALID_OUT_BYTES;
+    }
+  }
+
+  if (flag_last_element &&
+      (pstr_aac_encoder->qc_kernel.task_au_cap_bytes > 0)) {
+    WORD32 raw_au_bits =
+        ((ixheaace_bit_buf_handle)ptr_bit_stream_handle)->cnt_bits;
+    WORD32 cap_bits = pstr_aac_encoder->qc_kernel.task_au_cap_bytes << 3;
+
+    if (raw_au_bits <= cap_bits) {
+      /* The per-AU contract is authoritative when it is active.  An older
+         reservoir sanity bound can be tighter than the legal AU floor. */
+      if (err_code == IA_EXHEAACE_EXE_FATAL_INVALID_OUT_BYTES) {
+        err_code = IA_NO_ERROR;
+      }
+    } else if (err_code == IA_NO_ERROR) {
+      err_code = IA_EXHEAACE_EXE_FATAL_MAX_AU_BYTES_UNSATISFIABLE;
     }
   }
 

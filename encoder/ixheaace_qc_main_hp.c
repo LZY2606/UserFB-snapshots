@@ -20,6 +20,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ixheaac_type_def.h"
 #include "ixheaac_constants.h"
@@ -65,6 +66,7 @@
 #include "ixheaace_enc_main.h"
 #include "ixheaace_qc_util.h"
 #include "ixheaace_common_utils.h"
+#include "task_au_limit.h"
 
 IA_ERRORCODE ia_enhaacplus_enc_qc_main(
     ixheaace_qc_state *pstr_qc_state, WORD32 num_channels, ixheaace_element_bits *pstr_el_bits,
@@ -90,6 +92,9 @@ IA_ERRORCODE ia_enhaacplus_enc_qc_main(
 
   ia_adj_thr_elem_struct *pstr_adj_thr_elem = &pstr_qc_state->str_adj_thr.str_adj_thr_ele;
   WORD32 gain;
+  WORD32 task_hard_dynamic_bits = 0;
+  WORD32 task_cap_active = (pstr_qc_state->task_au_cap_bytes > 0);
+  WORD32 task_cap_binds = 0;
 
   if (pstr_el_bits->bit_res_level < 0) {
     return IA_EXHEAACE_EXE_FATAL_INVALID_BIT_RES_LEVEL;
@@ -134,6 +139,15 @@ IA_ERRORCODE ia_enhaacplus_enc_qc_main(
          pstr_qc_out_element->static_bits_used - pstr_qc_out_element->anc_bits_used);
 
     max_ch_dyn_bits[ch] = (WORD32)floor(ch_bit_dist[ch] * (FLOAT32)(max_ch_dyn_bits[ch]));
+  }
+
+  if (task_cap_active) {
+    task_hard_dynamic_bits = ixheaace_task_au_dynamic_budget(
+        pstr_qc_state->task_au_cap_bytes, pstr_qc_state->task_au_prior_bits,
+        pstr_qc_state->task_au_future_avg_bits, pstr_qc_state->task_au_reserve_bits,
+        pstr_qc_out_element->static_bits_used, pstr_qc_out_element->anc_bits_used);
+    task_cap_binds = ixheaace_task_au_limit_channel_bits(
+        max_ch_dyn_bits, ch_bit_dist, num_channels, task_hard_dynamic_bits);
   }
 
   pstr_qc_out_element->dyn_bits_used = 0;
@@ -215,7 +229,9 @@ IA_ERRORCODE ia_enhaacplus_enc_qc_main(
           reduction, as spectrum is zero. Hence breaking the quantization loop. */
         if (iterations > 0) {
           *is_quant_spec_zero = 1;
-          ch_dyn_bits = max_ch_dyn_bits[ch];
+          if (!task_cap_binds) {
+            ch_dyn_bits = max_ch_dyn_bits[ch];
+          }
         }
       }
       if ((gain == MAX_GAIN_INDEX) && (constraints_fulfilled == 0)) {
@@ -224,7 +240,35 @@ IA_ERRORCODE ia_enhaacplus_enc_qc_main(
            loop. */
         constraints_fulfilled = 1;
         *is_gain_limited = 1;
-        ch_dyn_bits = max_ch_dyn_bits[ch];
+        if (!task_cap_binds) {
+          ch_dyn_bits = max_ch_dyn_bits[ch];
+        }
+      }
+      if (task_cap_binds && constraints_fulfilled &&
+          (ch_dyn_bits >= max_ch_dyn_bits[ch])) {
+        /* The public AU limit is a hard constraint.  If the ordinary gain
+           loop reaches its bound while still over the derived channel budget,
+           use the minimum valid spectral payload and recount it.  Reservoir
+           accounting below then sees the bits which will actually be written. */
+        memset(pstr_qc_out_ch[ch]->quant_spec, 0,
+               frame_len_long * sizeof(pstr_qc_out_ch[ch]->quant_spec[0]));
+        (VOID) iaace_calc_max_val_in_sfb(
+            psy_out_ch[ch]->sfb_count, psy_out_ch[ch]->max_sfb_per_grp,
+            psy_out_ch[ch]->sfb_per_group, psy_out_ch[ch]->sfb_offsets,
+            pstr_qc_out_ch[ch]->quant_spec, pstr_qc_out_ch[ch]->max_val_in_sfb);
+        err_code = ia_enhaacplus_enc_dyn_bitcount(
+            pstr_qc_out_ch[ch]->quant_spec, pstr_qc_out_ch[ch]->max_val_in_sfb,
+            pstr_qc_out_ch[ch]->scalefactor, psy_out_ch[ch]->window_sequence,
+            psy_out_ch[ch]->sfb_count, psy_out_ch[ch]->max_sfb_per_grp,
+            psy_out_ch[ch]->sfb_per_group, psy_out_ch[ch]->sfb_offsets,
+            &pstr_qc_out_ch[ch]->section_data, pstr_qc_state->side_info_tab_long,
+            pstr_qc_state->side_info_tab_short, pstr_aac_tables->pstr_huff_tab,
+            pstr_qc_state->qc_scr.shared_buffer_2, aot, &ch_dyn_bits);
+        if (err_code != IA_NO_ERROR) {
+          return err_code;
+        }
+        *is_quant_spec_zero = 1;
+        constraints_fulfilled = 1;
       }
       if (!constraints_fulfilled) {
         pstr_qc_out_ch[ch]->global_gain++;

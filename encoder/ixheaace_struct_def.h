@@ -125,4 +125,13 @@ typedef struct ixheaace_api_struct {
   WORD32 usac_en;
   VOID *pstr_mps_212_enc;
   VOID *pstr_mps_515_enc;
+  struct {
+    WORD32 supported;
+    WORD32 min_bytes;
+    WORD32 max_bytes;
+    WORD32 bitrate;
+    WORD32 sample_rate;
+    WORD32 channels;
+    WORD32 pce_enabled;
+  } task_au_limit;
 } ixheaace_api_struct;

@@ -1,0 +1,4 @@
+#!/bin/sh
+f="/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/.task-build/tmp/out.$$.log"
+: > "$f"
+echo "$f"

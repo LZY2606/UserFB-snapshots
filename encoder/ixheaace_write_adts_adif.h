@@ -21,7 +21,8 @@
 #pragma once
 
 WORD32 ia_enhaacplus_enc_write_pce(WORD32 samp_rate, WORD32 ch_mask, WORD32 num_core_coder_chans,
-                                   ixheaace_bit_buf_handle pstr_bit_stream_handle);
+                                   ixheaace_bit_buf_handle pstr_bit_stream_handle,
+                                   WORD32 dual_mono);
 
 WORD32 ia_enhaacplus_enc_write_ADTS_header(pUWORD8 buffer, WORD32 bytes_used, WORD32 samp_rate,
                                            WORD32 num_ch);

@@ -1,0 +1,28 @@
+CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_dct.c.o: \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_dct.c \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/common/ixheaac_type_def.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_error_codes.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/common/ixheaac_error_standards.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_common_fix.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_defines.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_common_define.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_bitbuffer.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_psy_const.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_tns.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_tns_params.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_rom.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_common_rom.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_fft.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_dct.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_buf.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_lib.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_main_structure.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_bitstream.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_frame_windowing.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_param_extract.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_static_gain.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_filter.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_delay.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_dmx_tdom_enh.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_tools_rom.h

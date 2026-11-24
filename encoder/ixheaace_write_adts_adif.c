@@ -139,7 +139,8 @@ static WORD16 ia_enhaacplus_enc_get_sample_rate_index(WORD32 sample_rate) {
 }
 
 WORD32 ia_enhaacplus_enc_write_pce(WORD32 samp_rate, WORD32 ch_mask, WORD32 num_core_coder_chans,
-                                   ixheaace_bit_buf_handle pstr_bit_stream_handle) {
+                                   ixheaace_bit_buf_handle pstr_bit_stream_handle,
+                                   WORD32 dual_mono) {
   UWORD32 object_type = 0;
   UWORD8 buffer[200];
   ixheaace_bitstream_params bitstream_temp;
@@ -169,11 +170,15 @@ WORD32 ia_enhaacplus_enc_write_pce(WORD32 samp_rate, WORD32 ch_mask, WORD32 num_
     /*  num_front_channel_elements --> only this present for mono / stereo */
     num_front_chan_ele = 0;
 
-    if (ch_mask & 0x3) {
-      num_front_chan_ele++; /*Front Left and Right Present*/
-    }
-    if (ch_mask & 0x4) {
-      num_front_chan_ele++; /*Front Center Present*/
+    if (dual_mono) {
+      num_front_chan_ele = 2;
+    } else {
+      if (ch_mask & 0x3) {
+        num_front_chan_ele++; /*Front Left and Right Present*/
+      }
+      if (ch_mask & 0x4) {
+        num_front_chan_ele++; /*Front Center Present*/
+      }
     }
     ixheaace_write_bits(pstr_bit_stream_handle, num_front_chan_ele, 4);
 
@@ -220,8 +225,13 @@ WORD32 ia_enhaacplus_enc_write_pce(WORD32 samp_rate, WORD32 ch_mask, WORD32 num_
     /*	matrix_mixdown_idx_present is zero */
     ixheaace_write_bits(pstr_bit_stream_handle, 0x00, 1);
 
-    {
-      /* stereo --> 1 mono --> 0 */
+    if (dual_mono) {
+      WORD32 front_ele;
+      for (front_ele = 0; front_ele < num_front_chan_ele; front_ele++) {
+        ixheaace_write_bits(pstr_bit_stream_handle, 0x00, 1); /* SCE */
+        ixheaace_write_bits(pstr_bit_stream_handle, front_ele, 4);
+      }
+    } else {
       if (ch_mask & 0x4) {
         ixheaace_write_bits(pstr_bit_stream_handle, 0x00, 1);
         /* element tag select */

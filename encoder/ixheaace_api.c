@@ -100,6 +100,7 @@
 #include "ixheaace_stereo_preproc.h"
 #include "ixheaace_enc_main.h"
 #include "ixheaace_qc_util.h"
+#include "task_au_limit.h"
 
 // MPS header
 #include "ixheaace_mps_common_fix.h"
@@ -888,6 +889,8 @@ static IA_ERRORCODE ixheaace_set_config_params(ixheaace_api_struct *pstr_api_str
         pstr_input_config->aac_config.f_no_stereo_preprocessing;
 
     pstr_api_struct->config[ele_idx].aac_config.use_tns = pstr_input_config->aac_config.use_tns;
+    pstr_api_struct->config[ele_idx].aac_config.dual_mono =
+        pstr_input_config->aac_config.dual_mono;
     if (pstr_input_config->aot == AOT_AAC_LD || pstr_input_config->aot == AOT_AAC_ELD) {
       pstr_api_struct->config[ele_idx].aac_config.inv_quant =
           pstr_input_config->aac_config.inv_quant;
@@ -3023,17 +3026,26 @@ static IA_ERRORCODE ia_enhaacplus_enc_execute(ixheaace_api_struct *pstr_api_stru
     pub_out_buf = ((pUWORD8)pstr_api_struct->pp_mem[IA_ENHAACPLUSENC_OUTPUT_IDX]);
     {
       WORD32 num_channels = 0;
+      WORD32 adts_channel_config;
 
       for (ele = 0; ele < pstr_api_struct->config[0].num_bs_elements; ele++) {
         num_channels += pstr_api_struct->config[ele].i_channels;
+      }
+      adts_channel_config =
+          (pstr_api_struct->config[0].num_bs_elements > 1)
+              ? num_channels
+              : pstr_api_struct->config[0].aac_config.num_out_channels;
+      if ((pstr_api_struct->config[0].num_bs_elements == 2) &&
+          (pstr_api_struct->config[0].aac_config.dual_mono == 1) &&
+          pstr_api_struct->task_au_limit.pce_enabled) {
+        /* Two independent SCEs are mapped by the in-band PCE. */
+        adts_channel_config = 0;
       }
       {
         header_bytes = ia_enhaacplus_enc_write_ADTS_header(
             pub_out_buf, pstr_api_struct->pstr_state->i_out_bytes,
             pstr_api_struct->config->aac_config.core_sample_rate,
-            (pstr_api_struct->config[0].num_bs_elements > 1)
-                ? num_channels
-                : pstr_api_struct->config[0].aac_config.num_out_channels);
+            adts_channel_config);
       }
     }
 
@@ -3682,6 +3694,63 @@ IA_ERRORCODE ixheaace_init(pVOID pstr_obj_ixheaace, pVOID pv_input, pVOID pv_out
     if (pstr_input_config->i_bitrate != total_bitrate_used) {
       pstr_input_config->i_bitrate = total_bitrate_used;
     }
+
+    {
+      WORD32 task_supported =
+          (pstr_api_struct->pstr_state->aot == AOT_AAC_LC) &&
+          (pstr_input_config->frame_length == FRAME_LEN_1024) &&
+          (pstr_api_struct->config[0].aac_config.flag_framelength_small == 0) &&
+          ((channels == 1) || (channels == 2));
+      WORD32 task_ele;
+
+      if (task_supported) {
+        if (pstr_api_struct->config[0].num_bs_elements == 1) {
+          task_supported =
+              ((channels == 1) &&
+               (pstr_api_struct->config[0].element_type == ID_SCE)) ||
+              ((channels == 2) &&
+               (pstr_api_struct->config[0].element_type == ID_CPE));
+        } else if ((channels == 2) &&
+                   (pstr_api_struct->config[0].num_bs_elements == 2) &&
+                   (pstr_input_config->aac_config.dual_mono == 1)) {
+          for (task_ele = 0; task_ele < 2; task_ele++) {
+            task_supported &=
+                (pstr_api_struct->config[task_ele].element_type == ID_SCE) &&
+                (pstr_api_struct->config[task_ele].i_channels == 1);
+          }
+        } else {
+          task_supported = 0;
+        }
+      }
+
+      pstr_api_struct->task_au_limit.supported = task_supported;
+      pstr_api_struct->task_au_limit.bitrate = total_bitrate_used;
+      pstr_api_struct->task_au_limit.sample_rate =
+          pstr_api_struct->config[0].aac_config.core_sample_rate;
+      pstr_api_struct->task_au_limit.channels = channels;
+      pstr_api_struct->task_au_limit.pce_enabled =
+          pstr_input_config->write_program_config_element ? 1 : 0;
+      if (pstr_api_struct->task_au_limit.sample_rate > 0) {
+        UWORD64 avg_byte_num =
+            (UWORD64)total_bitrate_used * FRAME_LEN_1024;
+        WORD32 avg_bytes = (WORD32)(
+            (avg_byte_num +
+             ((UWORD64)8 * pstr_api_struct->task_au_limit.sample_rate - 1)) /
+            ((UWORD64)8 * pstr_api_struct->task_au_limit.sample_rate));
+        pstr_api_struct->task_au_limit.min_bytes = avg_bytes + 64;
+      }
+      pstr_api_struct->task_au_limit.max_bytes = 768 * channels;
+
+      error = ixheaace_task_au_check_value(
+          pstr_input_config->max_au_bytes,
+          pstr_api_struct->task_au_limit.supported,
+          pstr_api_struct->task_au_limit.min_bytes,
+          pstr_api_struct->task_au_limit.max_bytes);
+      if (error) {
+        return error;
+      }
+    }
+
     if (pstr_api_struct->config[0].aac_config.bitreservoir_size != -1) {
       WORD32 avg_bytes_per_frame_per_ch = pstr_api_struct->config[0].aac_config.bitreservoir_size;
       if (pstr_api_struct->config[0].aac_config.flag_framelength_small) {
@@ -3776,6 +3845,15 @@ IA_ERRORCODE ixheaace_init(pVOID pstr_obj_ixheaace, pVOID pv_input, pVOID pv_out
   }
 
   else {
+    pstr_api_struct->task_au_limit.supported = 0;
+    pstr_api_struct->task_au_limit.channels = channels;
+    pstr_api_struct->task_au_limit.max_bytes = 768 * channels;
+    error = ixheaace_task_au_check_value(pstr_input_config->max_au_bytes, 0, 0,
+                                         pstr_api_struct->task_au_limit.max_bytes);
+    if (error) {
+      return error;
+    }
+
     pstr_api_struct->pstr_state->pstr_config[0] = &pstr_api_struct->config[0];
     error = ia_usac_enc_init(pstr_api_struct, pstr_input_config->ccfl_idx);
     if (error) {
@@ -3850,15 +3928,80 @@ IA_ERRORCODE ixheaace_create(pVOID pv_input, pVOID pv_output) {
   return err_code;
 }
 
+WORD32 ixheaace_task_au_get_reservoir_level(pVOID pv_encoder, WORD32 element) {
+  ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pv_encoder;
+  if (pstr_api_struct == NULL || pstr_api_struct->pstr_state == NULL ||
+      element < 0 || element >= MAXIMUM_BS_ELE ||
+      pstr_api_struct->pstr_state->aac_enc_pers_mem[element] == NULL) {
+    return -1;
+  }
+  return pstr_api_struct->pstr_state->aac_enc_pers_mem[element]
+      ->qc_kernel.element_bits.bit_res_level;
+}
+
+WORD32 ixheaace_task_au_get_reservoir_max(pVOID pv_encoder, WORD32 element) {
+  ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pv_encoder;
+  if (pstr_api_struct == NULL || pstr_api_struct->pstr_state == NULL ||
+      element < 0 || element >= MAXIMUM_BS_ELE ||
+      pstr_api_struct->pstr_state->aac_enc_pers_mem[element] == NULL) {
+    return -1;
+  }
+  return pstr_api_struct->pstr_state->aac_enc_pers_mem[element]
+      ->qc_kernel.element_bits.max_bit_res_bits;
+}
+
+WORD32 ixheaace_task_au_get_num_elements(pVOID pv_encoder) {
+  ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pv_encoder;
+  if (pstr_api_struct == NULL) return -1;
+  return pstr_api_struct->config[0].num_bs_elements;
+}
+
+WORD32 ixheaace_task_au_get_element_type(pVOID pv_encoder, WORD32 element) {
+  ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pv_encoder;
+  if (pstr_api_struct == NULL || element < 0 || element >= MAXIMUM_BS_ELE) {
+    return -1;
+  }
+  return pstr_api_struct->config[element].element_type;
+}
+
+WORD32 ixheaace_task_au_get_element_tag(pVOID pv_encoder, WORD32 element) {
+  ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pv_encoder;
+  if (pstr_api_struct == NULL || element < 0 || element >= MAXIMUM_BS_ELE) {
+    return -1;
+  }
+  return pstr_api_struct->config[element].element_instance_tag;
+}
+
 IA_ERRORCODE ixheaace_process(pVOID pstr_obj_ixheaace, pVOID pv_input, pVOID pv_output) {
   IA_ERRORCODE error = IA_NO_ERROR;
   WORD32 ele_idx;
-  (VOID) pv_input;
+  ixheaace_input_config *pstr_input_config = (ixheaace_input_config *)pv_input;
   ixheaace_api_struct *pstr_api_struct = (ixheaace_api_struct *)pstr_obj_ixheaace;
   ixheaace_output_config *pstr_output_config = (ixheaace_output_config *)pv_output;
+
+  if (pstr_input_config != NULL) {
+    error = ixheaace_task_au_check_value(
+        pstr_input_config->max_au_bytes, pstr_api_struct->task_au_limit.supported,
+        pstr_api_struct->task_au_limit.min_bytes,
+        pstr_api_struct->task_au_limit.max_bytes);
+    if (error != IA_NO_ERROR) {
+      pstr_output_config->i_out_bytes = 0;
+      pstr_output_config->i_bytes_consumed = 0;
+      return error;
+    }
+  }
+
   pstr_api_struct->pstr_state->is_quant_spec_zero = 0;
   pstr_api_struct->pstr_state->is_gain_limited = 0;
   if (!pstr_api_struct->usac_en) {
+    WORD32 task_au_cap_bytes =
+        (pstr_input_config != NULL && pstr_input_config->max_au_bytes > 0)
+            ? pstr_input_config->max_au_bytes
+            : 0;
+    for (ele_idx = 0; ele_idx < pstr_api_struct->config[0].num_bs_elements; ele_idx++) {
+      pstr_api_struct->pstr_state->aac_enc_pers_mem[ele_idx]
+          ->qc_kernel.task_au_cap_bytes = task_au_cap_bytes;
+    }
     for (ele_idx = 0; ele_idx < pstr_api_struct->config[0].num_bs_elements; ele_idx++) {
       error = ia_enhaacplus_enc_execute(pstr_api_struct, ele_idx);
       if (error != IA_NO_ERROR) {

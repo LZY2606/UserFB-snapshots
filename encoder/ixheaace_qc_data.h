@@ -146,6 +146,10 @@ typedef struct {
   WORD32 side_info_tab_long[MAXIMUM_SCALE_FACTOR_BAND_LONG + 1];
   WORD32 side_info_tab_short[MAXIMUM_SCALE_FACTOR_BAND_SHORT + 1];
   ixheaace_qc_scratch qc_scr;
+  WORD32 task_au_cap_bytes;
+  WORD32 task_au_prior_bits;
+  WORD32 task_au_future_avg_bits;
+  WORD32 task_au_reserve_bits;
 } ixheaace_qc_state;
 
 typedef struct {

@@ -1,0 +1,6 @@
+[  2%] Building C object CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_enc_main.c.o
+[  2%] Building C object CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_api.c.o
+[  2%] Building C object CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_qc_main_hp.c.o
+[  2%] Building C object CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/task_au_limit.c.o
+[  4%] Linking C static library libxaacenc.a
+[100%] Built target libxaacenc

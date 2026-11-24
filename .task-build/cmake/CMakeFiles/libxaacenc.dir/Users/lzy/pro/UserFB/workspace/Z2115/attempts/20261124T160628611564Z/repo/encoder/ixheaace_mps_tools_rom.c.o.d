@@ -1,0 +1,25 @@
+CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_tools_rom.c.o: \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_tools_rom.c \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stddef.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stddef.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_header_macro.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_ptrdiff_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_size_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_wchar_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_null.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_offsetof.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/common/ixheaac_type_def.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_error_codes.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_common_enc.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_uni_drc.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_tables.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_api.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_api.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_common_fix.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_defines.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_common_define.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_aac_constants.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_buf.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_lib.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_mps_main_structure.h

@@ -1,0 +1,18 @@
+COREAU ele=0 cap=250 bits=1480 bytes=185 qch hard?
+COREAU ele=0 cap=768 bits=1488 bytes=186 qch hard?
+COREAU ele=0 cap=235 bits=1360 bytes=170 qch hard?
+COREAU ele=0 cap=768 bits=1368 bytes=171 qch hard?
+COREAU ele=0 cap=343 bits=2224 bytes=278 qch hard?
+COREAU ele=0 cap=1536 bits=2232 bytes=279 qch hard?
+COREAU ele=0 cap=320 bits=2048 bytes=256 qch hard?
+COREAU ele=0 cap=1536 bits=2048 bytes=256 qch hard?
+COREAU ele=1 cap=343 bits=2224 bytes=278 qch hard?
+COREAU ele=1 cap=1536 bits=2224 bytes=278 qch hard?
+COREAU ele=1 cap=320 bits=2056 bytes=257 qch hard?
+COREAU ele=1 cap=1536 bits=2040 bytes=255 qch hard?
+append fail profile ch=1 sr=44100 f=5 cap=250 out=262 err=0x0 rc=4
+mono decode profile rc=206
+FAIL test/encoder/task_au_limit.c:552 rc == 0
+CASE capacity bounds checks=66
+CASE capacity invalid_values checks=11
+CASE capacity unsupported_modes checks=2

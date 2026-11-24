@@ -1,0 +1,32 @@
+CMakeFiles/libxaacenc.dir/Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_static_bits.c.o: \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_static_bits.c \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stddef.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stddef.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_header_macro.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_ptrdiff_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_size_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_wchar_t.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_null.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stddef_offsetof.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/common/ixheaac_type_def.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_aac_constants.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_common_enc.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_uni_drc.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_tables.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/drc_src/impd_drc_api.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_api.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_adjust_threshold_data.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_psy_const.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_tns.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_tns_params.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_rom.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_common_rom.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_bitbuffer.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_dynamic_bits.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_qc_data.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_channel_map.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_block_switch.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_psy_data.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_interface.h \
+  /Users/lzy/pro/UserFB/workspace/Z2115/attempts/20261124T160628611564Z/repo/encoder/ixheaace_write_bitstream.h

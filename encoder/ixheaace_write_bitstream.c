@@ -686,9 +686,12 @@ IA_ERRORCODE ia_enhaacplus_enc_write_bitstream(
     if ((*write_program_config_element == 1) && (ele_idx == 0)) {
       WORD32 samp_rate = i_samp_freq, ch_mask = i_channels_mask, n_cc_ch = i_num_coup_channels;
 
+      WORD32 pce_dual_mono =
+          (pstr_element_info.el_type == ID_SCE) && (i_channels_mask == 0x3);
       /*Write Program Config Element*/
       ixheaace_write_bits(pstr_bit_stream_handle, ID_PCE, 3);
-      ia_enhaacplus_enc_write_pce(samp_rate, ch_mask, n_cc_ch, pstr_bit_stream_handle);
+      ia_enhaacplus_enc_write_pce(samp_rate, ch_mask, n_cc_ch,
+                                  pstr_bit_stream_handle, pce_dual_mono);
       *write_program_config_element = 0;
     }
 

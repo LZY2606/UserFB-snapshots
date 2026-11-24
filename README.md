@@ -98,5 +98,82 @@ $ cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/aarch32_toolchain.cmake
 $ make
 ```
 
+## Per-access-unit AAC-LC byte cap
+
+`ixheaace_input_config` ends with:
+
+```c
+WORD32 max_au_bytes;
+```
+
+The value is read from the caller's config at `ixheaace_create()` and on every
+`ixheaace_process()` call. `0` keeps the original bit-reservoir and output
+behavior. The first supported scope is 1024-sample AAC-LC:
+
+* one mono `SCE`;
+* one normal stereo `CPE`;
+* `aac_config.dual_mono == 1` with two `SCE` elements.
+
+A positive value limits the complete `raw_data_block`, including channel
+elements, the optional PCE, fill elements, `ID_END`, and final byte alignment.
+The seven-byte ADTS header and `AudioSpecificConfig` are outside this budget.
+The two `SCE` elements in dual-mono mode share one AU budget.
+
+After creation, let `B` be the effective total bitrate, `F` the effective
+sample rate, and `C` the channel count. The inclusive legal range is:
+
+```text
+ceil(B * 1024 / (8 * F)) + 64  ..  768 * C
+```
+
+Negative values, values outside that range, and positive values for unsupported
+codec/frame configurations are rejected with distinct fatal configuration
+codes:
+
+| Condition | Error code | Value |
+| --- | --- | ---: |
+| `max_au_bytes < 0` | `IA_EXHEAACE_CONFIG_FATAL_MAX_AU_BYTES_NEGATIVE` | `0xFFFF8810` |
+| outside the legal range | `IA_EXHEAACE_CONFIG_FATAL_MAX_AU_BYTES_OUT_OF_RANGE` | `0xFFFF8811` |
+| positive value in an unsupported mode/topology | `IA_EXHEAACE_CONFIG_FATAL_MAX_AU_BYTES_UNSUPPORTED_MODE` | `0xFFFF8812` |
+
+A legal value that the encoder cannot satisfy without violating the hard AU
+bound returns
+`IA_EXHEAACE_EXE_FATAL_MAX_AU_BYTES_UNSATISFIABLE` (`0xFFFF9820`). The legal
+range above leaves enough headroom for the minimum valid payload, so the tested
+fixed streams do not hit this defensive path.
+
+When `ixheaace_process()` rejects a configuration value, `i_out_bytes` and
+`i_bytes_consumed` are set to zero before any encoder state or PCM buffer is
+advanced. Correct the field and continue with the same encoder instance.
+Tightening the cap only reduces bits available to that AU; it does not reset the
+existing bit-reservoir level, fractional frame budget, MDCT overlap, or
+psychoacoustic history. Average bitrate and channel configuration remain
+unchanged.
+
+Run the task tests with:
+
+```sh
+bash task_support/run.sh baseline
+bash task_support/run.sh target
+```
+
+The target command builds `test/encoder/task_au_limit.c`, the encoder and
+decoder libraries, and runs the `capacity`, `history`, and `compatibility`
+groups.
+
+A small ADTS writer example is provided at
+[`examples/task_au_limit_adts.c`](examples/task_au_limit_adts.c). It writes a
+continuous ADTS file and prints each packet's cap, total file packet length,
+and raw AU length:
+
+```sh
+cmake -S task_support -B .task-build/cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build .task-build/cmake --target libxaacenc -j 4
+cc -std=c99 -O2 -I. -Icommon -Iencoder -Iencoder/drc_src \
+  examples/task_au_limit_adts.c .task-build/cmake/libxaacenc.a -lm \
+  -o .task-build/task_au_limit_adts
+.task-build/task_au_limit_adts output.adts
+```
+
 ### For API and testbench usage of decoder, please refer [`README_dec.md`](README_dec.md)
 ### For API and testbench usage of encoder, please refer [`README_enc.md`](README_enc.md)

@@ -1,0 +1,33 @@
+DEC pkt=0 err=0x0 out=1608 consumed=192 frame=192 ch=1
+DEC pkt=1 err=0x0 out=2048 consumed=193 frame=193 ch=1
+DEC pkt=2 err=0x0 out=2048 consumed=193 frame=193 ch=1
+DEC pkt=3 err=0x0 out=2048 consumed=193 frame=193 ch=1
+DEC pkt=4 err=0x0 out=2048 consumed=192 frame=192 ch=1
+DEC pkt=5 err=0x0 out=2048 consumed=249 frame=249 ch=1
+DEC pkt=0 err=0x0 out=3136 consumed=263 frame=263 ch=2
+DEC pkt=1 err=0x0 out=4096 consumed=263 frame=263 ch=2
+DEC pkt=2 err=0x0 out=4096 consumed=263 frame=263 ch=2
+DEC pkt=3 err=0x0 out=4096 consumed=263 frame=263 ch=2
+DEC pkt=4 err=0x0 out=4096 consumed=263 frame=263 ch=2
+DEC pkt=5 err=0x0 out=4096 consumed=309 frame=309 ch=2
+DEC pkt=0 err=0x0 out=3136 consumed=353 frame=353 ch=2
+DEC pkt=1 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=2 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=3 err=0x0 out=4096 consumed=347 frame=347 ch=2
+DEC pkt=4 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=5 err=0x0 out=4096 consumed=405 frame=405 ch=2
+DEC pkt=0 err=0x0 out=3136 consumed=353 frame=353 ch=2
+DEC pkt=1 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=2 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=3 err=0x0 out=4096 consumed=347 frame=347 ch=2
+DEC pkt=4 err=0x0 out=4096 consumed=349 frame=349 ch=2
+DEC pkt=5 err=0x0 out=4096 consumed=405 frame=405 ch=2
+FAIL test/encoder/task_au_limit.c:645 au_outputs_equal(&guarded, &control)
+CASE capacity bounds checks=66
+CASE capacity invalid_values checks=11
+CASE capacity unsupported_modes checks=2
+CASE capacity mono_44k_decode checks=1
+CASE capacity cpe_48k_decode checks=1
+CASE capacity dual_mono_44k_decode checks=1
+CASE capacity dual_mono_48k_pce_decode checks=1
+GROUP capacity cases=7 checks=83 COMPLETE

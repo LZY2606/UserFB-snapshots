@@ -1,0 +1,18 @@
+CASE capacity bounds checks=82
+CASE capacity invalid_values checks=11
+CASE capacity unsupported_modes checks=2
+CASE capacity mono_44k_decode checks=1
+CASE capacity cpe_48k_decode checks=1
+CASE capacity dual_mono_44k_decode checks=1
+CASE capacity dual_mono_48k_pce_decode checks=1
+GROUP capacity cases=7 checks=99 COMPLETE
+CASE history rejection_does_not_consume checks=74
+CASE history reservoir_retained checks=56
+CASE history dual_sce_shared_budget checks=68
+GROUP history cases=3 checks=198 COMPLETE
+CASE compatibility upper_limit_byte_identical checks=392
+CASE compatibility adts_headers checks=61
+GROUP compatibility cases=2 checks=453 COMPLETE
+TARGET_COMPLETE cases=12
+BASELINE_OK frames=64 bytes=18160 min_au=254 max_au=451
+CURRENT_CAPABILITY fixed_reservoir_no_per_AU_runtime_limit

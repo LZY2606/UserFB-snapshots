@@ -1,0 +1,200 @@
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2808,5214 dist=0.35,0.65 reslvl=5848 avg=2229
+TASKDBG caps=2808,5214
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2516,4338 dist=0.37,0.63 reslvl=4688 avg=2221
+TASKDBG caps=2516,4338
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2254,3688 dist=0.38,0.62 reslvl=3768 avg=2229
+TASKDBG caps=2254,3688
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2040,3134 dist=0.39,0.61 reslvl=3000 avg=2229
+TASKDBG caps=2040,3134
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1877,2737 dist=0.41,0.59 reslvl=2448 avg=2221
+TASKDBG caps=1090,1591
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1791,2575 dist=0.41,0.59 reslvl=2192 avg=2229
+TASKDBG caps=1099,1582
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1742,2496 dist=0.41,0.59 reslvl=2064 avg=2229
+TASKDBG caps=1102,1579
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1697,2413 dist=0.41,0.59 reslvl=1944 avg=2221
+TASKDBG caps=1106,1575
+TASKDBG ch=2 cap=344 prior=0 fut=0 res=16 static=47 anc=0 hard=2689 oldmax=1638,2352 dist=0.41,0.59 reslvl=1816 avg=2229
+TASKDBG caps=1104,1585
+TASKDBG ch=2 cap=344 prior=0 fut=0 res=16 static=47 anc=0 hard=2689 oldmax=1588,2274 dist=0.41,0.59 reslvl=1696 avg=2221
+TASKDBG caps=1105,1584
+TASKDBG ch=2 cap=344 prior=0 fut=0 res=16 static=47 anc=0 hard=2689 oldmax=1535,2207 dist=0.41,0.59 reslvl=1568 avg=2229
+TASKDBG caps=1103,1586
+TASKDBG ch=2 cap=344 prior=0 fut=0 res=16 static=47 anc=0 hard=2689 oldmax=1482,2132 dist=0.41,0.59 reslvl=1440 avg=2229
+TASKDBG caps=1103,1586
+TASKDBG ch=2 cap=939 prior=0 fut=0 res=16 static=47 anc=0 hard=7449 oldmax=1430,2048 dist=0.41,0.59 reslvl=1312 avg=2221
+TASKDBG caps=1430,2048
+TASKDBG ch=2 cap=939 prior=0 fut=0 res=16 static=47 anc=0 hard=7449 oldmax=1311,1863 dist=0.41,0.59 reslvl=1000 avg=2229
+TASKDBG caps=1311,1863
+TASKDBG ch=2 cap=939 prior=0 fut=0 res=16 static=47 anc=0 hard=7449 oldmax=1190,1680 dist=0.41,0.59 reslvl=696 avg=2229
+TASKDBG caps=1190,1680
+TASKDBG ch=2 cap=939 prior=0 fut=0 res=16 static=47 anc=0 hard=7449 oldmax=1102,1464 dist=0.43,0.57 reslvl=400 avg=2221
+TASKDBG caps=1102,1464
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1087,1407 dist=0.44,0.56 reslvl=320 avg=2229
+TASKDBG caps=1087,1407
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1103,1463 dist=0.43,0.57 reslvl=392 avg=2229
+TASKDBG caps=1103,1463
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1085,1401 dist=0.44,0.56 reslvl=320 avg=2221
+TASKDBG caps=1085,1401
+TASKDBG ch=2 cap=343 prior=0 fut=0 res=16 static=47 anc=0 hard=2681 oldmax=1103,1463 dist=0.43,0.57 reslvl=392 avg=2229
+TASKDBG caps=1103,1463
+TASKDBG ch=1 cap=1536 prior=0 fut=1040 res=16 static=29 anc=0 hard=11203 oldmax=5618,0 dist=1.00,0.00 reslvl=4633 avg=1021
+TASKDBG caps=5618,0
+TASKDBG ch=1 cap=1536 prior=1164 fut=0 res=16 static=29 anc=0 hard=11079 oldmax=5532,0 dist=1.00,0.00 reslvl=4547 avg=1021
+TASKDBG caps=5532,0
+TASKDBG ch=1 cap=1536 prior=0 fut=1040 res=16 static=29 anc=0 hard=11203 oldmax=5475,0 dist=1.00,0.00 reslvl=4490 avg=1021
+TASKDBG caps=5475,0
+TASKDBG ch=1 cap=1536 prior=1149 fut=0 res=16 static=29 anc=0 hard=11094 oldmax=5408,0 dist=1.00,0.00 reslvl=4423 avg=1021
+TASKDBG caps=5408,0
+TASKDBG ch=1 cap=1536 prior=0 fut=1040 res=16 static=29 anc=0 hard=11203 oldmax=5347,0 dist=1.00,0.00 reslvl=4362 avg=1021
+TASKDBG caps=5347,0
+TASKDBG ch=1 cap=1536 prior=1119 fut=0 res=16 static=29 anc=0 hard=11124 oldmax=5309,0 dist=1.00,0.00 reslvl=4324 avg=1021
+TASKDBG caps=5309,0
+TASKDBG ch=1 cap=1536 prior=0 fut=1040 res=16 static=29 anc=0 hard=11203 oldmax=5249,0 dist=1.00,0.00 reslvl=4264 avg=1021
+TASKDBG caps=5249,0
+TASKDBG ch=1 cap=1536 prior=1125 fut=0 res=16 static=29 anc=0 hard=11118 oldmax=5220,0 dist=1.00,0.00 reslvl=4235 avg=1021
+TASKDBG caps=5220,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=5145,0 dist=1.00,0.00 reslvl=4160 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1105 fut=0 res=16 static=29 anc=0 hard=1410 oldmax=5169,0 dist=1.00,0.00 reslvl=4184 avg=1021
+TASKDBG caps=1410,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=5061,0 dist=1.00,0.00 reslvl=4076 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1093 fut=0 res=16 static=29 anc=0 hard=1422 oldmax=5114,0 dist=1.00,0.00 reslvl=4129 avg=1021
+TASKDBG caps=1422,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4989,0 dist=1.00,0.00 reslvl=4004 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1086 fut=0 res=16 static=29 anc=0 hard=1429 oldmax=5111,0 dist=1.00,0.00 reslvl=4126 avg=1021
+TASKDBG caps=1429,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4924,0 dist=1.00,0.00 reslvl=3939 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1063 fut=0 res=16 static=29 anc=0 hard=1452 oldmax=5109,0 dist=1.00,0.00 reslvl=4124 avg=1021
+TASKDBG caps=1452,0
+TASKDBG ch=1 cap=321 prior=0 fut=1040 res=16 static=29 anc=0 hard=1483 oldmax=4882,0 dist=1.00,0.00 reslvl=3897 avg=1021
+TASKDBG caps=1483,0
+TASKDBG ch=1 cap=321 prior=1057 fut=0 res=16 static=29 anc=0 hard=1466 oldmax=5108,0 dist=1.00,0.00 reslvl=4123 avg=1021
+TASKDBG caps=1466,0
+TASKDBG ch=1 cap=321 prior=0 fut=1040 res=16 static=29 anc=0 hard=1483 oldmax=4846,0 dist=1.00,0.00 reslvl=3861 avg=1021
+TASKDBG caps=1483,0
+TASKDBG ch=1 cap=321 prior=1062 fut=0 res=16 static=29 anc=0 hard=1461 oldmax=5109,0 dist=1.00,0.00 reslvl=4124 avg=1021
+TASKDBG caps=1461,0
+TASKDBG ch=1 cap=321 prior=0 fut=1040 res=16 static=29 anc=0 hard=1483 oldmax=4805,0 dist=1.00,0.00 reslvl=3820 avg=1021
+TASKDBG caps=1483,0
+TASKDBG ch=1 cap=321 prior=1042 fut=0 res=16 static=29 anc=0 hard=1481 oldmax=5107,0 dist=1.00,0.00 reslvl=4122 avg=1021
+TASKDBG caps=1481,0
+TASKDBG ch=1 cap=321 prior=0 fut=1040 res=16 static=29 anc=0 hard=1483 oldmax=4784,0 dist=1.00,0.00 reslvl=3799 avg=1021
+TASKDBG caps=1483,0
+TASKDBG ch=1 cap=321 prior=1045 fut=0 res=16 static=29 anc=0 hard=1478 oldmax=5109,0 dist=1.00,0.00 reslvl=4124 avg=1021
+TASKDBG caps=1478,0
+TASKDBG ch=1 cap=928 prior=0 fut=1040 res=16 static=29 anc=0 hard=6339 oldmax=4760,0 dist=1.00,0.00 reslvl=3775 avg=1021
+TASKDBG caps=4760,0
+TASKDBG ch=1 cap=928 prior=1036 fut=0 res=16 static=29 anc=0 hard=6343 oldmax=5106,0 dist=1.00,0.00 reslvl=4121 avg=1021
+TASKDBG caps=5106,0
+TASKDBG ch=1 cap=928 prior=0 fut=1040 res=16 static=29 anc=0 hard=6339 oldmax=4745,0 dist=1.00,0.00 reslvl=3760 avg=1021
+TASKDBG caps=4745,0
+TASKDBG ch=1 cap=928 prior=1036 fut=0 res=16 static=29 anc=0 hard=6343 oldmax=5102,0 dist=1.00,0.00 reslvl=4117 avg=1021
+TASKDBG caps=5102,0
+TASKDBG ch=1 cap=928 prior=0 fut=1040 res=16 static=29 anc=0 hard=6339 oldmax=4730,0 dist=1.00,0.00 reslvl=3745 avg=1021
+TASKDBG caps=4730,0
+TASKDBG ch=1 cap=928 prior=1031 fut=0 res=16 static=29 anc=0 hard=6348 oldmax=5098,0 dist=1.00,0.00 reslvl=4113 avg=1021
+TASKDBG caps=5098,0
+TASKDBG ch=1 cap=928 prior=0 fut=1040 res=16 static=29 anc=0 hard=6339 oldmax=4720,0 dist=1.00,0.00 reslvl=3735 avg=1021
+TASKDBG caps=4720,0
+TASKDBG ch=1 cap=928 prior=1031 fut=0 res=16 static=29 anc=0 hard=6348 oldmax=5097,0 dist=1.00,0.00 reslvl=4112 avg=1021
+TASKDBG caps=5097,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4710,0 dist=1.00,0.00 reslvl=3725 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1031 fut=0 res=16 static=29 anc=0 hard=1484 oldmax=5096,0 dist=1.00,0.00 reslvl=4111 avg=1021
+TASKDBG caps=1484,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4700,0 dist=1.00,0.00 reslvl=3715 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1031 fut=0 res=16 static=29 anc=0 hard=1484 oldmax=5095,0 dist=1.00,0.00 reslvl=4110 avg=1021
+TASKDBG caps=1484,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4690,0 dist=1.00,0.00 reslvl=3705 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1031 fut=0 res=16 static=29 anc=0 hard=1484 oldmax=5094,0 dist=1.00,0.00 reslvl=4109 avg=1021
+TASKDBG caps=1484,0
+TASKDBG ch=1 cap=320 prior=0 fut=1040 res=16 static=29 anc=0 hard=1475 oldmax=4680,0 dist=1.00,0.00 reslvl=3695 avg=1021
+TASKDBG caps=1475,0
+TASKDBG ch=1 cap=320 prior=1031 fut=0 res=16 static=29 anc=0 hard=1484 oldmax=5093,0 dist=1.00,0.00 reslvl=4108 avg=1021
+TASKDBG caps=1484,0
+TASKDBG ch=1 cap=768 prior=0 fut=0 res=16 static=33 anc=0 hard=6095 oldmax=5965,0 dist=1.00,0.00 reslvl=4528 avg=1477
+TASKDBG caps=5965,0
+TASKDBG ch=1 cap=768 prior=0 fut=0 res=16 static=33 anc=0 hard=6095 oldmax=5941,0 dist=1.00,0.00 reslvl=4496 avg=1485
+TASKDBG caps=5941,0
+TASKDBG ch=1 cap=768 prior=0 fut=0 res=16 static=33 anc=0 hard=6095 oldmax=5909,0 dist=1.00,0.00 reslvl=4464 avg=1485
+TASKDBG caps=5909,0
+TASKDBG ch=1 cap=768 prior=0 fut=0 res=16 static=33 anc=0 hard=6095 oldmax=5877,0 dist=1.00,0.00 reslvl=4432 avg=1485
+TASKDBG caps=5877,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5837,0 dist=1.00,0.00 reslvl=4400 avg=1477
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5813,0 dist=1.00,0.00 reslvl=4368 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5781,0 dist=1.00,0.00 reslvl=4336 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5749,0 dist=1.00,0.00 reslvl=4304 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=251 prior=0 fut=0 res=16 static=33 anc=0 hard=1959 oldmax=5709,0 dist=1.00,0.00 reslvl=4272 avg=1477
+TASKDBG caps=1959,0
+TASKDBG ch=1 cap=251 prior=0 fut=0 res=16 static=33 anc=0 hard=1959 oldmax=5685,0 dist=1.00,0.00 reslvl=4240 avg=1485
+TASKDBG caps=1959,0
+TASKDBG ch=1 cap=251 prior=0 fut=0 res=16 static=33 anc=0 hard=1959 oldmax=5653,0 dist=1.00,0.00 reslvl=4208 avg=1485
+TASKDBG caps=1959,0
+TASKDBG ch=1 cap=251 prior=0 fut=0 res=16 static=33 anc=0 hard=1959 oldmax=5621,0 dist=1.00,0.00 reslvl=4176 avg=1485
+TASKDBG caps=1959,0
+TASKDBG ch=1 cap=509 prior=0 fut=0 res=16 static=33 anc=0 hard=4023 oldmax=5581,0 dist=1.00,0.00 reslvl=4144 avg=1477
+TASKDBG caps=4023,0
+TASKDBG ch=1 cap=509 prior=0 fut=0 res=16 static=33 anc=0 hard=4023 oldmax=5557,0 dist=1.00,0.00 reslvl=4112 avg=1485
+TASKDBG caps=4023,0
+TASKDBG ch=1 cap=509 prior=0 fut=0 res=16 static=33 anc=0 hard=4023 oldmax=5525,0 dist=1.00,0.00 reslvl=4080 avg=1485
+TASKDBG caps=4023,0
+TASKDBG ch=1 cap=509 prior=0 fut=0 res=16 static=33 anc=0 hard=4023 oldmax=5493,0 dist=1.00,0.00 reslvl=4048 avg=1485
+TASKDBG caps=4023,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5453,0 dist=1.00,0.00 reslvl=4016 avg=1477
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5429,0 dist=1.00,0.00 reslvl=3984 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5397,0 dist=1.00,0.00 reslvl=3952 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=1 cap=250 prior=0 fut=0 res=16 static=33 anc=0 hard=1951 oldmax=5365,0 dist=1.00,0.00 reslvl=3920 avg=1485
+TASKDBG caps=1951,0
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2513,5037 dist=0.33,0.67 reslvl=4880 avg=2725
+TASKDBG caps=2513,5037
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=2211,4323 dist=0.34,0.66 reslvl=3856 avg=2733
+TASKDBG caps=2211,4323
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=1982,3752 dist=0.35,0.65 reslvl=3064 avg=2725
+TASKDBG caps=1982,3752
+TASKDBG ch=2 cap=1536 prior=0 fut=0 res=16 static=47 anc=0 hard=12225 oldmax=1857,3277 dist=0.36,0.64 reslvl=2464 avg=2725
+TASKDBG caps=1857,3277
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1741,2977 dist=0.37,0.63 reslvl=2040 avg=2733
+TASKDBG caps=1175,2010
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1719,2927 dist=0.37,0.63 reslvl=1976 avg=2725
+TASKDBG caps=1178,2007
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1692,2874 dist=0.37,0.63 reslvl=1896 avg=2725
+TASKDBG caps=1180,2005
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1662,2832 dist=0.37,0.63 reslvl=1816 avg=2733
+TASKDBG caps=1177,2008
+TASKDBG ch=2 cap=407 prior=0 fut=0 res=16 static=47 anc=0 hard=3193 oldmax=1633,2781 dist=0.37,0.63 reslvl=1744 avg=2725
+TASKDBG caps=1181,2012
+TASKDBG ch=2 cap=407 prior=0 fut=0 res=16 static=47 anc=0 hard=3193 oldmax=1603,2731 dist=0.37,0.63 reslvl=1664 avg=2725
+TASKDBG caps=1180,2013
+TASKDBG ch=2 cap=407 prior=0 fut=0 res=16 static=47 anc=0 hard=3193 oldmax=1574,2688 dist=0.37,0.63 reslvl=1584 avg=2733
+TASKDBG caps=1179,2014
+TASKDBG ch=2 cap=407 prior=0 fut=0 res=16 static=47 anc=0 hard=3193 oldmax=1546,2636 dist=0.37,0.63 reslvl=1512 avg=2725
+TASKDBG caps=1180,2013
+TASKDBG ch=2 cap=971 prior=0 fut=0 res=16 static=47 anc=0 hard=7705 oldmax=1516,2586 dist=0.37,0.63 reslvl=1432 avg=2725
+TASKDBG caps=1516,2586
+TASKDBG ch=2 cap=971 prior=0 fut=0 res=16 static=47 anc=0 hard=7705 oldmax=1407,2391 dist=0.37,0.63 reslvl=1120 avg=2733
+TASKDBG caps=1407,2391
+TASKDBG ch=2 cap=971 prior=0 fut=0 res=16 static=47 anc=0 hard=7705 oldmax=1299,2187 dist=0.37,0.63 reslvl=816 avg=2725
+TASKDBG caps=1299,2187
+TASKDBG ch=2 cap=971 prior=0 fut=0 res=16 static=47 anc=0 hard=7705 oldmax=1228,1970 dist=0.38,0.62 reslvl=528 avg=2725
+TASKDBG caps=1228,1970
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1212,1842 dist=0.40,0.60 reslvl=376 avg=2733
+TASKDBG caps=1212,1842
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1216,1846 dist=0.40,0.60 reslvl=392 avg=2725
+TASKDBG caps=1216,1846
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1220,1850 dist=0.40,0.60 reslvl=400 avg=2725
+TASKDBG caps=1220,1850
+TASKDBG ch=2 cap=406 prior=0 fut=0 res=16 static=47 anc=0 hard=3185 oldmax=1225,1861 dist=0.40,0.60 reslvl=408 avg=2733
+TASKDBG caps=1225,1861

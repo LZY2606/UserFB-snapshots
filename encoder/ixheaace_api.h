@@ -115,6 +115,7 @@ typedef struct {
   FLOAT32 sample_peak_level;
   UWORD16 stream_id;
   FLAG use_delay_adjustment;
+  WORD32 max_au_bytes;
 } ixheaace_input_config;
 
 typedef struct {
