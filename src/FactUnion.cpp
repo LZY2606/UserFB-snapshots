@@ -33,6 +33,7 @@
 #include "Common.h"
 #include "ExpressionAssign.h"
 #include "ExpressionComma.h"
+#include "ExpressionGeneric.h"
 #include "ExpressionVariable.h"
 #include "Fact.h"
 #include "FactMgr.h"
@@ -113,6 +114,11 @@ FactUnion::rhs_to_lhs_transfer(const std::vector<const Fact *> &facts,
   } else if (rhs->term_type == eTermType::eCommaExpr) {
     const ExpressionComma *ec = dynamic_cast<const ExpressionComma *>(rhs);
     return rhs_to_lhs_transfer(facts, lvars, ec->get_rhs());
+  } else if (rhs->term_type == eTermType::eGeneric) {
+    const ExpressionGeneric *eg =
+        dynamic_cast<const ExpressionGeneric *>(rhs);
+    if (eg && eg->get_selected_expr())
+      return rhs_to_lhs_transfer(facts, lvars, eg->get_selected_expr());
   }
   return empty;
 }

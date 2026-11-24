@@ -425,6 +425,9 @@ public:
   static bool use_comma_exprs(void);
   static bool use_comma_exprs(bool p);
 
+  static bool c11_generic(void);
+  static bool c11_generic(bool p);
+
   static bool take_union_field_addr(void);
   static bool take_union_field_addr(bool p);
 
@@ -611,6 +614,7 @@ private:
   static bool unary_plus_operator_;
   static bool use_embedded_assigns_;
   static bool use_comma_exprs_;
+  static bool c11_generic_;
   static int int_size_;
   static int pointer_size_;
   static bool take_union_field_addr_;

@@ -98,6 +98,7 @@ the pointer to pass by value)
 
 #include "AbsProgramGenerator.h"
 #include "CGOptions.h"
+#include "ExpressionGeneric.h"
 
 #include "git_version.h"
 #include "platform.h"
@@ -177,6 +178,10 @@ static void print_help() {
        << endl;
   cout << "  --comma-operators | --no-comma-operators: enable | disable comma "
           "operators (enabled by default)."
+       << endl
+       << endl;
+  cout << "  --c11-generic : generate C11 _Generic expressions (disabled by "
+          "default; incompatible with --lang-cpp)."
        << endl
        << endl;
   cout << "  --compound-assignment | --no-compound-assignment: enable | "
@@ -1778,6 +1783,21 @@ int main(int argc, char **argv) {
 
     if (strcmp(argv[i], "--no-comma-operators") == 0) {
       CGOptions::use_comma_exprs(false);
+      continue;
+    }
+
+    if (strcmp(argv[i], "--c11-generic") == 0) {
+      CGOptions::c11_generic(true);
+      continue;
+    }
+
+    if (strcmp(argv[i], "--no-c11-generic") == 0) {
+      CGOptions::c11_generic(false);
+      continue;
+    }
+
+    if (strcmp(argv[i], "--generic-selected-only-for-tests") == 0) {
+      ExpressionGeneric::set_output_selected_only(true);
       continue;
     }
 

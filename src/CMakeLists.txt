@@ -103,6 +103,8 @@ set(csmith_SOURCES
   ExpressionComma.h
   ExpressionFuncall.cpp
   ExpressionFuncall.h
+  ExpressionGeneric.cpp
+  ExpressionGeneric.h
   ExpressionVariable.cpp
   ExpressionVariable.h
   ExtensionMgr.cpp

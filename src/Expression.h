@@ -78,10 +78,11 @@ enum class eTermType {
   eFunction,
   eAssignment,
   eCommaExpr,
-  eLhs
+  eLhs,
+  eGeneric
 };
 inline constexpr eTermType MAX_TERM_TYPES =
-    static_cast<eTermType>(static_cast<unsigned int>(eTermType::eCommaExpr) +
+    static_cast<eTermType>(static_cast<unsigned int>(eTermType::eGeneric) +
                            1);
 
 template <class Key, class Value> class ProbabilityTable;

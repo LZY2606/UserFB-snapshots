@@ -52,6 +52,7 @@
 #include "ExpressionAssign.h"
 #include "ExpressionComma.h"
 #include "ExpressionFuncall.h"  // temporary; don't want to depend on subclass!
+#include "ExpressionGeneric.h"
 #include "ExpressionVariable.h" // temporary; don't want to depend on subclass!
 #include "Function.h"
 #include "PartialExpander.h"
@@ -75,6 +76,9 @@ void Expression::InitExprProbabilityTable() {
   if (CGOptions::use_comma_exprs()) {
     exprTable_.add_entry((int)eTermType::eCommaExpr, 10);
   }
+  if (CGOptions::c11_generic()) {
+    exprTable_.add_entry((int)eTermType::eGeneric, 12);
+  }
 }
 
 void Expression::InitParamProbabilityTable() {
@@ -87,6 +91,9 @@ void Expression::InitParamProbabilityTable() {
   }
   if (CGOptions::use_comma_exprs()) {
     paramTable_.add_entry((int)eTermType::eCommaExpr, 10);
+  }
+  if (CGOptions::c11_generic()) {
+    paramTable_.add_entry((int)eTermType::eGeneric, 8);
   }
 }
 
@@ -167,6 +174,11 @@ Expression *Expression::make_random(CGContext &cg_context, const Type *type,
     if (no_const || type->eType == eTypeDesc::eStruct || type->eType == eTypeDesc::eUnion) {
       filter.add(static_cast<unsigned int>(eTermType::eConstant));
     }
+    if (type->is_aggregate() ||
+        (type->eType == eTypeDesc::eSimple &&
+         type->simple_type == eSimpleType::eVoid)) {
+      filter.add(static_cast<unsigned int>(eTermType::eGeneric));
+    }
     // can't assign to constant struct/unions. on the other hand, assign to a
     // volatile struct/union cause too much trouble for effect analysis, disable
     // it for now
@@ -174,7 +186,7 @@ Expression *Expression::make_random(CGContext &cg_context, const Type *type,
       filter.add(static_cast<unsigned int>(eTermType::eAssignment));
     }
     if (cg_context.expr_depth + 2 > CGOptions::max_expr_depth()) {
-      filter.add(static_cast<unsigned int>(eTermType::eFunction)).add(static_cast<unsigned int>(eTermType::eAssignment)).add(static_cast<unsigned int>(eTermType::eCommaExpr));
+      filter.add(static_cast<unsigned int>(eTermType::eFunction)).add(static_cast<unsigned int>(eTermType::eAssignment)).add(static_cast<unsigned int>(eTermType::eCommaExpr)).add(static_cast<unsigned int>(eTermType::eGeneric));
     }
     tt = ExpressionTypeProbability(&filter);
   }
@@ -198,6 +210,9 @@ Expression *Expression::make_random(CGContext &cg_context, const Type *type,
     break;
   case eTermType::eCommaExpr:
     e = ExpressionComma::make_random(cg_context, type, qfer);
+    break;
+  case eTermType::eGeneric:
+    e = ExpressionGeneric::make_random(cg_context, type, qfer);
     break;
   default:
     break;
@@ -252,11 +267,16 @@ Expression *Expression::make_random_param(CGContext &cg_context,
         (!CGOptions::return_unions() && type->eType == eTypeDesc::eUnion)) {
       filter.add(static_cast<unsigned int>(eTermType::eFunction));
     }
+    if (type->is_aggregate() ||
+        (type->eType == eTypeDesc::eSimple &&
+         type->simple_type == eSimpleType::eVoid)) {
+      filter.add(static_cast<unsigned int>(eTermType::eGeneric));
+    }
     if (type->is_const_struct_union()) {
       filter.add(static_cast<unsigned int>(eTermType::eAssignment));
     }
     if (cg_context.expr_depth + 2 > CGOptions::max_expr_depth()) {
-      filter.add(static_cast<unsigned int>(eTermType::eFunction)).add(static_cast<unsigned int>(eTermType::eAssignment)).add(static_cast<unsigned int>(eTermType::eCommaExpr));
+      filter.add(static_cast<unsigned int>(eTermType::eFunction)).add(static_cast<unsigned int>(eTermType::eAssignment)).add(static_cast<unsigned int>(eTermType::eCommaExpr)).add(static_cast<unsigned int>(eTermType::eGeneric));
     }
     tt = ExpressionTypeProbability(&filter);
   }
@@ -280,6 +300,9 @@ Expression *Expression::make_random_param(CGContext &cg_context,
     break;
   case eTermType::eCommaExpr:
     e = ExpressionComma::make_random(cg_context, type, qfer);
+    break;
+  case eTermType::eGeneric:
+    e = ExpressionGeneric::make_random(cg_context, type, qfer);
     break;
   default:
     break;

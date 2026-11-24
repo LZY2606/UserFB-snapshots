@@ -190,6 +190,7 @@ DEFINE_GETTER_SETTER_BOOL(post_decr_operator);
 DEFINE_GETTER_SETTER_BOOL(unary_plus_operator);
 DEFINE_GETTER_SETTER_BOOL(use_embedded_assigns);
 DEFINE_GETTER_SETTER_BOOL(use_comma_exprs);
+DEFINE_GETTER_SETTER_BOOL(c11_generic);
 DEFINE_GETTER_SETTER_BOOL(take_union_field_addr);
 DEFINE_GETTER_SETTER_BOOL(vol_struct_union_fields);
 DEFINE_GETTER_SETTER_BOOL(const_struct_union_fields);
@@ -306,6 +307,7 @@ void CGOptions::set_default_settings(void) {
   unary_plus_operator(true);
   use_embedded_assigns(true);
   use_comma_exprs(true);
+  c11_generic(false);
   take_union_field_addr(true);
   vol_struct_union_fields(true);
   const_struct_union_fields(true);
@@ -535,6 +537,13 @@ bool CGOptions::has_conflict(void) {
   if (!CGOptions::lang_cpp() && CGOptions::cpp11()) {
     conflict_msg_ =
         "--cpp11 option makes sense only with --lang-cpp option enabled.";
+    return true;
+  }
+
+  if (CGOptions::c11_generic() && CGOptions::lang_cpp()) {
+    conflict_msg_ =
+        "--c11-generic generates C11 _Generic and is mutually exclusive "
+        "with --lang-cpp.";
     return true;
   }
 
