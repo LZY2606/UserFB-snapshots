@@ -1,0 +1,3 @@
+运行 bash task_support/run.sh baseline 查看原生产 NB10 路径。完成后 bash task_support/run.sh target 编译当前根包、fixture 包和新增根包回归。目标文件 codeview_embedded_test.go，测试包使用 pe，三组 TestCodeViewDispatch、TestOMFSourceRelations、TestOMFAddressCoverage，每组采用 taskcheck.Run(t, func(c *taskcheck.C){...})，实际比较使用 c.Check(condition, "说明")。taskcheck 的 import 路径为 github.com/mewmew/pe/task_support/taskcheck。缺失/空测试、无断言、跳过或退出不会通过。
+
+运行仅使用本地 Go 与随包提供的 github.com/pkg/errors v0.8.1 源码和 BSD-2-Clause LICENSE。原 go.mod 的 kr/pretty 仅被上游 cmd/pe_dump 使用，此入口不构建该可选命令，不需要其源码，也不下载依赖；可选命令的原源码和声明仍保留。准备器固定源码，运行器采用 vendor 模式、空模块缓存和任务专属编译缓存，不借助主机依赖缓存。实现文件放在现有根 pe 包，go build . 会真实编译全部新增生产 .go 文件。无需手工编辑支持运行器。
