@@ -1,0 +1,1366 @@
+{
+  "functions": [
+    {
+      "name": "egress",
+      "compile_unit_name": "../sample-src/egress.c",
+      "skeleton_comp_dir": "/lab",
+      "dwo_id": 17314712846282335148,
+      "index_row": 2,
+      "ranges": [
+        {
+          "low": 5255168,
+          "high": 5255208
+        }
+      ],
+      "skeleton_header": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 0,
+        "file_offset": 4367
+      },
+      "skeleton_root_die": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 20,
+        "file_offset": 4387
+      },
+      "function_die_local": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 30,
+        "file_offset": 30
+      },
+      "function_die_section": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 89,
+        "file_offset": 851
+      },
+      "function_die_file": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 89,
+        "file_offset": 851
+      },
+      "contributions": {
+        "1": {
+          "section": 1,
+          "section_name": ".debug_info.dwo",
+          "offset": 59,
+          "size": 125,
+          "file_offset": 821
+        },
+        "3": {
+          "section": 3,
+          "section_name": ".debug_abbrev.dwo",
+          "offset": 68,
+          "size": 132,
+          "file_offset": 132
+        },
+        "6": {
+          "section": 6,
+          "section_name": ".debug_str_offsets.dwo",
+          "offset": 32,
+          "size": 52,
+          "file_offset": 662
+        },
+        "8": {
+          "section": 8,
+          "section_name": ".debug_rnglists.dwo",
+          "offset": 0,
+          "size": 20,
+          "file_offset": 1067
+        }
+      },
+      "addr_evidence": {
+        "index": 0,
+        "addr_base": 8,
+        "table_entry": {
+          "object": "image",
+          "section": ".debug_addr",
+          "section_offset": 8,
+          "file_offset": 4580
+        },
+        "value": 5255168
+      }
+    },
+    {
+      "name": "transform",
+      "compile_unit_name": "../sample-src/egress.c",
+      "skeleton_comp_dir": "/lab",
+      "dwo_id": 17314712846282335148,
+      "index_row": 2,
+      "ranges": [
+        {
+          "low": 5255216,
+          "high": 5255243
+        }
+      ],
+      "skeleton_header": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 0,
+        "file_offset": 4367
+      },
+      "skeleton_root_die": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 20,
+        "file_offset": 4387
+      },
+      "function_die_local": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 68,
+        "file_offset": 68
+      },
+      "function_die_section": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 127,
+        "file_offset": 889
+      },
+      "function_die_file": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 127,
+        "file_offset": 889
+      },
+      "contributions": {
+        "1": {
+          "section": 1,
+          "section_name": ".debug_info.dwo",
+          "offset": 59,
+          "size": 125,
+          "file_offset": 821
+        },
+        "3": {
+          "section": 3,
+          "section_name": ".debug_abbrev.dwo",
+          "offset": 68,
+          "size": 132,
+          "file_offset": 132
+        },
+        "6": {
+          "section": 6,
+          "section_name": ".debug_str_offsets.dwo",
+          "offset": 32,
+          "size": 52,
+          "file_offset": 662
+        },
+        "8": {
+          "section": 8,
+          "section_name": ".debug_rnglists.dwo",
+          "offset": 0,
+          "size": 20,
+          "file_offset": 1067
+        }
+      },
+      "rnglist_evidence": {
+        "index": 0,
+        "offset_table_entry": {
+          "object": "dwp",
+          "section": ".debug_rnglists.dwo",
+          "section_offset": 12,
+          "file_offset": 1079
+        },
+        "list": {
+          "object": "dwp",
+          "section": ".debug_rnglists.dwo",
+          "section_offset": 16,
+          "file_offset": 1083
+        },
+        "base_pc": 5255168
+      }
+    },
+    {
+      "name": "_start",
+      "compile_unit_name": "../sample-src/boot.c",
+      "skeleton_comp_dir": "/lab",
+      "dwo_id": 12698263291882062968,
+      "index_row": 1,
+      "ranges": [
+        {
+          "low": 5255248,
+          "high": 5255294
+        }
+      ],
+      "skeleton_header": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 40,
+        "file_offset": 4407
+      },
+      "skeleton_root_die": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 60,
+        "file_offset": 4427
+      },
+      "function_die_local": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 26,
+        "file_offset": 26
+      },
+      "function_die_section": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 26,
+        "file_offset": 788
+      },
+      "function_die_file": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 26,
+        "file_offset": 788
+      },
+      "contributions": {
+        "1": {
+          "section": 1,
+          "section_name": ".debug_info.dwo",
+          "offset": 0,
+          "size": 59,
+          "file_offset": 762
+        },
+        "3": {
+          "section": 3,
+          "section_name": ".debug_abbrev.dwo",
+          "offset": 0,
+          "size": 68,
+          "file_offset": 64
+        },
+        "6": {
+          "section": 6,
+          "section_name": ".debug_str_offsets.dwo",
+          "offset": 0,
+          "size": 32,
+          "file_offset": 630
+        },
+        "8": {
+          "section": 8,
+          "section_name": ".debug_rnglists.dwo",
+          "offset": 0,
+          "size": 0,
+          "file_offset": 0
+        }
+      },
+      "addr_evidence": {
+        "index": 0,
+        "addr_base": 24,
+        "table_entry": {
+          "object": "image",
+          "section": ".debug_addr",
+          "section_offset": 24,
+          "file_offset": 4596
+        },
+        "value": 5255248
+      }
+    },
+    {
+      "name": "ingress",
+      "compile_unit_name": "../sample-src/ingress.c",
+      "skeleton_comp_dir": "/lab",
+      "dwo_id": 5041507935414548839,
+      "index_row": 3,
+      "ranges": [
+        {
+          "low": 5255296,
+          "high": 5255335
+        }
+      ],
+      "skeleton_header": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 80,
+        "file_offset": 4447
+      },
+      "skeleton_root_die": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 100,
+        "file_offset": 4467
+      },
+      "function_die_local": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 26,
+        "file_offset": 26
+      },
+      "function_die_section": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 210,
+        "file_offset": 972
+      },
+      "function_die_file": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 210,
+        "file_offset": 972
+      },
+      "contributions": {
+        "1": {
+          "section": 1,
+          "section_name": ".debug_info.dwo",
+          "offset": 184,
+          "size": 121,
+          "file_offset": 946
+        },
+        "3": {
+          "section": 3,
+          "section_name": ".debug_abbrev.dwo",
+          "offset": 200,
+          "size": 132,
+          "file_offset": 264
+        },
+        "6": {
+          "section": 6,
+          "section_name": ".debug_str_offsets.dwo",
+          "offset": 84,
+          "size": 48,
+          "file_offset": 714
+        },
+        "8": {
+          "section": 8,
+          "section_name": ".debug_rnglists.dwo",
+          "offset": 20,
+          "size": 20,
+          "file_offset": 1087
+        }
+      },
+      "addr_evidence": {
+        "index": 0,
+        "addr_base": 40,
+        "table_entry": {
+          "object": "image",
+          "section": ".debug_addr",
+          "section_offset": 40,
+          "file_offset": 4612
+        },
+        "value": 5255296
+      }
+    },
+    {
+      "name": "transform",
+      "compile_unit_name": "../sample-src/ingress.c",
+      "skeleton_comp_dir": "/lab",
+      "dwo_id": 5041507935414548839,
+      "index_row": 3,
+      "ranges": [
+        {
+          "low": 5255344,
+          "high": 5255370
+        }
+      ],
+      "skeleton_header": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 80,
+        "file_offset": 4447
+      },
+      "skeleton_root_die": {
+        "object": "image",
+        "section": ".debug_info",
+        "section_offset": 100,
+        "file_offset": 4467
+      },
+      "function_die_local": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 64,
+        "file_offset": 64
+      },
+      "function_die_section": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 248,
+        "file_offset": 1010
+      },
+      "function_die_file": {
+        "object": "dwp",
+        "section": ".debug_info.dwo",
+        "section_offset": 248,
+        "file_offset": 1010
+      },
+      "contributions": {
+        "1": {
+          "section": 1,
+          "section_name": ".debug_info.dwo",
+          "offset": 184,
+          "size": 121,
+          "file_offset": 946
+        },
+        "3": {
+          "section": 3,
+          "section_name": ".debug_abbrev.dwo",
+          "offset": 200,
+          "size": 132,
+          "file_offset": 264
+        },
+        "6": {
+          "section": 6,
+          "section_name": ".debug_str_offsets.dwo",
+          "offset": 84,
+          "size": 48,
+          "file_offset": 714
+        },
+        "8": {
+          "section": 8,
+          "section_name": ".debug_rnglists.dwo",
+          "offset": 20,
+          "size": 20,
+          "file_offset": 1087
+        }
+      },
+      "rnglist_evidence": {
+        "index": 0,
+        "offset_table_entry": {
+          "object": "dwp",
+          "section": ".debug_rnglists.dwo",
+          "section_offset": 32,
+          "file_offset": 1099
+        },
+        "list": {
+          "object": "dwp",
+          "section": ".debug_rnglists.dwo",
+          "section_offset": 36,
+          "file_offset": 1103
+        },
+        "base_pc": 5255296
+      }
+    }
+  ],
+  "queries": [
+    {
+      "pc": 5255168,
+      "matches": [
+        {
+          "name": "egress",
+          "compile_unit_name": "../sample-src/egress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 17314712846282335148,
+          "index_row": 2,
+          "ranges": [
+            {
+              "low": 5255168,
+              "high": 5255208
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 0,
+            "file_offset": 4367
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 20,
+            "file_offset": 4387
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 30,
+            "file_offset": 30
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 89,
+            "file_offset": 851
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 89,
+            "file_offset": 851
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 59,
+              "size": 125,
+              "file_offset": 821
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 68,
+              "size": 132,
+              "file_offset": 132
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 32,
+              "size": 52,
+              "file_offset": 662
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 20,
+              "file_offset": 1067
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 8,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 8,
+              "file_offset": 4580
+            },
+            "value": 5255168
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255207,
+      "matches": [
+        {
+          "name": "egress",
+          "compile_unit_name": "../sample-src/egress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 17314712846282335148,
+          "index_row": 2,
+          "ranges": [
+            {
+              "low": 5255168,
+              "high": 5255208
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 0,
+            "file_offset": 4367
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 20,
+            "file_offset": 4387
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 30,
+            "file_offset": 30
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 89,
+            "file_offset": 851
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 89,
+            "file_offset": 851
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 59,
+              "size": 125,
+              "file_offset": 821
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 68,
+              "size": 132,
+              "file_offset": 132
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 32,
+              "size": 52,
+              "file_offset": 662
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 20,
+              "file_offset": 1067
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 8,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 8,
+              "file_offset": 4580
+            },
+            "value": 5255168
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255208,
+      "matches": []
+    },
+    {
+      "pc": 5255216,
+      "matches": [
+        {
+          "name": "transform",
+          "compile_unit_name": "../sample-src/egress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 17314712846282335148,
+          "index_row": 2,
+          "ranges": [
+            {
+              "low": 5255216,
+              "high": 5255243
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 0,
+            "file_offset": 4367
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 20,
+            "file_offset": 4387
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 68,
+            "file_offset": 68
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 127,
+            "file_offset": 889
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 127,
+            "file_offset": 889
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 59,
+              "size": 125,
+              "file_offset": 821
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 68,
+              "size": 132,
+              "file_offset": 132
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 32,
+              "size": 52,
+              "file_offset": 662
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 20,
+              "file_offset": 1067
+            }
+          },
+          "rnglist_evidence": {
+            "index": 0,
+            "offset_table_entry": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 12,
+              "file_offset": 1079
+            },
+            "list": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 16,
+              "file_offset": 1083
+            },
+            "base_pc": 5255168
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255242,
+      "matches": [
+        {
+          "name": "transform",
+          "compile_unit_name": "../sample-src/egress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 17314712846282335148,
+          "index_row": 2,
+          "ranges": [
+            {
+              "low": 5255216,
+              "high": 5255243
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 0,
+            "file_offset": 4367
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 20,
+            "file_offset": 4387
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 68,
+            "file_offset": 68
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 127,
+            "file_offset": 889
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 127,
+            "file_offset": 889
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 59,
+              "size": 125,
+              "file_offset": 821
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 68,
+              "size": 132,
+              "file_offset": 132
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 32,
+              "size": 52,
+              "file_offset": 662
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 20,
+              "file_offset": 1067
+            }
+          },
+          "rnglist_evidence": {
+            "index": 0,
+            "offset_table_entry": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 12,
+              "file_offset": 1079
+            },
+            "list": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 16,
+              "file_offset": 1083
+            },
+            "base_pc": 5255168
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255243,
+      "matches": []
+    },
+    {
+      "pc": 5255248,
+      "matches": [
+        {
+          "name": "_start",
+          "compile_unit_name": "../sample-src/boot.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 12698263291882062968,
+          "index_row": 1,
+          "ranges": [
+            {
+              "low": 5255248,
+              "high": 5255294
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 40,
+            "file_offset": 4407
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 60,
+            "file_offset": 4427
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 26
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 788
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 788
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 0,
+              "size": 59,
+              "file_offset": 762
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 0,
+              "size": 68,
+              "file_offset": 64
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 0,
+              "size": 32,
+              "file_offset": 630
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 0,
+              "file_offset": 0
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 24,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 24,
+              "file_offset": 4596
+            },
+            "value": 5255248
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255293,
+      "matches": [
+        {
+          "name": "_start",
+          "compile_unit_name": "../sample-src/boot.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 12698263291882062968,
+          "index_row": 1,
+          "ranges": [
+            {
+              "low": 5255248,
+              "high": 5255294
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 40,
+            "file_offset": 4407
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 60,
+            "file_offset": 4427
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 26
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 788
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 788
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 0,
+              "size": 59,
+              "file_offset": 762
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 0,
+              "size": 68,
+              "file_offset": 64
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 0,
+              "size": 32,
+              "file_offset": 630
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 0,
+              "size": 0,
+              "file_offset": 0
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 24,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 24,
+              "file_offset": 4596
+            },
+            "value": 5255248
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255294,
+      "matches": []
+    },
+    {
+      "pc": 5255296,
+      "matches": [
+        {
+          "name": "ingress",
+          "compile_unit_name": "../sample-src/ingress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 5041507935414548839,
+          "index_row": 3,
+          "ranges": [
+            {
+              "low": 5255296,
+              "high": 5255335
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 80,
+            "file_offset": 4447
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 100,
+            "file_offset": 4467
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 26
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 210,
+            "file_offset": 972
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 210,
+            "file_offset": 972
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 184,
+              "size": 121,
+              "file_offset": 946
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 200,
+              "size": 132,
+              "file_offset": 264
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 84,
+              "size": 48,
+              "file_offset": 714
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 20,
+              "size": 20,
+              "file_offset": 1087
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 40,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 40,
+              "file_offset": 4612
+            },
+            "value": 5255296
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255334,
+      "matches": [
+        {
+          "name": "ingress",
+          "compile_unit_name": "../sample-src/ingress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 5041507935414548839,
+          "index_row": 3,
+          "ranges": [
+            {
+              "low": 5255296,
+              "high": 5255335
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 80,
+            "file_offset": 4447
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 100,
+            "file_offset": 4467
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 26,
+            "file_offset": 26
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 210,
+            "file_offset": 972
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 210,
+            "file_offset": 972
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 184,
+              "size": 121,
+              "file_offset": 946
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 200,
+              "size": 132,
+              "file_offset": 264
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 84,
+              "size": 48,
+              "file_offset": 714
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 20,
+              "size": 20,
+              "file_offset": 1087
+            }
+          },
+          "addr_evidence": {
+            "index": 0,
+            "addr_base": 40,
+            "table_entry": {
+              "object": "image",
+              "section": ".debug_addr",
+              "section_offset": 40,
+              "file_offset": 4612
+            },
+            "value": 5255296
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255335,
+      "matches": []
+    },
+    {
+      "pc": 5255344,
+      "matches": [
+        {
+          "name": "transform",
+          "compile_unit_name": "../sample-src/ingress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 5041507935414548839,
+          "index_row": 3,
+          "ranges": [
+            {
+              "low": 5255344,
+              "high": 5255370
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 80,
+            "file_offset": 4447
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 100,
+            "file_offset": 4467
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 64,
+            "file_offset": 64
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 248,
+            "file_offset": 1010
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 248,
+            "file_offset": 1010
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 184,
+              "size": 121,
+              "file_offset": 946
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 200,
+              "size": 132,
+              "file_offset": 264
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 84,
+              "size": 48,
+              "file_offset": 714
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 20,
+              "size": 20,
+              "file_offset": 1087
+            }
+          },
+          "rnglist_evidence": {
+            "index": 0,
+            "offset_table_entry": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 32,
+              "file_offset": 1099
+            },
+            "list": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 36,
+              "file_offset": 1103
+            },
+            "base_pc": 5255296
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255369,
+      "matches": [
+        {
+          "name": "transform",
+          "compile_unit_name": "../sample-src/ingress.c",
+          "skeleton_comp_dir": "/lab",
+          "dwo_id": 5041507935414548839,
+          "index_row": 3,
+          "ranges": [
+            {
+              "low": 5255344,
+              "high": 5255370
+            }
+          ],
+          "skeleton_header": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 80,
+            "file_offset": 4447
+          },
+          "skeleton_root_die": {
+            "object": "image",
+            "section": ".debug_info",
+            "section_offset": 100,
+            "file_offset": 4467
+          },
+          "function_die_local": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 64,
+            "file_offset": 64
+          },
+          "function_die_section": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 248,
+            "file_offset": 1010
+          },
+          "function_die_file": {
+            "object": "dwp",
+            "section": ".debug_info.dwo",
+            "section_offset": 248,
+            "file_offset": 1010
+          },
+          "contributions": {
+            "1": {
+              "section": 1,
+              "section_name": ".debug_info.dwo",
+              "offset": 184,
+              "size": 121,
+              "file_offset": 946
+            },
+            "3": {
+              "section": 3,
+              "section_name": ".debug_abbrev.dwo",
+              "offset": 200,
+              "size": 132,
+              "file_offset": 264
+            },
+            "6": {
+              "section": 6,
+              "section_name": ".debug_str_offsets.dwo",
+              "offset": 84,
+              "size": 48,
+              "file_offset": 714
+            },
+            "8": {
+              "section": 8,
+              "section_name": ".debug_rnglists.dwo",
+              "offset": 20,
+              "size": 20,
+              "file_offset": 1087
+            }
+          },
+          "rnglist_evidence": {
+            "index": 0,
+            "offset_table_entry": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 32,
+              "file_offset": 1099
+            },
+            "list": {
+              "object": "dwp",
+              "section": ".debug_rnglists.dwo",
+              "section_offset": 36,
+              "file_offset": 1103
+            },
+            "base_pc": 5255296
+          }
+        }
+      ]
+    },
+    {
+      "pc": 5255370,
+      "matches": []
+    }
+  ]
+}

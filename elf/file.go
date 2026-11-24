@@ -61,6 +61,10 @@ type File struct {
 	InsertionEOF []byte
 
 	DynTags []DynTagValue
+
+	// Lazily built, reused DWARF v5 package view for split-DWARF recovery.
+	dwpCache    *DWARFPackage
+	dwpCacheErr error
 }
 
 // A SectionHeader represents a single ELF section header.
