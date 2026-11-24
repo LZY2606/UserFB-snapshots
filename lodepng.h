@@ -30,6 +30,13 @@ freely, subject to the following restrictions:
 
 extern const char* LODEPNG_VERSION_STRING;
 
+/* LodePNG's allocator entry points. In a default build these wrap the C
+allocators; when LODEPNG_NO_COMPILE_ALLOCATORS is used, the integrator supplies
+them, as in the streaming test build. */
+void* lodepng_malloc(size_t size);
+void* lodepng_realloc(void* ptr, size_t new_size);
+void lodepng_free(void* ptr);
+
 /*
 The following #defines are used to create code sections. They can be disabled
 to disable code sections, which can give faster compile time and smaller binary.
@@ -159,6 +166,55 @@ unsigned lodepng_decode32(unsigned char** out, unsigned* w, unsigned* h,
 /*Same as lodepng_decode_memory, but always decodes to 24-bit RGB raw image*/
 unsigned lodepng_decode24(unsigned char** out, unsigned* w, unsigned* h,
                           const unsigned char* in, size_t insize);
+
+/*
+Streaming row decoder.
+
+Create one decoder per PNG stream, then feed PNG bytes in arbitrary pieces.
+The decoder does not retain the data pointer passed to feed after that call
+returns. Whenever a complete unfiltered RGBA row is available, LodePNGRowCallback
+is called during feed with y from 0 to h - 1. The rgba pointer and its contents
+are valid only during that callback; copy them if they are needed afterwards.
+Do not feed, destroy, or otherwise re-enter the decoder from the callback.
+
+This streaming entry currently accepts only non-interlaced, 8-bit, color type 6
+(RGBA) PNG images. Other bit depths, color types and Adam7 interlacing return an
+error. The regular whole-buffer decoding API continues to support LodePNG's
+normal range of PNG formats.
+
+The implementation keeps a 32KiB DEFLATE history window, the current Huffman
+tables, fixed PNG parsing state, and three row-width buffers. Its working memory
+therefore grows with image width and fixed codec tables, not with image height,
+the total input size, IDAT size, or the length of skipped ancillary chunks.
+
+Delivered rows are provisional until lodepng_row_decoder_done returns nonzero:
+completion additionally requires the exact number and length of rows, a finished
+DEFLATE stream, correct Adler-32 and chunk CRC values, and a complete IEND chunk.
+A late checksum or framing error can therefore occur after some rows have already
+been delivered. After any error, feed keeps returning the first error and no
+further callbacks occur.
+*/
+#ifdef LODEPNG_COMPILE_ZLIB
+typedef struct LodePNGRowDecoder LodePNGRowDecoder;
+typedef void (*LodePNGRowCallback)(void* user, unsigned w, unsigned h,
+                                   unsigned y, const unsigned char* rgba);
+
+/*Returns NULL if cb is NULL or allocation fails.*/
+LodePNGRowDecoder* lodepng_row_decoder_create(LodePNGRowCallback cb, void* user);
+
+/*Feeds zero or more PNG bytes. data may be NULL only when size is zero.
+Returns 0 if no error has occurred; use done to test successful completion.
+If final is nonzero, an incomplete stream is an error.*/
+unsigned lodepng_row_decoder_feed(LodePNGRowDecoder* decoder,
+                                  const unsigned char* data, size_t size,
+                                  unsigned final);
+
+/*Returns 1 only after all rows and all PNG/zlib integrity checks are complete.*/
+unsigned lodepng_row_decoder_done(const LodePNGRowDecoder* decoder);
+
+/*Accepts NULL.*/
+void lodepng_row_decoder_destroy(LodePNGRowDecoder* decoder);
+#endif /*LODEPNG_COMPILE_ZLIB*/
 
 #ifdef LODEPNG_COMPILE_DISK
 /*
