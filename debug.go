@@ -48,6 +48,10 @@ type DebugCodeView struct {
 	DbgDir DebugDirectory
 	// CodeView debug information.
 	CodeViewInfo
+	// Embedded holds the parsed OMF tables of NB09/NB11 payloads whose debug
+	// information is embedded in the image. It is nil for NB10 external PDB
+	// references.
+	Embedded *EmbeddedCodeView
 }
 
 // DebugDir returns the debug data directory of the CodeView debug data.

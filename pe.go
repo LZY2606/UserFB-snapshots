@@ -425,7 +425,7 @@ func (file *File) parseDebugData(dataDir DataDirectory) ([]DebugData, error) {
 		buf := file.readDebugData(dbgDir)
 		switch dbgDir.Type {
 		case enum.DebugTypeCodeView:
-			dbgCodeView, err := parseDebugCodeViewInfo(dbgDir, buf)
+			dbgCodeView, err := parseDebugCodeViewInfo(dbgDir, buf, file.SectHdrs)
 			if err != nil {
 				return nil, errors.WithStack(err)
 			}
@@ -483,9 +483,25 @@ func (file *File) readDebugData(dbgDir DebugDirectory) []byte {
 
 // ~~~ [ CodeView ] ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// parseDebugCodeViewInfo parses the CodeView debug data of the given debug data
-// directory contents.
-func parseDebugCodeViewInfo(dbgDir DebugDirectory, buf []byte) (*DebugCodeView, error) {
+// CodeView signatures (little-endian byte order).
+const (
+	cvSigNB09 uint32 = 0x3930424e // "NB09": embedded CodeView 4.0 debug info
+	cvSigNB10 uint32 = 0x3031424e // "NB10": external PDB reference
+	cvSigNB11 uint32 = 0x3131424e // "NB11": embedded CodeView 4.1 debug info
+)
+
+// parseDebugCodeViewInfo parses the CodeView debug data of the given debug
+// data directory contents. NB09/NB11 payloads carry embedded OMF tables; NB10
+// payloads reference an external PDB and keep the legacy CodeViewInfo fields.
+func parseDebugCodeViewInfo(dbgDir DebugDirectory, buf []byte, sectHdrs []SectionHeader) (*DebugCodeView, error) {
+	if len(buf) < 8 {
+		return nil, errors.Errorf("codeview: payload too short for signature and directory offset (got %d bytes)", len(buf))
+	}
+	signature := binary.LittleEndian.Uint32(buf[:4])
+	switch signature {
+	case cvSigNB09, cvSigNB11:
+		return parseEmbeddedCodeView(dbgDir, buf, sectHdrs)
+	}
 	var raw pe.RawCodeViewInfo
 	r := bytes.NewReader(buf)
 	if err := binary.Read(r, binary.LittleEndian, &raw); err != nil {
