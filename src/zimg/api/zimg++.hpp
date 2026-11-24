@@ -227,12 +227,32 @@ public:
 
 		return FilterGraph(graph);
 	}
+
+	static FilterGraph build_with_lut(const zimg_image_format &src_format, const zimg_image_format &dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+	{
+		zimg_filter_graph *graph;
+
+		if (!(graph = zimg_filter_graph_build_with_lut(&src_format, &dst_format, params, lut)))
+			throw zerror();
+
+		return FilterGraph(graph);
+	}
 #else
 	static zimg_filter_graph *build(const zimg_image_format &src_format, const zimg_image_format &dst_format, const zimg_graph_builder_params *params = 0)
 	{
 		zimg_filter_graph *graph;
 
 		if (!(graph = zimg_filter_graph_build(&src_format, &dst_format, params)))
+			throw zerror();
+
+		return graph;
+	}
+
+	static zimg_filter_graph *build_with_lut(const zimg_image_format &src_format, const zimg_image_format &dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+	{
+		zimg_filter_graph *graph;
+
+		if (!(graph = zimg_filter_graph_build_with_lut(&src_format, &dst_format, params, lut)))
 			throw zerror();
 
 		return graph;

@@ -67,6 +67,15 @@ public:
 	             unsigned i, unsigned left, unsigned right, void *, void *) const noexcept override;
 };
 
+// Sets the color to zero where alpha is zero without dividing by alpha.
+class ZeroAlphaFilter : public PointFilter {
+public:
+	ZeroAlphaFilter(unsigned width, unsigned height);
+
+	void process(const graphengine::BufferDescriptor in[2], const graphengine::BufferDescriptor *out,
+	             unsigned i, unsigned left, unsigned right, void *, void *) const noexcept override;
+};
+
 } // namespace zimg::graph
 
 #endif // ZIMG_GRAPH_SIMPLE_FILTERS_H_

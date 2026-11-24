@@ -647,6 +647,24 @@ typedef struct zimg_graph_builder_params {
 } zimg_graph_builder_params;
 
 /**
+ * Three-dimensional lookup table for tetrahedral RGB color grading.
+ *
+ * @c data contains @c size*size*size RGB triplets. The R grid coordinate varies
+ * fastest, followed by G, then B. @c data_count is the number of @b float values,
+ * i.e. three times the number of grid vertices.
+ *
+ * The table is evaluated in linear, scene-referred RGB relative to the output
+ * primaries' white point. The domain endpoints are included in the grid.
+ */
+typedef struct zimg_lut3d {
+	unsigned size;          /**< Grid edge length, from 2 through 65. */
+	const float *data;      /**< @c size^3 RGB triplets, R fastest. */
+	size_t data_count;      /**< Number of floats pointed to by @c data. */
+	float domain_min[3];    /**< Finite lower domain bounds for R, G, B. */
+	float domain_max[3];    /**< Finite upper domain bounds for R, G, B. */
+} zimg_lut3d;
+
+/**
  * Initialize image format structure with default values.
  *
  * @param[out] ptr structure to be initialized
@@ -677,6 +695,25 @@ void zimg_graph_builder_params_default(zimg_graph_builder_params *ptr, unsigned 
  */
 ZIMG_VISIBILITY
 zimg_filter_graph *zimg_filter_graph_build(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params);
+
+/**
+ * Create a graph converting formats and applying a tetrahedral 3D LUT.
+ *
+ * The LUT is inserted after spatial resampling and linear conversion to the
+ * destination primaries, but before transfer encoding, YUV matrix conversion,
+ * chroma subsampling, and depth quantization.
+ *
+ * The graph copies all LUT data needed for processing. The caller may modify or
+ * release the descriptor and its table immediately after this function returns.
+ *
+ * @param[in] src_format input image format
+ * @param[in] dst_format output image format; greyscale output is not supported with a LUT
+ * @param[in] params filter parameters, may be NULL
+ * @param[in] lut 3D LUT descriptor
+ * @return graph handle, or NULL on failure
+ */
+ZIMG_VISIBILITY
+zimg_filter_graph *zimg_filter_graph_build_with_lut(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut);
 
 
 #ifdef ZIMG_GRAPHENGINE_API

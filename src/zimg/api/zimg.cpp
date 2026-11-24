@@ -16,6 +16,7 @@
 #include "graph/graphbuilder.h"
 #include "colorspace/colorspace.h"
 #include "depth/depth.h"
+#include "lut3d/lut3d.h"
 #include "resize/filter.h"
 #include "zimg.h"
 
@@ -679,6 +680,90 @@ zimg_filter_graph *zimg_filter_graph_build(const zimg_image_format *src_format, 
 		zimg::graph::GraphBuilder builder;
 		return builder.set_source(src_state)
 			.connect(dst_state, params ? &graph_params : nullptr)
+			.build_graph()
+			.release();
+	} catch (...) {
+		handle_exception(std::current_exception());
+		return nullptr;
+	}
+}
+
+zimg_filter_graph *zimg_filter_graph_build_with_lut(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+{
+	zassert_d(src_format, "null pointer");
+	zassert_d(dst_format, "null pointer");
+
+	try {
+		if (!lut)
+			zimg::error::throw_<zimg::error::IllegalArgument>("null 3D LUT descriptor");
+		if (dst_format->color_family == ZIMG_COLOR_GREY)
+			zimg::error::throw_<zimg::error::UnsupportedOperation>("3D LUT is not supported for greyscale output");
+
+		// LUT color semantics are only defined when both ends identify transfer
+		// and primaries. Do not substitute library defaults for UNSPECIFIED.
+		if (src_format->transfer_characteristics == ZIMG_TRANSFER_UNSPECIFIED ||
+		    dst_format->transfer_characteristics == ZIMG_TRANSFER_UNSPECIFIED ||
+		    src_format->color_primaries == ZIMG_PRIMARIES_UNSPECIFIED ||
+		    dst_format->color_primaries == ZIMG_PRIMARIES_UNSPECIFIED)
+		{
+			zimg::error::throw_<zimg::error::IllegalArgument>("primaries and transfer characteristics must be specified for 3D LUT processing");
+		}
+
+		auto lut_data = zimg::lut3d::create_lut3d({
+			lut->size,
+			lut->data,
+			lut->data_count,
+			lut->domain_min,
+			lut->domain_max,
+		});
+
+		zimg::graph::GraphBuilder::state src_state;
+		zimg::graph::GraphBuilder::state dst_state;
+		zimg::graph::GraphBuilder::params graph_params;
+		std::unique_ptr<zimg::resize::Filter> filters[2];
+
+		std::tie(src_state, dst_state) = import_graph_state(*src_format, *dst_format);
+
+		// import_graph_state intentionally erases identical color descriptions
+		// for the old no-conversion path. The LUT entry must still know the exact
+		// target primaries and must insert the table even when formats match.
+		src_state.colorspace.matrix = translate_matrix(src_format->matrix_coefficients);
+		src_state.colorspace.transfer = translate_transfer(src_format->transfer_characteristics);
+		src_state.colorspace.primaries = translate_primaries(src_format->color_primaries);
+		dst_state.colorspace.matrix = translate_matrix(dst_format->matrix_coefficients);
+		dst_state.colorspace.transfer = translate_transfer(dst_format->transfer_characteristics);
+		dst_state.colorspace.primaries = translate_primaries(dst_format->color_primaries);
+
+		// Matrix is not meaningful for planar RGB; UNSPECIFIED and RGB are both
+		// accepted by validate_state. Normalize it so the staged conversion has
+		// a path without inferring any YUV matrix.
+		if (src_state.color == zimg::graph::GraphBuilder::ColorFamily::RGB)
+			src_state.colorspace.matrix = zimg::colorspace::MatrixCoefficients::RGB;
+		if (dst_state.color == zimg::graph::GraphBuilder::ColorFamily::RGB)
+			dst_state.colorspace.matrix = zimg::colorspace::MatrixCoefficients::RGB;
+
+		zimg::graph::GraphBuilder::state linear_state = dst_state;
+		linear_state.type = zimg::PixelType::FLOAT;
+		linear_state.depth = zimg::pixel_depth(zimg::PixelType::FLOAT);
+		linear_state.fullrange = true;
+		linear_state.subsample_w = 0;
+		linear_state.subsample_h = 0;
+		linear_state.color = zimg::graph::GraphBuilder::ColorFamily::RGB;
+		linear_state.colorspace.matrix = zimg::colorspace::MatrixCoefficients::RGB;
+		linear_state.colorspace.transfer = zimg::colorspace::TransferCharacteristics::LINEAR;
+		linear_state.colorspace.primaries = dst_state.colorspace.primaries;
+		linear_state.alpha = src_state.alpha == zimg::graph::GraphBuilder::AlphaType::NONE
+			? zimg::graph::GraphBuilder::AlphaType::NONE
+			: zimg::graph::GraphBuilder::AlphaType::STRAIGHT;
+
+		if (params)
+			graph_params = import_graph_params(*params, filters);
+
+		zimg::graph::GraphBuilder builder;
+		return builder.set_source(src_state)
+			.connect(linear_state, params ? &graph_params : nullptr)
+			.apply_lut3d(lut_data)
+			.connect_after_lut(dst_state, params ? &graph_params : nullptr)
 			.build_graph()
 			.release();
 	} catch (...) {

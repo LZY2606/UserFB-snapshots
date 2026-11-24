@@ -109,4 +109,25 @@ void UnpremultiplyFilter::process(const graphengine::BufferDescriptor in[2], con
 	}
 }
 
+
+ZeroAlphaFilter::ZeroAlphaFilter(unsigned width, unsigned height) : PointFilter(width, height, PixelType::FLOAT)
+{
+	m_desc.num_deps = 2;
+	m_desc.num_planes = 1;
+	m_desc.flags.in_place = 1;
+}
+
+void ZeroAlphaFilter::process(const graphengine::BufferDescriptor in[2], const graphengine::BufferDescriptor *out,
+                              unsigned i, unsigned left, unsigned right, void *, void *) const noexcept
+{
+	const float *src_p = in[0].get_line<float>(i);
+	const float *alpha = in[1].get_line<float>(i);
+	float *dst_p = out->get_line<float>(i);
+
+	for (unsigned j = left; j < right; ++j) {
+		float a = std::clamp(alpha[j], 0.0f, 1.0f);
+		dst_p[j] = a == 0.0f ? 0.0f : src_p[j];
+	}
+}
+
 } // namespace zimg::graph

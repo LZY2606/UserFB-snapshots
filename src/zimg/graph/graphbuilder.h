@@ -36,6 +36,10 @@ namespace zimg::unresize {
 struct UnresizeConversion;
 }
 
+namespace zimg::lut3d {
+struct Lut3D;
+}
+
 
 namespace zimg::graph {
 
@@ -188,6 +192,20 @@ public:
 	 * @params observer observer
 	 */
 	GraphBuilder &connect(const state &target, const params *params, FilterObserver *observer = nullptr);
+
+	/**
+	 * Insert a tetrahedral 3D LUT at the current linear-RGB, 4:4:4 float node.
+	 * If an alpha plane is present, zero-alpha RGB samples are cleared after the
+	 * LUT so that the table's black mapping cannot leak through transparent pixels.
+	 */
+	GraphBuilder &apply_lut3d(std::shared_ptr<const lut3d::Lut3D> lut);
+
+	/**
+	 * Convert from the current post-LUT linear-RGB state to target without
+	 * re-running premultiplication/unpremultiplication around color conversion.
+	 * Alpha recombination is handled explicitly by the LUT entry point.
+	 */
+	GraphBuilder &connect_after_lut(const state &target, const params *params, FilterObserver *observer = nullptr);
 
 	/**
 	 * Finalize and return a partial graph.

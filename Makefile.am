@@ -119,6 +119,8 @@ libzimg_internal_la_SOURCES = \
 	src/zimg/graph/graphengine_except.h \
 	src/zimg/graph/simple_filters.cpp \
 	src/zimg/graph/simple_filters.h \
+	src/zimg/lut3d/lut3d.cpp \
+	src/zimg/lut3d/lut3d.h \
 	src/zimg/resize/filter.cpp \
 	src/zimg/resize/filter.h \
 	src/zimg/resize/resize.cpp \

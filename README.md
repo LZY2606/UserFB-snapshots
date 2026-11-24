@@ -60,6 +60,87 @@ supported for upsampling and downsampling. Full support is provided for
 various coordinate systems, including the various chroma siting conventions
 (e.g. JPEG and MPEG2) as well as interlaced images.
 
+### 3D LUT
+
+`zimg_filter_graph_build_with_lut` inserts a tetrahedrally interpolated 3D LUT
+into the normal row-buffered graph. The table is applied after resampling and
+conversion to linear RGB in the destination primaries, and before transfer
+encoding, YUV conversion, chroma subsampling, and depth quantization. Both
+image formats must explicitly specify primaries and transfer characteristics.
+
+The table uses `size³` RGB triplets. R changes fastest, then G, then B;
+`data_count` counts floats (`3 * size³`). The graph copies the table during
+construction, so the caller's array can be released or reused immediately.
+
+```c
+#include <zimg.h>
+
+unsigned n = 17;
+float *table = ...; /* n*n*n RGB triplets, R fastest */
+
+zimg_lut3d lut;
+lut.size = n;
+lut.data = table;
+lut.data_count = 3ULL * n * n * n;
+for (int c = 0; c < 3; ++c) {
+    lut.domain_min[c] = 0.0f;
+    lut.domain_max[c] = 1.0f;
+}
+
+zimg_image_format src, dst;
+zimg_image_format_default(&src, ZIMG_API_VERSION);
+zimg_image_format_default(&dst, ZIMG_API_VERSION);
+/* Set dimensions, pixel types, RGB/YUV family, and explicit
+   color_primaries and transfer_characteristics on both formats. */
+
+zimg_graph_builder_params params;
+zimg_graph_builder_params_default(&params, ZIMG_API_VERSION);
+
+zimg_filter_graph *graph =
+    zimg_filter_graph_build_with_lut(&src, &dst, &params, &lut);
+if (!graph) {
+    char message[256];
+    zimg_get_last_error(message, sizeof(message));
+    /* Handle error. */
+}
+
+/* The graph has its own snapshot: free table here if desired. */
+
+zimg_image_buffer_const src_buf = { ZIMG_API_VERSION };
+zimg_image_buffer dst_buf = { ZIMG_API_VERSION };
+/* Initialize planar buffer pointers, strides, and masks as usual. */
+
+size_t tmp_size = 0;
+zimg_filter_graph_get_tmp_size(graph, &tmp_size);
+void *tmp = 0;
+posix_memalign(&tmp, 64, tmp_size ? tmp_size : 64);
+
+zimg_filter_graph_process(graph, &src_buf, &dst_buf, tmp,
+                          0, 0, 0, 0);
+free(tmp);
+zimg_filter_graph_free(graph);
+```
+
+The C++ wrapper also exposes the new entry point:
+
+```cpp
+#include "api/zimg++.hpp"
+
+try {
+    zimgxx::FilterGraph graph =
+        zimgxx::FilterGraph::build_with_lut(src, dst, &params, &lut);
+
+    size_t tmp_size = graph.get_tmp_size();
+    void *tmp = nullptr;
+    posix_memalign(&tmp, 64, tmp_size ? tmp_size : 64);
+
+    graph.process(src_buf, dst_buf, tmp);
+    free(tmp);
+} catch (const zimgxx::zerror &) {
+    /* zimg_get_last_error() describes the failure. */
+}
+```
+
 Performance
 -----
 "z" is optimized for Intel(R) Architecture and features faster processing times

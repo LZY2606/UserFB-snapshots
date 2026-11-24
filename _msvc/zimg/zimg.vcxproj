@@ -268,6 +268,7 @@
     <ClInclude Include="..\..\src\zimg\graph\filtergraph.h" />
     <ClInclude Include="..\..\src\zimg\graph\graphbuilder.h" />
     <ClInclude Include="..\..\src\zimg\graph\graphengine_except.h" />
+    <ClInclude Include="..\..\src\zimg\lut3d\lut3d.h" />
     <ClInclude Include="..\..\src\zimg\resize\arm\resize_impl_arm.h" />
     <ClInclude Include="..\..\src\zimg\resize\filter.h" />
     <ClInclude Include="..\..\src\zimg\resize\resize.h" />
@@ -358,6 +359,7 @@
     <ClCompile Include="..\..\src\zimg\graph\filtergraph.cpp" />
     <ClCompile Include="..\..\src\zimg\graph\graphbuilder.cpp" />
     <ClCompile Include="..\..\src\zimg\graph\graphengine_except.cpp" />
+    <ClCompile Include="..\..\src\zimg\lut3d\lut3d.cpp" />
     <ClCompile Include="..\..\src\zimg\resize\arm\resize_impl_arm.cpp" />
     <ClCompile Include="..\..\src\zimg\resize\arm\resize_impl_neon.cpp" />
     <ClCompile Include="..\..\src\zimg\resize\filter.cpp" />
