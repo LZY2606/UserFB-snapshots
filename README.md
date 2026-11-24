@@ -234,6 +234,84 @@ Here are some quick links to help you get started:
 - [Community Forums](http://www.horde3d.org/forums)
 - [Community Wiki](http://horde3d.org/wiki/)
 
+## Headless motion matching
+
+The engine ships a windowless motion matching system in the public engine header
+`Horde3D/Source/Horde3DEngine/egMotionMatching.h`. It is pure C++14, adds no third-party
+dependency and does not require a rendering device beyond the headless NULL backend.
+
+### Minimal call flow
+
+1. Describe the shared skeleton once. Each joint has a name, a parent index (`-1` for the
+   single root joint) and a rest local transform.
+2. Build a `MotionDatabase` from one or more `AnimationResource` clips that share that
+   skeleton, each with its own frames-per-second rate, the names of the feature joints and a
+   positive future horizon `h` in seconds. The database copies everything it needs; the
+   animation resources may be released afterwards.
+3. Call `MotionDatabase::search()` on its own to select a clip and source frame from a pose
+   plus a desired future trajectory and four non-negative weights.
+4. To drive an actual character, create a `MotionPlayer`, `init()` it with the database, a
+   `ModelNode`, a legal start candidate and a world root matrix, then call `advance()` every
+   frame. The player evaluates the pose, searches, aligns the selected clip's root exactly to
+   the advanced world root and applies the result through the existing `JointNode` hierarchy,
+   inverse-bind palette and software skinning.
+
+```cpp
+using namespace Horde3D;
+
+MMSkeleton skeleton;                       // names, parent indices, rest local transforms
+std::vector<MMClip> clips;
+clips.emplace_back(animationResource, fps);
+std::vector<std::string> featureJoints;
+featureJoints.push_back("root");
+featureJoints.push_back("leftFoot");
+
+MotionDatabase database;
+if (!database.build(skeleton, clips, featureJoints, /*horizonSeconds*/ 0.2f))
+    ;                                       // invalid configuration; database stays empty
+
+MMSearchInput query;                        // current-root-frame positions/velocities
+query.positions.resize(featureJoints.size());
+query.velocities.resize(featureJoints.size());
+query.futureDisplacement = MMVec3(0.5f, 0.0f, 0.0f);
+query.futureYaw = 0.3f;
+query.weights = MMWeights(1.0f, 1.0f, 1.0f, 1.0f);   // not all zero
+MMSearchResult result;
+if (database.search(query, result))
+    ;                                       // result.clipIndex, result.sourceTime, result.cost
+
+MotionPlayer player;
+player.init(database, modelNode, result.clipIndex, result.sourceTime, MMMat4(worldRoot));
+player.advance(/*dtSeconds*/ 1.0f / 60.0f, query);
+```
+
+### Allowed skeletons
+
+- Exactly one joint has parent index `-1` (the root). Every other parent index must refer to a
+  joint in the same skeleton, the parent graph must be acyclic and every joint must be
+  reachable from the root. Joints do **not** need to be stored parent-before-child.
+- Joint names must be unique. A clip may only contain tracks whose names exist in the
+  skeleton; an unknown track is rejected. A joint without a track keeps the skeleton's rest
+  local transform for that clip.
+- The root joint must have a track whose frames contain only XZ translation and a rotation
+  about the positive Y axis (no Y translation, no tilt, unit scale). Other joints may rotate
+  and translate; all scales are one. All data must be finite and rotations unit length.
+- Interpolation follows the animation resources: linear translation, shortest-arc
+  normalized linear quaternion interpolation (nlerp). A track compressed to a single frame is
+  treated as a constant.
+
+### Allowed time ranges
+
+- A clip with `N` frames and rate `fps` is a closed, non-cyclic interval: the first frame is at
+  time `0` and the last frame is at `(N - 1) / fps`. The last frame never wraps to the first.
+- An integer frame `f` is a legal candidate only when it keeps at least one frame of margin on
+  both sides and still covers the whole horizon: `t - 1/fps >= 0`,
+  `t + 1/fps <= clipEnd` and `t + h <= clipEnd`, where `t = f / fps`.
+- The player never loops or clamps. On each `advance()`, the evaluation point and both
+  central-difference samples must lie inside the current clip interval; otherwise the call
+  fails explicitly and leaves the player, database and model unchanged. A `dt` of zero is
+  allowed and still performs a re-selection.
+
 ## License
 
 Horde3D is licensed under the [Eclipse Public License v1.0 (EPL)](http://www.eclipse.org/legal/epl-v10.html).

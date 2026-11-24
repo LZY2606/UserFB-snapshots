@@ -80,6 +80,7 @@ private:
 
 	friend class Renderer;
 	friend class ModelNode;
+	friend class MotionDatabase;
 };
 
 typedef SmartResPtr< AnimationResource > PAnimationResource;

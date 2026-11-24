@@ -17,6 +17,7 @@ set(HORDE3D_SOURCES
 	egMaterial.cpp
 	egModel.cpp
 	egModules.cpp
+	egMotionMatching.cpp
 	egParticle.cpp
 	egPipeline.cpp
 	egPrimitives.cpp
@@ -41,6 +42,7 @@ set(HORDE3D_SOURCES
 	egMaterial.h
 	egModel.h
 	egModules.h
+	egMotionMatching.h
 	egParticle.h
 	egPipeline.h
 	egPrerequisites.h
@@ -166,7 +168,7 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	set_target_properties(Horde3D PROPERTIES
 		FRAMEWORK TRUE
-		PRIVATE_HEADER "egAnimatables.h;egAnimation.h;egCamera.h;egCom.h;egExtensions.h;egGeometry.h;egLight.h;egMaterial.h;egModel.h;egModules.h;egParticle.h;egPipeline.h;egPrerequisites.h;egPrimitives.h;egRenderer.h;egRendererBase.h;egRendererBaseGL2.h;egRendererBaseGL4.h;egRendererBaseGLES3.h;egResource.h;egScene.h;egSceneGraphRes.h;egShader.h;egTexture.h;utImage.h;utTimer.h;utOpenGL.h;utOpenGLES3.h;"
+		PRIVATE_HEADER "egAnimatables.h;egAnimation.h;egCamera.h;egCom.h;egExtensions.h;egGeometry.h;egLight.h;egMaterial.h;egModel.h;egModules.h;egMotionMatching.h;egParticle.h;egPipeline.h;egPrerequisites.h;egPrimitives.h;egRenderer.h;egRendererBase.h;egRendererBaseGL2.h;egRendererBaseGL4.h;egRendererBaseGLES3.h;egResource.h;egScene.h;egSceneGraphRes.h;egShader.h;egTexture.h;utImage.h;utTimer.h;utOpenGL.h;utOpenGLES3.h;"
 		PUBLIC_HEADER "../../Bindings/C++/Horde3D.h")
 	
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
