@@ -34,103 +34,9 @@ THE SOFTWARE.
 #include <pe-parse/parse.h>
 #include <pe-parse/to_string.h>
 
+#include "parse_internal.h"
+
 namespace peparse {
-
-struct section {
-  std::string sectionName;
-  std::uint64_t sectionBase;
-  bounded_buffer *sectionData;
-  image_section_header sec;
-};
-
-struct importent {
-  VA addr;
-  std::string symbolName;
-  std::string moduleName;
-};
-
-struct exportent {
-  VA addr;
-  std::uint16_t ordinal;
-  std::string symbolName;
-  std::string moduleName;
-  std::string forwardName;
-};
-
-struct reloc {
-  VA shiftedAddr;
-  reloc_type type;
-};
-
-struct debugent {
-  std::uint32_t type;
-  bounded_buffer *data;
-};
-
-#define SYMBOL_NAME_OFFSET(sn) (static_cast<std::uint32_t>(sn.data >> 32))
-#define SYMBOL_TYPE_HI(x) (x.type >> 8)
-
-union symbol_name {
-  std::uint8_t shortName[NT_SHORT_NAME_LEN];
-  std::uint32_t zeroes;
-  std::uint64_t data;
-};
-
-struct aux_symbol_f1 {
-  std::uint32_t tagIndex;
-  std::uint32_t totalSize;
-  std::uint32_t pointerToLineNumber;
-  std::uint32_t pointerToNextFunction;
-};
-
-struct aux_symbol_f2 {
-  std::uint16_t lineNumber;
-  std::uint32_t pointerToNextFunction;
-};
-
-struct aux_symbol_f3 {
-  std::uint32_t tagIndex;
-  std::uint32_t characteristics;
-};
-
-struct aux_symbol_f4 {
-  std::uint8_t filename[SYMTAB_RECORD_LEN];
-  std::string strFilename;
-};
-
-struct aux_symbol_f5 {
-  std::uint32_t length;
-  std::uint16_t numberOfRelocations;
-  std::uint16_t numberOfLineNumbers;
-  std::uint32_t checkSum;
-  std::uint16_t number;
-  std::uint8_t selection;
-};
-
-struct symbol {
-  std::string strName;
-  symbol_name name;
-  std::uint32_t value;
-  std::int16_t sectionNumber;
-  std::uint16_t type;
-  std::uint8_t storageClass;
-  std::uint8_t numberOfAuxSymbols;
-  std::vector<aux_symbol_f1> aux_symbols_f1;
-  std::vector<aux_symbol_f2> aux_symbols_f2;
-  std::vector<aux_symbol_f3> aux_symbols_f3;
-  std::vector<aux_symbol_f4> aux_symbols_f4;
-  std::vector<aux_symbol_f5> aux_symbols_f5;
-};
-
-struct parsed_pe_internal {
-  std::vector<section> secs;
-  std::vector<resource> rsrcs;
-  std::vector<importent> imports;
-  std::vector<reloc> relocs;
-  std::vector<exportent> exports;
-  std::vector<symbol> symbols;
-  std::vector<debugent> debugdirs;
-};
 
 // String representation of Rich header object types
 static const std::string kProdId_C = "[ C ]";
@@ -941,6 +847,7 @@ bool getSections(bounded_buffer *b,
     }
 
     thisSec.sec = curSec;
+    thisSec.sectionIndex = i;
     std::uint32_t lowOff = curSec.PointerToRawData;
     std::uint32_t highOff = lowOff + curSec.SizeOfRawData;
     thisSec.sectionData = splitBuffer(fileBegin, lowOff, highOff);
@@ -1813,97 +1720,33 @@ bool getRelocations(parsed_pe *p) {
 }
 
 bool getDebugDir(parsed_pe *p) {
-  data_directory debugDir;
-  if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_32_MAGIC) {
-    debugDir = p->peHeader.nt.OptionalHeader.DataDirectory[DIR_DEBUG];
-  } else if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_64_MAGIC) {
-    debugDir = p->peHeader.nt.OptionalHeader64.DataDirectory[DIR_DEBUG];
-  } else {
-    return false;
+  // Decode the whole debug directory with the shared record reader.
+  // Directory problems are recorded in debugRecords and reported by
+  // ReadDebugRecords; they do not reject the parse.
+  if (!ComputeDebugRecords(p, p->internal->debugRecords)) {
+    p->internal->debugdirs.clear();
+    return true;
   }
 
-  if (debugDir.Size != 0) {
-    section d;
-    VA vaAddr;
-    if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_32_MAGIC) {
-      vaAddr =
-          debugDir.VirtualAddress + p->peHeader.nt.OptionalHeader.ImageBase;
-    } else if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_64_MAGIC) {
-      vaAddr =
-          debugDir.VirtualAddress + p->peHeader.nt.OptionalHeader64.ImageBase;
-    } else {
+  // Compatibility view for IterDebugs: one callback per non-empty
+  // record, preferring the file-pointer candidate over the RVA one.
+  for (const debug_record &rec : p->internal->debugRecords.records) {
+    if (rec.candidates.empty()) {
+      continue;
+    }
+
+    const debug_payload_candidate &chosen = rec.candidates.front();
+
+    debugent ent;
+    ent.type = rec.type;
+    ent.data = makeBufferFromPointer(
+        const_cast<std::uint8_t *>(chosen.bytes.data()),
+        static_cast<std::uint32_t>(chosen.bytes.size()));
+    if (ent.data == nullptr) {
       return false;
     }
 
-    uint32_t numOfDebugEnts = debugDir.Size / sizeof(debug_dir_entry);
-
-    //
-    // this will return the rdata section, where the debug directories are
-    //
-    if (!getSecForVA(p->internal->secs, vaAddr, d)) {
-      return false;
-    }
-
-    //
-    // get debug directory from this section
-    //
-    auto rvaofft = static_cast<std::uint32_t>(vaAddr - d.sectionBase);
-
-    debug_dir_entry emptyEnt;
-    memset(&emptyEnt, 0, sizeof(debug_dir_entry));
-
-    for (uint32_t i = 0; i < numOfDebugEnts; i++) {
-      debug_dir_entry curEnt = emptyEnt;
-
-      READ_DWORD(d.sectionData, rvaofft, curEnt, Characteristics);
-      READ_DWORD(d.sectionData, rvaofft, curEnt, TimeStamp);
-      READ_WORD(d.sectionData, rvaofft, curEnt, MajorVersion);
-      READ_WORD(d.sectionData, rvaofft, curEnt, MinorVersion);
-      READ_DWORD(d.sectionData, rvaofft, curEnt, Type);
-      READ_DWORD(d.sectionData, rvaofft, curEnt, SizeOfData);
-      READ_DWORD(d.sectionData, rvaofft, curEnt, AddressOfRawData);
-      READ_DWORD(d.sectionData, rvaofft, curEnt, PointerToRawData);
-
-      // are all the fields in curEnt null? then we break
-      if (curEnt.SizeOfData == 0 && curEnt.AddressOfRawData == 0 &&
-          curEnt.PointerToRawData == 0) {
-        break;
-      }
-
-      //
-      // Get the address of the data
-      //
-      VA rawData;
-      if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_32_MAGIC) {
-        rawData =
-            curEnt.AddressOfRawData + p->peHeader.nt.OptionalHeader.ImageBase;
-      } else if (p->peHeader.nt.OptionalMagic == NT_OPTIONAL_64_MAGIC) {
-        rawData =
-            curEnt.AddressOfRawData + p->peHeader.nt.OptionalHeader64.ImageBase;
-      } else {
-        return false;
-      }
-
-      //
-      // Get the section for the data
-      //
-      section dataSec;
-      if (!getSecForVA(p->internal->secs, rawData, dataSec)) {
-        return false;
-      }
-
-      debugent ent;
-
-      auto dataofft = static_cast<std::uint32_t>(rawData - dataSec.sectionBase);
-      ent.type = curEnt.Type;
-      ent.data = makeBufferFromPointer(
-          reinterpret_cast<std::uint8_t *>(dataSec.sectionData->buf + dataofft),
-          curEnt.SizeOfData);
-
-      p->internal->debugdirs.push_back(ent);
-
-      rvaofft += sizeof(debug_dir_entry);
-    }
+    p->internal->debugdirs.push_back(ent);
   }
 
   return true;

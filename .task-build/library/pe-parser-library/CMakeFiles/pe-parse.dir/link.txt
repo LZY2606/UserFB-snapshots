@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpe-parse.a "CMakeFiles/pe-parse.dir/src/buffer.cpp.o" "CMakeFiles/pe-parse.dir/src/debug_records.cpp.o" "CMakeFiles/pe-parse.dir/src/parse.cpp.o" "CMakeFiles/pe-parse.dir/src/unicode_codecvt.cpp.o"
+/usr/bin/ranlib libpe-parse.a

@@ -23,8 +23,8 @@ installed git || die "Missing dependency: git"
 [[ -n $(git status -s) ]] && die "Untracked changes in repo"
 
 # Next, check the VERSION in version and make sure it doesn't already have a git tag.
-[[ -f ./VERSION ]] || die "Missing VERSION file; wrong directory?"
-version=v$(<./VERSION)
+[[ -f ./VERSION.txt ]] || die "Missing VERSION.txt file; wrong directory?"
+version=v$(<./VERSION.txt)
 [[ -n $(git tag -l "${version}") ]] && die "git tag for ${version} already exists!"
 
 # Next, craft a tag for the current HEAD. Push both the current commit and the tag.

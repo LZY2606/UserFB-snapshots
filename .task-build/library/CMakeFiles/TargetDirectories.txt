@@ -1,0 +1,14 @@
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/peparse_format.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/pe-parse.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/UFB100004/attempts/20261124T001625889304Z/repo/.task-build/library/pe-parser-library/CMakeFiles/install/strip.dir

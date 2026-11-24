@@ -1,16 +1,19 @@
 cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 project(pe-parse)
 
-message(STATUS "VERSION file: ${PROJECT_SOURCE_DIR}/../VERSION")
+message(STATUS "VERSION file: ${PROJECT_SOURCE_DIR}/../VERSION.txt")
 
 # List all files explicitly; this will make IDEs happy (i.e. QtCreator, CLion, ...)
 list(APPEND PEPARSERLIB_SOURCEFILES
   include/pe-parse/parse.h
+  include/pe-parse/debug_records.h
   include/pe-parse/nt-headers.h
   include/pe-parse/to_string.h
 
   src/buffer.cpp
+  src/debug_records.cpp
   src/parse.cpp
+  src/parse_internal.h
 )
 
 # NOTE(ww): On Windows we use the Win32 API's built-in UTF16 conversion

@@ -35,7 +35,7 @@ pepy = os.path.join(here, "pepy")
 with open(os.path.join(pepy, "README.md")) as f:
     README = f.read()
 
-with open(os.path.join(here, "VERSION")) as f:
+with open(os.path.join(here, "VERSION.txt")) as f:
     VERSION = f.read().strip()
 
 SOURCE_FILES = [
