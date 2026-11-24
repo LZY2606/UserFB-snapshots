@@ -8,7 +8,7 @@ LIBWEBMA  := libwebm.a
 LIBWEBMSO := libwebm.so
 WEBMOBJS  := mkvmuxer/mkvmuxer.o mkvmuxer/mkvmuxerutil.o mkvmuxer/mkvwriter.o
 WEBMOBJS  += mkvparser/mkvparser.o mkvparser/mkvreader.o
-WEBMOBJS  += common/file_util.o common/hdr_util.o
+WEBMOBJS  += common/file_util.o common/hdr_util.o common/cluster_crc.o
 OBJSA     := $(WEBMOBJS:.o=_a.o)
 OBJSSO    := $(WEBMOBJS:.o=_so.o)
 VTTOBJS   := webvtt/vttreader.o webvtt/webvttparser.o sample_muxer_metadata.o

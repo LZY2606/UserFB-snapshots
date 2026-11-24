@@ -146,3 +146,81 @@ Bug reports
 Bug reports can be filed in the libwebm issue tracker:
 https://issues.webmproject.org/.
 For security reports, select 'Security report' from the Template dropdown.
+
+
+Cluster CRC-32
+
+A muxed WebM file can optionally carry a CRC-32 child element (Matroska ID
+0xBF) in every Cluster. The CRC is the first child of each Cluster, its
+four byte payload is stored little endian, and it is an IEEE CRC-32 value
+(reflected polynomial 0xEDB88320, initial and final XOR of 0xFFFFFFFF) over
+all of the Cluster payload bytes except the CRC element itself. The Cluster
+ID and size fields are not part of the coverage, and neither is the CRC
+element's own six byte encoding.
+
+Enable it on the muxer before the header is written. It requires a seekable
+writer in the default kFile mode; kLive mode and chunking cannot backfill the
+CRC placeholder and are rejected:
+
+  #include <cstdint>
+  #include "mkvmuxer/mkvmuxer.h"
+  #include "mkvmuxer/mkvwriter.h"
+
+  bool WriteWithClusterCrc(const char* path) {
+    mkvmuxer::MkvWriter writer;
+    if (!writer.Open(path))
+      return false;
+
+    mkvmuxer::Segment segment;
+    if (!segment.Init(&writer))
+      return false;
+
+    // Must be called before any frame (and thus the segment header) is
+    // written. Returns false for kLive mode, chunking, or a non-seekable
+    // writer.
+    if (!segment.SetClusterCRC(true))
+      return false;
+
+    const uint64_t track = segment.AddVideoTrack(320, 240, 1);
+    if (track == 0)
+      return false;
+    segment.GetTrackByNumber(track)->set_codec_id("V_VP8");
+
+    const std::uint8_t frame[] = {0, 1, 2, 3};
+    if (!segment.AddFrame(frame, sizeof(frame), track, 0, true))
+      return false;
+    return segment.Finalize();
+  }
+
+With CRC disabled (the default) the output is byte for byte identical to the
+previous behavior.
+
+On the reading side verification is opt-in: ordinary Load(), GetFirst() and
+GetNext() behavior is unchanged, and clusters without a CRC are still parsed.
+Call Cluster::VerifyCRC() to check a cluster independently of block walking.
+It returns 0 when a present CRC matches, 1 when the cluster has no CRC, and a
+negative mkvparser error code otherwise. E_BUFFER_NOT_FULL means more bytes are
+required; the returned pos/len describe the next byte range, and the cluster
+retains its scan position and running CRC so a later retry matches a one-shot
+read. A CRC may appear at any child element boundary:
+
+  #include "mkvparser/mkvparser.h"
+  #include "mkvparser/mkvreader.h"
+
+  long VerifyOneCluster(const mkvparser::Cluster* cluster) {
+    long long pos = 0;
+    long len = 0;
+    const long status = cluster->VerifyCRC(pos, len);
+    if (status == 0) {
+      // A CRC element was present and matched.
+    } else if (status == 1) {
+      // The cluster simply has no CRC element.
+    } else if (status == mkvparser::E_BUFFER_NOT_FULL) {
+      // Need bytes [pos, pos + len); retry once they are available.
+    } else {
+      // mkvparser::E_FILE_FORMAT_INVALID for a duplicate/wrong-length/mismatched
+      // CRC, or another negative reader error.
+    }
+    return status;
+  }
+

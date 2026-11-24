@@ -73,6 +73,8 @@ set(libwebm_common_public_headers "${LIBWEBM_SRC_DIR}/common/webmids.h")
 
 set(libwebm_common_sources
     ${libwebm_common_public_headers}
+    "${LIBWEBM_SRC_DIR}/common/cluster_crc.cc"
+    "${LIBWEBM_SRC_DIR}/common/cluster_crc.h"
     "${LIBWEBM_SRC_DIR}/common/file_util.cc"
     "${LIBWEBM_SRC_DIR}/common/file_util.h"
     "${LIBWEBM_SRC_DIR}/common/hdr_util.cc"

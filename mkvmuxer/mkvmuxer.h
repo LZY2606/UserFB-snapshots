@@ -1237,10 +1237,17 @@ class Cluster {
   // the cues element. |timecode_scale| is the timecode scale of the segment.
   Cluster(uint64_t timecode, int64_t cues_pos, uint64_t timecode_scale,
           bool write_last_frame_with_duration = false,
-          bool fixed_size_timecode = false);
+          bool fixed_size_timecode = false, bool write_crc = false);
   ~Cluster();
 
   bool Init(IMkvWriter* ptr_writer);
+
+  // When true, the cluster carries a CRC-32 element covering every byte of its
+  // payload except the CRC element itself. The CRC element is the first child
+  // of the cluster, written as a placeholder and backfilled when the cluster is
+  // finalized. Only supported with a seekable writer.
+  void set_write_crc(bool write_crc) { write_crc_ = write_crc; }
+  bool write_crc() const { return write_crc_; }
 
   // Adds a frame to be output in the file. The frame is written out through
   // |writer_| if successful. Returns true on success.
@@ -1375,6 +1382,15 @@ class Cluster {
   // Outputs the Cluster header to |writer_|. Returns true on success.
   bool WriteClusterHeader();
 
+  // Writes the placeholder CRC-32 element (ID 0xBF, four byte payload) at the
+  // start of the cluster payload and remembers its payload position for
+  // Finalize(). Returns true on success.
+  bool WriteCRCPlaceholder();
+
+  // Backfills the placeholder written by WriteCRCPlaceholder() with the CRC of
+  // the cluster payload. Returns true on success.
+  bool FinalizeCRC();
+
   // Number of blocks added to the cluster.
   int32_t blocks_added_;
 
@@ -1387,6 +1403,18 @@ class Cluster {
 
   // Flag telling if the cluster's header has been written.
   bool header_written_;
+
+  // Flag telling whether the cluster carries a CRC-32 child element.
+  bool write_crc_;
+
+  // Flag telling whether CRC accumulation for the cluster payload is running.
+  bool crc_active_;
+
+  // Running CRC-32 of the cluster payload bytes written so far.
+  uint32_t crc_;
+
+  // File position of the CRC-32 payload, used to backfill the placeholder.
+  int64_t crc_position_;
 
   // The size of the cluster elements in bytes.
   uint64_t payload_size_;
@@ -1645,6 +1673,9 @@ class Segment {
   //   frame: frame object
   bool AddGenericFrame(const Frame* frame);
 
+  // Implements AddGenericFrame() without touching the failed state.
+  bool AddGenericFrameInternal(const Frame* frame);
+
   // Adds a VP8 video track to the segment. Returns the number of the track on
   // success, 0 on error. |number| is the number to use for the video track.
   // |number| must be >= 0. If |number| == 0 then the muxer will decide on
@@ -1698,6 +1729,19 @@ class Segment {
 
   // Toggles whether to write the Cluster Timecode using exactly 8 bytes.
   void UseFixedSizeClusterTimecode(bool fixed_size_cluster_timecode);
+
+  // Toggles whether each Cluster is written with a CRC-32 child element. When
+  // enabled the CRC is generated while the cluster payload is streamed and
+  // backfilled when the cluster is finalized, so the whole cluster is never
+  // buffered. It may only be enabled before the header is written, and only
+  // with a seekable writer in kFile mode: chunking and kLive mode cannot
+  // backfill the placeholder. Returns true on success.
+  bool SetClusterCRC(bool enabled);
+
+  // Returns true once an I/O or backfill failure has put the segment into its
+  // failed state. AddFrame(), AddGenericFrame() and Finalize() keep returning
+  // false while the segment is failed.
+  bool failed() const { return failed_; }
 
   // Sets if the muxer will output files in chunks or not. |chunking| is a
   // flag telling whether or not to turn on chunking. |filename| is the base
@@ -1769,6 +1813,10 @@ class Segment {
   // Outputs the segment header, Segment Information element, SeekHead element,
   // and Tracks element to |writer_|.
   bool WriteSegmentHeader();
+
+  // Implements Finalize() without touching the failed state. Finalize() wraps
+  // this so any failure puts the segment into its failed state.
+  bool FinalizeInternal();
 
   // Given a frame with the specified timestamp (nanosecond units) and
   // keyframe status, determine whether a new cluster should be
@@ -1919,6 +1967,13 @@ class Segment {
 
   // Flag whether or not to write the Cluster Timecode using exactly 8 bytes.
   bool fixed_size_cluster_timecode_;
+
+  // Flag whether or not to write a CRC-32 child element into each Cluster.
+  bool cluster_crc_;
+
+  // Flag telling whether the segment is in its failed state. Set after the
+  // first CRC placeholder, backfill, seek or payload write failure.
+  bool failed_;
 
   // Flag whether or not to estimate the file duration.
   bool estimate_file_duration_;

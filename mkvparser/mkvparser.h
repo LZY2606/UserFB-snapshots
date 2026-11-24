@@ -1013,6 +1013,19 @@ class Cluster {
   long Parse(long long& pos, long& size) const;
   long GetEntry(long index, const mkvparser::BlockEntry*&) const;
 
+  // Verifies the Cluster's CRC-32 child element independently of the block
+  // traversal: the cluster boundary and every child element are walked from
+  // the container bytes on each call. Returns 0 when a CRC element exists and
+  // matches, 1 when the cluster has no CRC element, and a negative parser
+  // error code otherwise. More than one CRC element, or a CRC element whose
+  // payload is not four bytes, is E_FILE_FORMAT_INVALID; a mismatched value is
+  // also E_FILE_FORMAT_INVALID. When the bytes needed to finish are not
+  // available yet, returns E_BUFFER_NOT_FULL and sets |pos| and |len| to the
+  // next byte range required; the resume position and accumulated CRC are
+  // retained so retrying after more data arrives gives the same result as a
+  // one-shot read. Does not advance the block iteration cursor.
+  long VerifyCRC(long long& pos, long& len) const;
+
  protected:
   Cluster(Segment*, long index, long long element_start);
   // long long element_size);
@@ -1045,6 +1058,19 @@ class Cluster {
   long CreateBlockGroup(long long start_offset, long long size,
                         long long discard_padding);
   long CreateSimpleBlock(long long, long long);
+
+  // Resume state for VerifyCRC(). Only the scan position and the running CRC
+  // are cached between calls; a pass/fail conclusion is never cached.
+  mutable bool m_verify_active;
+  mutable int m_verify_phase;  // 0: cluster header, 1: child elements
+  mutable long long m_verify_pos;       // next absolute byte to process
+  mutable long long m_verify_stop;      // absolute payload end, -1 if unknown
+  mutable unsigned int m_verify_crc;    // running CRC over covered bytes
+  mutable long m_verify_crc_count;      // CRC elements seen so far
+  mutable unsigned int m_verify_value;  // expected value from the CRC element
+  mutable bool m_verify_in_child;       // resume inside a child payload
+  mutable long long m_verify_child_end;
+  mutable bool m_verify_child_is_crc;
 };
 
 class Segment {

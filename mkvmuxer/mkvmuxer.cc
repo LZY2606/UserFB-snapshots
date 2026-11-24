@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/webmids.h"
+#include "common/cluster_crc.h"
 #include "mkvmuxer/mkvmuxerutil.h"
 #include "mkvmuxer/mkvwriter.h"
 #include "mkvparser/mkvparser.h"
@@ -2557,12 +2558,114 @@ bool Tags::ExpandTagsArray() {
 //
 // Cluster class
 
+namespace {
+
+// IMkvWriter wrapper that forwards every call to the wrapped writer while
+// folding every byte passed to Write() into a running CRC-32. It lets the
+// cluster accumulate its payload CRC without buffering the cluster or adding
+// any virtual function to IMkvWriter.
+class CrcWriter : public IMkvWriter {
+ public:
+  CrcWriter(IMkvWriter* writer, uint32_t* crc)
+      : writer_(writer), crc_(crc) {}
+
+  int32 Write(const void* buf, uint32 len) override {
+    if (!writer_)
+      return -1;
+    const int32 status = writer_->Write(buf, len);
+    if (status == 0)
+      libwebm::ClusterCRC32Update(*crc_,
+                                  static_cast<const uint8_t*>(buf), len);
+    return status;
+  }
+
+  int64 Position() const override {
+    return writer_ ? writer_->Position() : -1;
+  }
+
+  int32 Position(int64 position) override {
+    return writer_ ? writer_->Position(position) : -1;
+  }
+
+  bool Seekable() const override {
+    return writer_ ? writer_->Seekable() : false;
+  }
+
+  void ElementStartNotify(uint64 element_id, int64 position) override {
+    if (writer_)
+      writer_->ElementStartNotify(element_id, position);
+  }
+
+ private:
+  IMkvWriter* const writer_;
+  uint32_t* const crc_;
+
+  LIBWEBM_DISALLOW_COPY_AND_ASSIGN(CrcWriter);
+};
+
+}  // namespace
+
+bool Cluster::WriteCRCPlaceholder() {
+  if (!writer_ || !writer_->Seekable())
+    return false;
+
+  const int64_t element_position = writer_->Position();
+  if (element_position < 0)
+    return false;
+
+  const uint8_t placeholder[libwebm::kClusterCRC32ElementSize] = {
+      static_cast<uint8_t>(libwebm::kMkvCRC32), 0x84, 0, 0, 0, 0};
+  if (writer_->Write(placeholder, sizeof(placeholder)))
+    return false;
+
+  // Backfill only the four payload bytes, after the one byte ID and one byte
+  // size fields. The placeholder itself is excluded from the CRC coverage.
+  crc_position_ = element_position + 2;
+  crc_ = 0xFFFFFFFFU;
+  crc_active_ = true;
+  return true;
+}
+
+bool Cluster::FinalizeCRC() {
+  if (!write_crc_ || !writer_ || !writer_->Seekable() || crc_position_ < 0)
+    return false;
+
+  const uint32_t value = libwebm::ClusterCRC32Finalize(crc_);
+  uint8_t payload[libwebm::kClusterCRC32PayloadSize];
+  // The CRC-32 payload is stored little endian.
+  payload[0] = static_cast<uint8_t>(value);
+  payload[1] = static_cast<uint8_t>(value >> 8);
+  payload[2] = static_cast<uint8_t>(value >> 16);
+  payload[3] = static_cast<uint8_t>(value >> 24);
+
+  const int64_t pos = writer_->Position();
+  if (pos < 0)
+    return false;
+
+  if (writer_->Position(crc_position_))
+    return false;
+
+  if (writer_->Write(payload, sizeof(payload)))
+    return false;
+
+  if (writer_->Position(pos))
+    return false;
+
+  crc_active_ = false;
+  return true;
+}
+
 Cluster::Cluster(uint64_t timecode, int64_t cues_pos, uint64_t timecode_scale,
-                 bool write_last_frame_with_duration, bool fixed_size_timecode)
+                 bool write_last_frame_with_duration, bool fixed_size_timecode,
+                 bool write_crc)
     : blocks_added_(0),
       finalized_(false),
       fixed_size_timecode_(fixed_size_timecode),
       header_written_(false),
+      write_crc_(write_crc),
+      crc_active_(false),
+      crc_(0xFFFFFFFFU),
+      crc_position_(-1),
       payload_size_(0),
       position_for_cues_(cues_pos),
       size_position_(-1),
@@ -2704,6 +2807,12 @@ bool Cluster::Finalize(bool set_last_frame_duration, uint64_t duration) {
   if (size_position_ == -1)
     return false;
 
+  // Backfill the CRC before touching the cluster size, so a backfill failure
+  // cannot be masked by a successful size write. Neither seek nor write here
+  // contributes to the coverage: the cluster ID and size are excluded.
+  if (write_crc_ && !FinalizeCRC())
+    return false;
+
   if (writer_->Seekable()) {
     const int64_t pos = writer_->Position();
 
@@ -2764,7 +2873,12 @@ bool Cluster::DoWriteFrame(const Frame* const frame) {
   if (!PreWriteBlock())
     return false;
 
-  const uint64_t element_size = WriteFrame(writer_, frame, this);
+  // While CRC accumulation is active, stream every block byte through a writer
+  // that folds the payload into the running CRC.
+  CrcWriter crc_writer(writer_, &crc_);
+  IMkvWriter* const write_target = crc_active_ ? &crc_writer : writer_;
+
+  const uint64_t element_size = WriteFrame(write_target, frame, this);
   if (element_size == 0)
     return false;
 
@@ -2846,12 +2960,26 @@ bool Cluster::WriteClusterHeader() {
   if (SerializeInt(writer_, kEbmlUnknownValue, 8))
     return false;
 
-  if (!WriteEbmlElement(writer_, libwebm::kMkvTimecode, timecode(),
+  // When CRC is enabled it is the first child of the cluster payload. Its own
+  // six bytes do not count toward the coverage, but they do count toward the
+  // cluster payload size.
+  if (write_crc_) {
+    if (!WriteCRCPlaceholder())
+      return false;
+    AddPayloadSize(libwebm::kClusterCRC32ElementSize);
+  }
+
+  // Stream the timecode, the first covered child, through the CRC writer so its
+  // exact on-disk bytes are folded into the running CRC.
+  CrcWriter crc_writer(writer_, &crc_);
+  IMkvWriter* const write_target = crc_active_ ? &crc_writer : writer_;
+  if (!WriteEbmlElement(write_target, libwebm::kMkvTimecode, timecode(),
                         fixed_size_timecode_ ? 8 : 0)) {
     return false;
   }
   AddPayloadSize(EbmlElementSize(libwebm::kMkvTimecode, timecode(),
                                  fixed_size_timecode_ ? 8 : 0));
+
   header_written_ = true;
 
   return true;
@@ -3179,6 +3307,8 @@ Segment::Segment()
       output_cues_(true),
       accurate_cluster_duration_(false),
       fixed_size_cluster_timecode_(false),
+      cluster_crc_(false),
+      failed_(false),
       estimate_file_duration_(false),
       ebml_header_size_(0),
       payload_pos_(0),
@@ -3334,6 +3464,17 @@ bool Segment::CopyAndMoveCuesBeforeClusters(mkvparser::IMkvReader* reader,
 }
 
 bool Segment::Finalize() {
+  if (failed_)
+    return false;
+
+  if (!FinalizeInternal()) {
+    failed_ = true;
+    return false;
+  }
+  return true;
+}
+
+bool Segment::FinalizeInternal() {
   if (WriteFramesAll() < 0)
     return false;
 
@@ -3608,6 +3749,22 @@ bool Segment::AddMetadata(const uint8_t* data, uint64_t length,
 }
 
 bool Segment::AddGenericFrame(const Frame* frame) {
+  if (failed_)
+    return false;
+
+  if (!AddGenericFrameInternal(frame)) {
+    // Once the header has been written every remaining failure is an actual
+    // write, seek or backfill failure, which poisons the whole segment.
+    // Failures before that are input validation errors (bad track, out of
+    // order timestamp) and do not put the segment into its failed state.
+    if (header_written_)
+      failed_ = true;
+    return false;
+  }
+  return true;
+}
+
+bool Segment::AddGenericFrameInternal(const Frame* frame) {
   if (!frame)
     return false;
 
@@ -3717,6 +3874,30 @@ void Segment::UseFixedSizeClusterTimecode(bool fixed_size_cluster_timecode) {
   fixed_size_cluster_timecode_ = fixed_size_cluster_timecode;
 }
 
+bool Segment::SetClusterCRC(bool enabled) {
+  // The option only takes effect before the header has been written: clusters
+  // created afterwards cannot be changed, and enabling CRC after output has
+  // started would produce an inconsistent stream.
+  if (header_written_)
+    return false;
+
+  if (!enabled) {
+    cluster_crc_ = false;
+    return true;
+  }
+
+  // CRC needs a backfill, so it requires a seekable writer in file mode.
+  // Chunking spreads clusters over separate files that are never revisited,
+  // and live mode forbids seeking back.
+  if (mode_ != kFile || chunking_ || !writer_cluster_ ||
+      !writer_cluster_->Seekable()) {
+    return false;
+  }
+
+  cluster_crc_ = true;
+  return true;
+}
+
 bool Segment::SetChunking(bool chunking, const char* filename) {
   if (chunk_count_ > 0)
     return false;
@@ -3808,6 +3989,14 @@ Track* Segment::GetTrackByNumber(uint64_t track_number) const {
 }
 
 bool Segment::WriteSegmentHeader() {
+  // The mode or chunking may have changed after SetClusterCRC(), so re-check
+  // the combination before any header byte is written.
+  if (cluster_crc_ &&
+      (mode_ != kFile || chunking_ || !writer_header_ ||
+       !writer_header_->Seekable())) {
+    return false;
+  }
+
   UpdateDocTypeVersion();
 
   const char* const doc_type =
@@ -4018,7 +4207,8 @@ bool Segment::MakeNewCluster(uint64_t frame_timestamp_ns) {
   const int64_t offset = MaxOffset();
   cluster = new (std::nothrow)
       Cluster(cluster_timecode, offset, segment_info_.timecode_scale(),
-              accurate_cluster_duration_, fixed_size_cluster_timecode_);
+              accurate_cluster_duration_, fixed_size_cluster_timecode_,
+              cluster_crc_);
   if (!cluster)
     return false;
 
@@ -4063,9 +4253,10 @@ bool Segment::DoNewClusterProcessing(uint64_t track_number,
 
 bool Segment::CheckHeaderInfo() {
   if (!header_written_) {
-    if (!WriteSegmentHeader())
+    if (!WriteSegmentHeader()) {
+      failed_ = true;
       return false;
-
+    }
     if (!seek_head_.AddSeekEntry(libwebm::kMkvCluster, MaxOffset()))
       return false;
 
@@ -4195,6 +4386,8 @@ int Segment::WriteFramesAll() {
   if (!cluster)
     return -1;
 
+  bool write_failed = false;
+
   for (int32_t i = 0; i < frames_size_; ++i) {
     Frame*& frame = frames_[i];
     // TODO(jzern/vigneshv): using Segment::AddGenericFrame here would limit the
@@ -4203,6 +4396,7 @@ int Segment::WriteFramesAll() {
       doc_type_version_ = 4;
     if (!cluster->AddFrame(frame)) {
       delete frame;
+      write_failed = true;
       continue;
     }
 
@@ -4211,6 +4405,7 @@ int Segment::WriteFramesAll() {
       // keyframe.
       if (frame->is_key() && !AddCuePoint(frame->timestamp(), cues_track_)) {
         delete frame;
+        write_failed = true;
         continue;
       } else {
         new_cuepoint_ = false;
@@ -4229,7 +4424,10 @@ int Segment::WriteFramesAll() {
   const int result = frames_size_;
   frames_size_ = 0;
 
-  return result;
+  // A failed block write (for example a failing writer) must be reported so
+  // the segment can enter its failed state, instead of silently dropping the
+  // queued frame.
+  return write_failed ? -1 : result;
 }
 
 bool Segment::WriteFramesLessThan(uint64_t timestamp) {
@@ -4245,6 +4443,7 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       return false;
 
     int32_t shift_left = 0;
+    bool write_failed = false;
 
     // TODO(fgalligan): Change this to use the durations of frames instead of
     // the next frame's start time if the duration is accurate.
@@ -4260,6 +4459,7 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       if (!cluster->AddFrame(frame_prev)) {
         delete frame_prev;
         ++shift_left;
+        write_failed = true;
         continue;
       }
 
@@ -4267,6 +4467,7 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
         if (!AddCuePoint(frame_prev->timestamp(), cues_track_)) {
           delete frame_prev;
           ++shift_left;
+          write_failed = true;
           continue;
         }
       }
@@ -4292,6 +4493,11 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
 
       frames_size_ = new_frames_size;
     }
+
+    // Surface a writer/backfill failure from the delayed drain path so the
+    // segment can enter its failed state rather than dropping the frame.
+    if (write_failed)
+      return false;
   }
 
   return true;

@@ -21,6 +21,7 @@
 #include <new>
 
 #include "common/webmids.h"
+#include "common/cluster_crc.h"
 
 namespace mkvparser {
 const long long kStringElementSizeLimit = 20 * 1000 * 1000;
@@ -6470,6 +6471,314 @@ long Cluster::Parse(long long& pos, long& len) const {
   return 1;  // no more entries
 }
 
+long Cluster::VerifyCRC(long long& pos, long& len) const {
+  if (m_pSegment == NULL)
+    return E_PARSE_FAILED;
+
+  IMkvReader* const pReader = m_pSegment->m_pReader;
+
+  long long total, avail;
+  long status = pReader->Length(&total, &avail);
+  if (status < 0)
+    return status;  // preserve the underlying reader's failure
+  if (total >= 0 && avail > total)
+    return E_FILE_FORMAT_INVALID;
+
+  if (!m_verify_active) {
+    // Start a fresh, independent verification pass.
+    m_verify_pos = m_element_start;
+    m_verify_stop = -1;
+    m_verify_crc = 0xFFFFFFFFU;
+    m_verify_crc_count = 0;
+    m_verify_value = 0;
+    m_verify_phase = 0;
+    m_verify_in_child = false;
+    m_verify_child_end = 0;
+    m_verify_child_is_crc = false;
+    m_verify_active = true;
+  }
+
+  // Phase 0: walk the cluster ID and size fields. They are not part of the CRC
+  // coverage, but a known size fixes the payload boundary.
+  if (m_verify_phase == 0) {
+    long long p = m_element_start;
+
+    if ((p + 1) > avail) {
+      pos = p;
+      len = 1;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    long id_len = 0;
+    long long result = GetUIntLength(pReader, p, id_len);
+    if (result < 0) {
+      m_verify_active = false;
+      return static_cast<long>(result);
+    }
+    if (result > 0 || (p + id_len) > avail) {
+      pos = p;
+      len = result > 0 ? 1 : id_len;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    const long long cluster_id = ReadID(pReader, p, id_len);
+    if (cluster_id != libwebm::kMkvCluster) {
+      m_verify_active = false;
+      return E_FILE_FORMAT_INVALID;
+    }
+    p += id_len;
+
+    if ((p + 1) > avail) {
+      m_verify_pos = p;
+      pos = p;
+      len = 1;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    long size_len = 0;
+    result = GetUIntLength(pReader, p, size_len);
+    if (result < 0) {
+      m_verify_active = false;
+      return static_cast<long>(result);
+    }
+    if (result > 0 || (p + size_len) > avail) {
+      m_verify_pos = p;
+      pos = p;
+      len = result > 0 ? 1 : size_len;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    const long long cluster_size = ReadUInt(pReader, p, size_len);
+    if (cluster_size < 0) {
+      m_verify_active = false;
+      return static_cast<long>(cluster_size);
+    }
+    p += size_len;
+
+    const long long unknown_size = (1LL << (7 * size_len)) - 1;
+    if (cluster_size == 0) {
+      m_verify_active = false;
+      return E_FILE_FORMAT_INVALID;
+    }
+    if (cluster_size != unknown_size)
+      m_verify_stop = p + cluster_size;
+    // An unknown size leaves m_verify_stop at -1 until a following Cluster,
+    // Cues element or physical EOF determines the boundary.
+
+    m_verify_pos = p;
+    m_verify_phase = 1;
+  }
+
+  // Phase 1: walk every child element at its own boundary. The CRC element is
+  // accepted anywhere in the payload, but its entire encoding is excluded from
+  // the coverage; every other child, including its ID and size header bytes,
+  // is folded into the running CRC. m_verify_pos only advances to a child's
+  // start once its whole header has been validated, so an underflow never
+  // re-interprets a size byte as an element ID.
+  for (;;) {
+    long long p = m_verify_pos;
+
+    if (m_verify_in_child) {
+      if (m_verify_child_is_crc) {
+        // The whole four byte CRC payload must be present before it is read.
+        if (m_verify_child_end > avail) {
+          pos = p;
+          len = static_cast<long>(m_verify_child_end - p);
+          return E_BUFFER_NOT_FULL;
+        }
+
+        unsigned char crc_bytes[libwebm::kClusterCRC32PayloadSize];
+        const int read_status = pReader->Read(
+            p, libwebm::kClusterCRC32PayloadSize, crc_bytes);
+        if (read_status < 0) {
+          m_verify_active = false;
+          return read_status;
+        }
+        if (read_status > 0) {
+          // Underflow reported by the reader despite the available length:
+          // retain the position and ask for the missing range.
+          pos = p;
+          len = libwebm::kClusterCRC32PayloadSize;
+          return E_BUFFER_NOT_FULL;
+        }
+
+        m_verify_value =
+            static_cast<unsigned int>(crc_bytes[0]) |
+            (static_cast<unsigned int>(crc_bytes[1]) << 8) |
+            (static_cast<unsigned int>(crc_bytes[2]) << 16) |
+            (static_cast<unsigned int>(crc_bytes[3]) << 24);
+        p = m_verify_child_end;
+      } else {
+        // Stream the covered bytes (this child's header followed by its
+        // payload) through the CRC in bounded windows. The whole frame is
+        // never allocated and the running CRC and position survive retries.
+        unsigned char buf[4096];
+        while (p < m_verify_child_end) {
+          if (p >= avail) {
+            m_verify_pos = p;
+            pos = p;
+            long need = static_cast<long>(m_verify_child_end - p);
+            if (need > 4096)
+              need = 4096;
+            len = need;
+            return E_BUFFER_NOT_FULL;
+          }
+
+          long want = static_cast<long>(m_verify_child_end - p);
+          if (want > 4096)
+            want = 4096;
+          if (p + want > avail)
+            want = static_cast<long>(avail - p);
+          if (want <= 0) {
+            pos = p;
+            len = 1;
+            return E_BUFFER_NOT_FULL;
+          }
+
+          const int read_status = pReader->Read(p, want, buf);
+          if (read_status < 0) {
+            m_verify_active = false;
+            return read_status;
+          }
+          if (read_status > 0) {
+            // Reader reports fewer bytes than Length() advertised: retry the
+            // same window once more data is available.
+            m_verify_pos = p;
+            pos = p;
+            len = want;
+            return E_BUFFER_NOT_FULL;
+          }
+
+          libwebm::ClusterCRC32Update(m_verify_crc, buf,
+                                     static_cast<uint64_t>(want));
+          p += want;
+        }
+      }
+
+      m_verify_in_child = false;
+      m_verify_pos = p;
+      continue;
+    }
+
+    if (m_verify_stop >= 0) {
+      if (p > m_verify_stop) {
+        m_verify_active = false;
+        return E_FILE_FORMAT_INVALID;
+      }
+      if (p == m_verify_stop)
+        break;  // the declared payload has been walked completely
+    }
+
+    if ((p + 1) > avail) {
+      if (m_verify_stop < 0 && total >= 0 && p >= total)
+        break;  // physical EOF terminates an unknown size cluster
+
+      pos = p;
+      len = 1;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    const long long element_start = p;
+
+    long id_len = 0;
+    long long result = GetUIntLength(pReader, p, id_len);
+    if (result < 0) {
+      m_verify_active = false;
+      return static_cast<long>(result);
+    }
+    if (result > 0 || (p + id_len) > avail) {
+      pos = p;
+      len = result > 0 ? 1 : id_len;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    const long long id = ReadID(pReader, p, id_len);
+    if (id < 0) {
+      m_verify_active = false;
+      return E_FILE_FORMAT_INVALID;
+    }
+
+    if (m_verify_stop < 0 &&
+        (id == libwebm::kMkvCluster || id == libwebm::kMkvCues)) {
+      // A following top level element terminates an unknown size cluster.
+      m_verify_stop = p;
+      break;
+    }
+
+    p += id_len;
+
+    if ((p + 1) > avail) {
+      // Keep m_verify_pos at the element start so the size byte is not
+      // reinterpreted as an ID on the next attempt.
+      pos = element_start;
+      len = 1;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    long size_len = 0;
+    result = GetUIntLength(pReader, p, size_len);
+    if (result < 0) {
+      m_verify_active = false;
+      return static_cast<long>(result);
+    }
+    if (result > 0 || (p + size_len) > avail) {
+      pos = element_start;
+      len = result > 0 ? 1 : size_len;
+      return E_BUFFER_NOT_FULL;
+    }
+
+    const long long child_size = ReadUInt(pReader, p, size_len);
+    if (child_size < 0) {
+      m_verify_active = false;
+      return static_cast<long>(child_size);
+    }
+    p += size_len;
+
+    const long long unknown_child_size = (1LL << (7 * size_len)) - 1;
+    if (child_size == unknown_child_size) {
+      m_verify_active = false;
+      return E_FILE_FORMAT_INVALID;
+    }
+
+    if (m_verify_stop >= 0 && p + child_size > m_verify_stop) {
+      m_verify_active = false;
+      return E_FILE_FORMAT_INVALID;
+    }
+
+    const bool is_crc = (id == libwebm::kMkvCRC32);
+    if (is_crc) {
+      ++m_verify_crc_count;
+      if (m_verify_crc_count > 1 ||
+          child_size != libwebm::kClusterCRC32PayloadSize) {
+        m_verify_active = false;
+        return E_FILE_FORMAT_INVALID;
+      }
+    }
+
+    // The header is fully validated; commit progress and enter the streaming
+    // state. Covered children start at the header, CRC children at the payload.
+    m_verify_in_child = true;
+    m_verify_child_is_crc = is_crc;
+    m_verify_child_end = p + child_size;
+    m_verify_pos = is_crc ? p : element_start;
+  }
+
+  const long long final_pos =
+      (m_verify_stop >= 0) ? m_verify_stop : m_verify_pos;
+  pos = final_pos;
+  len = 0;
+  m_verify_active = false;
+
+  if (m_verify_crc_count == 0)
+    return 1;  // the cluster has no CRC element
+
+  const unsigned int computed = libwebm::ClusterCRC32Finalize(m_verify_crc);
+  if (computed != m_verify_value)
+    return E_FILE_FORMAT_INVALID;
+
+  return 0;
+}
+
 long Cluster::ParseSimpleBlock(long long block_size, long long& pos,
                                long& len) {
   const long long block_start = pos;
@@ -6831,8 +7140,17 @@ Cluster::Cluster()
       m_timecode(0),
       m_entries(NULL),
       m_entries_size(0),
-      m_entries_count(0)  // means "no entries"
-{}
+      m_entries_count(0),  // means "no entries"
+      m_verify_active(false),
+      m_verify_phase(0),
+      m_verify_pos(0),
+      m_verify_stop(-1),
+      m_verify_crc(0),
+      m_verify_crc_count(0),
+      m_verify_value(0),
+      m_verify_in_child(false),
+      m_verify_child_end(0),
+      m_verify_child_is_crc(false) {}
 
 Cluster::Cluster(Segment* pSegment, long idx, long long element_start
                  /* long long element_size */)
@@ -6844,8 +7162,17 @@ Cluster::Cluster(Segment* pSegment, long idx, long long element_start
       m_timecode(-1),
       m_entries(NULL),
       m_entries_size(0),
-      m_entries_count(-1)  // means "has not been parsed yet"
-{}
+      m_entries_count(-1),  // means "has not been parsed yet"
+      m_verify_active(false),
+      m_verify_phase(0),
+      m_verify_pos(element_start),
+      m_verify_stop(-1),
+      m_verify_crc(0),
+      m_verify_crc_count(0),
+      m_verify_value(0),
+      m_verify_in_child(false),
+      m_verify_child_end(0),
+      m_verify_child_is_crc(false) {}
 
 Cluster::~Cluster() {
   if (m_entries_count <= 0) {
