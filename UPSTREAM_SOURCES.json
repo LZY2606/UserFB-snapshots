@@ -1,0 +1,901 @@
+{
+  "schema": 1,
+  "repo": "https://github.com/irlserver/librist",
+  "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+  "license": "BSD-2-Clause",
+  "kind": "synthetic",
+  "source_archive": "private/repair-20261114/upstream-full.tar",
+  "source_archive_sha256": "a8b9cc03118e3651d50b69e6dd7c9bc364a8250192f9c7343924c2ec33ae4684",
+  "source_files_unmodified": true,
+  "support_patch_materialized": true,
+  "support_patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+  "excluded_optional": [
+    "contrib/mbedtls (HAVE_MBEDTLS=0, HAVE_SRP_SUPPORT=0; TLS/SRP not tested)",
+    "unrelated optional dependency trees, tools, CI and tests outside the retained sequence-domain test"
+  ],
+  "files": [
+    {
+      "path": "CONTRIBUTING.md",
+      "origin": "upstream",
+      "upstream_path": "CONTRIBUTING.md",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "0da9c2588ec1edd2be185b0756d31ccf7b49fa727a1ac8c3f42afe57961f019a"
+    },
+    {
+      "path": "COPYING",
+      "origin": "upstream",
+      "upstream_path": "COPYING",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b9841591a3452ee30033d8e3586c7b1244a0b2fc1dc6cb04576957c313cb2792"
+    },
+    {
+      "path": "NEWS",
+      "origin": "upstream",
+      "upstream_path": "NEWS",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "56279a1e606a8d470a1908a6ed899cc7c0e3404f7a55991f44e359801c7a3139"
+    },
+    {
+      "path": "README.md",
+      "origin": "upstream",
+      "upstream_path": "README.md",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "abf21b1227deab13b2aaaca42cad334166f676096036d5183e0d69464e645504"
+    },
+    {
+      "path": "THANKS.md",
+      "origin": "upstream",
+      "upstream_path": "THANKS.md",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "e5c6254cd7e5f0cf61738491bb45bf6650ea09f7df862599232844b89539f3a8"
+    },
+    {
+      "path": "compat/android/ifaddrs.c",
+      "origin": "upstream",
+      "upstream_path": "compat/android/ifaddrs.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b98ae838673f56f62c5b495bc269e85845f676333803cbec9f22eb28f5b15677"
+    },
+    {
+      "path": "compat/android/ifaddrs.h",
+      "origin": "upstream",
+      "upstream_path": "compat/android/ifaddrs.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "3d142b890299548d95d29f9fba3d3979088eb9646c505b407cf115f3204e3fd1"
+    },
+    {
+      "path": "compat/gcc/stdatomic.h",
+      "origin": "upstream",
+      "upstream_path": "compat/gcc/stdatomic.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8ab09ed4398ab11e2c9dfa583ffbb58e54a379a14a01ff7762c2cf2a8f286f76"
+    },
+    {
+      "path": "compat/getopt.h",
+      "origin": "upstream",
+      "upstream_path": "compat/getopt.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "a61507fae33f81ace250f2d766b823d45c82e05134cde27c35cfa5de1d0eb0b5"
+    },
+    {
+      "path": "compat/msvc/stdatomic.h",
+      "origin": "upstream",
+      "upstream_path": "compat/msvc/stdatomic.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "63797d0f1340fc0cffaf0eda24aca20c42b8a4879bc118f980257d6ed1ef778b"
+    },
+    {
+      "path": "contrib/aes.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/aes.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "e6e00aaef1f3619e38ca167a214766c167669caf825df4a8e8d70611963ff4b1"
+    },
+    {
+      "path": "contrib/aes.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/aes.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "94bf69fba6ae641f65bf81a2a041795c0254cae5e9f510e3d9b6f7d62d790ca5"
+    },
+    {
+      "path": "contrib/contrib_cJSON/cjson/cJSON.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/contrib_cJSON/cjson/cJSON.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "44e3d439ed8de158fc370556b8a9e8b7f7cfc8077befa1c9897b666e0f6a2d9e"
+    },
+    {
+      "path": "contrib/contrib_cJSON/cjson/cJSON.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/contrib_cJSON/cjson/cJSON.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "88c8ad6f471b15098a4f53403f6a6219bae94cfcd11d50e65c1ffa501803751e"
+    },
+    {
+      "path": "contrib/endian-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/endian-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "fca32d04706cff1bb6e28615db2b2cfcbf2f18f656885e585a4f6e9e25969d81"
+    },
+    {
+      "path": "contrib/fastpbkdf2.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/fastpbkdf2.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "48f3552bbbd51ac119304283ba8406c64104d9eeb8947f843d84b7b70f9981b5"
+    },
+    {
+      "path": "contrib/fastpbkdf2.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/fastpbkdf2.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "e2383a41d8d87eb5e2d64ede608c3d47c5334faf0f1283db0fce10a4ac294fee"
+    },
+    {
+      "path": "contrib/getopt-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/getopt-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "54cbb362747fe129b5b015f6d52d295fcb5085359e19ca503e7a843f3fffe92a"
+    },
+    {
+      "path": "contrib/linux-crypto.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/linux-crypto.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "903bd2f9ba5729260c6bd4d8d2589a0a57b36f8f124778b9407fcd6cf2b6cde7"
+    },
+    {
+      "path": "contrib/lz4/lz4.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9396f7de527bc8435de9c7569fb7998e56545a84b4f3c2d808c0235c01774539"
+    },
+    {
+      "path": "contrib/lz4/lz4.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "26b82efc53d1570f3b54eef02e9c4764c1ad374ff03cac04e2ced5ea4d4c552f"
+    },
+    {
+      "path": "contrib/lz4/lz4frame.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4frame.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "82b732d642ceea11aff1f487ce186bf4bbe3bb172e3e5574a2125e6ed3d935f2"
+    },
+    {
+      "path": "contrib/lz4/lz4frame.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4frame.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "14988fc31ae467beae98ac4bc7afa491a72135347603d1f3d8b932da267f3f47"
+    },
+    {
+      "path": "contrib/lz4/lz4hc.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4hc.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "ffd8d4ca6d1328803b31e2281fa7568e8c52695c844bc2ebbbfec914e9bd60c1"
+    },
+    {
+      "path": "contrib/lz4/lz4hc.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/lz4hc.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "12d5d9424059d5b6d7570e7a3cb54ed6e8b4b5ed5bb51977bb150c68c056f228"
+    },
+    {
+      "path": "contrib/lz4/xxhash.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/xxhash.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "7ae8273e2eae674db237c4d0c300e4a69bff8832b0e5b4e08552255fde006fa2"
+    },
+    {
+      "path": "contrib/lz4/xxhash.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/lz4/xxhash.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "aefdd236f35130495c18764cabed3f7b216906855fc5e6a9025cd2040bc84444"
+    },
+    {
+      "path": "contrib/pthread-shim.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/pthread-shim.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "d97c3a858c7bc9f312bc500acd0f6984fec9f47e692a4ca3200b78633e324b37"
+    },
+    {
+      "path": "contrib/pthread-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/pthread-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "0d165d12f565e221693d1c9bff7297da287dc64b8e5249782fac5e64be379c9a"
+    },
+    {
+      "path": "contrib/sha256.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/sha256.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "0b98a0211dcca6262dcbb7fe1fd7fef26d97c30cc66a22e15c3e0d226b978fae"
+    },
+    {
+      "path": "contrib/sha256.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/sha256.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "49e4948de311408538cc935d68c4cadc10f425255a6b35e4299955142614552d"
+    },
+    {
+      "path": "contrib/socket-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/socket-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9bee86b0e4189b6c77915fee25abc070d76bf2fdda5bf35feee01dcb1e6f42b1"
+    },
+    {
+      "path": "contrib/stdio-shim.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/stdio-shim.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "2602a70d68cb593f140b696e399edb7b6e24a865f6ad34440d2117a03ce55e6c"
+    },
+    {
+      "path": "contrib/stdio-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/stdio-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "6f20cfe6dbc98571be7fa9936513598bce826c40d353544c590485428e8c09da"
+    },
+    {
+      "path": "contrib/time-shim.c",
+      "origin": "upstream",
+      "upstream_path": "contrib/time-shim.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "feb5e33a140f1746f4513748648a1c92d641821c9754571be9313babc361d39d"
+    },
+    {
+      "path": "contrib/time-shim.h",
+      "origin": "upstream",
+      "upstream_path": "contrib/time-shim.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "3813e5a12d9df281a7282f37f07042fdb277000278aa39b701a0fe1eeb6daf39"
+    },
+    {
+      "path": "docs/RIST_vs_SRT.png",
+      "origin": "upstream",
+      "upstream_path": "docs/RIST_vs_SRT.png",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "d23f99391045054dd9700dd77bc74dc265ff6c5a29de71f74dd5938186e2f4fa"
+    },
+    {
+      "path": "docs/VSF_TR-06-1.pdf",
+      "origin": "upstream",
+      "upstream_path": "docs/VSF_TR-06-1.pdf",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b7addc1cb235c1f1b03c206709195157583276380034b705e7be97bc0abc2123"
+    },
+    {
+      "path": "docs/VSF_TR-06-2.pdf",
+      "origin": "upstream",
+      "upstream_path": "docs/VSF_TR-06-2.pdf",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c2257ad13f09d19668434e903739ce5e8624545b1452a6ec882ff3006beee4f5"
+    },
+    {
+      "path": "docs/librist_logo.png",
+      "origin": "upstream",
+      "upstream_path": "docs/librist_logo.png",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "0a8527001e5c1e5609e1ba435127794f433ed603313e64abf7ae935eaee74501"
+    },
+    {
+      "path": "include/common/attributes.h",
+      "origin": "upstream",
+      "upstream_path": "include/common/attributes.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8edd196624d2e731725f9eafbc433eadfccbcc400646ad4a10da73f0dcd8062e"
+    },
+    {
+      "path": "include/librist/common.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/common.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b6cdc4a92eb5583e35f2b6237b17eab9e9c24effaaa712dcdb8297d2c6b55d21"
+    },
+    {
+      "path": "include/librist/config.h.in",
+      "origin": "upstream",
+      "upstream_path": "include/librist/config.h.in",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "5f4eaa8b267a0f403e007c1048b597e565842275ae2e600f34cb736bac3b20a2"
+    },
+    {
+      "path": "include/librist/headers.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/headers.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "ae7a7607af4889215f420a0328320d42b0c3b57141d7bcc03d7bde3927962131"
+    },
+    {
+      "path": "include/librist/librist.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/librist.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9e03f872e28f306044bebbbd29b25c11e9af6897e2af520ae9efd750d8b75b4e"
+    },
+    {
+      "path": "include/librist/librist_srp.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/librist_srp.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "5a8ce679dfcafe8a24babb438334fbfa1ccccd5c299607c7cc5ccc37f9f3e6e4"
+    },
+    {
+      "path": "include/librist/logging.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/logging.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "edbab20ac798fe20cf99af52a390ef14402ddd68cba4a168e28c8bbb57ab0005"
+    },
+    {
+      "path": "include/librist/meson.build",
+      "origin": "upstream",
+      "upstream_path": "include/librist/meson.build",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "dc135def196cd56467623ea6da14145aeb335c23d55c5ede1d6286840da5227f"
+    },
+    {
+      "path": "include/librist/oob.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/oob.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8089873bff5a2e8a6c77512d61e594d20300f64802d5aaa82d253ddc32f0b8c4"
+    },
+    {
+      "path": "include/librist/opt.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/opt.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b6c9ca61c2b509507599b773d314eef980f31d182cfab40ec745ea5ddca5fea8"
+    },
+    {
+      "path": "include/librist/peer.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/peer.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8c78d60259b01c32de233a229c9c31d764e4fcd22a1e3e9653f3fd77ca9cd1b3"
+    },
+    {
+      "path": "include/librist/receiver.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/receiver.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "42e98bd5b975a6269a5625cfbec82765d8b5a5a99b9d93387eda4d2e3f4f382c"
+    },
+    {
+      "path": "include/librist/sender.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/sender.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "01db2bad93344a652f05d10501bf3016b162d953513198ded9797a1c404e1623"
+    },
+    {
+      "path": "include/librist/stats.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/stats.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "09ccc93ffe0408e790c6b01c48dfefd83950aa363d641257746a18404682bc67"
+    },
+    {
+      "path": "include/librist/transport.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/transport.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "336f895e38538b38e6f027e13478e3fd30669ddc18a57d4a8ceddceb9a5f1178"
+    },
+    {
+      "path": "include/librist/tun.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/tun.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "803092981eecb8372b5333234ac239a52eefe5ba18a8403b57788e0a2fec91a5"
+    },
+    {
+      "path": "include/librist/tunnel.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/tunnel.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "6940028ce8fbbdeb2a42dc4f531dcad901c17a06fd099cc606cc123ba0b456a5"
+    },
+    {
+      "path": "include/librist/udpsocket.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/udpsocket.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "a8a1eab142042bf04b7281ec8eaae1f7237684cbf810d33935f55d2bfd3f67a6"
+    },
+    {
+      "path": "include/librist/urlparam.h",
+      "origin": "upstream",
+      "upstream_path": "include/librist/urlparam.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "f6958f73cc8c39d249d6d60f04fb9476b75f128e9eef1aee1caed7bda3893b9f"
+    },
+    {
+      "path": "include/librist/version.h.in",
+      "origin": "upstream",
+      "upstream_path": "include/librist/version.h.in",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9600859f22ea93b2b2de192a1f31f0ee32c606511268da0ea67250fd26693905"
+    },
+    {
+      "path": "include/meson.build",
+      "origin": "upstream",
+      "upstream_path": "include/meson.build",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "6e7bbd61bc50e28c9f9cabc943b6811028d52b1498dafafecc993d17e7c7b666"
+    },
+    {
+      "path": "include/vcs_version.h.in",
+      "origin": "upstream",
+      "upstream_path": "include/vcs_version.h.in",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8dd9a6086e210e83f32dacee769af40d675b7ee79d454ab5c4192a3c260f33b7"
+    },
+    {
+      "path": "meson.build",
+      "origin": "upstream",
+      "upstream_path": "meson.build",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "4931613b844309738ee1d0fa1dbf63e1540caaee0509dcba7ab0e55a32688dd8"
+    },
+    {
+      "path": "meson_options.txt",
+      "origin": "upstream",
+      "upstream_path": "meson_options.txt",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "ed22fb9da1b37db2a3f6bbb829ebd988ed91eab465029ae8801f9e37aec2278f"
+    },
+    {
+      "path": "src/adv.c",
+      "origin": "upstream",
+      "upstream_path": "src/adv.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "1d044b633a1a1afe4cf3c798b91e6cf0c1e46620593375c25fdb758b2faf28ac"
+    },
+    {
+      "path": "src/adv_ctrl.c",
+      "origin": "upstream",
+      "upstream_path": "src/adv_ctrl.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b006ceba006271d4a56b3fe9cc7d82a4b048b59b06242da9c5ac4b4eea9c86f5"
+    },
+    {
+      "path": "src/crypto/crypto-private.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/crypto-private.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "3de3b70a629bfe7254f99d9eef7ae415ae1dbe4e7c8d286e431c372565c02d08"
+    },
+    {
+      "path": "src/crypto/crypto.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/crypto.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "0e945df5d90ef4d539c379bf71ccfb12352ba596bce15c326fa4725ea6865f37"
+    },
+    {
+      "path": "src/crypto/eap_v4_crypto.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/eap_v4_crypto.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "5e450f7a40f83e4ceb85e406a8d2ca64e2ee2213da7482ba785b7fb48cf88354"
+    },
+    {
+      "path": "src/crypto/eap_v4_crypto.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/eap_v4_crypto.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c31b8b16568580ab82b036d323c0eb5e1301dc482327444b4ad3a6a7225104ae"
+    },
+    {
+      "path": "src/crypto/psk.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/psk.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "b52e837dafcbfcbfbba30c149ca358ab3fede2a5357dc6fa2a3951e914989fb6"
+    },
+    {
+      "path": "src/crypto/psk.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/psk.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "a7fc0c4b70752b868e3d2413cf51398961b88779a7d9ee87a1537f16511b3506"
+    },
+    {
+      "path": "src/crypto/random.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/random.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "75a022b2b64635a6e66badfe05269fa13b766619e18cd19fa136defcb775d360"
+    },
+    {
+      "path": "src/crypto/random.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/random.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "f3e6d9ced518addb2106cd29f4fc02cf72622a56378e04e69689c31b8875bfcf"
+    },
+    {
+      "path": "src/crypto/srp.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/srp.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "24bef6c933433ea13195c1ddbe4aeb708d60f8eef7eaab21c0a440362571ff03"
+    },
+    {
+      "path": "src/crypto/srp.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/srp.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "2f5df853ced77dd4ecb4fadcf7af350103823ffc4568c0627ce9269a7b5d598e"
+    },
+    {
+      "path": "src/crypto/srp_constants.c",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/srp_constants.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "bf42342c79331deb67276915b1d73a8af3ec40f1b21df45db9b2cf578ba578f9"
+    },
+    {
+      "path": "src/crypto/srp_constants.h",
+      "origin": "upstream",
+      "upstream_path": "src/crypto/srp_constants.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "359169200062c910fea9d776c6e7ce89d53d27f5aa2e8f75b2312d3a86abbc4b"
+    },
+    {
+      "path": "src/flow.c",
+      "origin": "upstream",
+      "upstream_path": "src/flow.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "70510b0cc831a592649f65934044b07eb8c3c5dc1420d5b4372b08d30df4b9fe"
+    },
+    {
+      "path": "src/libevsocket.c",
+      "origin": "upstream",
+      "upstream_path": "src/libevsocket.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "34782d8ddeb3366185b04fd894b1314a07fed487e738308b9c02af30e3555bf7"
+    },
+    {
+      "path": "src/libevsocket.h",
+      "origin": "upstream",
+      "upstream_path": "src/libevsocket.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "1a5adb89747692b93822defe043c62375ffc065c3a0f57847e0040102608d0a6"
+    },
+    {
+      "path": "src/log-private.h",
+      "origin": "upstream",
+      "upstream_path": "src/log-private.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "47cdce1d525afc6678d28897f88fab5b0b3f5b11175ca7f542c7fb8e89b99855"
+    },
+    {
+      "path": "src/logging.c",
+      "origin": "upstream",
+      "upstream_path": "src/logging.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8c3b469bd98c08c124a74e8f5df3cd812cf0961d6e5f202cdb3597a1a86db9a4"
+    },
+    {
+      "path": "src/mpegts.c",
+      "origin": "upstream",
+      "upstream_path": "src/mpegts.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "19bce80ec3f58387ad8e9594a6d0594e6b3316e2d3d987cc74106b9945edd44b"
+    },
+    {
+      "path": "src/mpegts.h",
+      "origin": "upstream",
+      "upstream_path": "src/mpegts.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "67f677e04cc61770d148e552076a6b1d528bec2e11f794e724db6f47dd4dc9b4"
+    },
+    {
+      "path": "src/network.c",
+      "origin": "upstream",
+      "upstream_path": "src/network.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "2acfe384d47a470bc6172510f27acdc440c1e409b9afeb4993cb9f5bb69cf703"
+    },
+    {
+      "path": "src/network.h",
+      "origin": "upstream",
+      "upstream_path": "src/network.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "e3bd45fd443f465073a5d5fcf27f4c02c5901e4fb9179df428c10418841bd660"
+    },
+    {
+      "path": "src/peer.c",
+      "origin": "upstream",
+      "upstream_path": "src/peer.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "67bb0c726eb978880da1acfd8edcb992d668d0838dd7f8ada4a14d7e11b01ee3"
+    },
+    {
+      "path": "src/peer.h",
+      "origin": "upstream",
+      "upstream_path": "src/peer.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "71b9c1c48b37b2897e1de2bf367b2f56c7a16b441d4efe84d63a89657ce89bce"
+    },
+    {
+      "path": "src/proto/adv.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/adv.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "fefcee615d99db6152addaa8b9b1582d205ac6f01ee2ba69528021be9459080c"
+    },
+    {
+      "path": "src/proto/eap.c",
+      "origin": "upstream",
+      "upstream_path": "src/proto/eap.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "ff98dfa38725c4501f3e79769c28aa86187b1a3acd977f9dfa475a5075923fa1"
+    },
+    {
+      "path": "src/proto/eap.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/eap.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "1f3b056254d14e18c88ab79be5a82cc960004db8cfa38c8beb727b55ae377e2d"
+    },
+    {
+      "path": "src/proto/gre.c",
+      "origin": "upstream",
+      "upstream_path": "src/proto/gre.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "44d42297ec078d84d7e20c687a79da17b2ab7ca8b2a76c7bd7d9338a6538a573"
+    },
+    {
+      "path": "src/proto/gre.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/gre.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "76cab3ec179adf1fd1530466d0863fd8948a5af5f13ee0d974bc1a1c2bf96f04"
+    },
+    {
+      "path": "src/proto/protocol_gre.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/protocol_gre.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "da38d5a23bfb0b52f6d324670a2cfea09301d7c757ef9ecdb3126f6d75de84ec"
+    },
+    {
+      "path": "src/proto/protocol_rtp.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/protocol_rtp.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "27af1b8f2e168250ee818d071ab157900798b2673825cd7f6b2bf16ef91553c3"
+    },
+    {
+      "path": "src/proto/rist_time.c",
+      "origin": "upstream",
+      "upstream_path": "src/proto/rist_time.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c8a537b70a928e19d3e043b52e7e3cfa604303ee5e28ed6a0106fd171a0cc0e7"
+    },
+    {
+      "path": "src/proto/rist_time.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/rist_time.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "f94b80168f071b695216ef0ca0a0b89012f39a9bfe957a1f2985f2e244dd7a07"
+    },
+    {
+      "path": "src/proto/rtp.c",
+      "origin": "upstream",
+      "upstream_path": "src/proto/rtp.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "a551e295ce041d2d005eb493717577fd5056eac111d4bb13babacf362e162655"
+    },
+    {
+      "path": "src/proto/rtp.h",
+      "origin": "upstream",
+      "upstream_path": "src/proto/rtp.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "4df25f320b26a165464178eeaa34a6802c9c71760e44c99531d0b42e796b58c7"
+    },
+    {
+      "path": "src/rist-common.c",
+      "origin": "upstream",
+      "upstream_path": "src/rist-common.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9266482d68cf1240b8e62606b3e0837ee294655b0ba695f13f2c119a46f1dc8e"
+    },
+    {
+      "path": "src/rist-nack-select.h",
+      "origin": "upstream",
+      "upstream_path": "src/rist-nack-select.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "48098d9d505593e7b2ac5cf8c579b4ab19e5b028eda5d43bd8aea025eff6426d"
+    },
+    {
+      "path": "src/rist-private.h",
+      "origin": "upstream",
+      "upstream_path": "src/rist-private.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c773734865f0d6efc26c2de5e4c2b949b205df10d13db7c4642455cd99313423"
+    },
+    {
+      "path": "src/rist-retx-domain.h",
+      "origin": "upstream",
+      "upstream_path": "src/rist-retx-domain.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "25c9a54ecbf06c7cfe966f2938e59971bceb92c782fba0d1aae214770c8d3cb8"
+    },
+    {
+      "path": "src/rist-thread.c",
+      "origin": "upstream",
+      "upstream_path": "src/rist-thread.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "286789caae46d94e5ebf2b559897062fb4db75c1578a6ce6b0b1d55466c361e4"
+    },
+    {
+      "path": "src/rist-thread.h",
+      "origin": "upstream",
+      "upstream_path": "src/rist-thread.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "7154bc50d468aaf87b74155cb446a5abdfcbfe9e2d7681991a385b721575c0f1"
+    },
+    {
+      "path": "src/rist.c",
+      "origin": "upstream",
+      "upstream_path": "src/rist.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "20af71187e601fd35ae2f5c1a1865e471b7a7a894e7a609f9e516d43ecfd9fc1"
+    },
+    {
+      "path": "src/rist_ref.c",
+      "origin": "upstream",
+      "upstream_path": "src/rist_ref.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9caf676c9a721a6dc4e7b83e60cf815bd40efb5d4ed5bfe33a491d5c5da6eb4f"
+    },
+    {
+      "path": "src/rist_ref.h",
+      "origin": "upstream",
+      "upstream_path": "src/rist_ref.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "ebdd801cfa587756f9a70976975a8c609fa67f500b37e55091289925d61825b2"
+    },
+    {
+      "path": "src/stats.c",
+      "origin": "upstream",
+      "upstream_path": "src/stats.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "92776ed264eeaca63976847e72587cfed7049f0f0010e3200f0006aae9f119bf"
+    },
+    {
+      "path": "src/transport-private.h",
+      "origin": "upstream",
+      "upstream_path": "src/transport-private.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "f7b6ed486c41ffdf166f9cc062edafedbe3a177f9f363cd7bb2081aadd1f213e"
+    },
+    {
+      "path": "src/transport.c",
+      "origin": "upstream",
+      "upstream_path": "src/transport.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8a0a0c4cd3c6ae91f0409ffc6be3fc740cc30b85cba28a22452fb9811605d170"
+    },
+    {
+      "path": "src/tun_cidr.c",
+      "origin": "upstream",
+      "upstream_path": "src/tun_cidr.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "6e879cac6113491ba9c3221f5a60cc3483b5e2cba24f4692a66707f5d947b4bc"
+    },
+    {
+      "path": "src/tun_darwin.c",
+      "origin": "upstream",
+      "upstream_path": "src/tun_darwin.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "629aedcc2d5aaaedebb71a96f5b58095b8c1e0e06c8b4d68a2ed439d2936ae97"
+    },
+    {
+      "path": "src/tun_emscripten.c",
+      "origin": "upstream",
+      "upstream_path": "src/tun_emscripten.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c6da26eadbdf06e6f770e11cd787c33563c675426fcac2ca49b0ab98ab0a2967"
+    },
+    {
+      "path": "src/tun_linux.c",
+      "origin": "upstream",
+      "upstream_path": "src/tun_linux.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "6592675d3bebc637e9e7cd9aa8202f180dbb67326465d5497bfe55a9f28cb28b"
+    },
+    {
+      "path": "src/tun_win.c",
+      "origin": "upstream",
+      "upstream_path": "src/tun_win.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "53160b2b4edd4ea1ee9175327d0275dfe26f7ea1f416024915fc5fad7010e0b2"
+    },
+    {
+      "path": "src/udp-private.h",
+      "origin": "upstream",
+      "upstream_path": "src/udp-private.h",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "8fa72ad101210653834e37ac52995ad58787a88dc479b828af6909d75fe35d2f"
+    },
+    {
+      "path": "src/udp.c",
+      "origin": "upstream",
+      "upstream_path": "src/udp.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "9732e37190bcc7b011553b94e8f9e6ca81ba9636f2b6842571e9b24d063d35f2"
+    },
+    {
+      "path": "src/udpsocket.c",
+      "origin": "upstream",
+      "upstream_path": "src/udpsocket.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "308c02eaa25ea67bac94aaba1b9ebad5a4949b6f748e63609bb57557a32a4694"
+    },
+    {
+      "path": "test/rist/unit/test_retx_seq_domain.c",
+      "origin": "upstream",
+      "upstream_path": "test/rist/unit/test_retx_seq_domain.c",
+      "commit": "e1da2519fae898daad9606db0914e9bbd0b5bd31",
+      "sha256": "c0822799fdf9dfc895e40f4fbe1a1b09fd3c620865139c6059cba7e4fe51e1d4"
+    },
+    {
+      "path": "task_support/baseline.c",
+      "origin": "support_patch",
+      "patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+      "sha256": "5aa2cd31ea91155cca70aeb46a88163f431dae2349f80b98538ed28ef1ef68b8"
+    },
+    {
+      "path": "task_support/build.sh",
+      "origin": "support_patch",
+      "patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+      "sha256": "7ca0199406ac86011aefa842c776b3901e5d133e517f54fc00e837d630c23f23"
+    },
+    {
+      "path": "task_support/check.h",
+      "origin": "support_patch",
+      "patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+      "sha256": "e9abf82969c20adb4d566011d8f6aeb6f80a8ea502f81877ccef63547d7a4085"
+    },
+    {
+      "path": "task_support/driver.c",
+      "origin": "support_patch",
+      "patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+      "sha256": "58a5bafbe6513d2b46cc9b92381d1cc8321400cdfefc5ca3fbbc565e8e1334e2"
+    },
+    {
+      "path": "task_support/run.sh",
+      "origin": "support_patch",
+      "patch_sha256": "bbcb767329df1d65d9128e75f30975a5c0efe339ba52387a786ab908685170cb",
+      "sha256": "c88743c9407e8cebbb470942545dc06c34d130400a36bc76b9cdd16e0e256b61"
+    },
+    {
+      "path": "SOURCE_PROVENANCE.md",
+      "origin": "export_documentation",
+      "sha256": "b444b1dce2bdef8573ca729802ce51edf7c6874a2cfe91b8f2660d6749aead2d"
+    }
+  ],
+  "manifest_self_excluded": true
+}
