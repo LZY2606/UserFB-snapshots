@@ -144,7 +144,11 @@ theft_autoshrink_wrap(struct theft *t,
 void theft_autoshrink_free_bit_pool(struct theft *t,
     struct autoshrink_bit_pool *pool);
 
-void
+/* Request BITS random bits from the autoshrink bit pool.
+ * Returns false if a bit pool growth or request-index allocation
+ * fails; on failure the caller must abort generation with a memory
+ * error. On success returns true. */
+bool
 theft_autoshrink_bit_pool_random(struct theft *t,
     struct autoshrink_bit_pool *pool,
     uint32_t bit_count, bool save_request,

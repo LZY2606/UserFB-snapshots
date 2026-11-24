@@ -34,19 +34,24 @@ void theft_autoshrink_free_env(struct theft *t, struct autoshrink_env *env) {
     free(env);
 }
 
-void
+/* Request BITS random bits from the autoshrink bit pool.
+ * Returns false if a bit pool or request-index allocation fails; in
+ * that case the caller must treat generation as a memory error. */
+bool
 theft_autoshrink_bit_pool_random(struct theft *t,
         struct autoshrink_bit_pool *pool,
         uint32_t bit_count, bool save_request,
         uint64_t *buf) {
     assert(pool);
     if (bit_count == 0) {
-        return;
+        return true;
     }
 
     /* If not shrinking, lazily fill the bit pool. */
     if (!pool->shrinking) {
-        lazily_fill_bit_pool(t, pool, bit_count);
+        if (!lazily_fill_bit_pool(t, pool, bit_count)) {
+            return false;
+        }
     }
 
     /* Only return as many bits as the pool contains. After reaching the
@@ -56,21 +61,22 @@ theft_autoshrink_bit_pool_random(struct theft *t,
         LOG(3 - LOG_AUTOSHRINK, "%s: end of bit pool, yielding zeroes\n",
             __func__);
         memset(buf, 0x00, (bit_count / 64) + ((bit_count % 64) == 0 ? 0 : 1));
-        return;
+        return true;
     } else if (pool->consumed + bit_count >= pool->limit) {
         bit_count = pool->limit - pool->consumed;
     }
 
     if (save_request) {
         if (!append_request(pool, bit_count)) {
-            assert(false); // memory fail
+            return false;
         }
     }
 
     fill_buf(pool, bit_count, buf);
+    return true;
 }
 
-static void lazily_fill_bit_pool(struct theft *t,
+static bool lazily_fill_bit_pool(struct theft *t,
     struct autoshrink_bit_pool *pool,
     const uint32_t bit_count) {
     /* Grow pool->bits as necessary */
@@ -84,8 +90,9 @@ static void lazily_fill_bit_pool(struct theft *t,
         LOG(1, "nbits %p, nceil %zd\n",
             (void *)nbits, nceil);
         if (nbits == NULL) {
-            assert(false);   // alloc fail
-            return;
+            /* The original block is still valid and still owned by the
+             * pool; leave pool->bits untouched and report the failure. */
+            return false;
         }
         pool->bits = (uint8_t *)nbits;
         pool->bits_ceil = nceil;
@@ -100,6 +107,7 @@ static void lazily_fill_bit_pool(struct theft *t,
             offset, bits64[offset]);
         pool->bits_filled += 64;
     }
+    return true;
 }
 
 static void fill_buf(struct autoshrink_bit_pool *pool,
@@ -245,9 +253,25 @@ theft_autoshrink_alloc(struct theft *t, struct autoshrink_env *env,
     }
     env->bit_pool = pool;
 
+    t->prng.bit_pool_oom = false;
     void *res = NULL;
     enum theft_alloc_res ares = alloc_from_bit_pool(t, env,
         pool, &res, false);
+    const bool oom = t->prng.bit_pool_oom;
+    t->prng.bit_pool_oom = false;
+
+    if (oom) {
+        /* A bit pool growth or request index allocation failed while
+         * the user callback ran. Even if the callback returned an
+         * instance, release it and report a memory error; the pool
+         * stays attached to env and is freed with the env later. */
+        if (ares == THEFT_ALLOC_OK && res != NULL) {
+            struct theft_type_info *ti = t->prop.type_info[env->arg_i];
+            if (ti->free != NULL) { ti->free(res, ti->env); }
+        }
+        return THEFT_ALLOC_ERROR;
+    }
+
     if (ares != THEFT_ALLOC_OK) {
         return ares;
     }
@@ -352,12 +376,22 @@ theft_autoshrink_shrink(struct theft *t, struct autoshrink_env *env,
     }
 
     void *res = NULL;
+    t->prng.bit_pool_oom = false;
     enum theft_alloc_res ares = alloc_from_bit_pool(t, env, copy, &res, true);
-    if (ares == THEFT_ALLOC_SKIP) {
+    const bool oom = t->prng.bit_pool_oom;
+    t->prng.bit_pool_oom = false;
+
+    if (oom || ares == THEFT_ALLOC_SKIP || ares == THEFT_ALLOC_ERROR) {
+        /* On an OOM, the user callback may still have returned an
+         * instance; release it before discarding the candidate pool. */
+        if (oom && ares == THEFT_ALLOC_OK && res != NULL) {
+            struct theft_type_info *ti = t->prop.type_info[env->arg_i];
+            if (ti->free != NULL) { ti->free(res, ti->env); }
+        }
         theft_autoshrink_free_bit_pool(t, copy);
-        return THEFT_SHRINK_DEAD_END;
-    } else if (ares == THEFT_ALLOC_ERROR) {
-        theft_autoshrink_free_bit_pool(t, copy);
+        if (ares == THEFT_ALLOC_SKIP && !oom) {
+            return THEFT_SHRINK_DEAD_END;
+        }
         return THEFT_SHRINK_ERROR;
     }
 

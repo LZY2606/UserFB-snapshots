@@ -82,6 +82,10 @@ struct prng_info {
     uint8_t bits_available;
     /* Bit pool, only used during autoshrinking. */
     struct autoshrink_bit_pool *bit_pool;
+    /* Set when an autoshrink bit pool allocation fails mid-run, so
+     * the alloc callback path can report THEFT_ALLOC_ERROR instead of
+     * silently continuing with a truncated bit stream. */
+    bool bit_pool_oom;
 };
 
 enum arg_type {

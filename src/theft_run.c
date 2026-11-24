@@ -99,7 +99,9 @@ theft_run_init(const struct theft_run_config *cfg, struct theft **output) {
     theft_random_set_seed(t, t->seeds.run_seed);
 
     /* If all arguments are hashable, then attempt to use
-     * a bloom filter to avoid redundant checking. */
+     * a bloom filter to avoid redundant checking. If the bloom
+     * filter itself cannot be allocated, degrade to running
+     * without duplicate detection rather than failing the run. */
     if (all_hashable) {
         t->bloom = theft_bloom_init(NULL);
     }
@@ -110,7 +112,11 @@ theft_run_init(const struct theft_run_config *cfg, struct theft **output) {
         t->print_trial_result_env = calloc(1,
             sizeof(*t->print_trial_result_env));
         if (t->print_trial_result_env == NULL) {
-            return THEFT_RUN_INIT_ERROR_MEMORY;
+            /* Everything allocated so far (the runner itself, the
+             * PRNG state, and possibly the bloom filter) must be
+             * released before reporting the memory error. */
+            res = THEFT_RUN_INIT_ERROR_MEMORY;
+            goto cleanup;
         }
         t->print_trial_result_env->tag = THEFT_PRINT_TRIAL_RESULT_ENV_TAG;
     }
@@ -119,8 +125,7 @@ theft_run_init(const struct theft_run_config *cfg, struct theft **output) {
     return res;
 
 cleanup:
-    theft_rng_free(t->prng.rng);
-    free(t);
+    theft_run_free(t);
     return res;
 }
 
@@ -415,6 +420,17 @@ static bool init_arg_info(struct theft *t, struct trial_info *trial_info) {
             trial_info->args[i].type = ARG_AUTOSHRINK;
             trial_info->args[i].u.as.env = theft_autoshrink_alloc_env(t, i, ti);
             if (trial_info->args[i].u.as.env == NULL) {
+                /* Release any autoshrink environments already created
+                 * for earlier arguments, so a partial failure cannot
+                 * leak them. */
+                for (size_t j = 0; j < i; j++) {
+                    if (trial_info->args[j].type == ARG_AUTOSHRINK
+                        && trial_info->args[j].u.as.env != NULL) {
+                        theft_autoshrink_free_env(t,
+                            trial_info->args[j].u.as.env);
+                        trial_info->args[j].u.as.env = NULL;
+                    }
+                }
                 return false;
             }
         } else {

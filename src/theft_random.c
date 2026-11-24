@@ -45,7 +45,17 @@ void theft_random_bits_bulk(struct theft *t, uint32_t bit_count, uint64_t *buf) 
     LOG(5, "%s: bit_count %u\n", __func__, bit_count);
     assert(buf);
     if (t->prng.bit_pool) {
-        theft_autoshrink_bit_pool_random(t, t->prng.bit_pool, bit_count, true, buf);
+        if (!theft_autoshrink_bit_pool_random(t, t->prng.bit_pool,
+                bit_count, true, buf)) {
+            /* A bit pool growth / request index allocation failed.
+             * Record it so the in-progress argument generation is
+             * aborted as a memory error rather than silently using a
+             * truncated stream. The bit pool itself stays valid. */
+            t->prng.bit_pool_oom = true;
+            memset(buf, 0x00,
+                (bit_count / 64 + (bit_count % 64 == 0 ? 0 : 1))
+                * sizeof(uint64_t));
+        }
         return;
     }
 
