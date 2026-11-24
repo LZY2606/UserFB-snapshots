@@ -33,6 +33,14 @@ typedef uint32_t  GLuint;
 typedef int64_t   GLint64;
 typedef uint64_t  GLuint64;
 
+typedef struct pglHiZStats {
+	uint64_t hierarchy_tests;
+	uint64_t rejected_blocks;
+	uint64_t rejected_pixels;
+	uint64_t depth_reads;
+	uint64_t rebuilt_leaves;
+} pglHiZStats;
+
 typedef int32_t   GLsizei;
 
 typedef uint32_t  GLenum;

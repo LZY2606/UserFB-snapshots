@@ -383,6 +383,8 @@ PGLDEF void free_glContext(glContext* ctx)
 	PGL_FREE(ctx->stencil_buf.buf);
 #  endif
 #endif
+	pgl_hiz_free_context(ctx->hiz);
+	ctx->hiz = NULL;
 	if (!ctx->user_alloced_backbuf) {
 		PGL_FREE(ctx->back_buffer.buf);
 	}
@@ -527,6 +529,11 @@ PGLDEF GLboolean pglResizeFramebuffer(GLsizei w, GLsizei h)
 #endif
 
 	pgl_update_clip_rect();
+#ifndef PGL_NO_DEPTH_NO_STENCIL
+	pgl_hiz_resize(zb->w, zb->h);
+#else
+	pgl_hiz_resize(0, 0);
+#endif
 
 	return GL_TRUE;
 }
@@ -3676,6 +3683,8 @@ PGLDEF void glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 #  endif
 				}
 			}
+			if (do_z)
+				pgl_hiz_invalidate_rect(x0, y0, x1, y1);
 		}
 	}
 #endif

@@ -6,6 +6,24 @@ PGLDEF void free_glContext(glContext* context);
 PGLDEF void set_glContext(glContext* context);
 PGLDEF glContext* get_glContext(void);
 
+PGLDEF void pglSetHiZ(GLboolean enabled);
+PGLDEF void pglInvalidateHiZ(void);
+PGLDEF void pglResetHiZStats(void);
+PGLDEF pglHiZStats pglGetHiZStats(void);
+
+#ifdef PORTABLEGL_IMPLEMENTATION
+PGLDEF void pgl_hiz_free_context(void* hiz);
+PGLDEF void pgl_hiz_invalidate_all(void);
+PGLDEF void pgl_hiz_invalidate_rect(int x0, int y0, int x1, int y1);
+PGLDEF void pgl_hiz_resize(int width, int height);
+PGLDEF void pgl_hiz_note_depth_read(void);
+PGLDEF void pgl_hiz_depth_written(int x, int y);
+PGLDEF int pgl_hiz_prepare_fill(const int vx[3], const int vy[3],
+                                const float hz[3], float poly_offset,
+                                int sx0, int sy0, int sx1, int sy1);
+PGLDEF int pgl_hiz_pixel_skipped(int x, int y);
+#endif
+
 PGLDEF GLboolean pglResizeFramebuffer(GLsizei width, GLsizei height);
 
 PGLDEF void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);

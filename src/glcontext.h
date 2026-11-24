@@ -133,6 +133,9 @@ typedef struct glContext
 	glFramebuffer zbuf;
 	glFramebuffer back_buffer;
 
+	// Lazy pglHiZState; kept as void* so the public context stays opaque.
+	void* hiz;
+
 	int user_alloced_backbuf;
 
 	// Framebuffer objects. Name 0 = default window FB (not in vector).

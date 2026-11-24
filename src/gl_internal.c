@@ -2005,6 +2005,541 @@ static inline int pgl_same_sign(i64 a, i64 b)
 	return (a > 0 && b > 0) || (a < 0 && b < 0);
 }
 
+/* Shared by the original submission path and Hi-Z's exact small-region bound
+   so quantization decisions cannot drift from per-pixel depth calculation. */
+static inline float pgl_tri_map_depth(float alpha, float beta, float gamma,
+                                      float z0, float z1, float z2,
+                                      float poly_offset)
+{
+	float z = alpha * z0 + beta * z1 + gamma * z2;
+	z += poly_offset;
+	return rsw_mapf(z, -1.0f, 1.0f, c->depth_range_near, c->depth_range_far);
+}
+
+/*
+ * Optional hierarchical Z.  Leaves are 8x8, lower-left aligned.  Every node
+ * stores the maximum packed D24 depth in its rectangle.  The traversal below
+ * is deliberately lazy: invalid ancestors do not force unrelated dirty leaves
+ * to be rebuilt.
+ */
+#define PGL_HIZ_TILE 8
+#define PGL_HIZ_MAX_LEVELS 32
+
+typedef struct pgl_hiz_level {
+	int gw, gh;
+	u32* max_z;
+	unsigned char* valid;
+} pgl_hiz_level;
+
+typedef struct pgl_hiz_tri {
+	int vx[3], vy[3];
+	double ea[3], eb[3], ec[3], den[3];
+	double ax, by, c;
+	float hz[3];
+	float poly_offset;
+	int lequal;
+	int sx0, sy0, sx1, sy1;
+} pgl_hiz_tri;
+
+typedef struct pglHiZState {
+	GLboolean enabled;
+	int w, h;
+	int nlevels;
+	pgl_hiz_level levels[PGL_HIZ_MAX_LEVELS];
+	u32* skip_generation;
+	u32 generation;
+	pglHiZStats stats;
+	pgl_hiz_tri tri;
+} pglHiZState;
+
+static pglHiZState* pgl_hiz_state(GLboolean create)
+{
+	if (!c)
+		return NULL;
+	if (!c->hiz && create) {
+		c->hiz = (pglHiZState*)PGL_MALLOC(sizeof(pglHiZState));
+		if (!c->hiz)
+			return NULL;
+		memset(c->hiz, 0, sizeof(pglHiZState));
+	}
+	return (pglHiZState*)c->hiz;
+}
+
+PGLDEF void pgl_hiz_free_context(void* ptr)
+{
+	pglHiZState* st = (pglHiZState*)ptr;
+	int i;
+	if (!st)
+		return;
+	for (i = 0; i < st->nlevels; ++i) {
+		PGL_FREE(st->levels[i].max_z);
+		PGL_FREE(st->levels[i].valid);
+	}
+	PGL_FREE(st->skip_generation);
+	PGL_FREE(st);
+}
+
+static int pgl_hiz_configure(pglHiZState* st, int w, int h)
+{
+	int gw, gh, level;
+	if (st->w == w && st->h == h && st->nlevels > 0)
+		return 1;
+
+	for (level = 0; level < st->nlevels; ++level) {
+		PGL_FREE(st->levels[level].max_z);
+		PGL_FREE(st->levels[level].valid);
+		st->levels[level].max_z = NULL;
+		st->levels[level].valid = NULL;
+		st->levels[level].gw = st->levels[level].gh = 0;
+	}
+	PGL_FREE(st->skip_generation);
+	st->skip_generation = NULL;
+	st->nlevels = 0;
+	st->generation = 0;
+	st->w = w;
+	st->h = h;
+	if (w <= 0 || h <= 0)
+		return 0;
+
+	gw = (w + PGL_HIZ_TILE - 1) / PGL_HIZ_TILE;
+	gh = (h + PGL_HIZ_TILE - 1) / PGL_HIZ_TILE;
+	for (level = 0; level < PGL_HIZ_MAX_LEVELS; ++level) {
+		size_t n = (size_t)gw * (size_t)gh;
+		st->levels[level].gw = gw;
+		st->levels[level].gh = gh;
+		st->levels[level].max_z = (u32*)PGL_MALLOC(n * sizeof(u32));
+		st->levels[level].valid = (unsigned char*)PGL_MALLOC(n);
+		if (!st->levels[level].max_z || !st->levels[level].valid) {
+			PGL_FREE(st->levels[level].max_z);
+			PGL_FREE(st->levels[level].valid);
+			st->levels[level].max_z = NULL;
+			st->levels[level].valid = NULL;
+			st->w = st->h = 0;
+			st->nlevels = level;
+			return 0;
+		}
+		memset(st->levels[level].valid, 0, n);
+		if (gw == 1 && gh == 1) {
+			st->nlevels = level + 1;
+			break;
+		}
+		gw = (gw + 1) / 2;
+		gh = (gh + 1) / 2;
+	}
+	if (st->nlevels == 0)
+		return 0;
+
+	{
+		size_t n = (size_t)st->levels[0].gw * (size_t)st->levels[0].gh;
+		st->skip_generation = (u32*)PGL_MALLOC(n * sizeof(u32));
+		if (!st->skip_generation) {
+			st->w = st->h = 0;
+			return 0;
+		}
+		memset(st->skip_generation, 0, n * sizeof(u32));
+	}
+	return 1;
+}
+
+PGLDEF void pglSetHiZ(GLboolean enabled)
+{
+	pglHiZState* st = pgl_hiz_state(GL_TRUE);
+	if (!st)
+		return;
+	st->enabled = enabled ? GL_TRUE : GL_FALSE;
+	if (st->enabled)
+		pgl_hiz_configure(st, c->zbuf.w, c->zbuf.h);
+}
+
+PGLDEF void pglResetHiZStats(void)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	if (st)
+		memset(&st->stats, 0, sizeof(st->stats));
+}
+
+PGLDEF pglHiZStats pglGetHiZStats(void)
+{
+	pglHiZStats empty;
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	memset(&empty, 0, sizeof(empty));
+	return st ? st->stats : empty;
+}
+
+PGLDEF void pgl_hiz_note_depth_read(void)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	if (st && st->enabled)
+		++st->stats.depth_reads;
+}
+
+PGLDEF void pgl_hiz_invalidate_all(void)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	int level;
+	if (!st)
+		return;
+	for (level = 0; level < st->nlevels; ++level)
+		memset(st->levels[level].valid, 0,
+		       (size_t)st->levels[level].gw * (size_t)st->levels[level].gh);
+}
+
+PGLDEF void pglInvalidateHiZ(void)
+{
+	pgl_hiz_invalidate_all();
+}
+
+PGLDEF void pgl_hiz_resize(int width, int height)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	if (st)
+		pgl_hiz_configure(st, width, height);
+}
+
+PGLDEF void pgl_hiz_invalidate_rect(int x0, int y0, int x1, int y1)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	int lx0, ly0, lx1, ly1, lx, ly, level;
+	if (!st)
+		return;
+	if (c->bound_draw_framebuffer != 0 || c->fbo_redirected) {
+		pgl_hiz_invalidate_all();
+		return;
+	}
+	if (!pgl_hiz_configure(st, c->zbuf.w, c->zbuf.h))
+		return;
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > st->w) x1 = st->w;
+	if (y1 > st->h) y1 = st->h;
+	if (x0 >= x1 || y0 >= y1)
+		return;
+
+	lx0 = x0 / PGL_HIZ_TILE;
+	ly0 = y0 / PGL_HIZ_TILE;
+	lx1 = (x1 - 1) / PGL_HIZ_TILE;
+	ly1 = (y1 - 1) / PGL_HIZ_TILE;
+	for (ly = ly0; ly <= ly1; ++ly) {
+		for (lx = lx0; lx <= lx1; ++lx) {
+			int nx = lx, ny = ly;
+			for (level = 0; level < st->nlevels; ++level) {
+				pgl_hiz_level* l = &st->levels[level];
+				if (nx < l->gw && ny < l->gh)
+					l->valid[ny * l->gw + nx] = 0;
+				nx /= 2;
+				ny /= 2;
+			}
+		}
+	}
+}
+
+PGLDEF void pgl_hiz_depth_written(int x, int y)
+{
+	pgl_hiz_invalidate_rect(x, y, x + 1, y + 1);
+}
+
+PGLDEF int pgl_hiz_pixel_skipped(int x, int y)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	int lx, ly;
+	if (!st || !st->enabled || !st->generation || !st->skip_generation)
+		return 0;
+	lx = x / PGL_HIZ_TILE;
+	ly = y / PGL_HIZ_TILE;
+	if (lx < 0 || ly < 0 || lx >= st->levels[0].gw || ly >= st->levels[0].gh)
+		return 0;
+	return st->skip_generation[ly * st->levels[0].gw + lx] == st->generation;
+}
+
+#if !defined(PGL_NO_DEPTH_NO_STENCIL) && defined(PGL_D24S8)
+
+static inline float pgl_hiz_sample_z(const pgl_hiz_tri* t, int ix, int iy)
+{
+	int px = (ix << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
+	int py = (iy << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
+	i64 e[3];
+	float weight[3];
+	int j;
+
+	for (j = 0; j < 3; ++j) {
+		static const int aa[3] = {1, 2, 0};
+		static const int bb[3] = {2, 0, 1};
+		e[j] = pgl_edge_eq(t->vx[aa[j]], t->vy[aa[j]],
+		                   t->vx[bb[j]], t->vy[bb[j]], px, py);
+		weight[j] = (float)((double)e[j] / t->den[j]);
+	}
+	return pgl_tri_map_depth(weight[0], weight[1], weight[2],
+	                         t->hz[0], t->hz[1], t->hz[2], t->poly_offset);
+}
+
+static void pgl_hiz_rebuild_leaf(pglHiZState* st, int lx, int ly)
+{
+	pgl_hiz_level* leaf = &st->levels[0];
+	int x0 = lx * PGL_HIZ_TILE;
+	int y0 = ly * PGL_HIZ_TILE;
+	int x1 = MIN(x0 + PGL_HIZ_TILE, st->w);
+	int y1 = MIN(y0 + PGL_HIZ_TILE, st->h);
+	int x, y;
+	u32 best = 0;
+
+	for (y = y0; y < y1; ++y) {
+		for (x = x0; x < x1; ++x) {
+			int idx = -y * c->zbuf.w + x;
+			u32 q = GET_Z(idx);
+			++st->stats.depth_reads;
+			if (q > best)
+				best = q;
+		}
+	}
+	leaf->max_z[ly * leaf->gw + lx] = best;
+	leaf->valid[ly * leaf->gw + lx] = 1;
+	++st->stats.rebuilt_leaves;
+}
+
+static int pgl_hiz_leaf_min_q(const pglHiZState* st,
+                              int x0, int y0, int x1, int y1, u32* qmin)
+{
+	int first = 1, x, y;
+	u32 best = 0;
+	(void)st;
+	for (y = y0; y < y1; ++y) {
+		for (x = x0; x < x1; ++x) {
+			float z = pgl_hiz_sample_z(&st->tri, x, y);
+			float scaled;
+			u32 q;
+			/* Match the defined range of the original float-to-u32 cast.
+			   Anything more extreme is left to the original path. */
+			if (!(z >= 0.0f) || z >= 256.0f)
+				return 0;
+			scaled = z * PGL_MAX_Z;
+			if (!(scaled >= 0.0f) || scaled >= 4294967296.0f)
+				return 0;
+			q = (u32)scaled;
+			if (first || q < best) {
+				best = q;
+				first = 0;
+			}
+		}
+	}
+	*qmin = best;
+	return 1;
+}
+
+static double pgl_hiz_bound_error(const pgl_hiz_tri* t, int cx, int cy)
+{
+	static const double rounding_u = 5.9604644775390625e-8;
+	double work = 3.0;
+	double range = fabs((double)c->depth_range_far - (double)c->depth_range_near);
+	int j;
+	for (j = 0; j < 3; ++j) {
+		double e = t->ea[j] * (double)cx + t->eb[j] * (double)cy + t->ec[j];
+		double w = e / t->den[j];
+		work += fabs(w * (double)t->hz[j]);
+	}
+	work += fabs((double)t->poly_offset) + 1.0;
+	return 256.0 * rounding_u * work * (4.0 + range) + 1e-10 * work + 1e-12;
+}
+
+static int pgl_hiz_region_rejects(pglHiZState* st, int level_idx, int nx, int ny,
+                                  int rx0, int ry0, int rx1, int ry1)
+{
+	pgl_hiz_level* level = &st->levels[level_idx];
+	u32 stored_max = level->max_z[ny * level->gw + nx];
+
+	++st->stats.hierarchy_tests;
+	/* Small intersections are cheap to evaluate exactly at every candidate
+	   snapped sample.  This keeps quantization/equality decisions exact and
+	   avoids relying on error bounds near a threshold. */
+	i64 exact_area = (i64)(rx1 - rx0) * (i64)(ry1 - ry0);
+	if (exact_area <= 1024) {
+		u32 qmin;
+		if (!pgl_hiz_leaf_min_q(st, rx0, ry0, rx1, ry1, &qmin))
+			return 0;
+		return st->tri.lequal ? (qmin > stored_max) : (qmin >= stored_max);
+	} else {
+		int cx, cy, mx, my;
+		double zmin, zmax, zmin_safe, zmax_safe, err_min, err_max, threshold;
+		cx = (st->tri.ax >= 0.0) ? rx0 : rx1 - 1;
+		cy = (st->tri.by >= 0.0) ? ry0 : ry1 - 1;
+		mx = (st->tri.ax >= 0.0) ? rx1 - 1 : rx0;
+		my = (st->tri.by >= 0.0) ? ry1 - 1 : ry0;
+		zmin = st->tri.ax * (double)cx + st->tri.by * (double)cy + st->tri.c;
+		zmax = st->tri.ax * (double)mx + st->tri.by * (double)my + st->tri.c;
+		err_min = pgl_hiz_bound_error(&st->tri, cx, cy);
+		err_max = pgl_hiz_bound_error(&st->tri, mx, my);
+		zmin_safe = zmin - err_min;
+		zmax_safe = zmax + err_max;
+		if (!isfinite(zmin_safe) || !isfinite(zmax_safe))
+			return 0;
+		threshold = st->tri.lequal
+		          ? ((double)stored_max + 1.0) / 16777216.0
+		          : (double)stored_max / 16777216.0;
+		/* Keep the coarse proof inside the defined float-to-u32 range. */
+		return zmin_safe >= threshold && zmin_safe >= 0.0 && zmax_safe < 256.0;
+	}
+}
+
+static void pgl_hiz_mark_skipped(pglHiZState* st, int rx0, int ry0, int rx1, int ry1)
+{
+	int lx0 = rx0 / PGL_HIZ_TILE;
+	int ly0 = ry0 / PGL_HIZ_TILE;
+	int lx1 = (rx1 - 1) / PGL_HIZ_TILE;
+	int ly1 = (ry1 - 1) / PGL_HIZ_TILE;
+	int lx, ly;
+	for (ly = ly0; ly <= ly1; ++ly)
+		for (lx = lx0; lx <= lx1; ++lx)
+			st->skip_generation[ly * st->levels[0].gw + lx] = st->generation;
+}
+
+static void pgl_hiz_test_node(pglHiZState* st, int level_idx, int nx, int ny)
+{
+	pgl_hiz_level* level = &st->levels[level_idx];
+	i64 side = (i64)PGL_HIZ_TILE << level_idx;
+	int rx0 = (int)MAX((i64)st->tri.sx0, (i64)nx * side);
+	int ry0 = (int)MAX((i64)st->tri.sy0, (i64)ny * side);
+	int rx1 = (int)MIN((i64)st->tri.sx1, (i64)(nx + 1) * side);
+	int ry1 = (int)MIN((i64)st->tri.sy1, (i64)(ny + 1) * side);
+	if (rx0 >= rx1 || ry0 >= ry1)
+		return;
+
+	int id = ny * level->gw + nx;
+	if (!level->valid[id]) {
+		if (level_idx == 0) {
+			pgl_hiz_rebuild_leaf(st, nx, ny);
+		} else {
+			int cx, cy;
+			int all_valid = 1;
+			u32 parent_max = 0;
+			for (cy = 0; cy < 2; ++cy) {
+				int chy = 2 * ny + cy;
+				for (cx = 0; cx < 2; ++cx) {
+					int chx = 2 * nx + cx;
+					pgl_hiz_test_node(st, level_idx - 1, chx, chy);
+				}
+			}
+			for (cy = 0; cy < 2; ++cy) {
+				int chy = 2 * ny + cy;
+				for (cx = 0; cx < 2; ++cx) {
+					int chx = 2 * nx + cx;
+					pgl_hiz_level* child = &st->levels[level_idx - 1];
+					int cid;
+					if (chx >= child->gw || chy >= child->gh)
+						continue;
+					cid = chy * child->gw + chx;
+					if (!child->valid[cid]) {
+						all_valid = 0;
+					} else if (child->max_z[cid] > parent_max) {
+						parent_max = child->max_z[cid];
+					}
+				}
+			}
+			if (all_valid) {
+				level->max_z[id] = parent_max;
+				level->valid[id] = 1;
+			}
+			return;
+		}
+	}
+
+	if (pgl_hiz_region_rejects(st, level_idx, nx, ny, rx0, ry0, rx1, ry1)) {
+		++st->stats.rejected_blocks;
+		st->stats.rejected_pixels += (uint64_t)(rx1 - rx0) * (uint64_t)(ry1 - ry0);
+		pgl_hiz_mark_skipped(st, rx0, ry0, rx1, ry1);
+		return;
+	}
+
+	if (level_idx > 0) {
+		int cx, cy;
+		for (cy = 0; cy < 2; ++cy) {
+			int chy = 2 * ny + cy;
+			for (cx = 0; cx < 2; ++cx) {
+				int chx = 2 * nx + cx;
+				pgl_hiz_test_node(st, level_idx - 1, chx, chy);
+			}
+		}
+	}
+}
+
+PGLDEF int pgl_hiz_prepare_fill(const int vx[3], const int vy[3],
+                                const float hz[3], float poly_offset,
+                                int sx0, int sy0, int sx1, int sy1)
+{
+	pglHiZState* st = pgl_hiz_state(GL_FALSE);
+	pgl_hiz_tri* t;
+	int j;
+	static const int aa[3] = {1, 2, 0};
+	static const int bb[3] = {2, 0, 1};
+	static const int opp[3] = {0, 1, 2};
+	double raw_a = 0.0, raw_b = 0.0, raw_c = 0.0;
+	double k;
+
+	if (!st || !st->enabled)
+		return 0;
+	if (c->bound_draw_framebuffer != 0 || c->fbo_redirected)
+		return 0;
+	if (c->zbuf_float || !c->has_depth_buf || !c->depth_test)
+		return 0;
+	if (c->stencil_test)
+		return 0;
+	if (c->depth_func != GL_LESS && c->depth_func != GL_LEQUAL)
+		return 0;
+	if (c->programs.a[c->cur_program].fragdepth_or_discard)
+		return 0;
+	if (!pgl_hiz_configure(st, c->zbuf.w, c->zbuf.h))
+		return 0;
+	if (sx0 >= sx1 || sy0 >= sy1)
+		return 0;
+
+	t = &st->tri;
+	memset(t, 0, sizeof(*t));
+	t->poly_offset = poly_offset;
+	t->lequal = (c->depth_func == GL_LEQUAL);
+	t->sx0 = sx0; t->sy0 = sy0; t->sx1 = sx1; t->sy1 = sy1;
+	for (j = 0; j < 3; ++j) {
+		t->vx[j] = vx[j];
+		t->vy[j] = vy[j];
+		t->hz[j] = hz[j];
+		t->den[j] = (double)pgl_edge_eq(vx[aa[j]], vy[aa[j]],
+		                                vx[bb[j]], vy[bb[j]],
+		                                vx[opp[j]], vy[opp[j]]);
+		if (t->den[j] == 0.0)
+			return 0;
+		t->ea[j] = (double)(vy[aa[j]] - vy[bb[j]]) * (double)PGL_SUBPIXEL_SCALE;
+		t->eb[j] = (double)(vx[bb[j]] - vx[aa[j]]) * (double)PGL_SUBPIXEL_SCALE;
+		t->ec[j] = (double)pgl_edge_eq(vx[aa[j]], vy[aa[j]],
+		                               vx[bb[j]], vy[bb[j]],
+		                               PGL_SUBPIXEL_SCALE / 2,
+		                               PGL_SUBPIXEL_SCALE / 2);
+		raw_a += (double)hz[j] * t->ea[j] / t->den[j];
+		raw_b += (double)hz[j] * t->eb[j] / t->den[j];
+		raw_c += (double)hz[j] * t->ec[j] / t->den[j];
+	}
+	k = ((double)c->depth_range_far - (double)c->depth_range_near) / 2.0;
+	t->ax = raw_a * k;
+	t->by = raw_b * k;
+	t->c = raw_c * k + ((double)poly_offset + 1.0) * k + (double)c->depth_range_near;
+
+	++st->generation;
+	if (st->generation == 0) {
+		memset(st->skip_generation, 0,
+		       (size_t)st->levels[0].gw * (size_t)st->levels[0].gh * sizeof(u32));
+		st->generation = 1;
+	}
+	pgl_hiz_test_node(st, st->nlevels - 1, 0, 0);
+	return 1;
+}
+
+#else
+PGLDEF int pgl_hiz_prepare_fill(const int vx[3], const int vy[3],
+                                const float hz[3], float poly_offset,
+                                int sx0, int sy0, int sx1, int sy1)
+{
+	(void)vx; (void)vy; (void)hz; (void)poly_offset;
+	(void)sx0; (void)sy0; (void)sx1; (void)sy1;
+	return 0;
+}
+#endif
+
 static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigned int provoke)
 {
 	vec4 p0 = v0->screen_space;
@@ -2110,11 +2645,21 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 
 	int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
 	Shader_Builtins builtins;
+	int hiz_active = 0;
+	{
+		int hvx[3] = {vx0, vx1, vx2};
+		int hvy[3] = {vy0, vy1, vy2};
+		float hz[3] = {hp0.z, hp1.z, hp2.z};
+		hiz_active = pgl_hiz_prepare_fill(hvx, hvy, hz, poly_offset,
+		                                   (int)x_min, (int)y_min, ix_max, iy_max);
+	}
 
 	for (int iy = y_min; iy<iy_max; ++iy) {
 		int py = (iy << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
 
 		for (int ix = x_min; ix<ix_max; ++ix) {
+			if (hiz_active && pgl_hiz_pixel_skipped(ix, iy))
+				continue;
 			int px = (ix << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
 
 			// Integer edges of snapped verts: a sample is in A, in B, or on the line.
@@ -2138,10 +2683,8 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 					//calculate interpolation here
 					tmp2 = alpha*inv_w0 + beta*inv_w1 + gamma*inv_w2;
 
-					z = alpha * hp0.z + beta * hp1.z + gamma * hp2.z;
-
-					z += poly_offset;
-					z = rsw_mapf(z, -1.0f, 1.0f, c->depth_range_near, c->depth_range_far); //TODO move out (ie can I map hp1.z etc.)?
+					z = pgl_tri_map_depth(alpha, beta, gamma,
+					                       hp0.z, hp1.z, hp2.z, poly_offset);
 
 					// early testing if shader doesn't use fragdepth or discard
 					if (!fragdepth_or_discard && !fragment_processing(ix, iy, z)) {
@@ -2543,6 +3086,7 @@ static int fragment_processing(int x, int y, float z)
 		if (c->zbuf_float) {
 			float* zrow = (float*)c->zbuf.lastrow;
 			float dest_d = zrow[i];
+			pgl_hiz_note_depth_read();
 			float src_d = z;
 			// Reuse depth_func with float compares
 			switch (c->depth_func) {
@@ -2562,12 +3106,15 @@ static int fragment_processing(int x, int y, float z)
 #endif
 			if (!depth_result)
 				return GL_FALSE;
-			if (c->depth_mask)
+			if (c->depth_mask) {
 				zrow[i] = src_d;
+				pgl_hiz_depth_written(x, y);
+			}
 		} else {
 			// I made gl_FragDepth read/write, ie same == to gl_FragCoord.z going into the shader
 			// so I can just always use gl_FragDepth here
 			u32 dest_depth = GET_Z(i);
+			pgl_hiz_note_depth_read();
 			u32 src_depth = z * PGL_MAX_Z;
 
 			depth_result = depthtest(src_depth, dest_depth);
@@ -2583,6 +3130,7 @@ static int fragment_processing(int x, int y, float z)
 
 			if (c->depth_mask) {
 				SET_Z(i, src_depth);
+				pgl_hiz_depth_written(x, y);
 			}
 		}
 #ifndef PGL_NO_STENCIL

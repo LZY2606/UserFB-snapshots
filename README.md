@@ -127,6 +127,38 @@ if you don't already have it and how to use make to build them.
 To sum up, the only thing that is guaranteed to build and run anywhere out of the box with no extra effort on your part
 are the regression tests since they don't depend on anything except a compliant C++ compiler.
 
+Hi-Z occlusion buffer
+======================
+
+The default D24S8 framebuffer has an optional hierarchical depth buffer.  It is
+disabled by default and follows the current `glContext`.  When enabled, filled
+triangles using `GL_DEPTH_TEST` with `GL_LESS` or `GL_LEQUAL`, no stencil test,
+and a program without `fragdepth_or_discard` can reject fully occluded 8x8
+leaves or larger reduced regions before per-pixel depth processing.  Points,
+lines, user FBOs, floating-point depth, other depth functions, and programs
+that use `gl_FragDepth`/`discard` automatically use the original path.
+
+```c
+pglSetHiZ(GL_TRUE);
+
+/* Draw the opaque occluders, then optionally inspect cumulative counters. */
+pglHiZStats stats = pglGetHiZStats();
+printf("Hi-Z rejected %llu blocks / %llu positions\n",
+       (unsigned long long)stats.rejected_blocks,
+       (unsigned long long)stats.rejected_pixels);
+
+pglResetHiZStats();
+
+/* If application code writes ctx.zbuf.buf directly, invalidate the bounds. */
+pglInvalidateHiZ();
+```
+
+Library depth writes, clears, blits, resizes, and framebuffer switches
+invalidate the affected cached bounds automatically.  `pglGetHiZStats()` does
+not reset the counters; call `pglResetHiZStats()` explicitly for that.  The
+targeted differential and statistics tests are in
+`testing/hiz_target.cpp`; run them with `bash task_support/run.sh target`.
+
 Modifying
 =========
 `portablegl.h` is generated in the src subdirectory with the python script

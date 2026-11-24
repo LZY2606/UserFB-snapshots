@@ -382,6 +382,10 @@ static int pgl_fbo_has_color(const glFBO* f)
 // Point active draw surfaces at bound FBO attachments (or restore window).
 static void pgl_apply_draw_framebuffer(void)
 {
+	// Any RT reapplication can change depth storage; lazy Hi-Z rebuild is cheaper
+	// and safer than trying to prove which attachment mutation happened.
+	pgl_hiz_invalidate_all();
+
 	if (!c->bound_draw_framebuffer) {
 		if (c->fbo_redirected) {
 			c->back_buffer = c->window_back_buffer;
@@ -979,7 +983,10 @@ static void pgl_clear_draw_depth(float d)
 			for (int y = c->ly; y < c->uy; ++y)
 				for (int x = c->lx; x < c->ux; ++x)
 					((float*)c->zbuf.lastrow)[-y * w + x] = d;
+			pgl_hiz_invalidate_rect(c->lx, c->ly, c->ux, c->uy);
+			return;
 		}
+		pgl_hiz_invalidate_all();
 		return;
 	}
 	int sz = c->ux * c->uy;
@@ -995,7 +1002,10 @@ static void pgl_clear_draw_depth(float d)
 				SET_Z_PRESHIFTED(-y * w + x, cd);
 			}
 		}
+		pgl_hiz_invalidate_rect(c->lx, c->ly, c->ux, c->uy);
+		return;
 	}
+	pgl_hiz_invalidate_all();
 }
 
 #  ifndef PGL_NO_STENCIL
