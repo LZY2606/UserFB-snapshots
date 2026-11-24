@@ -1,0 +1,16 @@
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/libuvg266.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/libuvg266_shared.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/libuvg266_static.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/uvg266.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src/CMakeFiles/install/strip.dir

@@ -595,6 +595,27 @@ typedef struct uvg_picture {
     int8_t *roi_array;
   } roi;
 
+  /**
+   * \brief Force this picture to start a new coding period as an IDR.
+   *
+   * Zero means a normal input picture. A non-zero value requests that this
+   * exact picture is coded as an IDR_N_LP intra random access point: the
+   * pictures queued before it are finished first, the reference picture
+   * list is emptied at the boundary, its POC restarts from zero and the
+   * following GOP structure and intra period are counted relative to it.
+   * The global frame counters, PTS and the outgoing DTS timeline keep
+   * advancing normally. The flag travels with the source picture through
+   * reference counting and picture reordering, so it is always the marked
+   * input picture that becomes the IDR. Requests are never delayed to a
+   * later periodic intra frame.
+   *
+   * Pictures returned from picture_alloc have the field initialized to
+   * zero. A forced IDR that coincides with a periodic intra frame
+   * produces only one random access point, and marking the very first
+   * input picture does not insert any extra pictures.
+   */
+  int32_t force_idr;
+
 } uvg_picture;
 
 /**
@@ -823,6 +844,10 @@ typedef struct uvg_api {
    * 
    * Region of interest (ROI) / delta QP map can be specified in the input
    * picture's ROI field but only when a ROI file is not used.
+   *
+   * If pic_in->force_idr is non-zero, that exact picture is coded as an
+   * IDR_N_LP that starts a new coding period. See the force_idr field of
+   * uvg_picture for the detailed semantics.
    *
    * After passing all of the input frames, the caller should keep calling this
    * function with pic_in set to NULL, until no more data is returned in the

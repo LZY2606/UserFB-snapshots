@@ -1,0 +1,1 @@
+/usr/bin/cc -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/uvg266.dir/cli.c.o CMakeFiles/uvg266.dir/encmain.c.o CMakeFiles/uvg266.dir/yuv_io.c.o -o ../bin/uvg266  ../lib/libuvg266.a -lm

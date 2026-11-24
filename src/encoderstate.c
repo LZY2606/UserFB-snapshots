@@ -1473,7 +1473,10 @@ static void encoder_state_remove_refs(encoder_state_t *state) {
     target_ref_num = 0;
   }
 
-  if (encoder->cfg.gop_len && target_ref_num > 0) {
+  // A display-order epoch (forced IDR inside a reordering GOP) codes plain
+  // P pictures that only reference earlier frames, so use the same reference
+  // management as the no-GOP path instead of matching hierarchical offsets.
+  if (encoder->cfg.gop_len && !state->frame->display_order_epoch && target_ref_num > 0) {
     // With GOP in use, go through all the existing reference pictures and
     // remove any picture that is not referenced by the current picture.
 
@@ -1901,12 +1904,33 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, uvg_pict
 
   if (owf == 0) previous = state;
   state->frame->previous_layer_state = previous;
-  // Set POC.
-  if (state->frame->num == 0) {
+
+  // The request travels with the source picture, so read it from the
+  // picture that is actually being coded instead of the API call that
+  // happened to submit it.
+  state->frame->force_idr = frame->force_idr != 0;
+  if (state->frame->force_idr && state->frame->num > 0) {
+    // Start a new coding epoch at the requested picture.
+    state->frame->epoch_display_pos = 0;
+  }
+
+  // Set POC. POCs are counted inside the coding epoch opened by the last
+  // forced IDR, while frame->num keeps the global count. In a display-order
+  // epoch (after a cut in a reordering GOP) the display position is the
+  // POC directly; otherwise the hierarchical GOP formula is used unchanged.
+  if (state->frame->num == 0 || state->frame->force_idr) {
     state->frame->poc = 0;
+  } else if (state->frame->display_order_epoch) {
+    state->frame->poc = state->frame->epoch_display_pos;
+    uvg_videoframe_set_poc(state->tile->frame, state->frame->poc);
   } else if (cfg->gop_len && !cfg->gop_lowdelay) {
 
-    int32_t framenum = state->frame->num - 1;
+    // Hierarchical coding order. Inside a forced-IDR epoch the coding
+    // position is counted from the anchor; otherwise it is the global coding
+    // number as in the original formula.
+    int32_t framenum = state->frame->forced_epoch_active
+      ? state->frame->epoch_coding_pos - 1
+      : state->frame->num - 1;
     // Handle closed GOP
     // Closed GOP structure has an extra IDR between the GOPs
     if (cfg->intra_period > 0 && !cfg->open_gop) {
@@ -1923,20 +1947,20 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, uvg_pict
         state->frame->is_irap = false;
       }
     } else { // Open GOP
-      // Calculate POC according to the global frame counter and GOP structure
+      // Calculate POC according to the epoch display position and GOP structure
       int32_t poc_offset = cfg->gop[state->frame->gop_offset].poc_offset;
       state->frame->poc = framenum - framenum % cfg->gop_len + poc_offset;
     }
-    
+
     uvg_videoframe_set_poc(state->tile->frame, state->frame->poc);
   } else if (cfg->intra_period > 1) {
-    state->frame->poc = state->frame->num % cfg->intra_period;
+    state->frame->poc = state->frame->epoch_display_pos % cfg->intra_period;
   } else {
-    state->frame->poc = state->frame->num;
+    state->frame->poc = state->frame->epoch_display_pos;
   }
 
   // Check whether the frame is a keyframe or not.
-  if (state->frame->num == 0 || state->frame->poc == 0) {
+  if (state->frame->num == 0 || state->frame->force_idr || state->frame->poc == 0) {
     state->frame->is_irap = true;
   } else if(!is_closed_normal_gop) { // In closed-GOP IDR frames are poc==0 so skip this check
     state->frame->is_irap =
@@ -1957,13 +1981,15 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, uvg_pict
   // Set pictype.
   if (state->frame->is_irap) {
     if (state->frame->num == 0 ||
+        state->frame->force_idr ||
         cfg->intra_period == 1 ||
         cfg->gop_len == 0 ||
         cfg->gop_lowdelay ||
         !cfg->open_gop) // Closed GOP uses IDR pictures
     {
       state->frame->pictype = UVG_NAL_IDR_N_LP;
-      if (cfg->intra_period == 1 && state->frame->num > 0) state->frame->pictype = UVG_NAL_IDR_W_RADL;
+      if (cfg->intra_period == 1 && state->frame->num > 0 &&
+          !state->frame->force_idr) state->frame->pictype = UVG_NAL_IDR_W_RADL;
     } else {
       state->frame->pictype = UVG_NAL_CRA_NUT;
     }
@@ -2110,6 +2136,11 @@ void uvg_encoder_prepare(encoder_state_t *state)
     state->frame->num = 0;
     state->frame->poc = 0;
     state->frame->irap_poc = 0;
+    state->frame->epoch_display_pos = 0;
+    state->frame->display_order_epoch = false;
+    state->frame->forced_epoch_active = false;
+    state->frame->epoch_coding_pos = 0;
+    state->frame->force_idr = false;
     assert(!state->tile->frame->source);
     assert(!state->tile->frame->rec);
     assert(!state->tile->frame->cu_array);
@@ -2176,10 +2207,18 @@ void uvg_encoder_prepare(encoder_state_t *state)
     uvg_cu_array_free(&state->tile->frame->chroma_cu_array);
   }
 
-  // Update POC and frame count.
+  // Update POC and frame count. The global counter advances across epochs;
+  // the epoch-specific positions are supplied by the input frame buffer when
+  // the next frame is prepared.
   state->frame->num = prev_state->frame->num + 1;
   state->frame->poc = prev_state->frame->poc + 1;
   state->frame->irap_poc = prev_state->frame->irap_poc;
+
+  state->frame->display_order_epoch =
+    prev_state->frame->display_order_epoch;
+  state->frame->forced_epoch_active =
+    prev_state->frame->forced_epoch_active;
+  state->frame->force_idr = false;
 
   state->frame->prepared = 1;
 

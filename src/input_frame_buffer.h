@@ -72,6 +72,41 @@ typedef struct input_frame_buffer_t {
    */
   int gop_skipped;
 
+  /**
+   * \brief Absolute display frame number of the most recent forced IDR.
+   *
+   * The new coding period counts its hierarchical GOP structure relative to
+   * this anchor instead of the global output count. Zero means the sequence
+   * start, which keeps the legacy behavior when no forced IDR was requested.
+   */
+  int64_t last_force_idx;
+
+  /**
+   * \brief Display frame number of a forced-IDR picture waiting to be output.
+   *
+   * Negative when no forced IDR is pending. While pending, the pictures
+   * preceding it are drained in display order before the marked picture is
+   * emitted as the start of a new epoch.
+   */
+  int64_t force_drain_until;
+
+  /**
+   * \brief Hierarchical output position inside the current forced-IDR epoch.
+   *
+   * Zero for the IDR anchor itself; advanced for every later picture coded
+   * in hierarchical GOP order relative to the anchor.
+   */
+  int64_t epoch_hier_pos;
+
+  /**
+   * \brief Last DTS emitted on the forced-IDR output timeline.
+   *
+   * The reordering DTS formula assumes the original hierarchy. Pictures
+   * produced around a cut use their own monotonic DTS timeline instead.
+   */
+  int64_t display_order_last_dts;
+  bool display_order_dts_valid;
+
 } input_frame_buffer_t;
 
 void uvg_init_input_frame_buffer(input_frame_buffer_t *input_buffer);

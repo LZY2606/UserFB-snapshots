@@ -1,0 +1,12 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+incdir=${prefix}/include
+
+Name: libuvg266
+Description: An open-source VVC encoder licensed under 3-clause BSD
+URL: https://github.com/ultravideo/uvg266
+Version: 0.8.1
+Libs: -L${libdir} -luvg266
+Libs.private: -lpthread -lm
+Cflags: -I${incdir}

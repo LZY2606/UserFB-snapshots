@@ -61,6 +61,11 @@ static int encoder_state_config_frame_init(encoder_state_t * const state) {
   state->frame->ref_list = REF_PIC_LIST_0;
   state->frame->num = 0;
   state->frame->poc = 0;
+  state->frame->epoch_display_pos = 0;
+  state->frame->display_order_epoch = false;
+  state->frame->forced_epoch_active = false;
+  state->frame->epoch_coding_pos = 0;
+  state->frame->force_idr = false;
   state->frame->total_bits_coded = 0;
   state->frame->cur_frame_bits_coded = 0;
   state->frame->cur_gop_bits_coded = 0;

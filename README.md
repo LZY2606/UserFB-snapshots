@@ -464,6 +464,32 @@ must be defined. On other platforms it's not strictly required.
 
 The needed linker and compiler flags can be obtained with pkg-config.
 
+### Forcing an IDR on a specific input picture
+
+Each input `uvg_picture` carries a `force_idr` field. It is initialized
+to zero by `picture_alloc`; set it to a non-zero value on the exact
+picture that must start a new independent video segment. The request
+travels with that picture through the reordering queue, so the marked
+picture itself is coded as an `IDR_N_LP` random access point: pictures
+queued before it are finished first without referencing across the
+boundary, its POC restarts from zero and the following GOP structure and
+intra period are counted relative to it. Global frame counters, PTS and
+the output DTS timeline keep advancing. The encoder does not have to be
+reopened and frame overlap is left untouched.
+
+```c
+uvg_picture *pic = api->picture_alloc(width, height);
+/* ... fill y, u, v and set pic->pts ... */
+if (this_is_a_scene_cut) {
+  pic->force_idr = 1;  /* this picture starts a new coding period */
+}
+api->encoder_encode(encoder, pic, &data, &len, &rec, &src, &info);
+```
+
+A request that coincides with a periodic intra frame produces only one
+random access point, and marking the first picture inserts nothing extra.
+Passing NULL to `encoder_encode` only drains the pictures already queued.
+
 
 ## Compiling uvg266
 If you have trouble regarding compiling the source code, please make an

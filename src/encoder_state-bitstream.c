@@ -1146,7 +1146,11 @@ static void uvg_encoder_state_write_bitstream_ref_pic_list(
   uint32_t ref_negative = 0;
   uint32_t ref_positive = 0;
   const encoder_control_t* const encoder = state->encoder_control;
-  if (encoder->cfg.gop_len) {
+  // A forced-IDR display-order epoch codes plain P pictures and uses the
+  // no-GOP reference list syntax even when a reordering GOP is configured.
+  const bool use_gop_rpl =
+    encoder->cfg.gop_len != 0 && !state->frame->display_order_epoch;
+  if (use_gop_rpl) {
     for (j = 0; j < state->frame->ref->used_size; j++) {
       if (state->frame->ref->pocs[j] < state->frame->poc) {
         ref_negative++;
@@ -1161,7 +1165,7 @@ static void uvg_encoder_state_write_bitstream_ref_pic_list(
   int last_poc = 0;
   int poc_shift = 0;
   // We don't need to signal L1 list if it's copied from L0
-  bool copy_rpl1_from_rpl0 = (encoder->cfg.gop_lowdelay || encoder->cfg.gop_len == 0) && encoder->cfg.bipred;
+  bool copy_rpl1_from_rpl0 = (encoder->cfg.gop_lowdelay || !use_gop_rpl) && encoder->cfg.bipred;
 
 
   for (int list = 0; list < 1 + copy_rpl1_from_rpl0; list++) {
@@ -1170,7 +1174,7 @@ static void uvg_encoder_state_write_bitstream_ref_pic_list(
     for (j = 0; j < ref_negative; j++) {
       int8_t delta_poc = 0;
 
-      if (encoder->cfg.gop_len) {
+      if (use_gop_rpl) {
         int8_t found = 0;
         do {
           delta_poc = encoder->cfg.gop[state->frame->gop_offset].ref_neg[j + poc_shift];
@@ -1207,7 +1211,7 @@ static void uvg_encoder_state_write_bitstream_ref_pic_list(
     for (j = 0; j < ref_positive; j++) {
       int8_t delta_poc = 0;
 
-      if (encoder->cfg.gop_len) {
+      if (use_gop_rpl) {
         int8_t found = 0;
         do {
           delta_poc = encoder->cfg.gop[state->frame->gop_offset].ref_pos[j + poc_shift];
@@ -1332,8 +1336,8 @@ void uvg_encoder_state_write_bitstream_slice_header(
   if (state->frame->slicetype != UVG_SLICE_I && state->encoder_control->cfg.tmvp_enable) {
     int ref_negative = 0;
     int ref_positive = 0;
-    const encoder_control_t* const encoder = state->encoder_control;    
-    if (encoder->cfg.gop_len) {
+    const encoder_control_t* const encoder = state->encoder_control;
+    if (encoder->cfg.gop_len && !state->frame->display_order_epoch) {
       for (uint32_t j = 0; j < state->frame->ref->used_size; j++) {
         if (state->frame->ref->pocs[j] < state->frame->poc) {
           ref_negative++;
@@ -1584,7 +1588,14 @@ static void encoder_state_write_bitstream_main(encoder_state_t * const state)
     uvg_update_after_picture(state);
   }
 
+  if (state->frame->force_idr) {
+    // The forced IDR starts a new GOP budget. The bits already spent on the
+    // truncated preceding GOP stay in total_bits_coded but must not become a
+    // negative remainder of the new GOP's allocation.
+    state->frame->cur_gop_bits_coded = 0;
+  } else {
     state->frame->cur_gop_bits_coded = state->previous_encoder_state->frame->cur_gop_bits_coded;
+  }
   state->frame->cur_gop_bits_coded += newpos - curpos;
 }
 

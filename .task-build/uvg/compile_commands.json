@@ -1,0 +1,404 @@
+[
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/alf.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/alf.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/alf.c",
+  "output": "src/CMakeFiles/libuvg266.dir/alf.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/bitstream.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/bitstream.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/bitstream.c",
+  "output": "src/CMakeFiles/libuvg266.dir/bitstream.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/cabac.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cabac.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cabac.c",
+  "output": "src/CMakeFiles/libuvg266.dir/cabac.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/cfg.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cfg.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cfg.c",
+  "output": "src/CMakeFiles/libuvg266.dir/cfg.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/checkpoint.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/checkpoint.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/checkpoint.c",
+  "output": "src/CMakeFiles/libuvg266.dir/checkpoint.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/constraint.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/constraint.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/constraint.c",
+  "output": "src/CMakeFiles/libuvg266.dir/constraint.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/context.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/context.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/context.c",
+  "output": "src/CMakeFiles/libuvg266.dir/context.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/cu.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cu.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cu.c",
+  "output": "src/CMakeFiles/libuvg266.dir/cu.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/debug.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/debug.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/debug.c",
+  "output": "src/CMakeFiles/libuvg266.dir/debug.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/dep_quant.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/dep_quant.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/dep_quant.c",
+  "output": "src/CMakeFiles/libuvg266.dir/dep_quant.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encode_coding_tree.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encode_coding_tree.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encode_coding_tree.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encode_coding_tree.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoder_state-bitstream.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-bitstream.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-bitstream.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoder_state-bitstream.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoder_state-ctors_dtors.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-ctors_dtors.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-ctors_dtors.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoder_state-ctors_dtors.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoder_state-geometry.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-geometry.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder_state-geometry.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoder_state-geometry.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoder.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoder.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoder.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoderstate.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoderstate.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoderstate.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoderstate.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/encoding_resume.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoding_resume.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encoding_resume.c",
+  "output": "src/CMakeFiles/libuvg266.dir/encoding_resume.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/fast_coeff_cost.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/fast_coeff_cost.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/fast_coeff_cost.c",
+  "output": "src/CMakeFiles/libuvg266.dir/fast_coeff_cost.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/filter.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/filter.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/filter.c",
+  "output": "src/CMakeFiles/libuvg266.dir/filter.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/hashmap.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/hashmap.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/hashmap.c",
+  "output": "src/CMakeFiles/libuvg266.dir/hashmap.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/image.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/image.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/image.c",
+  "output": "src/CMakeFiles/libuvg266.dir/image.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/imagelist.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/imagelist.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/imagelist.c",
+  "output": "src/CMakeFiles/libuvg266.dir/imagelist.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/input_frame_buffer.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/input_frame_buffer.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/input_frame_buffer.c",
+  "output": "src/CMakeFiles/libuvg266.dir/input_frame_buffer.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/inter.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/inter.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/inter.c",
+  "output": "src/CMakeFiles/libuvg266.dir/inter.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/intra.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/intra.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/intra.c",
+  "output": "src/CMakeFiles/libuvg266.dir/intra.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/ml_classifier_intra_depth_pred.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/ml_classifier_intra_depth_pred.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/ml_classifier_intra_depth_pred.c",
+  "output": "src/CMakeFiles/libuvg266.dir/ml_classifier_intra_depth_pred.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/ml_intra_cu_depth_pred.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/ml_intra_cu_depth_pred.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/ml_intra_cu_depth_pred.c",
+  "output": "src/CMakeFiles/libuvg266.dir/ml_intra_cu_depth_pred.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/nal.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/nal.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/nal.c",
+  "output": "src/CMakeFiles/libuvg266.dir/nal.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/rate_control.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/rate_control.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/rate_control.c",
+  "output": "src/CMakeFiles/libuvg266.dir/rate_control.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/rdo.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/rdo.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/rdo.c",
+  "output": "src/CMakeFiles/libuvg266.dir/rdo.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/reshape.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/reshape.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/reshape.c",
+  "output": "src/CMakeFiles/libuvg266.dir/reshape.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/sao.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/sao.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/sao.c",
+  "output": "src/CMakeFiles/libuvg266.dir/sao.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/scalinglist.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/scalinglist.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/scalinglist.c",
+  "output": "src/CMakeFiles/libuvg266.dir/scalinglist.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/search_ibc.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_ibc.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_ibc.c",
+  "output": "src/CMakeFiles/libuvg266.dir/search_ibc.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/search_inter.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_inter.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_inter.c",
+  "output": "src/CMakeFiles/libuvg266.dir/search_inter.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/search_intra.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_intra.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search_intra.c",
+  "output": "src/CMakeFiles/libuvg266.dir/search_intra.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/search.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/search.c",
+  "output": "src/CMakeFiles/libuvg266.dir/search.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategyselector.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategyselector.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategyselector.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategyselector.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/tables.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/tables.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/tables.c",
+  "output": "src/CMakeFiles/libuvg266.dir/tables.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/threadqueue.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/threadqueue.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/threadqueue.c",
+  "output": "src/CMakeFiles/libuvg266.dir/threadqueue.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/transform.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/transform.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/transform.c",
+  "output": "src/CMakeFiles/libuvg266.dir/transform.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/uvg266.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/uvg266.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/uvg266.c",
+  "output": "src/CMakeFiles/libuvg266.dir/uvg266.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/videoframe.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/videoframe.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/videoframe.c",
+  "output": "src/CMakeFiles/libuvg266.dir/videoframe.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/extras/libmd5.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/extras/libmd5.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/extras/libmd5.c",
+  "output": "src/CMakeFiles/libuvg266.dir/extras/libmd5.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-alf.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-alf.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-alf.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-alf.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-dct.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-dct.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-dct.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-dct.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-depquant.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-depquant.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-depquant.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-depquant.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-encode.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-encode.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-encode.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-encode.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-intra.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-intra.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-intra.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-intra.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-ipol.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-ipol.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-ipol.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-ipol.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-nal.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-nal.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-nal.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-nal.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-picture.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-picture.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-picture.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-picture.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-quant.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-quant.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-quant.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-quant.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/strategies-sao.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-sao.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/strategies-sao.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/strategies-sao.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/alf-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/alf-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/alf-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/alf-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/dct-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/dct-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/dct-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/dct-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/depquant-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/depquant-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/depquant-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/depquant-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/encode_coding_tree-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/encode_coding_tree-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/encode_coding_tree-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/encode_coding_tree-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/intra-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/intra-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/intra-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/intra-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/ipol-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/ipol-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/ipol-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/ipol-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/nal-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/nal-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/nal-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/nal-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/picture-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/picture-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/picture-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/picture-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/quant-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/quant-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/quant-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/quant-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_DLL_EXPORTS -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/libuvg266.dir/strategies/generic/sao-generic.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/sao-generic.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/strategies/generic/sao-generic.c",
+  "output": "src/CMakeFiles/libuvg266.dir/strategies/generic/sao-generic.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_STATIC_LIB -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/uvg266.dir/cli.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cli.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/cli.c",
+  "output": "src/CMakeFiles/uvg266.dir/cli.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_STATIC_LIB -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/uvg266.dir/encmain.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encmain.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/encmain.c",
+  "output": "src/CMakeFiles/uvg266.dir/encmain.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src",
+  "command": "/usr/bin/cc -DUVG_BIT_DEPTH=8 -DUVG_STATIC_LIB -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/.task-build/uvg/src -O3 -DNDEBUG -std=gnu11 -fcolor-diagnostics -o CMakeFiles/uvg266.dir/yuv_io.c.o -c /Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/yuv_io.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2108/attempts/20261124T001418874180Z/repo/src/yuv_io.c",
+  "output": "src/CMakeFiles/uvg266.dir/yuv_io.c.o"
+}
+]

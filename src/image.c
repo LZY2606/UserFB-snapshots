@@ -110,6 +110,8 @@ uvg_picture * uvg_image_alloc(enum uvg_chroma_format chroma_format, const int32_
   im->roi.width = 0;
   im->roi.height = 0;
 
+  im->force_idr = 0;
+
   return im;
 }
 
@@ -198,6 +200,9 @@ uvg_picture *uvg_image_make_subimage(uvg_picture *const orig_image,
   im->dts = 0;
 
   im->roi = orig_image->roi;
+
+  // The request belongs to the source picture the subimage is part of.
+  im->force_idr = orig_image->force_idr;
 
   return im;
 }

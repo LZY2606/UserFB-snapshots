@@ -108,6 +108,48 @@ typedef struct encoder_state_config_frame_t {
   int32_t irap_poc;  /*!< \brief POC of the associated IRAP picture */
 
   /**
+   * \brief Display position of the current picture inside its epoch.
+   *
+   * Zero for the forced-IDR anchor (and the first picture). With picture
+   * reordering this follows the source/display order, which is exactly the
+   * POC value for the pictures drained in display order.
+   */
+  int32_t epoch_display_pos;
+
+  /**
+   * \brief The current epoch is emitted in display order after a cut.
+   *
+   * Reordering GOPs normally emit in hierarchical coding order. The truncated
+   * prefix drained before a forced IDR and the IDR itself are emitted in
+   * display order and coded as plain P/I pictures.
+   */
+  bool display_order_epoch;
+
+  /**
+   * \brief A forced-IDR epoch is currently active.
+   *
+   * Set for every picture after the first forced IDR, including the
+   * hierarchical GOP pictures that follow the anchor.
+   */
+  bool forced_epoch_active;
+
+  /**
+   * \brief Coding position inside the current forced-IDR epoch.
+   *
+   * Zero for the anchor and advanced per hierarchical output. Used in place
+   * of the global frame number for POC and GOP placement after a cut.
+   */
+  int32_t epoch_coding_pos;
+
+  /**
+   * \brief Whether the current frame was requested as a forced IDR.
+   *
+   * The value is taken from the actual source picture being coded so that
+   * it survives input frame reordering.
+   */
+  bool force_idr;
+
+  /**
    * \brief Frame-level quantization parameter
    *
    * \see encoder_state_t::qp
