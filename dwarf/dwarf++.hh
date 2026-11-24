@@ -419,6 +419,12 @@ public:
         bool operator==(const die &o) const;
         bool operator!=(const die &o) const;
 
+        /**
+         * Read the DIE at unit_offset within u.  Throws format_error
+         * if the offset does not contain a valid DIE.
+         */
+        friend die die_at(const unit &u, section_offset unit_offset);
+
 private:
         friend class unit;
         friend class type_unit;
@@ -604,6 +610,17 @@ public:
         }
 
         /**
+         * Return the unit containing this value.  This may differ
+         * from the unit of the DIE the value was read from when the
+         * value was inherited through a cross-unit specification or
+         * abstract origin reference.
+         */
+        const unit &get_unit() const
+        {
+                return *cu;
+        }
+
+        /**
          * Return this value's attribute encoding.  This automatically
          * resolves indirect encodings, so this will never return
          * DW_FORM::indirect.  Note that the mapping from forms to
@@ -738,11 +755,33 @@ public:
 };
 
 /**
+ * An exception indicating that an expression uses an operation the
+ * evaluation engine does not implement.  This is an expr_error so
+ * existing callers that catch expr_error continue to work, while
+ * callers that need to distinguish "unsupported" from "malformed" can
+ * catch this type first.
+ */
+class expr_unsupported : public expr_error
+{
+public:
+        explicit expr_unsupported(const std::string &what_arg)
+                : expr_error(what_arg) { }
+        explicit expr_unsupported(const char *what_arg)
+                : expr_error(what_arg) { }
+};
+
+/**
  * A DWARF expression or location description.
  */
 class expr
 {
 public:
+        /**
+         * Construct an invalid, empty expression.
+         */
+        expr() : cu(nullptr), sec_base(0), offset(0), len(0),
+                 sec_type(section_type::info) { }
+
         /**
          * Short-hand for evaluate(ctx, {}).
          */
@@ -766,16 +805,93 @@ public:
          */
         expr_result evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments) const;
 
+        /**
+         * Return true if this expression is empty (contains no
+         * operations).
+         */
+        bool empty() const
+        {
+                return len == 0;
+        }
+
+        /**
+         * Return the section this expression's bytes are read from.
+         * This is .debug_info for ordinary expressions and
+         * .debug_loc for location list entries.
+         */
+        section_type source_section() const
+        {
+                return sec_type;
+        }
+
+        /**
+         * Return the offset of this expression's first byte within its
+         * source section.
+         */
+        section_offset source_offset() const
+        {
+                return sec_base + offset;
+        }
+
+        /**
+         * Return the length in bytes of this expression.
+         */
+        section_length source_length() const
+        {
+                return len;
+        }
+
 private:
         // XXX This will need more information for some operations
         expr(const unit *cu,
              section_offset offset, section_length len);
 
+        /**
+         * \internal Construct an expression whose bytes live in a
+         * section other than the unit's .debug_info (currently used
+         * for .debug_loc location list entries).  sec is the backing
+         * section, already configured with the appropriate byte order
+         * and address size; sec_offset is the expression's offset
+         * within it.  The expression still records the owning CU.
+         */
+        expr(const unit *cu,
+             const std::shared_ptr<section> &sec,
+             section_offset sec_offset, section_length len);
+
         friend class value;
+        friend class location_list;
+        friend expr_result at_location(const die &variable, const die &function,
+                                       taddr pc, expr_context *ctx);
 
         const unit *cu;
+        // Backing section.  For ordinary expressions this is the CU's
+        // own .debug_info subsection; for location list expressions it
+        // is a slice of .debug_loc.
+        std::shared_ptr<section> sec;
+        // Offset of the backing section's first byte within the actual
+        // ELF/DWARF section, so source_offset() reports absolute
+        // section offsets.
+        section_offset sec_base;
         section_offset offset;
         section_length len;
+        section_type sec_type;
+};
+
+/**
+ * An exception indicating that a DW_OP_fbreg evaluation needs a
+ * DW_AT_frame_base, but the relevant function DIE does not provide
+ * one (even after specification and abstract origin resolution).
+ * This is an expr_error so generic expression error handling keeps
+ * working; callers that distinguish variable availability can catch
+ * this type first.
+ */
+class frame_base_missing : public expr_error
+{
+public:
+        explicit frame_base_missing(const std::string &what_arg)
+                : expr_error(what_arg) { }
+        explicit frame_base_missing(const char *what_arg)
+                : expr_error(what_arg) { }
 };
 
 /**
@@ -821,6 +937,31 @@ public:
         virtual taddr form_tls_address(taddr address)
         {
                 throw expr_error("DW_OP_form_tls_address operations not supported");
+        }
+
+        /**
+         * Return the canonical frame address (CFA) of the current
+         * frame.  This implements DW_OP_call_frame_cfa.  The CFA is
+         * supplied by the caller's snapshot or frame information;
+         * this library does not perform stack unwinding.
+         */
+        virtual taddr cfa()
+        {
+                throw expr_error("DW_OP_call_frame_cfa not supported");
+        }
+
+        /**
+         * Return the frame base value used by DW_OP_fbreg.  The
+         * frame base is derived from the enclosing function's
+         * DW_AT_frame_base at the program counter being evaluated.
+         * Address and literal frame bases are used directly; register
+         * frame bases are read with reg().  Recursive frame base
+         * evaluation (a DW_AT_frame_base expression that itself uses
+         * DW_OP_fbreg) throws expr_error.
+         */
+        virtual taddr frame_base()
+        {
+                throw expr_error("DW_OP_fbreg operations not supported");
         }
 };
 
@@ -1050,6 +1191,122 @@ private:
         taddr base_addr;
         section_offset pos;
         rangelist::entry entry;
+};
+
+//////////////////////////////////////////////////////////////////
+// Location lists (DWARF 2-4 .debug_loc)
+//
+
+/**
+ * A single entry of a .debug_loc location list.  The location
+ * expression applies to the half-open address range [low, high).
+ * An entry with an empty expression (expr_length == 0) is a valid
+ * entry that denotes an unavailable (empty) location over its range.
+ */
+class location_entry
+{
+public:
+        taddr low, high;
+        // Location expression for this range.  The expression may be
+        // empty; use expr::empty() to detect this.
+        expr location;
+};
+
+/**
+ * A DWARF 2-4 location list stored in .debug_loc.  This interprets
+ * base-address selection entries, ordinary half-open range entries,
+ * empty expressions and the end-of-list terminator, using the address
+ * size, byte order and low_pc of the CU that owns the referring
+ * attribute.
+ *
+ * All entries up to and including the terminator are validated when
+ * the list is constructed: truncation, a missing terminator, a
+ * reversed range and base-address wraparound throw format_error,
+ * naming the section and the offending entry offset.
+ */
+class location_list
+{
+public:
+        /**
+         * \internal Construct a location list beginning at offset off
+         * in the .debug_loc section sec.  cu is the compilation unit
+         * whose attribute refers to the list; its address size, byte
+         * order and low_pc govern interpretation.
+         */
+        location_list(const std::shared_ptr<section> &sec, section_offset off,
+                      const unit &cu);
+
+        /**
+         * Construct an empty location list.
+         */
+        location_list() = default;
+
+        /** Copy constructor */
+        location_list(const location_list &o) = default;
+        /** Move constructor */
+        location_list(location_list &&o) = default;
+
+        location_list& operator=(const location_list &o) = default;
+        location_list& operator=(location_list &&o) = default;
+
+        class entry;
+        typedef entry value_type;
+
+        class iterator;
+
+        iterator begin() const;
+        iterator end() const;
+
+private:
+        struct stored_entry
+        {
+                taddr low, high;
+                expr location;
+        };
+
+        std::vector<stored_entry> entries;
+};
+
+/**
+ * An iterator over the entries of a location_list.
+ */
+class location_list::iterator
+{
+public:
+        iterator() : list(nullptr), pos(0) { }
+        iterator(const location_list *list, size_t pos) : list(list), pos(pos) { }
+
+        iterator(const iterator &o) = default;
+        iterator& operator=(const iterator &o) = default;
+
+        location_entry operator*() const;
+
+        bool operator==(const iterator &o) const
+        {
+                return list == o.list && pos == o.pos;
+        }
+
+        bool operator!=(const iterator &o) const
+        {
+                return !(*this == o);
+        }
+
+        iterator &operator++()
+        {
+                pos++;
+                return *this;
+        }
+
+        iterator operator++(int)
+        {
+                iterator tmp(*this);
+                ++(*this);
+                return tmp;
+        }
+
+private:
+        const location_list *list;
+        size_t pos;
 };
 
 //////////////////////////////////////////////////////////////////
@@ -1371,6 +1628,44 @@ bool at_const_expr(const die &d);
 die at_containing_type(const die &d);
 uint64_t at_count(const die &d, expr_context *ctx);
 expr_result at_data_member_location(const die &d, expr_context *ctx, taddr base, taddr pc);
+/**
+ * Evaluate the DW_AT_location of variable at program counter pc,
+ * using function to resolve DW_AT_frame_base.  Direct exprlocs,
+ * legacy block locations and DWARF 2-4 .debug_loc location lists are
+ * all supported.  location and frame_base follow die::resolve's
+ * inheritance order (the DIE itself, then abstract origin, then
+ * specification).
+ *
+ * For a location list, the first original-table entry whose
+ * half-open range contains pc is selected; if pc falls in a gap, or
+ * the selected entry has an empty expression, an empty expr_result is
+ * returned.  Entries after the selected one are still validated up to
+ * the end-of-list terminator, but their expressions are not
+ * evaluated.
+ *
+ * DW_OP_fbreg evaluates the function's DW_AT_frame_base at the same
+ * pc; DW_OP_call_frame_cfa calls expr_context::cfa().  Throws
+ * frame_base_missing if DW_OP_fbreg is needed but no frame base
+ * exists, and expr_error for malformed expressions or recursive frame
+ * bases.
+ */
+expr_result at_location(const die &variable, const die &function,
+                        taddr pc, expr_context *ctx);
+
+/**
+ * Return the DIE at unit_offset within u.  unit_offset is relative to
+ * the unit's subsection (the same space as die::get_unit_offset).
+ * Throws format_error if the offset does not contain a valid DIE.
+ */
+die die_at(const unit &u, section_offset unit_offset);
+
+/**
+ * Find the compilation unit whose .debug_info section range contains
+ * section_offset (an absolute .debug_info offset).  Throws
+ * std::out_of_range if no unit contains the offset.
+ */
+const compilation_unit &compilation_unit_at(const dwarf &file,
+                                            section_offset section_offset);
 bool at_declaration(const die &d);
 std::string at_description(const die &d);
 die at_discr(const die &d);

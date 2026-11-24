@@ -12,7 +12,16 @@ expr_context no_expr_context;
 
 expr::expr(const unit *cu,
            section_offset offset, section_length len)
-        : cu(cu), offset(offset), len(len)
+        : cu(cu), sec(cu->data()), sec_base(cu->get_section_offset()),
+          offset(offset), len(len), sec_type(section_type::info)
+{
+}
+
+expr::expr(const unit *cu,
+           const shared_ptr<section> &sec,
+           section_offset sec_offset, section_length len)
+        : cu(cu), sec(sec), sec_base(sec_offset), offset(0), len(len),
+          sec_type(sec->type)
 {
 }
 
@@ -46,13 +55,15 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                 stack.push_back(*elt);
 
         // Create a subsection for just this expression so we can
-        // easily detect the end (including premature end).
-        auto cusec = cu->data();
+        // easily detect the end (including premature end).  This may
+        // point into .debug_info (for ordinary attributes) or
+        // .debug_loc (for location list entries), depending on how
+        // the expression was constructed.
         shared_ptr<section> subsec
-                (make_shared<section>(cusec->type,
-                                      cusec->begin + offset, len,
-                                      cusec->ord, cusec->fmt,
-                                      cusec->addr_size));
+                (make_shared<section>(sec->type,
+                                      sec->begin + offset, len,
+                                      sec->ord, sec->fmt,
+                                      sec->addr_size));
         cursor cur(subsec);
 
         // Prepare the expression result.  Some location descriptions
@@ -128,8 +139,14 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
 
                         // 2.5.1.2 Register based addressing
                 case DW_OP::fbreg:
-                        // XXX
-                        throw runtime_error("DW_OP_fbreg not implemented");
+                        // 2.5.1.2: push the frame base adjusted by
+                        // the signed operand.  The frame base itself
+                        // is resolved by the expr_context, which
+                        // evaluates DW_AT_frame_base at the current
+                        // pc (and detects recursive fbreg use).
+                        tmp2.s = cur.sleb128();
+                        stack.push_back((int64_t)ctx->frame_base() + tmp2.s);
+                        break;
                 case DW_OP::breg0...DW_OP::breg31:
                         tmp1.u = (unsigned)op - (unsigned)DW_OP::breg0;
                         tmp2.s = cur.sleb128();
@@ -197,15 +214,16 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                         stack.back() = ctx->xderef_size(tmp2.u, stack.back(), tmp1.u);
                         break;
                 case DW_OP::push_object_address:
-                        // XXX
-                        throw runtime_error("DW_OP_push_object_address not implemented");
+                        throw expr_unsupported("DW_OP_push_object_address not implemented");
                 case DW_OP::form_tls_address:
                         CHECK();
                         stack.back() = ctx->form_tls_address(stack.back());
                         break;
                 case DW_OP::call_frame_cfa:
-                        // XXX
-                        throw runtime_error("DW_OP_call_frame_cfa not implemented");
+                        // 2.5.1.6: push the CFA.  This comes from the
+                        // caller's snapshot; no unwinding is done here.
+                        stack.push_back(ctx->cfa());
+                        break;
 
                         // 2.5.1.4 Arithmetic and logical operations
 #define UBINOP(binop)                                                   \
@@ -356,8 +374,7 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                 case DW_OP::call2:
                 case DW_OP::call4:
                 case DW_OP::call_ref:
-                        // XXX
-                        throw runtime_error(to_string(op) + " not implemented");
+                        throw expr_unsupported(to_string(op) + " not implemented");
 #undef SRELOP
 
                         // 2.5.1.6 Special operations
@@ -390,8 +407,7 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                         // 2.6.1.2 Composite location descriptions
                 case DW_OP::piece:
                 case DW_OP::bit_piece:
-                        // XXX
-                        throw runtime_error(to_string(op) + " not implemented");
+                        throw expr_unsupported(to_string(op) + " not implemented");
 
                 case DW_OP::lo_user...DW_OP::hi_user:
                         // XXX We could let the context evaluate this,
@@ -399,7 +415,7 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                         throw expr_error("unknown user op " + to_string(op));
 
                 default:
-                        throw expr_error("bad operation " + to_string(op));
+                        throw expr_unsupported("bad operation " + to_string(op));
                 }
 #pragma GCC diagnostic pop
 #undef CHECK

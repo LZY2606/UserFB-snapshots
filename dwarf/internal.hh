@@ -292,6 +292,50 @@ struct name_entry
         }
 };
 
+/**
+ * Evidence gathered while resolving a variable's DW_AT_location at a
+ * program counter.  This holds only value data (no borrowed section
+ * pointers) so offline analysis layers can copy it into owning
+ * results.
+ */
+struct location_evidence
+{
+        location_evidence()
+                : has_location(false), is_list(false),
+                  location_die_offset(0), frame_base_die_offset(0),
+                  frame_base_used(false), frame_base_is_list(false),
+                  selected(false), range_low(0), range_high(0),
+                  expr_section(section_type::info), expr_offset(0),
+                  expr_length(0), expr_empty(false) { }
+
+        // The variable (or an inherited DIE) had a location attribute.
+        bool has_location;
+        // The location attribute was a .debug_loc location list.
+        bool is_list;
+        // Section offset of the DIE that supplied DW_AT_location.
+        section_offset location_die_offset;
+        // Section offset of the DIE that supplied DW_AT_frame_base,
+        // populated only when DW_OP_fbreg was actually evaluated.
+        section_offset frame_base_die_offset;
+        bool frame_base_used;
+        bool frame_base_is_list;
+        // A list entry (or direct expression) was selected for the pc.
+        bool selected;
+        taddr range_low, range_high;
+        section_type expr_section;
+        section_offset expr_offset;
+        section_length expr_length;
+        bool expr_empty;
+};
+
+/**
+ * \internal Like at_location, but also records location resolution
+ * evidence.  Implemented in location.cc.
+ */
+expr_result resolve_variable_location(const die &variable, const die &function,
+                                      taddr pc, expr_context *ctx,
+                                      location_evidence *ev);
+
 DWARFPP_END_NAMESPACE
 
 #endif
