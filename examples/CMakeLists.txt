@@ -1,5 +1,6 @@
 add_subdirectory(add_section)
 add_subdirectory(anonymizer)
+add_subdirectory(bpf_graph)
 add_subdirectory(elfdump)
 add_subdirectory(elfio_ldd)
 add_subdirectory(proc_mem)
