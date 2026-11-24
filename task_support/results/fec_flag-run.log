@@ -1,0 +1,8 @@
+MS_TIMELINE_DIFF group=recovery event=8 stream=0 ch=0 sample=31 got=0.145812988 want=0.145782471
+FAIL tests/ms_timeline.c:385 0
+CASE framing cbr_codes checks=180
+CASE framing vbr_codes checks=210
+GROUP framing cases=2 checks=390 COMPLETE
+CASE mapping float_layout checks=15474
+CASE mapping int16_layout checks=15474
+GROUP mapping cases=2 checks=30948 COMPLETE
