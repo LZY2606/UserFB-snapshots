@@ -22,6 +22,21 @@ func DecodeModule(
 	memoryCapacityFromMax,
 	dwarfEnabled, storeCustomSections bool,
 ) (*wasm.Module, error) {
+	return decodeModule(binary, enabledFeatures, memoryLimitPages, memoryCapacityFromMax,
+		dwarfEnabled, storeCustomSections, false)
+}
+
+// decodeModule is the shared section decoding loop. When inspection is true,
+// the multi-memory/memory64 decoders back the import, memory and data sections,
+// and the module carries an inspection state instead of being wired into the
+// execution engine.
+func decodeModule(
+	binary []byte,
+	enabledFeatures api.CoreFeatures,
+	memoryLimitPages uint32,
+	memoryCapacityFromMax,
+	dwarfEnabled, storeCustomSections, inspection bool,
+) (*wasm.Module, error) {
 	r := bytes.NewReader(binary)
 
 	// Magic number.
@@ -38,6 +53,9 @@ func DecodeModule(
 	memSizer := newMemorySizer(memoryLimitPages, memoryCapacityFromMax)
 
 	m := &wasm.Module{}
+	if inspection {
+		m.SetInspectionMode()
+	}
 	var info, line, str, abbrev, ranges []byte // For DWARF Data.
 	for {
 		// TODO: except custom sections, all others are required to be in order, but we aren't checking yet.
@@ -106,16 +124,36 @@ func DecodeModule(
 		case wasm.SectionIDType:
 			m.TypeSection, err = decodeTypeSection(enabledFeatures, r)
 		case wasm.SectionIDImport:
-			m.ImportSection, m.ImportPerModule, m.ImportFunctionCount, m.ImportGlobalCount, m.ImportMemoryCount, m.ImportTableCount, err = decodeImportSection(r, memSizer, memoryLimitPages, enabledFeatures)
-			if err != nil {
-				return nil, err // avoid re-wrapping the error.
+			if inspection {
+				var importedMemoryDeclarations []wasm.MemoryDeclaration
+				m.ImportSection, m.ImportPerModule, m.ImportFunctionCount, m.ImportGlobalCount,
+					m.ImportMemoryCount, m.ImportTableCount, importedMemoryDeclarations, err =
+					decodeImportSectionInspection(r, enabledFeatures)
+				if err != nil {
+					return nil, err
+				}
+				m.AppendInspectionMemoryDeclarations(importedMemoryDeclarations)
+			} else {
+				m.ImportSection, m.ImportPerModule, m.ImportFunctionCount, m.ImportGlobalCount, m.ImportMemoryCount, m.ImportTableCount, err = decodeImportSection(r, memSizer, memoryLimitPages, enabledFeatures)
+				if err != nil {
+					return nil, err // avoid re-wrapping the error.
+				}
 			}
 		case wasm.SectionIDFunction:
 			m.FunctionSection, err = decodeFunctionSection(r)
 		case wasm.SectionIDTable:
 			m.TableSection, err = decodeTableSection(r, enabledFeatures)
 		case wasm.SectionIDMemory:
-			m.MemorySection, err = decodeMemorySection(r, enabledFeatures, memSizer, memoryLimitPages)
+			if inspection {
+				var localDeclarations []wasm.MemoryDeclaration
+				localDeclarations, err = decodeMemorySectionInspection(r)
+				if err != nil {
+					return nil, err
+				}
+				m.AppendInspectionMemoryDeclarations(localDeclarations)
+			} else {
+				m.MemorySection, err = decodeMemorySection(r, enabledFeatures, memSizer, memoryLimitPages)
+			}
 		case wasm.SectionIDGlobal:
 			if m.GlobalSection, err = decodeGlobalSection(r, enabledFeatures); err != nil {
 				return nil, err // avoid re-wrapping the error.
@@ -132,7 +170,11 @@ func DecodeModule(
 		case wasm.SectionIDCode:
 			m.CodeSection, err = decodeCodeSection(r)
 		case wasm.SectionIDData:
-			m.DataSection, err = decodeDataSection(r, enabledFeatures)
+			if inspection {
+				m.DataSection, err = decodeDataSectionInspection(r, enabledFeatures)
+			} else {
+				m.DataSection, err = decodeDataSection(r, enabledFeatures)
+			}
 		case wasm.SectionIDDataCount:
 			if err := enabledFeatures.RequireEnabled(api.CoreFeatureBulkMemoryOperations); err != nil {
 				return nil, fmt.Errorf("data count section not supported as %v", err)

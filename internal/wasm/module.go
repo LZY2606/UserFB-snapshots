@@ -185,6 +185,12 @@ type Module struct {
 	// as described in https://yurydelendik.github.io/webassembly-dwarf/, though it is not specified in the Wasm
 	// specification: https://github.com/WebAssembly/debugging/issues/1
 	DWARFLines *wasmdebug.DWARFLines
+
+	// inspection is non-nil only for modules decoded via
+	// binary.DecodeModuleForInspection. It holds the multi-memory declarations
+	// and the memory references recorded while validating such modules, and
+	// never participates in the execution engine.
+	inspection *inspectionState
 }
 
 // ModuleID represents sha256 hash value uniquely assigned to Module.
@@ -258,50 +264,80 @@ func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 }
 
 func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
+	// Inspection objects build their memory reference graph during validation.
+	// A previously successful validation is reused without appending duplicate
+	// records, and a failed attempt never leaves partial records behind.
+	if m.IsInspection() {
+		if m.inspectionValidated() {
+			return nil
+		}
+		m.resetMemoryUses()
+	}
+
 	for i := range m.TypeSection {
 		tp := &m.TypeSection[i]
 		tp.CacheNumInUint64()
 	}
 
 	if err := m.validateStartSection(); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	functions, globals, memory, tables, err := m.AllDeclarations()
 	if err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if err = m.validateImports(enabledFeatures); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if err = m.validateGlobals(globals, uint32(len(functions)), MaximumGlobals); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if err = m.validateMemory(memory, globals, enabledFeatures); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if err = m.validateExports(enabledFeatures, functions, globals, memory, tables); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if m.CodeSection != nil {
 		if err = m.validateFunctions(enabledFeatures, functions, globals, memory, tables, MaximumFunctionIndex); err != nil {
-			return err
+			return m.validationFailed(err)
 		}
 	} // No need to validate host functions as NewHostModule validates
 
 	if err = m.validateTable(enabledFeatures, tables, MaximumTableIndex); err != nil {
-		return err
+		return m.validationFailed(err)
 	}
 
 	if err = m.validateDataCountSection(); err != nil {
-		return err
+		return m.validationFailed(err)
+	}
+
+	if m.IsInspection() {
+		sort.SliceStable(m.inspection.uses, func(i, j int) bool {
+			if m.inspection.uses[i].FunctionIndex != m.inspection.uses[j].FunctionIndex {
+				return m.inspection.uses[i].FunctionIndex < m.inspection.uses[j].FunctionIndex
+			}
+			return m.inspection.uses[i].BodyOffset < m.inspection.uses[j].BodyOffset
+		})
+		m.markInspectionValidated()
 	}
 	return nil
+}
+
+// validationFailed discards partial inspection records before propagating the
+// validation error, so a failed Validate never exposes a seemingly complete
+// reference graph.
+func (m *Module) validationFailed(err error) error {
+	if m.IsInspection() {
+		m.resetMemoryUses()
+	}
+	return err
 }
 
 func (m *Module) validateStartSection() error {
@@ -449,7 +485,11 @@ func (m *Module) funcDesc(sectionID SectionID, sectionIndex Index) string {
 	return fmt.Sprintf("%s[%d] export[%s]", sectionIDName, sectionIndex, strings.Join(exportNames, ","))
 }
 
-func (m *Module) validateMemory(memory *Memory, globals []GlobalType, _ api.CoreFeatures) error {
+func (m *Module) validateMemory(memory *Memory, globals []GlobalType, enabledFeatures api.CoreFeatures) error {
+	if m.IsInspection() {
+		return m.validateInspectionMemory(globals)
+	}
+
 	var activeElementCount int
 	for i := range m.DataSection {
 		d := &m.DataSection[i]
@@ -470,6 +510,35 @@ func (m *Module) validateMemory(memory *Memory, globals []GlobalType, _ api.Core
 			if err := validateConstExpression(importedGlobals, 0, &d.OffsetExpression, ValueTypeI32); err != nil {
 				return fmt.Errorf("calculate offset: %w", err)
 			}
+		}
+	}
+	return nil
+}
+
+// validateInspectionMemory checks the multi-memory view of the data section:
+// every active segment targets a declared memory in the combined index space,
+// and its i32/i64 offset expression matches the address width of that memory.
+// Passive segments are not bound to any memory and are skipped.
+func (m *Module) validateInspectionMemory(globals []GlobalType) error {
+	declarations := m.inspection.declarations
+	var importedGlobals []GlobalType
+	if m.ImportGlobalCount <= uint32(len(globals)) {
+		importedGlobals = globals[:m.ImportGlobalCount]
+	}
+	for i := range m.DataSection {
+		d := &m.DataSection[i]
+		if d.IsPassive() {
+			continue
+		}
+		if d.MemoryIndex >= uint32(len(declarations)) {
+			return fmt.Errorf("data segment[%d] targets unknown memory index %d", i, d.MemoryIndex)
+		}
+		expectedType := ValueTypeI32
+		if declarations[d.MemoryIndex].Is64 {
+			expectedType = ValueTypeI64
+		}
+		if err := validateConstExpression(importedGlobals, 0, &d.OffsetExpression, expectedType); err != nil {
+			return fmt.Errorf("data segment[%d] calculate offset: %w", i, err)
 		}
 	}
 	return nil
@@ -518,7 +587,11 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 				return fmt.Errorf("invalid export[%q] global[%d]: %w", exp.Name, index, err)
 			}
 		case ExternTypeMemory:
-			if index > 0 || memory == nil {
+			if m.IsInspection() {
+				if index >= uint32(len(m.inspection.declarations)) {
+					return fmt.Errorf("memory for export[%q] out of range", exp.Name)
+				}
+			} else if index > 0 || memory == nil {
 				return fmt.Errorf("memory for export[%q] out of range", exp.Name)
 			}
 		case ExternTypeTable:
@@ -849,6 +922,11 @@ type DataSegment struct {
 	OffsetExpression ConstantExpression
 	Init             []byte
 	Passive          bool
+	// MemoryIndex is the target memory of an active data segment in the
+	// combined memory index space. It is zero for passive segments, which are
+	// not bound to any memory. On the ordinary (non-inspection) decode path it
+	// stays zero because that path only supports memory zero.
+	MemoryIndex uint32
 }
 
 // IsPassive returns true if this data segment is "passive" in the sense that memory offset and

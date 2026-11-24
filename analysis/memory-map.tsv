@@ -1,0 +1,10 @@
+kind	index	function_index	segment_index	memory_index	memory_indices	imported	import_module	import_name	is64	min	max	has_max	body_offset	opcode	offset	address_type	copy_dst_type	copy_src_type	copy_length_type	passive	offset_expression	init_hex	body_hex
+declaration	0					true	env	ram	false	1	2	true											
+declaration	1					false			true	4294967296	4294967297	true											
+declaration	2					false			true	0	2	true											
+function_body		1																					420028420180808080141a420041004100fc0a01003f021a420040021a0b
+data_segment			0	1																false	i64.const 0x00	112233	
+memory_use		1		1	1								2	i32.load	5368709120	i64							
+memory_use		1			1,0								17	memory.copy	0		i64	i32	i32				
+memory_use		1		2	2								21	memory.size	0	i64							
+memory_use		1		2	2								26	memory.grow	0	i64							

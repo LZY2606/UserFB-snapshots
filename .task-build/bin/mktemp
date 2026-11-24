@@ -1,0 +1,13 @@
+#!/bin/sh
+# Sandbox-local mktemp replacement: macOS mktemp ignores TMPDIR and the seatbelt
+# sandbox denies directory creation in the per-user system temp dir. Honour TMPDIR.
+case "$1" in
+-d)
+  base="${TMPDIR:-/tmp}/mkdtemp.$$.$RANDOM"
+  mkdir -p "$base" && printf '%s\n' "$base"
+  ;;
+*)
+  base="${TMPDIR:-/tmp}/mkfile.$$.$RANDOM"
+  : > "$base" && printf '%s\n' "$base"
+  ;;
+esac

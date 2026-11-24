@@ -100,6 +100,16 @@ func (m *Module) validateFunctionWithMaxStackValues(
 		}
 
 		if OpcodeI32Load <= op && op <= OpcodeI64Store32 {
+			if m.IsInspection() {
+				// Inspection decodes the full multi-memory/memory64 memarg and
+				// records the reference while performing the same stack checks.
+				nextPC, inspectErr := m.inspectScalarMemory(Opcode(op), pc, body, idx+m.ImportFunctionCount, valueTypeStack)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				pc = nextPC
+				continue
+			}
 			if memory == nil {
 				return fmt.Errorf("memory must exist for %s", InstructionName(op))
 			}
@@ -282,6 +292,14 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				}
 			}
 		} else if OpcodeMemorySize <= op && op <= OpcodeMemoryGrow {
+			if m.IsInspection() {
+				nextPC, inspectErr := m.inspectMemorySizeGrow(Opcode(op), pc, body, idx+m.ImportFunctionCount, valueTypeStack)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				pc = nextPC
+				continue
+			}
 			if memory == nil {
 				return fmt.Errorf("memory must exist for %s", InstructionName(op))
 			}
@@ -930,6 +948,17 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					}
 					pc += num - 1
 				case OpcodeMiscMemoryInit, OpcodeMiscMemoryCopy, OpcodeMiscMemoryFill:
+					if m.IsInspection() {
+						// Inspection reads complete memory indices and keeps
+						// the i32/i64 operand typing of each bulk operation.
+						nextPC, inspectErr := m.inspectBulkMemory(miscOpcode, pc, body,
+							idx+m.ImportFunctionCount, valueTypeStack)
+						if inspectErr != nil {
+							return inspectErr
+						}
+						pc = nextPC
+						continue
+					}
 					if memory == nil {
 						return fmt.Errorf("memory must exist for %s", MiscInstructionName(miscOpcode))
 					}
@@ -1098,6 +1127,10 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			// Vector instructions come with two bytes where the first byte is always OpcodeVecPrefix,
 			// and the second byte determines the actual instruction.
 			vecOpcode := body[pc]
+			if m.IsInspection() && isVecMemoryInspectionOpcode(vecOpcode) {
+				return fmt.Errorf("SIMD memory instruction %s is not supported in inspection mode",
+					VectorInstructionName(vecOpcode))
+			}
 			if err := enabledFeatures.RequireEnabled(api.CoreFeatureSIMD); err != nil {
 				return fmt.Errorf("%s invalid as %v", vectorInstructionName[vecOpcode], err)
 			}
@@ -1418,6 +1451,10 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			// Atomic instructions come with two bytes where the first byte is always OpcodeAtomicPrefix,
 			// and the second byte determines the actual instruction.
 			atomicOpcode := body[pc]
+			if m.IsInspection() {
+				return fmt.Errorf("atomic instructions (prefix 0x%x, opcode 0x%x) are not supported in inspection mode",
+					OpcodeAtomicPrefix, atomicOpcode)
+			}
 			if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesThreads); err != nil {
 				return fmt.Errorf("%s invalid as %v", atomicInstructionName[atomicOpcode], err)
 			}
