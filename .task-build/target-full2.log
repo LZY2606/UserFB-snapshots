@@ -1,0 +1,19 @@
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+BEGIN codes
+DONE codes checks=2516
+PROCESS_COMPLETE
+BEGIN runs
+DONE runs checks=543019
+PROCESS_COMPLETE
+BEGIN packets
+DONE packets checks=385
+PROCESS_COMPLETE
+mktemp: mkdtemp failed on /var/folders/k2/jtf6q13n6db9sx4x0cgn73_m0000gn/T/tmp.8Uhx0ZqLEA: Operation not permitted

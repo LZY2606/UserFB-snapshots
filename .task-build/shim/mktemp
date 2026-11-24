@@ -1,0 +1,8 @@
+#!/bin/bash
+# Local-sandbox-only mktemp shim: the Seatbelt profile blocks the macOS
+# DARWIN_USER_TEMP_DIR that /usr/bin/mktemp resolves even with TMPDIR set.
+# Creates the requested -d directory under MH_TMP (repo-local, writable).
+base="${MH_TMP:?}"
+d="$base/tg.$$.$RANDOM.$RANDOM"
+mkdir -p "$d" || exit 1
+printf '%s\n' "$d"

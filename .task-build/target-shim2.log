@@ -1,0 +1,20 @@
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+BEGIN codes
+DONE codes checks=2516
+PROCESS_COMPLETE
+BEGIN runs
+DONE runs checks=543019
+PROCESS_COMPLETE
+BEGIN packets
+DONE packets checks=385
+PROCESS_COMPLETE
+error: could not write config file /Users/lzy/pro/UserFB/workspace/Z1662/attempts/20261124T161129529867Z/repo/.task-build/mtmp/tg.52240.13946.21952/.git/config: Operation not permitted
+fatal: could not set 'core.repositoryformatversion' to '0'

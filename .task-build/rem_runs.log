@@ -1,0 +1,2 @@
+BEGIN runs
+CONTENT_MISMATCH tests/golomb_contract.cpp:333 runs(adaptive): status

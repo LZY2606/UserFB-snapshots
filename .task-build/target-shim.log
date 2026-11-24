@@ -1,0 +1,19 @@
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+BEGIN codes
+DONE codes checks=2516
+PROCESS_COMPLETE
+BEGIN runs
+DONE runs checks=543019
+PROCESS_COMPLETE
+BEGIN packets
+DONE packets checks=385
+PROCESS_COMPLETE
+fatal: cannot copy '/Applications/Xcode.app/Contents/Developer/usr/share/git-core/templates/hooks/commit-msg.sample' to '/Users/lzy/pro/UserFB/workspace/Z1662/attempts/20261124T161129529867Z/repo/.task-build/mtmp/tg.51555.5923.7039/.git/hooks/commit-msg.sample': Operation not permitted

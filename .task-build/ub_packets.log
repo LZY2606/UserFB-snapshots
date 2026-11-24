@@ -1,0 +1,112 @@
+BEGIN packets
+codec/matrix_dec.c:340:14: runtime error: left shift of negative value -200
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/matrix_dec.c:340:14 
+codec/matrix_dec.c:215:12: runtime error: left shift of negative value -130
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/matrix_dec.c:215:12 
+codec/matrix_dec.c:214:12: runtime error: left shift of negative value -240
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/matrix_dec.c:214:12 
+codec/dp_dec.c:135:18: runtime error: left shift of negative value -6
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/dp_dec.c:135:18 
+codec/dp_dec.c:100:17: runtime error: left shift of negative value -5
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/dp_dec.c:100:17 
+codec/ALACDecoder.cpp:118:85: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:118:85 
+codec/ALACDecoder.cpp:118:85: runtime error: load of misaligned address 0x000100d544ff for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:118:85 
+codec/ALACDecoder.cpp:119:80: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:119:80 
+codec/ALACDecoder.cpp:119:80: runtime error: load of misaligned address 0x000100d54503 for type 'uint8_t' (aka 'unsigned char'), which requires 4 byte alignment
+0x000100d54503: note: pointer points here
+ 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:119:80 
+codec/ALACDecoder.cpp:120:71: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:120:71 
+codec/ALACDecoder.cpp:121:65: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:121:65 
+codec/ALACDecoder.cpp:121:65: runtime error: load of misaligned address 0x000100d54505 for type 'uint8_t' (aka 'unsigned char'), which requires 2 byte alignment
+0x000100d54505: note: pointer points here
+ 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:121:65 
+codec/ALACDecoder.cpp:122:65: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:122:65 
+codec/ALACDecoder.cpp:123:65: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:123:65 
+codec/ALACDecoder.cpp:123:65: runtime error: load of misaligned address 0x000100d54507 for type 'uint8_t' (aka 'unsigned char'), which requires 4 byte alignment
+0x000100d54507: note: pointer points here
+ 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00 00 00
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:123:65 
+codec/ALACDecoder.cpp:124:74: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:124:74 
+codec/ALACDecoder.cpp:125:80: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:125:80 
+codec/ALACDecoder.cpp:125:80: runtime error: load of misaligned address 0x000100d54509 for type 'uint16_t' (aka 'unsigned short'), which requires 2 byte alignment
+0x000100d54509: note: pointer points here
+ 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00 00 00 05 00
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:125:80 
+codec/ALACDecoder.cpp:126:87: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:126:87 
+codec/ALACDecoder.cpp:126:87: runtime error: load of misaligned address 0x000100d5450b for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x000100d5450b: note: pointer points here
+ 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00 00 00 05 00 00 fa
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:126:87 
+codec/ALACDecoder.cpp:127:84: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:127:84 
+codec/ALACDecoder.cpp:127:84: runtime error: load of misaligned address 0x000100d5450f for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x000100d5450f: note: pointer points here
+ 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00 00 00 05 00 00 fa ff  ff d6 ff
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:127:84 
+codec/ALACDecoder.cpp:128:84: runtime error: member access within misaligned address 0x000100d544ff for type 'ALACSpecificConfig', which requires 4 byte alignment
+0x000100d544ff: note: pointer points here
+ 54 c9 4a b8 00  00 00 40 00 18 28 0a 0e  02 00 ff 00 00 00 00 00  00 00 00 00 00 ac 44 fc  ff ff fe
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:128:84 
+codec/ALACDecoder.cpp:128:84: runtime error: load of misaligned address 0x000100d54513 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x000100d54513: note: pointer points here
+ 00  00 00 00 00 00 ac 44 fc  ff ff fe ff ff ff ff ff  00 00 00 05 00 00 fa ff  ff d6 ff ff fe ff ff
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ALACDecoder.cpp:128:84 
+codec/matrix_dec.c:169:12: runtime error: left shift of negative value -1
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/matrix_dec.c:169:12 
+codec/matrix_dec.c:170:12: runtime error: left shift of negative value -1
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/matrix_dec.c:170:12 
+DONE packets checks=385
+PROCESS_COMPLETE

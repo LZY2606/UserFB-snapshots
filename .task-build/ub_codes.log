@@ -1,0 +1,23 @@
+BEGIN codes
+codec/ag_enc.c:196:9: runtime error: load of misaligned address 0x00010588a941 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x00010588a941: note: pointer points here
+ 5a 5a 5a  04 f1 2b e3 8e 5f f0 03  f4 ff 80 23 1f f1 fd ff  c5 a5 a5 a5 a5 a5 a5 a5  a5 a5 a5 a5 a5
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ag_enc.c:196:9 
+codec/ag_enc.c:207:2: runtime error: store to misaligned address 0x00010588a941 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x00010588a941: note: pointer points here
+ 5a 5a 5a  04 f1 2b e3 8e 5f f0 03  f4 ff 80 23 1f f1 fd ff  c5 a5 a5 a5 a5 a5 a5 a5  a5 a5 a5 a5 a5
+              ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ag_enc.c:207:2 
+codec/ag_enc.c:221:9: runtime error: load of misaligned address 0x00010588a946 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x00010588a946: note: pointer points here
+ 2b e3 8e 5f f0 03  f4 ff 80 23 1f f1 fd ff  c5 a5 a5 a5 a5 a5 a5 a5  a5 a5 a5 a5 a5 a5 a5 a5  a5 a5
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ag_enc.c:221:9 
+codec/ag_enc.c:246:2: runtime error: store to misaligned address 0x00010588a946 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+0x00010588a946: note: pointer points here
+ 2b e3 8e 5f f0 03  f4 ff 80 23 1f f1 fd ff  c5 a5 a5 a5 a5 a5 a5 a5  a5 a5 a5 a5 a5 a5 a5 a5  a5 a5
+             ^ 
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior codec/ag_enc.c:246:2 
+DONE codes checks=2516
+PROCESS_COMPLETE
