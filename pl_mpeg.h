@@ -161,6 +161,7 @@ typedef struct plm_buffer_t plm_buffer_t;
 typedef struct plm_demux_t plm_demux_t;
 typedef struct plm_video_t plm_video_t;
 typedef struct plm_audio_t plm_audio_t;
+typedef struct plm_audio_mix_t plm_audio_mix_t;
 
 
 // Demuxed MPEG PS packet
@@ -800,12 +801,87 @@ void plm_audio_rewind(plm_audio_t *self);
 int plm_audio_has_ended(plm_audio_t *self);
 
 
-// Decode and return one "frame" of audio and advance the internal time by 
-// (PLM_AUDIO_SAMPLES_PER_FRAME/samplerate) seconds. The returned samples_t 
+// Decode and return one "frame" of audio and advance the internal time by
+// (PLM_AUDIO_SAMPLES_PER_FRAME/samplerate) seconds. The returned samples_t
 // is valid until the next call of plm_audio_decode() or until the audio
 // decoder is destroyed.
 
 plm_samples_t *plm_audio_decode(plm_audio_t *self);
+
+
+
+// -----------------------------------------------------------------------------
+// plm_audio_mix public API
+// Time-aligned multi-stream mixer for audio-only MPEG-1 Program Streams.
+//
+// A plm_audio_mix_t demuxes up to 4 MP2 audio streams (PES stream ids 0xC0
+// through 0xC3) from one MPEG-PS source, decodes each with its own MP2
+// decoder and resamples everything to a single 48000 Hz stereo timeline.
+// The output timeline is anchored at an explicit origin in 90 kHz ticks:
+// output frame n presents at origin90k/90000 + n/48000 seconds. Source
+// samples are mapped with exact integer rational math and resampled with
+// linear interpolation between adjacent source samples.
+//
+// The input is a legal audio-only MPEG-1 Program Stream: every audio PES
+// carries one complete MP2 frame with a PTS, PES packets appear in
+// non-decreasing PTS order and each selected stream is 32000 or 48000 Hz,
+// mono or stereo.
+
+
+// Create a mixer for `buffer`. `stream_mask` selects the audio streams: bit
+// k (0..3) selects PES stream id 0xC0 + k. The mask must be non-zero and must
+// not contain any bits outside the low four; `origin90k` must be >= 0. On any
+// invalid argument NULL is returned and the buffer is not taken over.
+// Pass TRUE for `destroy_buffer` to let the mixer call plm_buffer_destroy()
+// on the buffer when the mixer is destroyed; otherwise the caller retains
+// ownership. The input does not need to contain complete headers yet.
+
+plm_audio_mix_t *plm_audio_mix_create(plm_buffer_t *buffer, int destroy_buffer,
+	unsigned int stream_mask, int64_t origin90k);
+
+
+// Destroy a mixer. Frees all per-stream decoders and work buffers and,
+// depending on the destroy_buffer flag passed on creation, the source buffer.
+
+void plm_audio_mix_destroy(plm_audio_mix_t *self);
+
+
+// Atomically set the gains of the four streams (indices 0..3 map to stream
+// ids 0xC0..0xC3). All four values must be finite; otherwise 0 is returned
+// and the mixer state (including the previous gains) is left untouched.
+// Gains apply at actual output positions: already decoded cached samples are
+// rendered with the gains in effect during the next plm_audio_mix_read().
+
+int plm_audio_mix_set_gains(plm_audio_mix_t *self, const float gains[4]);
+
+
+// Render up to `capacity` stereo frames (interleaved L/R floats) into
+// `stereo`. Returns the number of frames delivered. When the appended input
+// does not yet prove the contribution of every selected stream for the next
+// output frame, the provable prefix is returned immediately (possibly 0, in
+// which case the output position is unchanged) without treating pending
+// streams as silence. A capacity of 0 returns 0.
+
+size_t plm_audio_mix_read(plm_audio_mix_t *self, float *stereo, size_t capacity);
+
+
+// Get the current output position in 48 kHz stereo frames.
+
+uint64_t plm_audio_mix_get_position(plm_audio_mix_t *self);
+
+
+// Get whether the mixer has genuinely drained: the input ended and all
+// selected streams have been rendered up to the exclusive end of the latest
+// frame. A temporary lack of appended bytes is not "ended".
+
+int plm_audio_mix_has_ended(plm_audio_mix_t *self);
+
+
+// Rewind an addressable input back to its start and clear all decoding and
+// interpolation state. Replaying afterwards yields the same output as a
+// freshly created mixer, including the default gains.
+
+void plm_audio_mix_rewind(plm_audio_mix_t *self);
 
 
 
@@ -4433,6 +4509,534 @@ void plm_audio_idct36(int s[32][3], int ss, float *d, int dp) {
 	d[dp + 13] = t24; d[dp + 18] = -t31;
 	d[dp + 14] = t31; d[dp + 17] = -t02;
 	d[dp + 15] = t02; d[dp + 16] = 0.0;
+}
+
+
+// -----------------------------------------------------------------------------
+// plm_audio_mix implementation
+//
+// The mixer runs one plm_demux_t on the caller's source buffer and one
+// plm_audio_t per selected stream on a small private ring buffer. Demuxed
+// PES packets are handed over one at a time (back-pressure: a track never
+// holds more than one undecoded PES), and each decoded MP2 frame is copied
+// into one of two PCM slots, so the memory per track is fixed regardless of
+// the stream length. All timeline math uses integer rational arithmetic;
+// the only floating point operations are the final linear interpolation and
+// gain scaling.
+
+#include <math.h>
+
+#define PLM_MIX_STREAM_COUNT 4
+#define PLM_MIX_OUTPUT_RATE 48000
+#define PLM_MIX_PCM_FLOATS (PLM_AUDIO_SAMPLES_PER_FRAME * 2)
+#define PLM_MIX_TRACK_BUFFER_SIZE 2048
+#define PLM_MIX_MAX_PES_SIZE 2048
+
+// Timing is kept in units of 1/8 of a 90 kHz tick: output frame n presents
+// at origin + n*15/8 ticks, i.e. t8 = origin*8 + n*15.
+
+#define PLM_MIX_T8_PER_OUTPUT_FRAME 15
+
+typedef struct {
+	int active;
+	int have_header;
+	int samplerate;
+	int mono;
+
+	// One PES may be in flight in the buffer, waiting for plm_audio_decode()
+	int pes_pending;
+	int64_t pending_pts;
+
+	// Two decoded PCM frames; `cur` is the frame covering the output time
+	// and cur^1 is the known successor (or invalid).
+	int cur;
+	int slot_valid[2];
+	int64_t slot_pts[2];
+	float slot_pcm[2][PLM_MIX_PCM_FLOATS];
+
+	// Exclusive end of the latest frame decoded for this track, in ticks
+	int64_t last_end;
+
+	plm_buffer_t *buffer;
+	plm_audio_t *decoder;
+} plm_mix_track_t;
+
+struct plm_audio_mix_t {
+	plm_buffer_t *source;
+	int destroy_buffer;
+	unsigned int stream_mask;
+	int64_t origin; // 90 kHz ticks
+
+	float gains[PLM_MIX_STREAM_COUNT];
+
+	plm_demux_t *demux;
+	plm_mix_track_t tracks[PLM_MIX_STREAM_COUNT];
+
+	uint64_t position; // output frames delivered
+	int global_eof;
+	int ended;
+
+	// PTS of the latest demuxed PES, in 90 kHz ticks. Because PES packets
+	// arrive in non-decreasing PTS order, this is the global time watermark.
+	int64_t watermark;
+
+	// A demuxed packet waiting for track back-pressure to clear. The bytes
+	// are copied out of the source buffer so that a reallocation caused by
+	// a later plm_buffer_write() cannot leave a dangling pointer.
+	int held_valid;
+	int held_track;
+	int64_t held_pts;
+	size_t held_length;
+	uint8_t held_bytes[PLM_MIX_MAX_PES_SIZE];
+};
+
+
+static int64_t plm_mix_pts_to_ticks(double pts) {
+	return (int64_t)llround(pts * 90000.0);
+}
+
+static int plm_mix_frame_duration_ticks(int samplerate) {
+	// 1152 samples * 90000 / samplerate
+	return (samplerate == 32000) ? 3240 : 2160;
+}
+
+static void plm_mix_open_pipeline(plm_audio_mix_t *self) {
+	self->demux = plm_demux_create(self->source, FALSE);
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		if (!self->tracks[i].active) {
+			continue;
+		}
+		self->tracks[i].buffer =
+			plm_buffer_create_with_capacity(PLM_MIX_TRACK_BUFFER_SIZE);
+		self->tracks[i].decoder =
+			plm_audio_create_with_buffer(self->tracks[i].buffer, FALSE);
+	}
+}
+
+static void plm_mix_close_pipeline(plm_audio_mix_t *self) {
+	if (self->demux) {
+		plm_demux_destroy(self->demux);
+		self->demux = NULL;
+	}
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		plm_mix_track_t *track = &self->tracks[i];
+		if (track->decoder) {
+			plm_audio_destroy(track->decoder);
+			track->decoder = NULL;
+		}
+		if (track->buffer) {
+			plm_buffer_destroy(track->buffer);
+			track->buffer = NULL;
+		}
+	}
+}
+
+static void plm_mix_reset_state(plm_audio_mix_t *self) {
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		plm_mix_track_t *track = &self->tracks[i];
+		track->have_header = FALSE;
+		track->samplerate = 0;
+		track->mono = FALSE;
+		track->pes_pending = FALSE;
+		track->pending_pts = 0;
+		track->cur = 0;
+		track->slot_valid[0] = track->slot_valid[1] = FALSE;
+		track->slot_pts[0] = track->slot_pts[1] = 0;
+		track->last_end = 0;
+	}
+	self->position = 0;
+	self->global_eof = FALSE;
+	self->ended = FALSE;
+	self->watermark = 0;
+	self->held_valid = FALSE;
+	self->held_track = 0;
+	self->held_pts = 0;
+	self->held_length = 0;
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		self->gains[i] = 1.0f;
+	}
+}
+
+plm_audio_mix_t *plm_audio_mix_create(plm_buffer_t *buffer, int destroy_buffer,
+	unsigned int stream_mask, int64_t origin90k) {
+
+	if (
+		buffer == NULL ||
+		stream_mask == 0 ||
+		(stream_mask & ~0xFu) != 0 ||
+		origin90k < 0
+	) {
+		return NULL;
+	}
+
+	plm_audio_mix_t *self = (plm_audio_mix_t *)PLM_MALLOC(sizeof(plm_audio_mix_t));
+	memset(self, 0, sizeof(plm_audio_mix_t));
+
+	self->source = buffer;
+	self->destroy_buffer = destroy_buffer;
+	self->stream_mask = stream_mask;
+	self->origin = origin90k;
+
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		self->tracks[i].active = (stream_mask & (1u << i)) ? TRUE : FALSE;
+	}
+
+	plm_mix_reset_state(self);
+	plm_mix_open_pipeline(self);
+	return self;
+}
+
+void plm_audio_mix_destroy(plm_audio_mix_t *self) {
+	if (!self) {
+		return;
+	}
+	plm_mix_close_pipeline(self);
+	if (self->destroy_buffer) {
+		plm_buffer_destroy(self->source);
+	}
+	PLM_FREE(self);
+}
+
+int plm_audio_mix_set_gains(plm_audio_mix_t *self, const float gains[4]) {
+	if (!self || !gains) {
+		return FALSE;
+	}
+	for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+		if (!isfinite(gains[i])) {
+			return FALSE;
+		}
+	}
+	// Commit atomically: only touch the live state after all values validated.
+	memcpy(self->gains, gains, sizeof(float) * PLM_MIX_STREAM_COUNT);
+	return TRUE;
+}
+
+// Demux packets and decode whatever the back-pressure allows, until no more
+// progress can be made with the bytes currently appended.
+static void plm_mix_pump(plm_audio_mix_t *self) {
+	int progress;
+	do {
+		progress = FALSE;
+
+		// Demux: fill self->held with the next selected PES, then deliver it
+		// to its track when no other PES is in flight there.
+		for (;;) {
+			if (!self->held_valid) {
+				if (self->global_eof) {
+					break;
+				}
+				plm_packet_t *packet = plm_demux_decode(self->demux);
+				if (!packet) {
+					if (plm_demux_has_ended(self->demux)) {
+						self->global_eof = TRUE;
+					}
+					break;
+				}
+
+				if (packet->pts != PLM_PACKET_INVALID_TS) {
+					int64_t pts = plm_mix_pts_to_ticks(packet->pts);
+					if (pts > self->watermark) {
+						self->watermark = pts;
+					}
+				}
+
+				int track_index = packet->type - PLM_DEMUX_PACKET_AUDIO_1;
+				if (
+					track_index < 0 || track_index >= PLM_MIX_STREAM_COUNT ||
+					!self->tracks[track_index].active
+				) {
+					continue; // unselected stream; demuxer already skipped it
+				}
+
+				// A legal MPEG-1 Layer II frame fits well below 2048 bytes;
+				// an oversized packet is outside the supported input.
+				if (packet->length > PLM_MIX_MAX_PES_SIZE) {
+					self->global_eof = TRUE;
+					break;
+				}
+
+				self->held_valid = TRUE;
+				self->held_track = track_index;
+				self->held_pts = plm_mix_pts_to_ticks(packet->pts);
+				self->held_length = packet->length;
+				memcpy(self->held_bytes, packet->data, packet->length);
+			}
+
+			plm_mix_track_t *track = &self->tracks[self->held_track];
+			if (track->pes_pending) {
+				break; // back-pressure; retry after decoding frees the slot
+			}
+
+			plm_buffer_write(track->buffer, self->held_bytes,
+				self->held_length);
+			track->pes_pending = TRUE;
+			track->pending_pts = self->held_pts;
+			self->held_valid = FALSE;
+			progress = TRUE;
+		}
+
+		// Decode one delivered PES per track into the free PCM slot.
+		for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+			plm_mix_track_t *track = &self->tracks[i];
+			if (
+				!track->active || !track->pes_pending ||
+				track->slot_valid[track->cur ^ 1]
+			) {
+				continue;
+			}
+
+			plm_samples_t *samples = plm_audio_decode(track->decoder);
+			if (!samples) {
+				continue;
+			}
+
+			int slot = track->cur ^ 1;
+			memcpy(track->slot_pcm[slot], samples->interleaved,
+				sizeof(float) * PLM_MIX_PCM_FLOATS);
+			track->slot_pts[slot] = track->pending_pts;
+			track->slot_valid[slot] = TRUE;
+			track->pes_pending = FALSE;
+
+			if (!track->have_header) {
+				track->samplerate = plm_audio_get_samplerate(track->decoder);
+				track->mono = (track->decoder->mode == PLM_AUDIO_MODE_MONO);
+				track->have_header = TRUE;
+			}
+			track->last_end = track->pending_pts +
+				plm_mix_frame_duration_ticks(track->samplerate);
+			progress = TRUE;
+		}
+	} while (progress);
+}
+
+// Select the PCM slot covering t8 (time in 1/8 ticks), advancing the slot
+// pair when the successor frame starts. Returns -1 when no known frame
+// covers the time.
+static int plm_mix_select_slot(plm_mix_track_t *track, int64_t t8) {
+	int duration = plm_mix_frame_duration_ticks(track->samplerate);
+
+	if (track->slot_valid[track->cur]) {
+		int64_t start8 = track->slot_pts[track->cur] * 8;
+		int64_t end8 = (track->slot_pts[track->cur] + duration) * 8;
+		if (start8 <= t8 && t8 < end8) {
+			return track->cur;
+		}
+	}
+
+	int next = track->cur ^ 1;
+	if (track->slot_valid[next]) {
+		int64_t start8 = track->slot_pts[next] * 8;
+		int64_t end8 = (track->slot_pts[next] + duration) * 8;
+		if (start8 <= t8 && t8 < end8) {
+			track->cur = next;
+			track->slot_valid[next ^ 1] = FALSE;
+			return track->cur;
+		}
+	}
+	return -1;
+}
+
+// Whether track's contribution at t8 can already be proven from the bytes
+// available. A zero contribution (gap, not-yet-started, real EOF) counts as
+// proven; only genuinely unknown futures return FALSE.
+static int plm_mix_track_ready(plm_mix_track_t *track, int64_t t8,
+	int64_t watermark, int global_eof) {
+
+	int slot = plm_mix_select_slot(track, t8);
+	if (slot < 0) {
+		// No cached frame covers t8.
+		if (global_eof) {
+			return TRUE; // nothing more can arrive for this track
+		}
+		// PES ordering guarantees no packet older than the watermark is
+		// still missing. The comparison is strict: PES packets may share a
+		// PTS, so a frame starting exactly at t8 could still be in flight.
+		return watermark * 8 > t8;
+	}
+
+	int64_t B = t8 - track->slot_pts[slot] * 8; // 1/8 ticks since frame start
+	int64_t numerator;
+	int denominator;
+	if (track->samplerate == 48000) {
+		numerator = B;       // x = B/15
+		denominator = 15;
+	}
+	else {
+		numerator = B * 2;   // x = 2B/45
+		denominator = 45;
+	}
+	int64_t source_index = numerator / denominator;
+	if (source_index + 1 < PLM_AUDIO_SAMPLES_PER_FRAME) {
+		return TRUE; // both interpolation neighbours live in this frame
+	}
+
+	// The right neighbour is the first sample of the next frame. It may only
+	// be used when that frame is known to be contiguous.
+	int next = slot ^ 1;
+	if (track->slot_valid[next]) {
+		return TRUE;
+	}
+	int64_t frame_end = track->slot_pts[slot] +
+		plm_mix_frame_duration_ticks(track->samplerate);
+	if (track->pes_pending) {
+		return track->pending_pts != frame_end; // contiguous -> wait for decode
+	}
+	if (global_eof || watermark > frame_end) {
+		return TRUE; // proven gap or real EOF: right neighbour is silence
+	}
+	return FALSE;
+}
+
+// Render one track's contribution at t8. plm_mix_track_ready() must already
+// have returned TRUE for this time.
+static void plm_mix_render_track(plm_audio_mix_t *self, int track_index,
+	int64_t t8, float out[2]) {
+
+	plm_mix_track_t *track = &self->tracks[track_index];
+	out[0] = out[1] = 0.0f;
+
+	int slot = plm_mix_select_slot(track, t8);
+	if (slot < 0) {
+		return;
+	}
+
+	int64_t B = t8 - track->slot_pts[slot] * 8;
+	int64_t numerator;
+	int denominator;
+	if (track->samplerate == 48000) {
+		numerator = B;
+		denominator = 15;
+	}
+	else {
+		numerator = B * 2;
+		denominator = 45;
+	}
+	int64_t source_index = numerator / denominator;
+	int64_t remainder = numerator - source_index * denominator;
+	float fraction = (float)remainder / (float)denominator;
+
+	int at_last_sample =
+		(source_index + 1 >= PLM_AUDIO_SAMPLES_PER_FRAME);
+	int next = slot ^ 1;
+	int64_t frame_end = track->slot_pts[slot] +
+		plm_mix_frame_duration_ticks(track->samplerate);
+	int contiguous = track->slot_valid[next] &&
+		track->slot_pts[next] == frame_end;
+
+	const float *pcm = track->slot_pcm[slot];
+	const float *next_pcm = contiguous ? track->slot_pcm[next] : NULL;
+
+	if (track->mono) {
+		float left = pcm[source_index * 2];
+		float right_sample = 0.0f;
+		if (!at_last_sample) {
+			right_sample = pcm[(source_index + 1) * 2];
+		}
+		else if (next_pcm) {
+			right_sample = next_pcm[0];
+		}
+		float value = left + fraction * (right_sample - left);
+		out[0] = out[1] = value;
+	}
+	else {
+		for (int channel = 0; channel < 2; channel++) {
+			float left = pcm[source_index * 2 + channel];
+			float right_sample = 0.0f;
+			if (!at_last_sample) {
+				right_sample = pcm[(source_index + 1) * 2 + channel];
+			}
+			else if (next_pcm) {
+				right_sample = next_pcm[channel];
+			}
+			out[channel] = left + fraction * (right_sample - left);
+		}
+	}
+}
+
+size_t plm_audio_mix_read(plm_audio_mix_t *self, float *stereo, size_t capacity) {
+	if (!self || !stereo || capacity == 0) {
+		return 0;
+	}
+
+	size_t delivered = 0;
+	while (delivered < capacity) {
+		plm_mix_pump(self);
+
+		// Output frame time in 1/8 ticks
+		int64_t t8 = self->origin * 8 +
+			(int64_t)PLM_MIX_T8_PER_OUTPUT_FRAME * (int64_t)self->position;
+
+		if (self->global_eof) {
+			int all_idle = TRUE;
+			int64_t latest_end = 0;
+			for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+				if (!self->tracks[i].active) {
+					continue;
+				}
+				if (self->tracks[i].pes_pending) {
+					all_idle = FALSE;
+				}
+				if (self->tracks[i].last_end > latest_end) {
+					latest_end = self->tracks[i].last_end;
+				}
+			}
+			if (all_idle && t8 >= latest_end * 8) {
+				self->ended = TRUE;
+				break;
+			}
+		}
+
+		int ready = TRUE;
+		for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+			if (!self->tracks[i].active) {
+				continue;
+			}
+			if (!plm_mix_track_ready(&self->tracks[i], t8,
+				self->watermark, self->global_eof)) {
+				ready = FALSE;
+				break;
+			}
+		}
+		if (!ready) {
+			break;
+		}
+
+		float mixed[2] = {0.0f, 0.0f};
+		for (int i = 0; i < PLM_MIX_STREAM_COUNT; i++) {
+			if (!self->tracks[i].active) {
+				continue;
+			}
+			float contribution[2];
+			plm_mix_render_track(self, i, t8, contribution);
+			mixed[0] += self->gains[i] * contribution[0];
+			mixed[1] += self->gains[i] * contribution[1];
+		}
+
+		stereo[delivered * 2] = mixed[0];
+		stereo[delivered * 2 + 1] = mixed[1];
+		delivered++;
+		self->position++;
+	}
+
+	return delivered;
+}
+
+uint64_t plm_audio_mix_get_position(plm_audio_mix_t *self) {
+	return self ? self->position : 0;
+}
+
+int plm_audio_mix_has_ended(plm_audio_mix_t *self) {
+	return self ? self->ended : FALSE;
+}
+
+void plm_audio_mix_rewind(plm_audio_mix_t *self) {
+	if (!self) {
+		return;
+	}
+	plm_mix_close_pipeline(self);
+	plm_buffer_rewind(self->source);
+	plm_mix_reset_state(self);
+	plm_mix_open_pipeline(self);
 }
 
 

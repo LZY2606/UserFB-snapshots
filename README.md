@@ -67,3 +67,80 @@ https://phoboslab.org/files/bjork-all-is-full-of-love.mpg
 - the pts (presentation time stamp) for packets in the MPEG-PS container is
 ignored. This may cause sync issues with some files.
 - bugs, probably.
+
+
+## Multi-stream audio mixing (`plm_audio_mix_t`)
+
+For audio-only MPEG-1 Program Streams that carry several MP2 audio tracks
+(PES stream ids `0xC0`–`0xC3`, e.g. a main voice and a commentary),
+`plm_audio_mix_t` demuxes the selected tracks, decodes each with its own
+MP2 decoder and resamples everything onto one 48 kHz stereo timeline. Frame
+*n* is presented at `origin90k/90000 + n/48000` seconds; source samples are
+mapped with integer rational math and linearly interpolated. Each track
+keeps at most two decoded PCM frames, so memory does not grow with the
+stream length.
+
+The mixer reads from a normal `plm_buffer_t`, so bytes can be appended
+incrementally. When the appended bytes do not yet prove every selected
+track's contribution for the next frame, `plm_audio_mix_read()` returns the
+provable prefix (possibly 0) without inserting fake silence; use
+`plm_audio_mix_has_ended()` to tell genuine exhaustion from a temporary
+shortage of bytes.
+
+### Buffer ownership
+
+`plm_audio_mix_create(buffer, destroy_buffer, ...)` never copies the
+compressed stream. If `destroy_buffer` is non-zero the mixer takes ownership
+and calls `plm_buffer_destroy()` on the buffer when the mixer is destroyed;
+pass zero to keep ownership on the caller side, in which case the caller
+must destroy the buffer itself after the mixer is gone. The same rule
+applies to the underlying storage of memory/appending buffers.
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+#define PL_MPEG_IMPLEMENTATION
+#include "pl_mpeg.h"
+
+void mix_program_stream(const uint8_t *ps_bytes, size_t ps_length) {
+    // Caller-owned appending buffer: destroy_buffer == 0 means the mixer
+    // must not free it. Use 1 to transfer ownership instead.
+    plm_buffer_t *buffer = plm_buffer_create_for_appending(16 * 1024);
+    plm_buffer_write(buffer, (uint8_t *)ps_bytes, ps_length);
+    plm_buffer_signal_end(buffer);
+
+    // Select streams 0xC0 and 0xC1 (bits 0 and 1); timeline origin at 0.
+    plm_audio_mix_t *mix =
+        plm_audio_mix_create(buffer, 0, 0x3 /*stream_mask*/, 0 /*origin90k*/);
+
+    // Optional per-track gains, indices map to 0xC0..0xC3. All four values
+    // must be finite; an invalid call returns 0 and leaves the gains intact.
+    float gains[4] = {1.0f, 0.7f, 1.0f, 1.0f};
+    plm_audio_mix_set_gains(mix, gains);
+
+    float stereo[256]; // interleaved L/R, 48 kHz
+    for (;;) {
+        size_t frames = plm_audio_mix_read(mix, stereo, 128);
+        if (frames == 0) {
+            if (plm_audio_mix_has_ended(mix)) {
+                break; // real end of stream; otherwise just wait for bytes
+            }
+            continue;
+        }
+        uint64_t position = plm_audio_mix_get_position(mix); // output frames
+        /* hand stereo[0 .. frames*2) to the audio device here */
+        (void)position;
+    }
+
+    plm_audio_mix_destroy(mix);
+    plm_buffer_destroy(buffer); // caller still owns the buffer
+}
+```
+
+For streaming use, call `plm_buffer_write()` repeatedly (between reads) and
+`plm_buffer_signal_end()` only once the whole stream has been appended.
+`plm_audio_mix_rewind()` rewinds an addressable source and clears all
+decoding/interpolation state, so replaying yields the same output as a
+freshly created mixer (including the default unit gains).
+
