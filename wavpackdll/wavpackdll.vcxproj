@@ -123,7 +123,7 @@
 /export:WavpackGetFileFormat /export:WavpackGetNumSamplesInFrame
 /export:WavpackGetNativeSampleRate /export:WavpackGetChannelIdentities
 /export:WavpackGetChannelLayout /export:WavpackSetFileInformation
-/export:WavpackSetConfiguration64 /export:WavpackSetChannelLayout
+/export:WavpackSetConfiguration64 /export:WavpackSetHybridBitratePlan /export:WavpackSetChannelLayout
 /export:WavpackVerifySingleBlock
 /export:WavpackFloatNormalize
  %(AdditionalOptions)</AdditionalOptions>
@@ -181,7 +181,7 @@
 /export:WavpackGetFileFormat /export:WavpackGetNumSamplesInFrame
 /export:WavpackGetNativeSampleRate /export:WavpackGetChannelIdentities
 /export:WavpackGetChannelLayout /export:WavpackSetFileInformation
-/export:WavpackSetConfiguration64 /export:WavpackSetChannelLayout
+/export:WavpackSetConfiguration64 /export:WavpackSetHybridBitratePlan /export:WavpackSetChannelLayout
 /export:WavpackVerifySingleBlock
 /export:WavpackFloatNormalize
  %(AdditionalOptions)</AdditionalOptions>
@@ -239,7 +239,7 @@
 /export:WavpackGetFileFormat /export:WavpackGetNumSamplesInFrame
 /export:WavpackGetNativeSampleRate /export:WavpackGetChannelIdentities
 /export:WavpackGetChannelLayout /export:WavpackSetFileInformation
-/export:WavpackSetConfiguration64 /export:WavpackSetChannelLayout
+/export:WavpackSetConfiguration64 /export:WavpackSetHybridBitratePlan /export:WavpackSetChannelLayout
 /export:WavpackVerifySingleBlock
 /export:WavpackFloatNormalize
  %(AdditionalOptions)</AdditionalOptions>
@@ -302,7 +302,7 @@
 /export:WavpackGetFileFormat /export:WavpackGetNumSamplesInFrame
 /export:WavpackGetNativeSampleRate /export:WavpackGetChannelIdentities
 /export:WavpackGetChannelLayout /export:WavpackSetFileInformation
-/export:WavpackSetConfiguration64 /export:WavpackSetChannelLayout
+/export:WavpackSetConfiguration64 /export:WavpackSetHybridBitratePlan /export:WavpackSetChannelLayout
 /export:WavpackVerifySingleBlock
 /export:WavpackFloatNormalize
  %(AdditionalOptions)</AdditionalOptions>

@@ -56,6 +56,7 @@
 ++'WavpackSetFileInformation'.'wavpack.dll'.'WavpackSetFileInformation'
 ++'WavpackSetConfiguration'.'wavpack.dll'.'WavpackSetConfiguration'
 ++'WavpackSetConfiguration64'.'wavpack.dll'.'WavpackSetConfiguration64'
+++'WavpackSetHybridBitratePlan'.'wavpack.dll'.'WavpackSetHybridBitratePlan'
 ++'WavpackSetChannelLayout'.'wavpack.dll'.'WavpackSetChannelLayout'
 ++'WavpackAddWrapper'.'wavpack.dll'.'WavpackAddWrapper'
 ++'WavpackStoreMD5Sum'.'wavpack.dll'.'WavpackStoreMD5Sum'

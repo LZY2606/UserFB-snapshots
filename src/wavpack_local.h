@@ -341,6 +341,10 @@ typedef struct {
         int32_t *ptable;
     } dsd;
 
+    // per-channel hybrid bitrate plan support (only used when the owning context has a plan)
+    int plan_budget [2];            // Q8 bits/sample in effect for the block currently being packed
+    int plan_active;                // index of the plan point applied to the current block, -1 when none
+
 } WavpackStream;
 
 // flags for float_flags:
@@ -421,6 +425,13 @@ struct WavpackContext {
 
     void (*close_callback)(void *wpc);
     char error_message [80];
+
+    // accepted hybrid bitrate plan (NULL when no plan is in effect)
+    int64_t *plan_points;           // strictly increasing sample indices, first one is 0
+    uint16_t *plan_budgets;         // plan_count * num_channels Q8 bits/sample values
+    uint32_t plan_count, plan_pos;  // plan_pos = first point not yet reached
+    int packing_started;            // WavpackPackInit() has run, so the plan can no longer change
+    int plan_flush;                 // packing a segment that must end exactly on a cut
 };
 
 //////////////////////// function prototypes and macros //////////////////////
@@ -742,6 +753,14 @@ int WavpackStoreMD5Sum (WavpackContext *wpc, unsigned char data [16]);
 void WavpackSeekTrailingWrapper (WavpackContext *wpc);
 void WavpackUpdateNumSamples (WavpackContext *wpc, void *first_block);
 void *WavpackGetWrapperLocation (void *first_block, uint32_t *size);
+
+//////////////////////////////// hybrid bitrate plan (pack_plan.c) ////////////////////////////////
+
+int WavpackSetHybridBitratePlan (WavpackContext *wpc, const WavpackHybridBitratePoint *points, uint32_t count);
+void WavpackFreeBitratePlan (WavpackContext *wpc);
+int64_t WavpackPlanNextPoint (const WavpackContext *wpc);   // next unreached cut sample, or -1 when none
+int WavpackPlanStreamBudget (WavpackStream *wps);           // load plan budget into the stream, 0 if no plan
+void WavpackResetPlanWordState (WavpackStream *wps);        // restart the entropy state for a plan cut
 
 /////////////////////////////////// common utilities ////////////////////////////////////
 // module: common_utils.c

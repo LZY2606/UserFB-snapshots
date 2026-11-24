@@ -471,7 +471,8 @@ int pack_block (WavpackStream *wps, int32_t *buffer)
     // the file and they are not applicable with float data or >24-bit data.
 
     if (!wps->stream_index && !(flags & FLOAT_DATA) && (flags & MAG_MASK) >> MAG_LSB < 24) {
-        if ((wps->wpc->config.flags & CONFIG_DYNAMIC_SHAPING) && !wps->wpc->config.block_samples) {
+        if ((wps->wpc->config.flags & CONFIG_DYNAMIC_SHAPING) && !wps->wpc->config.block_samples &&
+            !wps->wpc->plan_flush) {
             dynamic_noise_shaping (wps, buffer, TRUE);
             sample_count = wps->wphdr.block_samples;
             dynamic_shaping_done = TRUE;
@@ -490,9 +491,11 @@ int pack_block (WavpackStream *wps, int32_t *buffer)
     }
 
     // This code scans stereo data to check whether it can be stored as mono data
-    // (i.e., all L/R samples identical). Only available with MAX_STREAM_VERS.
+    // (i.e., all L/R samples identical). Only available with MAX_STREAM_VERS. A
+    // bitrate plan always keeps the stereo pairing as two independent channels so
+    // that each channel's own budget remains meaningful.
 
-    if (!(flags & MONO_FLAG) && wps->wpc->stream_version == MAX_STREAM_VERS) {
+    if (!(flags & MONO_FLAG) && wps->wpc->stream_version == MAX_STREAM_VERS && !wps->wpc->plan_count) {
         int32_t lor = 0, diff = 0;
         int32_t *sptr, *dptr, i;
 

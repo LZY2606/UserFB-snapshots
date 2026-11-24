@@ -205,6 +205,13 @@ int WavpackSetConfiguration64 (WavpackContext *wpc, WavpackConfig *config, int64
     int num_chans = config->num_channels;
     int stream_index, i;
 
+    // a (possibly) previously accepted plan is tied to the old channel layout and
+    // total length, so it does not survive a fresh configuration; the caller must
+    // re-install a plan after this call succeeds
+
+    WavpackFreeBitratePlan (wpc);
+    wpc->packing_started = FALSE;
+
     if (config->sample_rate <= 0) {
         strcpy (wpc->error_message, "sample rate cannot be zero or negative!");
         return FALSE;
@@ -551,6 +558,8 @@ int WavpackPackInit (WavpackContext *wpc)
 {
     int stream_index;
 
+    wpc->packing_started = TRUE;
+
     if (wpc->metabytes > 16384)             // 16384 bytes still leaves plenty of room for audio
         write_metadata_block (wpc);         //  in this block (otherwise write a special one)
 
@@ -671,6 +680,28 @@ int WavpackPackInit (WavpackContext *wpc)
 static int pack_streams (WavpackContext *wpc, uint32_t block_samples, int last_block);
 static int create_riff_header (WavpackContext *wpc, int64_t total_samples, void *outbuffer);
 
+// Return the largest number of frames that may be accumulated without crossing
+// a pending bitrate-plan cut. Points that have not been reached yet simply wait
+// for more input; budget changes are driven by absolute sample position, never
+// by how much data has been received so far. Returns zero when there is no cut
+// inside the data currently available.
+
+static uint32_t plan_cut_limit (WavpackContext *wpc, uint32_t available)
+{
+    int64_t next_point;
+
+    if (!wpc->plan_count || (next_point = WavpackPlanNextPoint (wpc)) < 0)
+        return 0;
+
+    if (next_point <= wpc->streams [0]->sample_index)
+        return 0;
+
+    if (next_point - wpc->streams [0]->sample_index > available)
+        return 0;
+
+    return (uint32_t)(next_point - wpc->streams [0]->sample_index);
+}
+
 int WavpackPackSamples (WavpackContext *wpc, int32_t *sample_buffer, uint32_t sample_count)
 {
     int nch = wpc->config.num_channels;
@@ -679,6 +710,7 @@ int WavpackPackSamples (WavpackContext *wpc, int32_t *sample_buffer, uint32_t sa
         int32_t *source_pointer = sample_buffer;
         unsigned int samples_to_copy;
         int stream_index;
+        uint32_t cut_limit;
 
         if (!wpc->riff_header_added && !wpc->riff_header_created && !wpc->file_format) {
             char riff_header [128];
@@ -691,6 +723,13 @@ int WavpackPackSamples (WavpackContext *wpc, int32_t *sample_buffer, uint32_t sa
             samples_to_copy = wpc->max_samples - wpc->acc_samples;
         else
             samples_to_copy = sample_count;
+
+        // a plan cut must always land on a block boundary, so stop filling the
+        // current block at the cut even when more input is available
+
+        if ((cut_limit = plan_cut_limit (wpc, wpc->acc_samples + sample_count)) &&
+            cut_limit > wpc->acc_samples && cut_limit < wpc->acc_samples + samples_to_copy)
+                samples_to_copy = cut_limit - wpc->acc_samples;
 
         for (stream_index = 0; stream_index < wpc->num_streams; stream_index++) {
             WavpackStream *wps = wpc->streams [stream_index];
@@ -785,8 +824,34 @@ int WavpackPackSamples (WavpackContext *wpc, int32_t *sample_buffer, uint32_t sa
 
         sample_buffer += samples_to_copy * nch;
         sample_count -= samples_to_copy;
+        wpc->acc_samples += samples_to_copy;
 
-        if ((wpc->acc_samples += samples_to_copy) == wpc->max_samples &&
+        if (wpc->plan_count) {
+            int64_t next_point = WavpackPlanNextPoint (wpc);
+
+            // once a cut position is fully buffered, flush the whole segment so that
+            // no audio block of any stream straddles the budget change; the cut block
+            // itself must not be shortened by the dynamic noise shaper. The cut must be
+            // strictly ahead of the current sample index, otherwise a segment that just
+            // ended on that cut would be flushed again as an empty/short block
+
+            if (next_point > wpc->streams [0]->sample_index &&
+                next_point - wpc->streams [0]->sample_index <= wpc->acc_samples) {
+                wpc->plan_flush = TRUE;
+
+                if (!pack_streams (wpc, wpc->acc_samples, TRUE)) {
+                    wpc->plan_flush = FALSE;
+                    return FALSE;
+                }
+
+                wpc->plan_flush = FALSE;
+            }
+            else if (wpc->acc_samples == wpc->max_samples &&
+                !pack_streams (wpc, wpc->block_samples,
+                    wpc->acc_samples - wpc->block_samples + sample_count < wpc->max_samples))
+                        return FALSE;
+        }
+        else if (wpc->acc_samples == wpc->max_samples &&
             !pack_streams (wpc, wpc->block_samples,
                 wpc->acc_samples - wpc->block_samples + sample_count < wpc->max_samples))
                     return FALSE;
@@ -807,10 +872,10 @@ int WavpackFlushSamples (WavpackContext *wpc)
     while (wpc->acc_samples) {
         uint32_t block_samples;
 
-        if (wpc->acc_samples > wpc->block_samples)
-            block_samples = wpc->acc_samples / 2;
-        else
+        if (wpc->plan_count || wpc->acc_samples <= wpc->block_samples)
             block_samples = wpc->acc_samples;
+        else
+            block_samples = wpc->acc_samples / 2;
 
         if (!pack_streams (wpc, block_samples, block_samples == wpc->acc_samples))
             return FALSE;
@@ -1129,8 +1194,18 @@ static int pack_streams (WavpackContext *wpc, uint32_t block_samples, int last_b
 
     for (stream_index = 0; result && stream_index < wpc->num_streams; stream_index++) {
         WavpackStream *wps = wpc->streams [stream_index];
-        uint32_t flags = wps->wphdr.flags;
+        uint32_t flags;
 
+        // apply the bitrate plan budget active at this block's sample position;
+        // this also restarts the entropy state on the first block of a new segment
+        // and forces stereo streams to encode their channels independently; it must
+        // run before the flags are snapshotted below or the cleared stereo flags
+        // would be restored
+
+        if (wpc->plan_count)
+            WavpackPlanStreamBudget (wps);
+
+        flags = wps->wphdr.flags;
         flags &= ~MAG_MASK;
         flags += (1U << MAG_LSB) * ((flags & BYTES_STORED) * 8 + 7);
 

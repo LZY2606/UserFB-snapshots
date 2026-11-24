@@ -55,6 +55,24 @@ static void word_set_bitrate (WavpackStream *wps)
 {
     int bitrate_0, bitrate_1;
 
+    // With an active bitrate plan every channel gets exactly the initial hybrid
+    // profile it would get as a mono stream at that budget. The joint stereo /
+    // balance reallocation below is therefore bypassed and the two channels of a
+    // stereo stream keep independent accumulators.
+
+    if ((wps->wphdr.flags & HYBRID_BITRATE) && wps->wpc->plan_count) {
+        bitrate_0 = wps->plan_budget [0] < 568 ? 0 : wps->plan_budget [0] - 568;
+
+        if (wps->wphdr.flags & MONO_DATA)
+            bitrate_1 = 0;
+        else
+            bitrate_1 = wps->plan_budget [1] < 568 ? 0 : wps->plan_budget [1] - 568;
+
+        wps->w.bitrate_acc [0] = (int32_t) bitrate_0 << 16;
+        wps->w.bitrate_acc [1] = (int32_t) bitrate_1 << 16;
+        return;
+    }
+
     if (wps->wphdr.flags & HYBRID_BITRATE) {
         if (wps->wphdr.flags & FALSE_STEREO)
             bitrate_0 = (wps->bits * 2 - 512) < 568 ? 0 : (wps->bits * 2 - 512) - 568;

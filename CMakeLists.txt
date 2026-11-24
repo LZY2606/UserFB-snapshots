@@ -159,6 +159,7 @@ add_library(wavpack
     src/pack.c
     src/pack_dns.c
     src/pack_floats.c
+    src/pack_plan.c
     src/pack_utils.c
     src/read_words.c
     src/tags.c

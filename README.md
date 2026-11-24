@@ -79,6 +79,64 @@ There are four documentation files contained in the distribution:
 
 There is also a description of the WavPack algorithms in the forth edition of David Salomon's book "Data Compression: The Complete Reference". This section can be found here: www.wavpack.com/WavPack.pdf
 
+## Per-channel hybrid bitrate plans
+
+A hybrid encoder normally applies one bitrate to every channel. When the
+channels carry different material (for example a main microphone plus an
+auxiliary track), a *bitrate plan* lets you assign an independent budget to
+each channel and change those budgets at absolute sample positions, all inside
+a single WavPack hybrid stream. You keep feeding PCM with the normal
+`WavpackPackSamples()` calls — there is no need to split the input into several
+files or to call `WavpackFlushSamples()` at the change points; the library
+ends every audio block exactly on a plan cut.
+
+A plan is built from `WavpackHybridBitratePoint` entries. Each entry gives a
+sample index and one Q8 (256ths of a bit/sample) budget per channel, in
+interleaved channel order. The first entry must be at index 0, the indices are
+strictly increasing, and each budget is between 576 (2.25 bits/sample) and
+6144 (24.0 bits/sample). The plan is installed after
+`WavpackSetConfiguration64()` and before `WavpackPackInit()`; on acceptance the
+whole plan is copied, so the caller's storage can be reused immediately.
+
+```c
+#include "wavpack.h"
+
+/* two channels, three budget changes at frames 0, 1000 and 5000 */
+static const uint16_t budget_0 [2] = { 1024, 2048 };  /* 4.0 and 8.0 bits/sample */
+static const uint16_t budget_1 [2] = { 2048, 1024 };
+static const uint16_t budget_2 [2] = { 3072, 3072 };  /* 12.0 bits/sample each   */
+
+static const WavpackHybridBitratePoint plan [3] = {
+    {    0, budget_0 },
+    { 1000, budget_1 },
+    { 5000, budget_2 }
+};
+
+int setup_plan_encoder (WavpackContext *wpc, WavpackConfig *config, int64_t total_frames)
+{
+    if (!WavpackSetConfiguration64 (wpc, config, total_frames, NULL))
+        return 0;                                   /* inspect WavpackGetErrorMessage() */
+
+    /* accepted only for hybrid 1-8 channel 16/24-bit integer PCM; a rejected
+       call leaves any previously accepted plan (and the encoder state) intact */
+    if (!WavpackSetHybridBitratePlan (wpc, plan, sizeof (plan) / sizeof (plan [0])))
+        return 0;
+
+    if (!WavpackPackInit (wpc))
+        return 0;
+
+    /* feed PCM in arbitrary batches from here; block boundaries are aligned to
+       the plan cuts automatically, and WavpackFlushSamples() needs no help */
+    return 1;
+}
+```
+
+Passing a count of 0 (with a NULL point array) clears any previously installed
+plan. Streams written with a plan still use the standard WavPack format: an
+existing decoder reconstructs the original PCM sample-for-sample when the
+`.wvc` correction file is present and decodes normally as lossy audio from the
+`.wv` file alone.
+
 ## Portability
 
 This code is designed to be easy to port to other platforms.

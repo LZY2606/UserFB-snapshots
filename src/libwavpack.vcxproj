@@ -180,6 +180,7 @@
     <ClCompile Include="pack_dns.c" />
     <ClCompile Include="pack_dsd.c" />
     <ClCompile Include="pack_floats.c" />
+    <ClCompile Include="pack_plan.c" />
     <ClCompile Include="pack_utils.c" />
     <ClCompile Include="read_words.c" />
     <ClCompile Include="tags.c" />

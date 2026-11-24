@@ -752,6 +752,11 @@ void execute_stereo (WavpackStream *wps, int32_t *samples, int no_history, int d
         else
             force_ts = 1;
     }
+    else if (wps->wpc->plan_count) {
+        // an active bitrate plan keeps the two channels independent so that
+        // each one's own budget is honored without joint-stereo reallocation
+        force_ts = 1;
+    }
 
     CLEARA (save_decorr_passes);
     temp_buffer [0] = malloc (buf_size);

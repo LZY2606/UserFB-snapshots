@@ -457,6 +457,8 @@ WavpackContext *WavpackCloseFile (WavpackContext *wpc)
         decimate_dsd_destroy (wpc->decimation_context);
 #endif
 
+    WavpackFreeBitratePlan (wpc);
+
 #ifdef ENABLE_THREADS
     worker_threads_destroy (wpc);
 #endif

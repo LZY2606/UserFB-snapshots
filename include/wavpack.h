@@ -297,6 +297,18 @@ typedef int (*WavpackBlockOutput)(void *id, void *data, int32_t bcount);
 
 typedef struct WavpackContext WavpackContext;
 
+// A single point of a hybrid bitrate plan. "sample_index" is the frame position
+// (in interlaced PCM frames, starting at 0) at which the entry takes effect, and
+// "bits_per_sample_q8" points to one Q8 bits/sample value for every channel in
+// the interlaced channel order. The valid range is 576 (2.25 bits/sample) to
+// 6144 (24.0 bits/sample), inclusive. A point stays in effect until the next
+// point; the last point runs to the end of the stream.
+
+typedef struct {
+    int64_t sample_index;
+    const uint16_t *bits_per_sample_q8;
+} WavpackHybridBitratePoint;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -414,6 +426,20 @@ void WavpackSetFileInformation (WavpackContext *wpc, char *file_extension, unsig
 
 int WavpackSetConfiguration (WavpackContext *wpc, WavpackConfig *config, uint32_t total_samples);
 int WavpackSetConfiguration64 (WavpackContext *wpc, WavpackConfig *config, int64_t total_samples, const unsigned char *chan_ids);
+
+// Install a per-channel hybrid bitrate plan. This may only be called after a
+// successful WavpackSetConfiguration64() and before WavpackPackInit(), and is
+// accepted only for hybrid configurations of 1 to 8 channels of 16-bit or
+// 24-bit integer PCM. The first point must reference sample index 0 and the
+// sample indices must be strictly increasing; when the total frame count is
+// known, every point must precede it. A "count" of 0 clears any previously
+// accepted plan (and "points" may be NULL in that case). On acceptance the
+// whole plan (including the Q8 budget arrays) is copied, so the caller may
+// release the passed storage immediately. Returns 1 when the plan is accepted
+// and 0 when it is rejected (in which case the previous state, if any, is left
+// untouched and WavpackGetErrorMessage() describes the problem).
+
+int WavpackSetHybridBitratePlan (WavpackContext *wpc, const WavpackHybridBitratePoint *points, uint32_t count);
 int WavpackSetChannelLayout (WavpackContext *wpc, uint32_t layout_tag, const unsigned char *reorder);
 int WavpackAddWrapper (WavpackContext *wpc, void *data, uint32_t bcount);
 int WavpackStoreMD5Sum (WavpackContext *wpc, unsigned char data [16]);
