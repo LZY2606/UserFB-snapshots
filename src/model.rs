@@ -29,6 +29,12 @@ pub enum Error {
     Compression(CompressionError),
     IO(std::io::Error),
     VTKIO(Box<crate::Error>),
+    /// Failure while resolving, loading or validating the pieces of a parallel VTK XML file.
+    ///
+    /// The string describes the failing piece and the reason. When the `xml` feature is enabled,
+    /// a structured report of the whole load is available through the `report` field of
+    /// `vtkio::piece_resolver::LoadError`, which is returned by `Vtk::import_pieces_with`.
+    PieceLoad(String),
 }
 
 impl std::fmt::Display for Error {
@@ -41,6 +47,7 @@ impl std::fmt::Display for Error {
             Error::IO(source) => write!(f, "IO error: {:?}", source),
             Error::VTKIO(source) => write!(f, "VTK IO error: {:?}", source),
             Error::FailedToLoadPieceData => write!(f, "Failed to load piece data"),
+            Error::PieceLoad(message) => write!(f, "Piece load error: {}", message),
         }
     }
 }
@@ -151,7 +158,26 @@ impl Vtk {
     ///
     /// This function is useful for "Parallel" XML files like `.pvtu`, `.pvtp`, etc.
     /// For all other files this is a no-op.
+    ///
+    /// When the `xml` feature is enabled, this is a thin wrapper around `Vtk::import_pieces`:
+    /// the same de-duplication, caching and validation rules apply, only the
+    /// `vtkio::piece_resolver::LoadReport` is discarded. Use `Vtk::import_pieces_with` to supply a
+    /// custom `vtkio::piece_resolver::PieceResolver` and inspect the report.
     pub fn load_all_pieces(&mut self) -> Result<(), Error> {
+        #[cfg(feature = "xml")]
+        {
+            self.import_pieces()
+                .map(|_| ())
+                .map_err(|e| Error::PieceLoad(e.message))
+        }
+        #[cfg(not(feature = "xml"))]
+        {
+            self.load_all_pieces_legacy()
+        }
+    }
+
+    #[cfg(not(feature = "xml"))]
+    fn load_all_pieces_legacy(&mut self) -> Result<(), Error> {
         let Vtk {
             data, file_path, ..
         } = self;

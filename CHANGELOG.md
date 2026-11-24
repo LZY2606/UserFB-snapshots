@@ -2,6 +2,29 @@
 
 This document outlines changes and updates in major releases of `vtkio`.
 
+# Unreleased
+
+Parallel VTK XML loading (`.pvtu`, `.pvtp`, `.pvtr`, `.pvti`, `.pvts`) gains a customizable
+piece resolution entry point and a structured load report.
+
+- New `piece_resolver` module with the `PieceResolver` trait, a `LocalPieceResolver`
+  implementation and the `LoadReport`/`PieceReport`/`LoadError` types.
+- `Vtk::import_pieces_with(resolver)` lets callers decide where every referenced piece comes from
+  and returns a report describing each piece's origin, point/cell counts and final status
+  (`Merged`, `Skipped`, `Failed` or `Pending`). `Vtk::import_pieces()` keeps the historical
+  local-file behavior through a root-confined `LocalPieceResolver`.
+- Relative URIs are resolved from the referencing file. Repeated references to the same
+  normalized piece are read and parsed only once per load, while every reference remains visible
+  in the report. Caches are scoped to a single load (and therefore to a resolver/root), so
+  retrying after fixing an input re-reads every file instead of reusing a failed load's state.
+- Before merging, pieces are checked for a matching dataset kind, byte order and point/cell
+  attribute schema (names, element kinds, scalar types and component counts). Any mismatch aborts
+  the whole load without mutating the `Vtk` model; the error report identifies the failing piece,
+  the already processed pieces and the still pending ones. Cyclic references are reported with
+  their full reference chain.
+- `Vtk::load_all_pieces` keeps its existing signature and now delegates to the same engine. A new
+  `model::Error::PieceLoad` variant describes piece loading failures.
+
 # Release 0.6
 
 This release moves all IO API into the `Vtk` struct, which should make the documentation easier to

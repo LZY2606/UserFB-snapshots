@@ -90,6 +90,8 @@ pub(crate) mod basic;
 #[macro_use]
 pub mod model;
 pub mod parser;
+#[cfg(feature = "xml")]
+pub mod piece_resolver;
 pub mod writer;
 #[cfg(feature = "xml")]
 pub mod xml;
