@@ -1,0 +1,11 @@
+--- a/src/opus_multistream_decoder.c
++++ b/src/opus_multistream_decoder.c
+@@ -278,7 +278,7 @@
+          while ( (chan = get_right_channel(&st->layout, s, prev)) != -1)
+          {
+             (*copy_channel_out)(pcm, st->layout.nb_channels, chan,
+-               buf+1, 2, frame_size, user_data);
++               buf, 2, frame_size, user_data);
+             prev = chan;
+          }
+       } else {
