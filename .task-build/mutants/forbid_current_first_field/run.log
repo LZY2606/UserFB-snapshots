@@ -1,0 +1,4 @@
+PIXEL_DIFF picture=field_pair/top-first plane=Y field_pair/top-first first pixel diff at x=0 y=1 field=bottom got=124 want=128
+FAIL /Users/lzy/pro/UserFB/workspace/Z1792/attempts/20261124T160701342966Z/repo/.task-build/mutants/forbid_current_first_field/tests/field_prediction_cases.c:1280 check_pic_bytes(identity, &dr.pics[1], pair_want.y, pair_want.u, pair_want.v) == 1
+CASE frame_dual derived-cross-field-vectors checks=162
+GROUP frame_dual cases=1 checks=162 COMPLETE

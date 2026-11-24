@@ -8,7 +8,7 @@ printf '#define HAVE_BUILTIN_EXPECT 1\n#define ATTRIBUTE_ALIGNED_MAX 16\n' > .ta
 for src in libmpeg2/{alloc,header,decode,slice,motion_comp,idct,cpu_accel,cpu_state}.c; do cc -O2 -std=c99 -I.task-build -Iinclude -Ilibmpeg2 -c "$src" -o ".task-build/$(basename "$src" .c).o"; done
 if [[ $mode == target ]]; then
   cc -O2 -std=c99 -I. -I.task-build -Iinclude -Ilibmpeg2 task_support/driver.c tests/field_prediction_cases.c .task-build/*.o -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp 2>/dev/null || echo ".task-build/target-run.$$.log")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

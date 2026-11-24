@@ -1,0 +1,2 @@
+PIXEL_DIFF picture=frame_dual/tff-positive-odd-zero-dmv/tff=1/mv=(1,1)/dm=(0,0)/mb=1/chunk=0 plane=Y frame_dual/tff-positive-odd-zero-dmv/tff=1/mv=(1,1)/dm=(0,0)/mb=1/chunk=0 first pixel diff at x=23 y=0 field=top got=134 want=132
+FAIL /Users/lzy/pro/UserFB/workspace/Z1792/attempts/20261124T160701342966Z/repo/.task-build/mutants/swap_frame_dual_coefficients/tests/field_prediction_cases.c:1116 check_pic_bytes(identity, &dr.pics[1], want.y, want.u, want.v) == 1
