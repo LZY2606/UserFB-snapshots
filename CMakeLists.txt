@@ -103,7 +103,8 @@ set(BDDISASM_PUBLIC_HEADERS
     "inc/bdx86_constants.h"
     "inc/bdx86_core.h"
     "inc/bdx86_cpuidflags.h"
-    "inc/bdx86_registers.h")
+    "inc/bdx86_registers.h"
+    "inc/bdx86_x87.h")
 
 set(BDSHEMU_PUBLIC_HEADERS
     "inc/bdshemu_x86.h"
@@ -129,6 +130,7 @@ add_library(
     bddisasm/bdx86_helpers.c
     bddisasm/bdx86_idbe.c
     bddisasm/bdx86_operand.c
+    bddisasm/bdx86_x87.c
     # Add the headers so they will show up in IDEs.
     bddisasm/include/bddisasm_crt.h
     bddisasm/include/bdx86_instructions.h

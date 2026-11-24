@@ -668,6 +668,7 @@
     </ClCompile>
     <ClCompile Include="bdx86_idbe.c" />
     <ClCompile Include="bdx86_operand.c" />
+    <ClCompile Include="bdx86_x87.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\inc\bdx86_api_legacy.h" />
@@ -680,6 +681,7 @@
     <ClInclude Include="..\inc\bddisasm_types.h" />
     <ClInclude Include="..\inc\bdx86_registers.h" />
     <ClInclude Include="..\inc\bddisasm_version.h" />
+    <ClInclude Include="..\inc\bdx86_x87.h" />
     <ClInclude Include="include\bdx86_instructions.h" />
     <ClInclude Include="include\bdx86_mnemonics.h" />
     <ClInclude Include="include\bddisasm_crt.h" />

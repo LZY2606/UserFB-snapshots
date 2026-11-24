@@ -66,6 +66,9 @@
     <ClCompile Include="bdx86_operand.c">
       <Filter>Source Files\x86</Filter>
     </ClCompile>
+    <ClCompile Include="bdx86_x87.c">
+      <Filter>Source Files\x86</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\inc\bddisasm_version.h">
@@ -81,6 +84,9 @@
       <Filter>Header Files\public</Filter>
     </ClInclude>
     <ClInclude Include="..\inc\bdx86_core.h">
+      <Filter>Header Files\public\x86</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\bdx86_x87.h">
       <Filter>Header Files\public\x86</Filter>
     </ClInclude>
     <ClInclude Include="include\bdx86_tabledefs.h">
