@@ -1,0 +1,19 @@
+# case	witness-base-0x2000	elf=analysis/witness-saved.elf	section2=0x2000
+row	rela_section	rela_entry	rela_file_off	symtab	symidx	symname	sym_file_off	sym_addr	addend	hi_rela_section	hi_rela_entry	hi_symtab	hi_symidx	hi_symname	hi_sym_addr	hi_addend	hi_pc	code_section	code_offset	code_file_off	pc	word_index	word_file_off	opcode	funct3	rd	rs1	rs2	imm	orig_word	patched_word	referenced_target
+PCREL_HI20	5	1	233	4	2	target	185	6144	0	-	-	-	-	-	-	-	-	2	0	0x0000006c	8192	0	0x0000006c	0x17	0	a0	zero	zero	+0x0000	0x00000517	0x00000517	0x00001800
+PCREL_LO12_I	5	0	209	4	1	.Lanchor	161	8192	0	5	1	4	2	target	6144	0	8192	2	4	0x00000070	8196	4	0x00000070	0x13	0	a0	a0	zero	-0x0800	0x00050513	0x80050513	0x00001800
+RELAX	5	2	257	-	-	-	-	-	-	5	1	-	-	-	-	-	-	2	0	0x0000006c	8192	-	-	-	-	-	-	-	-	-	-	-
+
+# case	witness-base-0x1000	elf=analysis/witness-saved.elf	section2=0x1000
+row	rela_section	rela_entry	rela_file_off	symtab	symidx	symname	sym_file_off	sym_addr	addend	hi_rela_section	hi_rela_entry	hi_symtab	hi_symidx	hi_symname	hi_sym_addr	hi_addend	hi_pc	code_section	code_offset	code_file_off	pc	word_index	word_file_off	opcode	funct3	rd	rs1	rs2	imm	orig_word	patched_word	referenced_target
+PCREL_HI20	5	1	233	4	2	target	185	6144	0	-	-	-	-	-	-	-	-	2	0	0x0000006c	4096	0	0x0000006c	0x17	1	a0	zero	zero	+0x1000	0x00000517	0x00001517	0x00001800
+PCREL_LO12_I	5	0	209	4	1	.Lanchor	161	4096	0	5	1	4	2	target	6144	0	4096	2	4	0x00000070	4100	4	0x00000070	0x13	0	a0	a0	zero	-0x0800	0x00050513	0x80050513	0x00001800
+RELAX	5	2	257	-	-	-	-	-	-	5	1	-	-	-	-	-	-	2	0	0x0000006c	4096	-	-	-	-	-	-	-	-	-	-	-
+
+# case	cross-table-base-0x1000	elf=analysis/cross-table-saved.elf	section2=0x1000
+row	rela_section	rela_entry	rela_file_off	symtab	symidx	symname	sym_file_off	sym_addr	addend	hi_rela_section	hi_rela_entry	hi_symtab	hi_symidx	hi_symname	hi_sym_addr	hi_addend	hi_pc	code_section	code_offset	code_file_off	pc	word_index	word_file_off	opcode	funct3	rd	rs1	rs2	imm	orig_word	patched_word	referenced_target
+PCREL_HI20	5	0	226	4	2	shared_target	202	6844	0	-	-	-	-	-	-	-	-	2	0	0x00000076	4096	0	0x00000076	0x17	1	t0	zero	zero	+0x1000	0x00000297	0x00001297	0x00001abc
+PCREL_LO12_I	6	2	298	4	1	.Lhi	178	4096	0	5	0	4	2	shared_target	6844	0	4096	2	4	0x0000007a	4100	4	0x0000007a	0x13	0	t0	t0	t3	-0x0544	0x00028293	0xabc28293	0x00001abc
+PCREL_LO12_I	6	1	274	4	1	.Lhi	178	4096	0	5	0	4	2	shared_target	6844	0	4096	2	8	0x0000007e	4104	8	0x0000007e	0x03	2	t1	t0	t3	-0x0544	0x0002a303	0xabc2a303	0x00001abc
+PCREL_LO12_S	6	0	250	4	1	.Lhi	178	4096	0	5	0	4	2	shared_target	6844	0	4096	2	12	0x00000082	4108	12	0x00000082	0x23	2	t3	t0	t1	-0x0544	0x0062a023	0xaa62ae23	0x00001abc
+

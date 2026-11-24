@@ -51,6 +51,9 @@ examples/c_wrapper/c_example
 examples/add_section/add_section
 examples/elfdump/elfdump.trs
 
+# task build outputs
+.task-build/
+
 # various unwanted files (backups, objects, cmake artifacts)
 *~
 *.o
