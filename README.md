@@ -262,6 +262,55 @@ if !ok {
 webElement.Click()
 ```
 
+#### Connection integrity and reconnect
+Commands share one transport and run as complete, serialized request/response
+transactions. Every reply is matched to its command's message ID, so callers
+reading the title, URL or sending input concurrently never receive another
+command's response. Each command is written at most once; there is no
+background multiplexing and input actions are never re-sent.
+
+```go
+import (
+	"errors"
+	"fmt"
+	"log"
+
+	marionette "github.com/njasm/marionette_client"
+)
+
+transport := &marionette.MarionetteTransport{}
+client := marionette.NewClient()
+client.Transport(transport)
+
+// Connect succeeds only after a complete gecko/protocol-version-3 handshake.
+if err := client.Connect("127.0.0.1", 2828); err != nil {
+	log.Fatalf("connect failed: %v", err)
+}
+
+title, err := client.Title()
+if err != nil {
+	var driverErr *marionette.DriverError
+	if errors.As(err, &driverErr) {
+		// A well-formed driver error is a normal reply and leaves the
+		// connection usable for the next command.
+		fmt.Println("driver reported:", driverErr.ErrorType)
+	} else {
+		// A corrupted frame, wrong message ID or I/O failure discards the
+		// connection. Reconnect before issuing further commands; the new
+		// connection numbers its messages from 1 again.
+		if err = client.Connect("127.0.0.1", 2828); err != nil {
+			log.Fatalf("reconnect failed: %v", err)
+		}
+	}
+} else {
+	fmt.Println(title)
+}
+
+// Close is idempotent, interrupts any command blocked waiting on a reply
+// (without waiting for the read timeout), and can be followed by Connect again.
+_ = transport.Close()
+```
+
 ## Running tests
 
 Run the complete suite with:

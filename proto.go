@@ -69,27 +69,55 @@ func (e ProtoV3DecoderEncoder) Decode(buf []byte, r *Response) error {
 	}
 	//Debug only end
 
-	r.MessageID = int32(v[1].(float64))
+	// A Marionette v3 reply is always a four-element array whose first
+	// element is 1 (response type). Anything else is protocol corruption.
+	if len(v) != 4 {
+		return fmt.Errorf("marionette: invalid response: expected 4 elements, got %d", len(v))
+	}
+
+	replyType, ok := v[0].(float64)
+	if !ok || replyType != 1 {
+		return fmt.Errorf("marionette: invalid response type: expected 1, got %v", v[0])
+	}
+
+	// Message IDs are positive int32 integers.
+	id, ok := v[1].(float64)
+	if !ok || id != float64(int32(id)) || int32(id) <= 0 {
+		return fmt.Errorf("marionette: invalid response message ID: %v", v[1])
+	}
+
+	r.MessageID = int32(id)
 	r.Size = int32(len(buf))
 
 	// error found on response?
 	if v[2] != nil {
-		re := &DriverError{}
-		for key, value := range v[2].(map[string]any) {
-			if key == "error" {
-				re.ErrorType = value.(string)
-			}
-
-			if key == "message" {
-				re.Message = value.(string)
-			}
-
-			if key == "stacktrace" && value != nil {
-				theTrace := value.(string)
-				re.Stacktrace = &theTrace
-			}
+		errObj, ok := v[2].(map[string]any)
+		if !ok {
+			return fmt.Errorf("marionette: invalid driver error encoding: %v", v[2])
 		}
 
+		re := &DriverError{}
+		errorType, ok := errObj["error"].(string)
+		if !ok {
+			return fmt.Errorf("marionette: driver error is missing a string \"error\" field")
+		}
+		message, ok := errObj["message"].(string)
+		if !ok {
+			return fmt.Errorf("marionette: driver error is missing a string \"message\" field")
+		}
+		re.ErrorType = errorType
+		re.Message = message
+
+		switch trace := errObj["stacktrace"].(type) {
+		case nil:
+		case string:
+			theTrace := trace
+			re.Stacktrace = &theTrace
+		default:
+			return fmt.Errorf("marionette: driver error \"stacktrace\" must be a string or null")
+		}
+
+		r.DriverError = re
 		return re
 	}
 
@@ -102,22 +130,22 @@ func (e ProtoV3DecoderEncoder) Decode(buf []byte, r *Response) error {
 		}
 
 		r.Value = string(resultBytes)
+
+		return nil
 	}
 
-	if !found {
-		// JSON Array
-		result, found := v[3].([]any)
-		if found {
-			resultBytes, err := json.Marshal(result)
-			if err != nil {
-				return err
-			}
-
-			r.Value = string(resultBytes)
+	// JSON Array
+	arrayResult, found := v[3].([]any)
+	if found {
+		resultBytes, err := json.Marshal(arrayResult)
+		if err != nil {
+			return err
 		}
 
-		//TODO: return error?
+		r.Value = string(resultBytes)
 	}
 
+	// Other scalar result types have no structured encoding; keep the
+	// historical behavior of leaving Value empty.
 	return nil
 }
