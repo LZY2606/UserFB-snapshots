@@ -1,0 +1,4 @@
+./pio.go
+./reader.go
+./vec.go
+./writer.go

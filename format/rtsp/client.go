@@ -63,6 +63,7 @@ type Client struct {
 	url         *url.URL
 	conn        *connWithTimeout
 	brconn      *bufio.Reader
+	httpTunnel  *httpTunnel
 	requestUri  string
 	cseq        uint
 	streams     []*Stream
@@ -248,6 +249,12 @@ func (self *Client) WriteRequest(req Request) (err error) {
 		fmt.Print("> ", string(bufout))
 	}
 
+	// With an HTTP tunnel the request travels upstream on the POST
+	// connection, encoded as its own padded base64 body, not on conn.
+	if self.httpTunnel != nil {
+		return self.httpTunnel.writeRequest(bufout, self.RtspTimeout)
+	}
+
 	if _, err = self.conn.Write(bufout); err != nil {
 		return
 	}
@@ -337,6 +344,9 @@ func (self *Client) handle302(res *Response) (err error) {
 		CSeq: 302
 	*/
 	newLocation := res.Headers.Get("Location")
+	if self.httpTunnel != nil {
+		return fmt.Errorf("rtsp: http tunnel cannot follow redirect to %s", newLocation)
+	}
 	fmt.Printf("\tRedirecting stream to other location: %s\n", newLocation)
 
 	err = self.Close()
@@ -577,6 +587,12 @@ func (self *Client) poll() (res Response, err error) {
 	self.conn.Timeout = self.RtspTimeout
 	for {
 		if block, rtsp, err = self.findRTSP(); err != nil {
+			if self.httpTunnel != nil {
+				self.httpTunnel.noteReadError(err)
+				if terr := self.httpTunnel.terminalError(); terr != nil {
+					err = terr
+				}
+			}
 			return
 		}
 		if len(block) > 0 {
@@ -1217,6 +1233,9 @@ func (self *Client) Teardown() (err error) {
 }
 
 func (self *Client) Close() (err error) {
+	if self.httpTunnel != nil {
+		return self.httpTunnel.close()
+	}
 	return self.conn.Conn.Close()
 }
 
