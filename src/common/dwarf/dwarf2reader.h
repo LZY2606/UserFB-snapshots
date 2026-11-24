@@ -60,6 +60,11 @@ struct LineStateMachine;
 class Dwarf2Handler;
 class LineInfoHandler;
 
+// Immutable snapshot of the compilation unit state needed to interpret
+// location lists. Defined in common/dwarf/location_list_reader.h; only
+// declared here so that CompilationUnit can return it by value.
+struct LocationListContext;
+
 // This maps from a string naming a section to a pair containing a
 // the data for the section, and the size of the section.
 typedef std::map<std::string, std::pair<const uint8_t*, uint64_t> > SectionMap;
@@ -388,6 +393,20 @@ class Dwarf2Handler {
                                       const uint8_t* data,
                                       uint64_t len) { }
 
+  // Called like ProcessAttributeBuffer, but additionally reports the
+  // section-relative offset of the first data byte in the section that holds
+  // the attribute (always .debug_info today). Consumers that need a
+  // stable, section-relative provenance for expression bytes should
+  // override this method; the default forwards to ProcessAttributeBuffer.
+  virtual void ProcessAttributeBufferAt(uint64_t offset,
+                                        enum DwarfAttribute attr,
+                                        enum DwarfForm form,
+                                        const uint8_t* data,
+                                        uint64_t len,
+                                        uint64_t section_offset) {
+    ProcessAttributeBuffer(offset, attr, form, data, len);
+  }
+
   // Called when we have an attribute with string data to give to our handler.
   // The attribute is for the DIE at OFFSET from the beginning of the
   // .debug_info section. Its name is ATTR, its form is FORM, and its value is
@@ -580,6 +599,14 @@ class CompilationUnit {
 
   uint64_t GetLowPC() { return low_pc_; }
 
+  // Returns a value snapshot of the state needed to interpret this
+  // compilation unit's location lists. It is valid once Start() has read the
+  // root DIE. Only attributes of the root compilation unit DIE contribute;
+  // attributes of child DIEs never override them. The returned struct owns
+  // only plain values, so it stays valid after the ELF or the ByteReader is
+  // reused for another compilation unit.
+  LocationListContext GetLocationListContext();
+
   uint64_t GetDWOID() { return dwo_id_; }
 
   const uint8_t* GetLineBuffer() { return line_buffer_; }
@@ -678,12 +705,20 @@ class CompilationUnit {
     }
     else if (attr == DW_AT_GNU_addr_base || attr == DW_AT_addr_base) {
       addr_base_ = data;
+      if (offset == root_die_offset_)
+        root_addr_base_ = data;
     }
     else if (attr == DW_AT_str_offsets_base) {
       str_offsets_base_ = data;
     }
     else if (attr == DW_AT_low_pc) {
       low_pc_ = data;
+      if (offset == root_die_offset_)
+        root_low_pc_ = data;
+    }
+    else if (attr == DW_AT_loclists_base) {
+      if (offset == root_die_offset_)
+        loclists_base_ = data;
     }
     else if (attr == DW_AT_stmt_list) {
       has_source_line_info_ = true;
@@ -713,7 +748,9 @@ class CompilationUnit {
                               enum DwarfForm form,
                               const uint8_t* data,
                               uint64_t len) {
-    handler_->ProcessAttributeBuffer(offset, attr, form, data, len);
+    handler_->ProcessAttributeBufferAt(
+        offset, attr, form, data, len,
+        (data - buffer_) + offset_from_section_start_);
   }
 
   // Handles the common parts of DW_FORM_GNU_str_index, DW_FORM_strx,
@@ -866,8 +903,22 @@ class CompilationUnit {
 
   bool should_process_split_dwarf_;
 
-  // The value of the DW_AT_low_pc attribute, if any.
+  // The value of the DW_AT_low_pc attribute, if any. This is updated for
+  // every DIE that carries DW_AT_low_pc; see |root_low_pc_| for the root
+  // compilation unit DIE value.
   uint64_t low_pc_;
+
+  // Values captured from the root compilation unit DIE and the unit header.
+  // They are used to build GetLocationListContext()'s snapshot and are never
+  // overwritten by child DIEs.
+  uint64_t root_die_offset_;
+  uint64_t root_low_pc_;
+  uint64_t root_addr_base_;
+  uint64_t loclists_base_;
+  uint16_t snapshot_version_;
+  uint8_t snapshot_address_size_;
+  uint8_t snapshot_offset_size_;
+  Endianness snapshot_endianness_;
 
   // The value of DW_AT_stmt_list attribute if any.
   bool has_source_line_info_;

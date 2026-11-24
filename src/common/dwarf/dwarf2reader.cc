@@ -56,6 +56,7 @@
 #include "common/dwarf/bytereader-inl.h"
 #include "common/dwarf/bytereader.h"
 #include "common/dwarf/line_state_machine.h"
+#include "common/dwarf/location_list_reader.h"
 #include "google_breakpad/common/breakpad_types.h"
 
 namespace google_breakpad {
@@ -222,6 +223,14 @@ CompilationUnit::CompilationUnit(const std::string& path,
       have_checked_for_dwp_(false),
       should_process_split_dwarf_(false),
       low_pc_(0),
+      root_die_offset_(0),
+      root_low_pc_(0),
+      root_addr_base_(0),
+      loclists_base_(0),
+      snapshot_version_(0),
+      snapshot_address_size_(0),
+      snapshot_offset_size_(0),
+      snapshot_endianness_(ENDIANNESS_LITTLE),
       has_source_line_info_(false),
       source_line_offset_(0) {}
 
@@ -470,6 +479,15 @@ uint64_t CompilationUnit::Start() {
   // Read the header
   ReadHeader();
 
+  // Capture the unit-header facts used to build location list snapshots.
+  // These are values, not references, so later reuse of the ByteReader for a
+  // different compilation unit cannot change them.
+  snapshot_version_ = header_.version;
+  snapshot_address_size_ = header_.address_size;
+  snapshot_offset_size_ = reader_->OffsetSize();
+  snapshot_endianness_ = reader_->GetEndianness();
+  root_die_offset_ = after_header_ - buffer_ + offset_from_section_start_;
+
   // Figure out the real length from the end of the initial length to
   // the end of the compilation unit, since that is the value we
   // return.
@@ -541,6 +559,20 @@ uint64_t CompilationUnit::Start() {
       handler_->NeedSplitDebugInfo();
 
   return ourlength;
+}
+
+LocationListContext CompilationUnit::GetLocationListContext() {
+  LocationListContext context;
+  context.version = snapshot_version_;
+  context.endianness = snapshot_endianness_;
+  context.address_size = snapshot_address_size_;
+  context.offset_size = snapshot_offset_size_;
+  // Only values captured from the root compilation unit DIE are exposed.
+  // Child DIEs never overwrite these fields.
+  context.low_pc = root_low_pc_;
+  context.loclists_base = loclists_base_;
+  context.addr_base = root_addr_base_;
+  return context;
 }
 
 void CompilationUnit::ProcessFormStringIndex(
@@ -838,27 +870,31 @@ const uint8_t* CompilationUnit::ProcessAttribute(
       return start;
     case DW_FORM_block1: {
       uint64_t datalen = reader_->ReadOneByte(start);
-      handler_->ProcessAttributeBuffer(dieoffset, attr, form, start + 1,
-                                       datalen);
+      handler_->ProcessAttributeBufferAt(
+          dieoffset, attr, form, start + 1, datalen,
+          (start + 1 - buffer_) + offset_from_section_start_);
       return start + 1 + datalen;
     }
     case DW_FORM_block2: {
       uint64_t datalen = reader_->ReadTwoBytes(start);
-      handler_->ProcessAttributeBuffer(dieoffset, attr, form, start + 2,
-                                       datalen);
+      handler_->ProcessAttributeBufferAt(
+          dieoffset, attr, form, start + 2, datalen,
+          (start + 2 - buffer_) + offset_from_section_start_);
       return start + 2 + datalen;
     }
     case DW_FORM_block4: {
       uint64_t datalen = reader_->ReadFourBytes(start);
-      handler_->ProcessAttributeBuffer(dieoffset, attr, form, start + 4,
-                                       datalen);
+      handler_->ProcessAttributeBufferAt(
+          dieoffset, attr, form, start + 4, datalen,
+          (start + 4 - buffer_) + offset_from_section_start_);
       return start + 4 + datalen;
     }
     case DW_FORM_block:
     case DW_FORM_exprloc: {
       uint64_t datalen = reader_->ReadUnsignedLEB128(start, &len);
-      handler_->ProcessAttributeBuffer(dieoffset, attr, form, start + len,
-                                       datalen);
+      handler_->ProcessAttributeBufferAt(
+          dieoffset, attr, form, start + len, datalen,
+          (start + len - buffer_) + offset_from_section_start_);
       return start + datalen + len;
     }
     case DW_FORM_strp: {

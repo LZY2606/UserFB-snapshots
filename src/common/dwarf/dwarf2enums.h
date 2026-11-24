@@ -99,6 +99,11 @@ enum DwarfTag {
   DW_TAG_type_unit = 0x41,
   // DWARF 5.
   DW_TAG_skeleton_unit = 0x4a,
+  // DWARF 5 call site entries (0x47, 0x48) and call site parameters (0x49).
+  // These are listed separately from the tags above so that consumers which
+  // do not understand call sites can recognise and ignore them.
+  DW_TAG_call_site = 0x48,
+  DW_TAG_call_site_parameter = 0x49,
   // SGI/MIPS Extensions.
   DW_TAG_MIPS_loop = 0x4081,
   // HP extensions.  See:
@@ -110,6 +115,9 @@ enum DwarfTag {
   DW_TAG_class_template = 0x4103,  // For C++.
   DW_TAG_GNU_BINCL = 0x4104,
   DW_TAG_GNU_EINCL = 0x4105,
+  // GNU call site tags emitted by older toolchains for DWARF 4.
+  DW_TAG_GNU_call_site = 0x4109,
+  DW_TAG_GNU_call_site_parameter = 0x410a,
   // Extensions for UPC.  See: http://upc.gwu.edu/~upc.
   DW_TAG_upc_shared_type = 0x8765,
   DW_TAG_upc_strict_type = 0x8766,
@@ -279,6 +287,25 @@ enum DwarfAttribute {
   DW_AT_addr_base = 0x73,
   DW_AT_rnglists_base = 0x74,
   DW_AT_dwo_name = 0x76,
+  DW_AT_call_all_calls = 0x7a,
+  DW_AT_call_all_source_calls = 0x7b,
+  DW_AT_call_all_tail_calls = 0x7c,
+  DW_AT_call_return_pc = 0x7d,
+  DW_AT_call_value = 0x7e,
+  DW_AT_call_origin = 0x7f,
+  DW_AT_call_parameter = 0x80,
+  DW_AT_call_pc = 0x81,
+  DW_AT_call_tail_call = 0x82,
+  DW_AT_call_target = 0x83,
+  DW_AT_call_target_clobbered = 0x84,
+  DW_AT_call_data_location = 0x85,
+  DW_AT_call_data_value = 0x86,
+  DW_AT_noreturn = 0x87,
+  DW_AT_alignment = 0x88,
+  DW_AT_export_symbols = 0x89,
+  DW_AT_deleted = 0x8a,
+  DW_AT_defaulted = 0x8b,
+  DW_AT_loclists_base = 0x8c,
   // SGI/MIPS extensions.
   DW_AT_MIPS_fde = 0x2001,
   DW_AT_MIPS_loop_begin = 0x2002,
@@ -567,6 +594,10 @@ enum DwarfOpcode {
   DW_OP_form_tls_address             =0x9b,
   DW_OP_call_frame_cfa               =0x9c,
   DW_OP_bit_piece                    =0x9d,
+  // DWARF 4 stack value.
+  DW_OP_stack_value                  =0x9f,
+  // DWARF 5 entry value (the opcode takes a nested expression).
+  DW_OP_entry_value                  =0xa3,
   DW_OP_lo_user                      =0xe0,
   DW_OP_hi_user                      =0xff,
   // GNU extensions
@@ -574,6 +605,19 @@ enum DwarfOpcode {
   // Extensions for Fission.  See http://gcc.gnu.org/wiki/DebugFission.
   DW_OP_GNU_addr_index               =0xfb,
   DW_OP_GNU_const_index              =0xfc
+};
+
+// .debug_loclists entry types (DWARF 5).
+enum DwarfLocListEntry {
+  DW_LLE_end_of_list = 0,
+  DW_LLE_base_addressx = 1,
+  DW_LLE_startx_endx = 2,
+  DW_LLE_startx_length = 3,
+  DW_LLE_offset_pair = 4,
+  DW_LLE_default_location = 5,
+  DW_LLE_base_address = 6,
+  DW_LLE_start_end = 7,
+  DW_LLE_start_length = 8,
 };
 
 // Section identifiers for DWP files
