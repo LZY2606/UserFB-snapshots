@@ -123,6 +123,27 @@ struct frame_header
 	int ssize;
 };
 
+/* Accurate mixed-rate timeline for MPG123_ACCURATE_MIXED_SEEK.
+   One record per compressed MPEG frame, indexed by frame number.
+   All output coordinates are in fixed-rate output frames
+   (forced rate * stereo * signed16 => 4 bytes each). */
+struct mm_entry
+{
+	int64_t start;         /* output frames before this compressed frame */
+	int64_t len;           /* exact output frames delivered by it */
+	int64_t bytepos;       /* input byte offset of the frame header */
+	unsigned long ntom[2]; /* exact resampler phase before decoding */
+	int bo;                /* exact synth buffer phase before decoding */
+};
+struct mm_timeline
+{
+	struct mm_entry *e;
+	int64_t n;     /* filled compressed frames */
+	int64_t cap;   /* allocated entries */
+	int64_t total; /* total output frames */
+	int ready;     /* complete timeline available */
+};
+
 /* There is a lot to condense here... many ints can be merged as flags; though the main space is still consumed by buffers. */
 struct mpg123_handle_struct
 {
@@ -277,6 +298,8 @@ struct mpg123_handle_struct
 #ifdef FRAME_INDEX
 	struct frame_index index;
 #endif
+
+	struct mm_timeline mm; /* MPG123_ACCURATE_MIXED_SEEK state */
 
 	/* output data */
 	struct outbuffer buffer;

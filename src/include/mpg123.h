@@ -395,6 +395,16 @@ enum mpg123_param_flags
 	 * and this number has been reached). This makes your MP3 files behave more like
 	 * ordinary media files with defined structure, rather than stream dumps with
 	 * some sugar. */
+	,MPG123_ACCURATE_MIXED_SEEK = 0x2000000 /**< Use consistent output-sample
+	 * coordinates for mpg123_scan(), mpg123_length64(), mpg123_tell64() and
+	 * mpg123_seek64() on seekable files whose encoded sample rate and channel
+	 * count change between concatenated segments (mixed-rate / Frankenstein
+	 * streams). This is intended for setups with a fixed forced output format
+	 * (for example MPG123_FORCE_RATE with MPG123_FORCE_STEREO). When enabled,
+	 * scanning builds a per-frame timeline of exact delivered output frame
+	 * counts and seeks map output coordinates through that timeline instead of
+	 * assuming constant samples per compressed frame. Behaviour without this
+	 * flag is unchanged. */
 };
 
 /** choices for MPG123_RVA */

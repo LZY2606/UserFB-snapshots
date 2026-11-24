@@ -1,0 +1,4 @@
+[  5%] Built target compat
+[  7%] Building C object src/libmpg123/CMakeFiles/libmpg123.dir/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/src/libmpg123/libmpg123.c.o
+[ 10%] Linking C static library libmpg123.a
+[100%] Built target libmpg123

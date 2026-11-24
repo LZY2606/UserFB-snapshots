@@ -95,6 +95,9 @@ void INT123_frame_init_par(mpg123_handle *fr, mpg123_pars *mp)
 #endif
 	fr->layerscratch = NULL;
 	fr->xing_toc = NULL;
+	fr->mm.e = NULL;
+	fr->mm.n = fr->mm.cap = fr->mm.total = 0;
+	fr->mm.ready = 0;
 #ifdef OPT_CPU_FLAGS
 	wrap_getcpuflags(&(fr->cpu_flags));
 #endif
@@ -499,6 +502,12 @@ int INT123_frame_reset(mpg123_handle* fr)
 	INT123_frame_buffers_reset(fr);
 	frame_fixed_reset(fr);
 	frame_free_toc(fr);
+	/* Mixed-seek timeline belongs to the currently open track; never inherit
+	   it across close/open or a reset. */
+	if(fr->mm.e != NULL) free(fr->mm.e);
+	fr->mm.e = NULL;
+	fr->mm.n = fr->mm.cap = fr->mm.total = 0;
+	fr->mm.ready = 0;
 #ifdef FRAME_INDEX
 	INT123_fi_reset(&fr->index);
 #endif

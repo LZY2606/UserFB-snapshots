@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/.task-build/src/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/.task-build/src/compat/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/.task-build/src/libmpg123/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1916/attempts/20261124T161431024704Z/repo/.task-build/src/libsyn123/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

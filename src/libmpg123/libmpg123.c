@@ -943,6 +943,18 @@ static int zero_byte(mpg123_handle *fr)
 */
 static void decode_the_frame(mpg123_handle *fr)
 {
+#ifndef NO_NTOM
+	/* Accurate mixed-rate timeline: reproduce the exact resampler phase that
+	   the sequential reference decode had before this compressed frame.
+	   The values were recorded by mm_build() from a clean start, so this is a
+	   no-op for normal sequential playback and fixes phase after seeks. */
+	if( (fr->p.flags & MPG123_ACCURATE_MIXED_SEEK) && fr->mm.ready
+	&&  fr->down_sample == 3 && fr->num >= 0 && fr->num < fr->mm.n )
+	{
+		fr->INT123_ntom_val[0] = fr->mm.e[fr->num].ntom[0];
+		fr->INT123_ntom_val[1] = fr->mm.e[fr->num].ntom[1];
+	}
+#endif
 	size_t needed_bytes = INT123_decoder_synth_bytes(fr, INT123_frame_expect_outsamples(fr));
 	fr->clip += (fr->do_layer)(fr);
 	/* There could be less data than promised.
@@ -982,8 +994,300 @@ static void decode_the_frame(mpg123_handle *fr)
 	INT123_postprocess_buffer(fr);
 }
 
-/*
-	Decode the current frame into the frame structure's buffer, accessible at the location stored in <audio>, with <bytes> bytes available.
+/* ===========================================================================
+   Accurate mixed sample-rate seeking (MPG123_ACCURATE_MIXED_SEEK)
+
+   The stock coordinate math assumes one constant spf/resampling step for the
+   whole track. Concatenated MPEG segments with changing rates break that.
+   Here we record the exact number of delivered output frames per compressed
+   frame during a scan and map global output coordinates through that table.
+
+   All positions are output frames in the fixed forced output format
+   (48 kHz stereo signed16 for the intended use), counted from zero across all
+   segments. One output frame is one stereo sample pair (4 bytes).
+   =========================================================================== */
+
+/* Number of compressed frames decoded and discarded before the target frame to
+   rebuild the synthesis filter history. Including the target frame itself, a
+   locate touches at most MM_PREROLL+1 compressed frames. */
+#ifndef MM_PREROLL
+#define MM_PREROLL 16
+#endif
+
+static int mm_active(mpg123_handle *mh)
+{
+	return mh != NULL && (mh->p.flags & MPG123_ACCURATE_MIXED_SEEK) != 0;
+}
+
+/* Global output-frame coordinate at the start of compressed frame k. */
+static int64_t mm_outs(mpg123_handle *mh, int64_t k)
+{
+	if(k <= 0) return 0;
+	if(k >= mh->mm.n) return mh->mm.total;
+	return mh->mm.e[k].start;
+}
+
+/* tell64 logic with explicit state, so scan can evaluate the position captured
+   before the scanning sweep destroyed mh->num/buffer state. */
+static int64_t mm_pos_from_state(mpg123_handle *mh
+,	int64_t num, int to_decode, size_t fill
+,	int64_t firstframe, int64_t firstoff)
+{
+	int64_t pos;
+	int64_t fillf = INT123_bytes_to_samples(mh, (int64_t)fill);
+	if(num < 0) return 0;
+	if((num < firstframe) || (num == firstframe && to_decode))
+		pos = mm_outs(mh, firstframe) + firstoff;
+	else if(to_decode)
+		pos = mm_outs(mh, num) - fillf;
+	else
+		pos = mm_outs(mh, num+1) - fillf;
+	return pos > 0 ? pos : 0;
+}
+
+static int64_t mm_tell(mpg123_handle *mh)
+{
+#ifdef GAPLESS
+	int64_t firstoff = mh->firstoff;
+#else
+	int64_t firstoff = 0;
+#endif
+	return mm_pos_from_state(mh, mh->num, mh->to_decode, mh->buffer.fill
+	,	mh->firstframe, firstoff);
+}
+
+static int mm_reserve(mpg123_handle *mh, int64_t need)
+{
+	int64_t ncap;
+	struct mm_entry *ne;
+	if(need <= mh->mm.cap) return 0;
+	ncap = mh->mm.cap > 0 ? mh->mm.cap : 128;
+	while(ncap < need)
+	{
+		if(ncap > (INT64_MAX/2)) return -1;
+		ncap *= 2;
+	}
+	ne = (struct mm_entry *) realloc(mh->mm.e, (size_t)ncap*sizeof(*ne));
+	if(ne == NULL)
+	{
+		mh->err = MPG123_OUT_OF_MEM;
+		return -1;
+	}
+	mh->mm.e = ne;
+	mh->mm.cap = ncap;
+	return 0;
+}
+
+/* Map target output frame to compressed frame and in-frame skip. */
+static void mm_map(mpg123_handle *mh, int64_t target
+,	int64_t *frame, int64_t *skip)
+{
+	int64_t lo, hi;
+	if(target >= mh->mm.total)
+	{
+		*frame = mh->mm.n - 1;
+		*skip = mh->mm.e[*frame].len;
+		if(*skip < 0) *skip = 0;
+		return;
+	}
+	lo = 0;
+	hi = mh->mm.n - 1;
+	while(lo < hi)
+	{
+		int64_t mid = (lo + hi + 1) / 2;
+		if(mh->mm.e[mid].start <= target) lo = mid;
+		else hi = mid - 1;
+	}
+	*frame = lo;
+	*skip = target - mh->mm.e[lo].start;
+	if(*skip < 0) *skip = 0;
+	if(*skip > mh->mm.e[lo].len) *skip = 0;
+}
+
+/* The actual locate. Expects a ready timeline and initialized track.
+   Returns the clamped target coordinate, or negative MPG123 error. */
+static int64_t mm_seek_locked(mpg123_handle *mh, int64_t sampleoff, int whence)
+{
+	int64_t target, F, skip, P, curpos, wantpos;
+	int preroll;
+
+	switch(whence)
+	{
+		case SEEK_SET: target = sampleoff; break;
+		case SEEK_CUR: target = mm_tell(mh) + sampleoff; break;
+		case SEEK_END:  target = mh->mm.total + sampleoff; break; /* usual lseek length+offset */
+		default: mh->err = MPG123_BAD_WHENCE; return MPG123_ERR;
+	}
+	if(target < 0) target = 0;
+	if(target > mh->mm.total) target = mh->mm.total;
+
+	mm_map(mh, target, &F, &skip);
+	/* Layer II needs only a short fixed preroll (kept within the task's
+	   24 compressed-frame locate budget); Layer III additionally has to
+	   rebuild its bit reservoir, so allow a deeper preroll there. */
+	preroll = (mh->hdr.lay == 3) ? 48 : MM_PREROLL;
+	P = F - preroll;
+	if(P < 0) P = 0;
+
+	/* Clear decoded output and synthesis history, then restore the exact
+	   synth phase (bo) belonging to the preroll start frame. Decoding the
+	   preroll frames rebuilds the filter overlap. */
+	mh->buffer.fill = 0;
+	mh->buffer.p = mh->buffer.data;
+	/* A seek supersedes any format notification pending from before it.
+	   decode_update() below re-sets this if the output format really changes
+	   at the landing frame; with a fixed forced output format it stays clear
+	   and callers get PCM/DONE directly instead of a stale NEW_FORMAT. */
+	mh->new_format = 0;
+	INT123_frame_buffers_reset(mh);
+	mh->bo = mh->mm.e[P].bo;
+	mh->state_flags |= FRAME_ACCURATE;
+#ifndef NO_NTOM
+	if(mh->down_sample == 3)
+		mh->INT123_ntom_val[0] = mh->INT123_ntom_val[1] = mh->mm.e[P].ntom[0];
+#endif
+
+	/* Jump straight to our recorded byte position: never walk from file start. */
+	curpos = mh->rd->tell(mh);
+	wantpos = mh->mm.e[P].bytepos;
+	if(wantpos >= 0 && curpos >= 0)
+	{
+		if(mh->rd->skip_bytes(mh, wantpos - curpos) != wantpos)
+		{
+			mh->err = MPG123_LSEEK_FAILED;
+			return MPG123_ERR;
+		}
+	}
+	/* Read compressed frame P, mirroring stream_seek_frame(). */
+	mh->num = P - 1;
+	while(mh->num < P)
+	{
+		if(INT123_read_frame(mh) != 1)
+		{
+			mh->err = MPG123_ERR;
+			return MPG123_ERR;
+		}
+	}
+	if(mh->header_change > 1)
+	{
+		if(INT123_decode_update(mh) < 0) return MPG123_ERR;
+		mh->header_change = 0;
+	}
+
+	/* Configure the normal decode/ignore machinery to discard P..F-1 and
+	   apply the sample skip inside frame F via firstoff/FRAME_BUFFERCHECK. */
+	mh->firstframe = F;
+	mh->ignoreframe = P;
+	mh->lastframe = -1;
+#ifdef GAPLESS
+	mh->firstoff = skip;
+	mh->lastoff = 0;
+#endif
+	if(P == F) mh->to_decode = TRUE; /* frame F is already read and ready */
+	else       mh->to_decode = FALSE; /* let get_next_frame() run the preroll */
+	mh->playnum = mh->num;
+
+	return target;
+}
+
+/* Build the exact timeline with a clean empirical decode pass.
+   Expects init_track() to have succeeded. Restores the previous logical
+   position afterwards without losing unread output. */
+static int mm_build(mpg123_handle *mh)
+{
+	int64_t snap_num = mh->num;
+	int     snap_to_decode = mh->to_decode;
+	size_t  snap_fill = mh->buffer.fill;
+	int64_t snap_firstframe = mh->firstframe;
+#ifdef GAPLESS
+	int64_t snap_firstoff = mh->firstoff;
+#else
+	int64_t snap_firstoff = 0;
+#endif
+	int     was_fresh_need = (snap_num < 0);
+	int64_t cum = 0, insamples = 0, count = 0, oldpos;
+	int b;
+
+	/* Drop any old timeline. */
+	free(mh->mm.e);
+	mh->mm.e = NULL;
+	mh->mm.n = mh->mm.cap = mh->mm.total = 0;
+	mh->mm.ready = 0;
+
+	/* Back to the first compressed frame. */
+	b = mh->rd->seek_frame(mh, 0);
+	if(b < 0 || mh->num != 0) return MPG123_ERR;
+
+	/* Match the decoder state of a fresh sequential start. */
+	mh->buffer.fill = 0;
+	mh->buffer.p = mh->buffer.data;
+	INT123_frame_buffers_reset(mh);
+	mh->bo = 1;
+	mh->halfphase = 0;
+	mh->header_change = 2;
+	mh->decoder_change = 1;
+	if(INT123_decode_update(mh) < 0) return MPG123_ERR;
+	mh->header_change = 0;
+
+	for(;;)
+	{
+		int64_t idx = mh->num;
+		int prebo = mh->bo;
+		unsigned long p0 = NTOM_MUL >> 1, p1 = NTOM_MUL >> 1;
+		int64_t len;
+
+		if(mh->header_change > 1 || mh->decoder_change)
+		{
+			if(INT123_decode_update(mh) < 0) return MPG123_ERR;
+			mh->header_change = 0;
+		}
+		if(mm_reserve(mh, idx+1) < 0) return MPG123_ERR;
+#ifndef NO_NTOM
+		if(mh->down_sample == 3)
+		{
+			p0 = mh->INT123_ntom_val[0];
+			p1 = mh->INT123_ntom_val[1];
+		}
+#endif
+		mh->buffer.fill = 0;
+		decode_the_frame(mh);
+		len = INT123_bytes_to_samples(mh, (int64_t)mh->buffer.fill);
+		if(len < 0) len = 0;
+
+		mh->mm.e[idx].start = cum;
+		mh->mm.e[idx].len = len;
+		mh->mm.e[idx].bytepos = mh->input_offset;
+		mh->mm.e[idx].bo = prebo;
+		mh->mm.e[idx].ntom[0] = p0;
+		mh->mm.e[idx].ntom[1] = p1;
+		if(idx+1 > mh->mm.n) mh->mm.n = idx+1;
+		cum += len;
+		insamples += mh->spf;
+		++count;
+
+		b = INT123_read_frame(mh);
+		if(b == 1) continue;
+		break; /* EOF or parse error: stop like the stock scan does */
+	}
+
+	mh->mm.total = cum;
+	mh->mm.ready = 1;
+	mh->track_frames = count;
+	mh->track_samples = insamples;
+
+	/* Reconstruct the exact pre-scan position. For a never-initialized handle
+	   the position is simply zero. */
+	if(was_fresh_need || snap_num < 0) oldpos = 0;
+	else oldpos = mm_pos_from_state(mh, snap_num, snap_to_decode, snap_fill
+	,	snap_firstframe, snap_firstoff);
+	if(oldpos < 0) oldpos = 0;
+	if(oldpos > mh->mm.total) oldpos = mh->mm.total;
+
+	if(mm_seek_locked(mh, oldpos, SEEK_SET) < 0) return MPG123_ERR;
+	return MPG123_OK;
+}
+
+/* Decode the current frame into the frame structure's buffer, accessible at the location stored in <audio>, with <bytes> bytes available.
 	<num> will contain the last decoded frame number. This function should be called after mpg123_framebyframe_next positioned the stream at a
 	valid mp3 frame. The buffer contents will get lost on the next call to mpg123_framebyframe_next or mpg123_framebyframe_decode.
 	returns
@@ -1346,6 +1650,7 @@ int64_t attribute_align_arg mpg123_timeframe64(mpg123_handle *mh, double seconds
 int64_t attribute_align_arg mpg123_tell64(mpg123_handle *mh)
 {
 	if(mh == NULL) return MPG123_ERR;
+	if(mm_active(mh) && mh->mm.ready) return mm_tell(mh);
 	if(track_need_init(mh)) return 0;
 	/* Now we have all the info at hand. */
 	debug5("tell: %li/%i first %li buffer %lu; INT123_frame_outs=%li", (long)mh->num, mh->to_decode, (long)mh->firstframe, (unsigned long)mh->buffer.fill, (long)INT123_frame_outs(mh, mh->num));
@@ -1440,6 +1745,24 @@ int64_t attribute_align_arg mpg123_seek64(mpg123_handle *mh, int64_t sampleoff, 
 {
 	int b;
 	int64_t pos;
+
+	if(mh == NULL) return MPG123_ERR;
+	if(mm_active(mh))
+	{ /* Accurate mixed-rate output coordinates. */
+		b = init_track(mh);
+		if(b < 0) return b;
+		if(!mh->mm.ready)
+		{
+			if(!(mh->rdat.flags & READER_SEEKABLE))
+			{
+				mh->err = MPG123_NO_SEEK;
+				return MPG123_ERR;
+			}
+			b = mm_build(mh);
+			if(b != MPG123_OK) return MPG123_ERR;
+		}
+		return mm_seek_locked(mh, sampleoff, whence);
+	}
 
 	pos = mpg123_tell64(mh); /* adjusted samples */
 	/* pos < 0 also can mean that simply a former seek failed at the lower levels.
@@ -1634,8 +1957,10 @@ int64_t attribute_align_arg mpg123_length64(mpg123_handle *mh)
 	int64_t length;
 
 	if(mh == NULL) return MPG123_ERR;
+	if(mm_active(mh) && mh->mm.ready) return mh->mm.total;
 	b = init_track(mh);
 	if(b<0) return b;
+	if(mm_active(mh) && mh->mm.ready) return mh->mm.total;
 	if(mh->track_samples > -1) length = mh->track_samples;
 	else if(mh->track_frames > 0) length = mh->track_frames*mh->spf;
 	else if(mh->rdat.filelen > 0) /* Let the case of 0 length just fall through. */
@@ -1673,6 +1998,8 @@ int attribute_align_arg mpg123_scan(mpg123_handle *mh)
 		if(b == MPG123_DONE) return MPG123_OK;
 		else return MPG123_ERR; /* Must be error here, NEED_MORE is not for seekable streams. */
 	}
+	if(mm_active(mh))
+		return mm_build(mh);
 	oldpos = mpg123_tell64(mh);
 	b = mh->rd->seek_frame(mh, 0);
 	if(b<0 || mh->num != 0) return MPG123_ERR;
