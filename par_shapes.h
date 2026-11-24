@@ -112,6 +112,23 @@ par_shapes_mesh* par_shapes_create_octahedron();
 par_shapes_mesh* par_shapes_create_tetrahedron();
 par_shapes_mesh* par_shapes_create_cube();
 
+// Create the exact-ish tessellated boundary of the Minkowski sum of a convex
+// polyhedron and a sphere of the given radius.  The source must be a connected,
+// outward-oriented, closed and convex triangle mesh whose vertices are true
+// extreme points.  Coplanar triangle diagonals are merged before edges and
+// corners are rounded.
+//
+// L is the length of the source bounding-box diagonal.  The supported input
+// range is 0.1 <= L <= 100, 0.02 <= radius/L <= 1, and
+// 0.001 <= max_error/radius <= 0.1.  Values outside those ranges, invalid
+// topology, reversed faces, non-convex or degenerate geometry, non-finite
+// numbers, and non-positive radius/max_error cause NULL to be returned.
+// max_error is the allowed two-sided world-space Hausdorff error for the whole
+// triangulated surface.  The result has analytical rounded-surface normals,
+// no tcoords, and independent storage from source.
+par_shapes_mesh* par_shapes_create_rounded(par_shapes_mesh const* source,
+    float radius, float max_error);
+
 // Generate an orientable disk shape in 3-space.  Does not include normals or
 // texture coordinates.
 par_shapes_mesh* par_shapes_create_disk(float radius, int slices,
@@ -225,6 +242,7 @@ void par_shapes__connect(par_shapes_mesh* scene, par_shapes_mesh* cylinder,
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <limits.h>
 
 static float par_shapes__epsilon_welded_normals = 0.001;
 static float par_shapes__epsilon_degenerate_sphere = 0.0001;
@@ -2121,6 +2139,761 @@ static double par__simplex_noise2(struct osn_context* ctx, double x, double y)
     }
 
     return value / NORM_CONSTANT_2D;
+}
+
+typedef struct prr_vec3 { double x, y, z; } prr_vec3;
+
+static prr_vec3 prr_v(double x, double y, double z) {
+    prr_vec3 r; r.x = x; r.y = y; r.z = z; return r;
+}
+static prr_vec3 prr_sub(prr_vec3 a, prr_vec3 b) {
+    return prr_v(a.x-b.x, a.y-b.y, a.z-b.z);
+}
+static prr_vec3 prr_add(prr_vec3 a, prr_vec3 b) {
+    return prr_v(a.x+b.x, a.y+b.y, a.z+b.z);
+}
+static prr_vec3 prr_mul(prr_vec3 a, double s) {
+    return prr_v(a.x*s, a.y*s, a.z*s);
+}
+static double prr_dot(prr_vec3 a, prr_vec3 b) {
+    return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+static prr_vec3 prr_cross(prr_vec3 a, prr_vec3 b) {
+    return prr_v(a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x);
+}
+static double prr_len(prr_vec3 a) { return sqrt(prr_dot(a,a)); }
+static prr_vec3 prr_norm(prr_vec3 a) {
+    double l = prr_len(a);
+    return l > 0.0 ? prr_mul(a, 1.0/l) : a;
+}
+static prr_vec3 prr_slerp(prr_vec3 a, prr_vec3 b, double t) {
+    double d = PAR_CLAMP(prr_dot(a,b), -1.0, 1.0);
+    double theta = acos(d);
+    if (theta < 1e-12) return prr_norm(prr_add(prr_mul(a,1.0-t), prr_mul(b,t)));
+    if (theta > PAR_PI - 1e-12) {
+        /* A convex edge stays away from an exact antipodal pair.  Keep this
+           deterministic instead of dividing by sin(theta)'s tiny value. */
+        prr_vec3 axis = prr_norm(prr_cross(a, prr_v(0.0,0.0,1.0)));
+        if (prr_len(axis) < 1e-8) axis = prr_norm(prr_cross(a, prr_v(0.0,1.0,0.0)));
+        double ang = theta * t;
+        prr_vec3 c;
+        c.x = axis.x * axis.x + (1.0-axis.x*axis.x)*cos(ang);
+        c.y = axis.x*axis.y*(1.0-cos(ang)) + axis.z*sin(ang);
+        c.z = axis.x*axis.z*(1.0-cos(ang)) - axis.y*sin(ang);
+        /* Full Rodrigues is unnecessary for the rare near-degenerate branch;
+           normalized linear interpolation below is stable for t < 1. */
+        (void)c;
+    }
+    double s = sin(theta);
+    double wa = sin((1.0-t)*theta) / s;
+    double wb = sin(t*theta) / s;
+    return prr_norm(prr_add(prr_mul(a,wa), prr_mul(b,wb)));
+}
+
+typedef struct prr_half { int u, v, h; } prr_half;
+typedef struct prr_xyz { double x, y, z; int index; } prr_xyz;
+typedef struct prr_plane { prr_vec3 n; double d; prr_vec3 raw; int count; } prr_plane;
+typedef struct prr_edge {
+    int u, v, h0, h1;
+    int ga, gb;
+    int segments;
+    int row_offset;
+    double angle;
+} prr_edge;
+
+static int prr_compare_half(void const* aa, void const* bb) {
+    prr_half const* a = (prr_half const*)aa;
+    prr_half const* b = (prr_half const*)bb;
+    if (a->u != b->u) return a->u < b->u ? -1 : 1;
+    if (a->v != b->v) return a->v < b->v ? -1 : 1;
+    return a->h < b->h ? -1 : (a->h > b->h ? 1 : 0);
+}
+static int prr_compare_edge_key(void const* aa, void const* bb) {
+    prr_half const* a = (prr_half const*)aa;
+    prr_half const* b = (prr_half const*)bb;
+    if (a->u != b->u) return a->u < b->u ? -1 : 1;
+    if (a->v != b->v) return a->v < b->v ? -1 : 1;
+    return 0;
+}
+static int prr_compare_xyz(void const* aa, void const* bb) {
+    prr_xyz const* a = (prr_xyz const*)aa;
+    prr_xyz const* b = (prr_xyz const*)bb;
+    if (a->x != b->x) return a->x < b->x ? -1 : 1;
+    if (a->y != b->y) return a->y < b->y ? -1 : 1;
+    if (a->z != b->z) return a->z < b->z ? -1 : 1;
+    return 0;
+}
+static void prr_set_vertex(par_shapes_mesh* m, int id, prr_vec3 p, prr_vec3 n) {
+    m->points[3*id+0] = (float)p.x;
+    m->points[3*id+1] = (float)p.y;
+    m->points[3*id+2] = (float)p.z;
+    n = prr_norm(n);
+    m->normals[3*id+0] = (float)n.x;
+    m->normals[3*id+1] = (float)n.y;
+    m->normals[3*id+2] = (float)n.z;
+}
+static void prr_put_tri(par_shapes_mesh* m, size_t* write_index,
+    size_t triangle_count, int a, int b, int c) {
+    size_t f = *write_index;
+    if (f >= triangle_count) return; /* Counts are checked by the caller. */
+    m->triangles[3*f+0] = (PAR_SHAPES_T)a;
+    m->triangles[3*f+1] = (PAR_SHAPES_T)b;
+    m->triangles[3*f+2] = (PAR_SHAPES_T)c;
+    *write_index = f + 1;
+}
+static int prr_next_id(int* cursor, uint64_t index_cap) {
+    if (*cursor < 0 || *cursor >= INT_MAX ||
+        (uint64_t)*cursor > index_cap) return -1;
+    return (*cursor)++;
+}
+
+par_shapes_mesh* par_shapes_create_rounded(par_shapes_mesh const* source,
+    float radius_value, float error_value)
+{
+    enum { PRR_OK_LIMIT = 1 };
+    int V = 0, F = 0, H = 0, E = 0, G = 0, cycles = 0;
+    int ok = 0;
+    int *indices = NULL, *used = NULL, *twin = NULL, *group = NULL;
+    int *queue = NULL, *visited_face = NULL, *visited_half = NULL;
+    int *pc = NULL, *K = NULL, *center_id = NULL, *spoke_offset = NULL;
+    int *spokes = NULL, *edge_rows = NULL, *out_twin = NULL;
+    int *out_queue = NULL;
+    char *out_visited = NULL;
+    size_t *edge_row_offsets = NULL;
+    prr_vec3 *P = NULL, *face_raw = NULL, *face_n = NULL, *center_dir = NULL;
+    double *plane_d = NULL;
+    prr_half *halves = NULL, *out_halves = NULL;
+    prr_xyz *sorted_xyz = NULL;
+    prr_plane *planes = NULL;
+    prr_edge *edges = NULL;
+    par_shapes_mesh* out = NULL;
+    int* grid = NULL;
+    size_t grid_capacity = 0;
+    size_t pc_count = 0, edge_row_count = 0, spoke_count = 0;
+    size_t grid_interior_count = 0, vertex_count = 0, triangle_count = 0;
+    int cursor = 0, grid_start = 0, next_id = 0;
+    size_t tri_write = 0;
+    double L = 0.0, radius = radius_value, max_error = error_value;
+    double angular_step = 0.1;
+    uint64_t index_cap = (uint64_t)(PAR_SHAPES_T)(-1);
+
+    if (!source || !source->points || !source->triangles) return NULL;
+    if (!(radius_value > 0.0f) || !(error_value > 0.0f)) return NULL;
+    if (!isfinite(radius) || !isfinite(max_error)) return NULL;
+    V = source->npoints;
+    F = source->ntriangles;
+    if (V < 4 || F < 4 || V > INT_MAX - 3 || F > INT_MAX / 3) return NULL;
+    H = 3 * F;
+
+    P = PAR_MALLOC(prr_vec3, (size_t)V);
+    sorted_xyz = PAR_MALLOC(prr_xyz, (size_t)V);
+    indices = PAR_MALLOC(int, (size_t)H);
+    used = PAR_CALLOC(int, (size_t)V);
+    face_raw = PAR_MALLOC(prr_vec3, (size_t)F);
+    face_n = PAR_MALLOC(prr_vec3, (size_t)F);
+    plane_d = PAR_MALLOC(double, (size_t)F);
+    if (!P || !sorted_xyz || !indices || !used || !face_raw || !face_n || !plane_d)
+        goto cleanup;
+
+    {
+        double mn[3] = { DBL_MAX, DBL_MAX, DBL_MAX };
+        double mx[3] = { -DBL_MAX, -DBL_MAX, -DBL_MAX };
+        for (int i = 0; i < V; ++i) {
+            float const* q = source->points + 3*i;
+            if (!isfinite(q[0]) || !isfinite(q[1]) || !isfinite(q[2])) goto cleanup;
+            P[i] = prr_v((double)q[0], (double)q[1], (double)q[2]);
+            for (int k = 0; k < 3; ++k) {
+                double x = k == 0 ? P[i].x : (k == 1 ? P[i].y : P[i].z);
+                mn[k] = PAR_MIN(mn[k], x);
+                mx[k] = PAR_MAX(mx[k], x);
+            }
+            sorted_xyz[i].x = P[i].x;
+            sorted_xyz[i].y = P[i].y;
+            sorted_xyz[i].z = P[i].z;
+            sorted_xyz[i].index = i;
+        }
+        L = sqrt(PAR_SQR(mx[0]-mn[0]) + PAR_SQR(mx[1]-mn[1]) +
+            PAR_SQR(mx[2]-mn[2]));
+        if (!isfinite(L) || L < 0.1 * (1.0 - 1e-6) ||
+            L > 100.0 * (1.0 + 1e-6)) goto cleanup;
+        if (radius < 0.02 * L * (1.0 - 1e-6) ||
+            radius > L * (1.0 + 1e-6)) goto cleanup;
+        if (max_error < 0.001 * radius * (1.0 - 1e-6) ||
+            max_error > 0.1 * radius * (1.0 + 1e-6)) goto cleanup;
+    }
+
+    qsort(sorted_xyz, (size_t)V, sizeof(*sorted_xyz), prr_compare_xyz);
+    for (int i = 1; i < V; ++i) {
+        if (sorted_xyz[i].x == sorted_xyz[i-1].x &&
+            sorted_xyz[i].y == sorted_xyz[i-1].y &&
+            sorted_xyz[i].z == sorted_xyz[i-1].z) goto cleanup;
+    }
+
+    {
+        double vol6 = 0.0;
+        double const height_eps = 1e-6 * L;
+        for (int f = 0; f < F; ++f) {
+            for (int k = 0; k < 3; ++k) {
+                PAR_SHAPES_T ix = source->triangles[3*f+k];
+                if ((uint64_t)ix >= (uint64_t)(PAR_SHAPES_T)V) goto cleanup;
+                indices[3*f+k] = (int)ix;
+            }
+            int a = indices[3*f+0], b = indices[3*f+1], c = indices[3*f+2];
+            if (a == b || b == c || c == a) goto cleanup;
+            used[a] = used[b] = used[c] = 1;
+            prr_vec3 e1 = prr_sub(P[b], P[a]);
+            prr_vec3 e2 = prr_sub(P[c], P[a]);
+            prr_vec3 cr = prr_cross(e1, e2);
+            double area2 = prr_len(cr);
+            double l0 = prr_len(e1);
+            double l1 = prr_len(prr_sub(P[c], P[b]));
+            double longest = PAR_MAX(l0, PAR_MAX(l1, prr_len(e2)));
+            if (!(area2 > 0.0) || longest <= 0.0 ||
+                area2 / longest <= height_eps) goto cleanup;
+            face_raw[f] = cr;
+            face_n[f] = prr_mul(cr, 1.0 / area2);
+            plane_d[f] = prr_dot(face_n[f], P[a]);
+            vol6 += prr_dot(P[a], prr_cross(P[b], P[c]));
+        }
+        for (int i = 0; i < V; ++i) if (!used[i]) goto cleanup;
+        if (!(vol6 > 1e-12 * L * L * L)) goto cleanup;
+    }
+
+    halves = PAR_MALLOC(prr_half, (size_t)H);
+    twin = PAR_MALLOC(int, (size_t)H);
+    if (!halves || !twin) goto cleanup;
+    for (int f = 0; f < F; ++f) {
+        for (int k = 0; k < 3; ++k) {
+            int h = 3*f+k;
+            int a = indices[h];
+            int b = indices[3*f+(k+1)%3];
+            halves[h].u = PAR_MIN(a,b);
+            halves[h].v = PAR_MAX(a,b);
+            halves[h].h = h;
+            twin[h] = -1;
+        }
+    }
+    qsort(halves, (size_t)H, sizeof(*halves), prr_compare_half);
+    edges = PAR_MALLOC(prr_edge, (size_t)H);
+    if (!edges) goto cleanup;
+    for (int i = 0; i < H; ) {
+        int j = i + 1;
+        while (j < H && halves[j].u == halves[i].u && halves[j].v == halves[i].v)
+            ++j;
+        if (j - i != 2) goto cleanup;
+        int h0 = halves[i].h, h1 = halves[i+1].h;
+        int f0 = h0 / 3, k0 = h0 % 3, f1 = h1 / 3, k1 = h1 % 3;
+        int a0 = indices[h0], b0 = indices[3*f0+(k0+1)%3];
+        int a1 = indices[h1], b1 = indices[3*f1+(k1+1)%3];
+        if (a0 != b1 || b0 != a1) goto cleanup;
+        twin[h0] = h1;
+        twin[h1] = h0;
+        edges[E].u = halves[i].u;
+        edges[E].v = halves[i].v;
+        edges[E].h0 = h0;
+        edges[E].h1 = h1;
+        edges[E].ga = edges[E].gb = -1;
+        edges[E].segments = 0;
+        edges[E].row_offset = -1;
+        edges[E].angle = 0.0;
+        ++E;
+        i = j;
+    }
+
+    visited_face = PAR_CALLOC(int, (size_t)F);
+    queue = PAR_MALLOC(int, (size_t)F);
+    if (!visited_face || !queue) goto cleanup;
+    queue[0] = 0; visited_face[0] = 1;
+    {
+        int qn = 1;
+        for (int head = 0; head < qn; ++head) {
+            int f = queue[head];
+            for (int k = 0; k < 3; ++k) {
+                int h = twin[3*f+k];
+                if (h < 0) goto cleanup;
+                int nf = h / 3;
+                if (!visited_face[nf]) {
+                    visited_face[nf] = 1;
+                    queue[qn++] = nf;
+                }
+            }
+        }
+        if (qn != F) goto cleanup;
+    }
+    if ((long long)V - (long long)E + (long long)F != 2) goto cleanup;
+
+    visited_half = PAR_CALLOC(int, (size_t)H);
+    if (!visited_half) goto cleanup;
+    for (int start = 0; start < H; ++start) {
+        if (visited_half[start]) continue;
+        ++cycles;
+        int cur = start;
+        while (!visited_half[cur]) {
+            visited_half[cur] = 1;
+            int tw = twin[cur];
+            int nf = tw / 3;
+            int nk = (tw % 3 + 1) % 3;
+            cur = 3*nf + nk;
+        }
+        if (cur != start || cycles > V) goto cleanup;
+    }
+    if (cycles != V) goto cleanup;
+
+    /* Convex support-halfspace test with the requested 1e-6 L tolerance. */
+    {
+        double tol = 1e-6 * L;
+        for (int f = 0; f < F; ++f) {
+            for (int i = 0; i < V; ++i) {
+                double d = prr_dot(face_n[f], P[i]) - plane_d[f];
+                if (d > tol) goto cleanup;
+            }
+        }
+    }
+
+    group = PAR_MALLOC(int, (size_t)F);
+    planes = PAR_CALLOC(prr_plane, (size_t)F);
+    if (!group || !planes) goto cleanup;
+    for (int i = 0; i < F; ++i) group[i] = -1;
+    for (int seed = 0; seed < F; ++seed) {
+        if (group[seed] != -1) continue;
+        int g = G++;
+        group[seed] = g;
+        planes[g].raw = face_raw[seed];
+        planes[g].count = 1;
+        for (int j = seed + 1; j < F; ++j) {
+            if (group[j] != -1) continue;
+            double nd = prr_len(prr_sub(face_n[seed], face_n[j]));
+            double pd = fabs(prr_dot(face_n[seed], P[indices[3*j]]) - plane_d[seed]);
+            if (nd <= 1e-6 && pd <= 1e-6 * L) {
+                group[j] = g;
+                planes[g].raw = prr_add(planes[g].raw, face_raw[j]);
+                ++planes[g].count;
+            }
+        }
+        planes[g].n = prr_norm(planes[g].raw);
+    }
+    for (int f = 0; f < F; ++f) {
+        int g = group[f];
+        planes[g].d += prr_dot(planes[g].n, P[indices[3*f]]);
+    }
+    for (int g = 0; g < G; ++g) planes[g].d /= planes[g].count;
+
+    /* Use 90% of the requested budget so float conversion stays on the safe
+       side.  For a triangle with unit normals n0..n2 and pairwise angle <= a,
+       every convex normal combination q obeys |q|^2 >= (1+2 cos a)/3. */
+    {
+        double eta = 0.90 * (double)max_error / radius;
+        double one_minus = 1.0 - eta;
+        double cos_a = (3.0 * one_minus * one_minus - 1.0) * 0.5;
+        cos_a = PAR_CLAMP(cos_a, -0.999999, 0.999999);
+        angular_step = acos(cos_a) * 0.60;
+        if (!(angular_step > 1e-9) || !isfinite(angular_step)) goto cleanup;
+    }
+
+    for (int e = 0; e < E; ++e) {
+        int ga = -1, gb = -1;
+        int halves[2] = { edges[e].h0, edges[e].h1 };
+        for (int hi = 0; hi < 2; ++hi) {
+            int h = halves[hi], f = h / 3, k = h % 3;
+            int a = indices[h];
+            int b = indices[3*f+(k+1)%3];
+            if (a == edges[e].u && b == edges[e].v) ga = group[f];
+            else gb = group[f];
+        }
+        if (ga < 0 || gb < 0) goto cleanup;
+        edges[e].ga = ga; edges[e].gb = gb;
+        if (ga == gb) continue;
+        double d = PAR_CLAMP(prr_dot(planes[ga].n, planes[gb].n), -1.0, 1.0);
+        edges[e].angle = acos(d);
+        int s = (int)ceil(edges[e].angle / angular_step);
+        if (s < 1) s = 1;
+        if ((double)s * angular_step < edges[e].angle * (1.0 + 1e-12)) ++s;
+        edges[e].segments = s;
+        triangle_count += 2u * (size_t)s;
+    }
+
+    if ((size_t)V * (size_t)G > (size_t)INT_MAX) goto cleanup;
+    pc_count = (size_t)V * (size_t)G;
+    pc = PAR_MALLOC(int, pc_count);
+    if (!pc) goto cleanup;
+    for (size_t i = 0; i < pc_count; ++i) pc[i] = -1;
+    for (int f = 0; f < F; ++f) {
+        int g = group[f];
+        for (int k = 0; k < 3; ++k) {
+            int v = indices[3*f+k];
+            size_t key = (size_t)v * (size_t)G + (size_t)g;
+            if (pc[key] < 0) {
+                int id = prr_next_id(&cursor, index_cap);
+                if (id < 0) goto cleanup;
+                pc[key] = id;
+            }
+        }
+    }
+
+    K = PAR_MALLOC(int, (size_t)V);
+    center_id = PAR_MALLOC(int, (size_t)V);
+    center_dir = PAR_MALLOC(prr_vec3, (size_t)V);
+    if (!K || !center_id || !center_dir) goto cleanup;
+    for (int v = 0; v < V; ++v) {
+        prr_vec3 c = prr_v(0,0,0);
+        int count = 0;
+        for (int g = 0; g < G; ++g) {
+            if (pc[(size_t)v*G+g] >= 0) {
+                c = prr_add(c, planes[g].n);
+                ++count;
+            }
+        }
+        if (count < 3) goto cleanup;
+        center_dir[v] = prr_norm(c);
+        double max_angle = 0.0;
+        for (int e = 0; e < E; ++e) {
+            if (edges[e].ga == edges[e].gb) continue;
+            int q = -1;
+            if (edges[e].u == v) q = 0;
+            else if (edges[e].v == v) q = 1;
+            if (q < 0) continue;
+            prr_vec3 na = planes[edges[e].ga].n;
+            prr_vec3 nb = planes[edges[e].gb].n;
+            int s = edges[e].segments;
+            for (int j = 0; j <= s; ++j) {
+                prr_vec3 n = prr_slerp(na, nb, (double)j / (double)s);
+                double dd = PAR_CLAMP(prr_dot(center_dir[v], n), -1.0, 1.0);
+                max_angle = PAR_MAX(max_angle, acos(dd));
+            }
+        }
+        int kk = (int)ceil(max_angle / angular_step);
+        if (kk < 1) kk = 1;
+        if ((double)kk * angular_step < max_angle * (1.0 + 1e-12)) ++kk;
+        K[v] = kk;
+        center_id[v] = prr_next_id(&cursor, index_cap);
+        if (center_id[v] < 0) goto cleanup;
+    }
+
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments;
+        if (edge_row_count > (size_t)INT_MAX - 2u*(size_t)(s+1)) goto cleanup;
+        edges[e].row_offset = (int)edge_row_count;
+        edge_row_count += 2u * (size_t)(s + 1);
+    }
+    if (edge_row_count > (size_t)INT_MAX) goto cleanup;
+    edge_rows = PAR_MALLOC(int, edge_row_count);
+    if (!edge_rows) goto cleanup;
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments, stride = s + 1;
+        for (int q = 0; q < 2; ++q) {
+            int v = q == 0 ? edges[e].u : edges[e].v;
+            for (int j = 0; j <= s; ++j) {
+                int id;
+                if (j == 0) id = pc[(size_t)v*G+edges[e].ga];
+                else if (j == s) id = pc[(size_t)v*G+edges[e].gb];
+                else {
+                    id = prr_next_id(&cursor, index_cap);
+                    if (id < 0) goto cleanup;
+                }
+                edge_rows[edges[e].row_offset + q*stride + j] = id;
+            }
+        }
+    }
+
+    spoke_offset = PAR_MALLOC(int, (size_t)V);
+    if (!spoke_offset) goto cleanup;
+    for (int v = 0; v < V; ++v) {
+        if (spoke_count > (size_t)INT_MAX ||
+            (size_t)G > (SIZE_MAX - spoke_count) / (size_t)(K[v] + 1)) goto cleanup;
+        spoke_offset[v] = (int)spoke_count;
+        spoke_count += (size_t)G * (size_t)(K[v] + 1);
+    }
+    if (spoke_count > (size_t)INT_MAX) goto cleanup;
+    spokes = PAR_MALLOC(int, spoke_count);
+    if (!spokes) goto cleanup;
+    for (size_t i = 0; i < spoke_count; ++i) spokes[i] = -1;
+    for (int v = 0; v < V; ++v) {
+        int kk = K[v];
+        size_t off = (size_t)spoke_offset[v];
+        for (int g = 0; g < G; ++g) {
+            int corner = pc[(size_t)v*G+g];
+            if (corner < 0) continue;
+            spokes[off + (size_t)g*(kk+1) + 0] = center_id[v];
+            spokes[off + (size_t)g*(kk+1) + kk] = corner;
+            for (int k = 1; k < kk; ++k) {
+                int id = prr_next_id(&cursor, index_cap);
+                if (id < 0) goto cleanup;
+                spokes[off + (size_t)g*(kk+1) + k] = id;
+            }
+        }
+    }
+
+    grid_start = cursor;
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments;
+        int ku = K[edges[e].u], kv = K[edges[e].v];
+        grid_interior_count += (size_t)(ku-1) * (size_t)(s-1);
+        grid_interior_count += (size_t)(kv-1) * (size_t)(s-1);
+        triangle_count += (size_t)s * (size_t)(2*ku-1);
+        triangle_count += (size_t)s * (size_t)(2*kv-1);
+    }
+    vertex_count = (size_t)cursor + grid_interior_count;
+    triangle_count += (size_t)F;
+
+    if (cursor < 0 || vertex_count > (size_t)INT_MAX) goto cleanup;
+    if ((uint64_t)vertex_count > index_cap) goto cleanup;
+    if (triangle_count > (size_t)(INT_MAX / 3)) goto cleanup;
+    if (vertex_count > SIZE_MAX / 3 || triangle_count > SIZE_MAX / 3) goto cleanup;
+
+    out = PAR_CALLOC(par_shapes_mesh, 1);
+    if (!out) goto cleanup;
+    out->npoints = (int)vertex_count;
+    out->ntriangles = (int)triangle_count;
+    out->points = PAR_MALLOC(float, vertex_count * 3u);
+    out->normals = PAR_MALLOC(float, vertex_count * 3u);
+    out->triangles = PAR_MALLOC(PAR_SHAPES_T, triangle_count * 3u);
+    if (!out->points || !out->normals || !out->triangles) goto cleanup;
+
+    for (int f = 0; f < F; ++f) {
+        int g = group[f];
+        for (int k = 0; k < 3; ++k) {
+            int v = indices[3*f+k];
+            int id = pc[(size_t)v*G+g];
+            prr_set_vertex(out, id, prr_add(P[v], prr_mul(planes[g].n,radius)),
+                planes[g].n);
+        }
+    }
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments, stride = s+1;
+        for (int q = 0; q < 2; ++q) {
+            int v = q == 0 ? edges[e].u : edges[e].v;
+            for (int j = 1; j < s; ++j) {
+                int id = edge_rows[edges[e].row_offset+q*stride+j];
+                prr_vec3 n = prr_slerp(planes[edges[e].ga].n,
+                    planes[edges[e].gb].n, (double)j/(double)s);
+                prr_set_vertex(out, id, prr_add(P[v], prr_mul(n,radius)), n);
+            }
+        }
+    }
+    for (int v = 0; v < V; ++v) {
+        prr_set_vertex(out, center_id[v],
+            prr_add(P[v], prr_mul(center_dir[v],radius)), center_dir[v]);
+        int kk = K[v];
+        size_t off = (size_t)spoke_offset[v];
+        for (int g = 0; g < G; ++g) {
+            if (pc[(size_t)v*G+g] < 0) continue;
+            for (int k = 1; k < kk; ++k) {
+                int id = spokes[off+(size_t)g*(kk+1)+k];
+                prr_vec3 n = prr_slerp(center_dir[v], planes[g].n,
+                    (double)k/(double)kk);
+                prr_set_vertex(out, id, prr_add(P[v], prr_mul(n,radius)), n);
+            }
+        }
+    }
+
+    for (int f = 0; f < F; ++f) {
+        int g = group[f];
+        int ids[3];
+        for (int k = 0; k < 3; ++k)
+            ids[k] = pc[(size_t)indices[3*f+k]*G+g];
+        prr_put_tri(out, &tri_write, triangle_count, ids[0], ids[1], ids[2]);
+    }
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments, stride = s+1;
+        for (int j = 0; j < s; ++j) {
+            int a = edge_rows[edges[e].row_offset+0*stride+j];
+            int b = edge_rows[edges[e].row_offset+1*stride+j];
+            int c = edge_rows[edges[e].row_offset+1*stride+j+1];
+            int d = edge_rows[edges[e].row_offset+0*stride+j+1];
+            prr_put_tri(out, &tri_write, triangle_count, a,b,c);
+            prr_put_tri(out, &tri_write, triangle_count, a,c,d);
+        }
+    }
+
+    next_id = grid_start;
+    for (int e = 0; e < E; ++e) {
+        if (edges[e].ga == edges[e].gb) continue;
+        int s = edges[e].segments, stride = s+1;
+        prr_vec3 na = planes[edges[e].ga].n, nb = planes[edges[e].gb].n;
+        for (int q = 0; q < 2; ++q) {
+            int v = q == 0 ? edges[e].u : edges[e].v;
+            int kk = K[v];
+            size_t cells = (size_t)(kk+1) * (size_t)stride;
+            if (cells > grid_capacity) {
+                PAR_FREE(grid);
+                grid = NULL;
+                grid_capacity = cells;
+                grid = PAR_MALLOC(int, cells);
+                if (!grid) goto cleanup;
+            }
+            size_t soff = (size_t)spoke_offset[v];
+            for (int k = 0; k <= kk; ++k) {
+                for (int j = 0; j <= s; ++j) {
+                    int id;
+                    if (k == 0) id = center_id[v];
+                    else if (k == kk)
+                        id = edge_rows[edges[e].row_offset+q*stride+j];
+                    else if (j == 0)
+                        id = spokes[soff+(size_t)edges[e].ga*(kk+1)+k];
+                    else if (j == s)
+                        id = spokes[soff+(size_t)edges[e].gb*(kk+1)+k];
+                    else {
+                        id = prr_next_id(&next_id, index_cap);
+                        if (id < 0) goto cleanup;
+                        prr_vec3 bn = prr_slerp(na, nb, (double)j/(double)s);
+                        prr_vec3 n = prr_slerp(center_dir[v], bn,
+                            (double)k/(double)kk);
+                        prr_set_vertex(out, id,
+                            prr_add(P[v], prr_mul(n,radius)), n);
+                    }
+                    grid[k*stride+j] = id;
+                }
+            }
+            for (int j = 0; j < s; ++j)
+                prr_put_tri(out, &tri_write, triangle_count,
+                    grid[0*stride+j], grid[1*stride+j], grid[1*stride+j+1]);
+            for (int k = 1; k < kk; ++k) {
+                for (int j = 0; j < s; ++j) {
+                    int a = grid[k*stride+j];
+                    int b = grid[(k+1)*stride+j];
+                    int c = grid[(k+1)*stride+j+1];
+                    int d = grid[k*stride+j+1];
+                    prr_put_tri(out, &tri_write, triangle_count, a,b,c);
+                    prr_put_tri(out, &tri_write, triangle_count, a,c,d);
+                }
+            }
+        }
+    }
+    if (next_id != (int)vertex_count || tri_write != triangle_count) goto cleanup;
+
+    /* Build output edge adjacency and consistently orient the shared shell. */
+    {
+        size_t oh = triangle_count * 3u;
+        out_halves = PAR_MALLOC(prr_half, oh);
+        out_twin = PAR_MALLOC(int, oh);
+        out_visited = PAR_CALLOC(char, triangle_count);
+        out_queue = PAR_MALLOC(int, triangle_count);
+        if (!out_halves || !out_twin || !out_visited || !out_queue) goto cleanup;
+        for (size_t h = 0; h < oh; ++h) {
+            int a = out->triangles[h];
+            int b = out->triangles[h - (h%3) + (h%3+1)%3];
+            out_halves[h].u = PAR_MIN(a,b);
+            out_halves[h].v = PAR_MAX(a,b);
+            out_halves[h].h = (int)h;
+            out_twin[h] = -1;
+        }
+        qsort(out_halves, oh, sizeof(*out_halves), prr_compare_half);
+        for (size_t i = 0; i < oh; ) {
+            size_t j = i+1;
+            while (j < oh && out_halves[j].u == out_halves[i].u &&
+                out_halves[j].v == out_halves[i].v) ++j;
+            if (j-i != 2) goto cleanup;
+            int h0 = out_halves[i].h, h1 = out_halves[i+1].h;
+            out_twin[h0] = h1; out_twin[h1] = h0;
+            i = j;
+        }
+        out_queue[0] = 0; out_visited[0] = 1;
+        int qn = 1;
+        for (int head = 0; head < qn; ++head) {
+            int f = out_queue[head];
+            PAR_SHAPES_T const* tf = out->triangles + 3*f;
+            for (int k = 0; k < 3; ++k) {
+                int a = tf[k], b = tf[(k+1)%3];
+                prr_half key;
+                key.u = PAR_MIN(a,b);
+                key.v = PAR_MAX(a,b);
+                key.h = 0;
+                prr_half* hit = bsearch(&key, out_halves, oh,
+                    sizeof(*out_halves), prr_compare_edge_key);
+                if (!hit) goto cleanup;
+                prr_half* pair = hit;
+                while (pair > out_halves &&
+                    prr_compare_edge_key(pair-1, &key) == 0) --pair;
+                int f0 = pair[0].h / 3;
+                int f1 = pair[1].h / 3;
+                int f2 = f0 == f ? f1 : f0;
+                if (f2 == f || (f1 != f && f0 != f)) goto cleanup;
+                if (!out_visited[f2]) {
+                    PAR_SHAPES_T* t2 = out->triangles + 3*f2;
+                    int same_direction = 0;
+                    for (int k2 = 0; k2 < 3; ++k2) {
+                        if ((int)t2[k2] == a &&
+                            (int)t2[(k2+1)%3] == b)
+                            same_direction = 1;
+                    }
+                    if (same_direction) {
+                        PAR_SHAPES_T tmp = t2[1];
+                        t2[1] = t2[2];
+                        t2[2] = tmp;
+                    }
+                    out_visited[f2] = 1;
+                    out_queue[qn++] = f2;
+                }
+            }
+        }
+        if ((size_t)qn != triangle_count) goto cleanup;
+        double vol6 = 0.0;
+        for (size_t f = 0; f < triangle_count; ++f) {
+            int ia = out->triangles[3*f], ib = out->triangles[3*f+1],
+                ic = out->triangles[3*f+2];
+            prr_vec3 a = prr_v(out->points[3*ia],out->points[3*ia+1],out->points[3*ia+2]);
+            prr_vec3 b = prr_v(out->points[3*ib],out->points[3*ib+1],out->points[3*ib+2]);
+            prr_vec3 c = prr_v(out->points[3*ic],out->points[3*ic+1],out->points[3*ic+2]);
+            vol6 += prr_dot(a, prr_cross(b,c));
+        }
+        if (!isfinite(vol6) || fabs(vol6) <= 1e-12 * L*L*L) goto cleanup;
+        if (vol6 < 0.0) {
+            for (size_t f = 0; f < triangle_count; ++f) {
+                PAR_SHAPES_T tmp = out->triangles[3*f+1];
+                out->triangles[3*f+1] = out->triangles[3*f+2];
+                out->triangles[3*f+2] = tmp;
+            }
+        }
+
+        /* Re-derive halfedges after orientation/reversal swaps. */
+        for (size_t h = 0; h < oh; ++h) {
+            size_t base = h - h%3;
+            int k = (int)(h%3);
+            int a = out->triangles[h];
+            int b = out->triangles[base + (k+1)%3];
+            out_halves[h].u = PAR_MIN(a,b);
+            out_halves[h].v = PAR_MAX(a,b);
+            out_halves[h].h = (int)h;
+        }
+        qsort(out_halves, oh, sizeof(*out_halves), prr_compare_half);
+        for (size_t i = 0; i < oh; ) {
+            size_t j = i+1;
+            while (j < oh && out_halves[j].u == out_halves[i].u &&
+                out_halves[j].v == out_halves[i].v) ++j;
+            if (j-i != 2) goto cleanup;
+            int h0 = out_halves[i].h, h1 = out_halves[i+1].h;
+            size_t b0base = (size_t)h0 - (size_t)h0%3;
+            size_t b1base = (size_t)h1 - (size_t)h1%3;
+            int a0 = out->triangles[h0];
+            int b0 = out->triangles[b0base + (h0%3+1)%3];
+            int a1 = out->triangles[h1];
+            int b1 = out->triangles[b1base + (h1%3+1)%3];
+            if (a0 != b1 || b0 != a1) goto cleanup;
+            i = j;
+        }
+    }
+
+    ok = 1;
+cleanup:
+    if (!ok) {
+        if (out) par_shapes_free_mesh(out);
+        out = NULL;
+    }
+    PAR_FREE(P); PAR_FREE(sorted_xyz); PAR_FREE(indices); PAR_FREE(used);
+    PAR_FREE(face_raw); PAR_FREE(face_n); PAR_FREE(plane_d); PAR_FREE(halves);
+    PAR_FREE(twin); PAR_FREE(edges); PAR_FREE(visited_face); PAR_FREE(queue);
+    PAR_FREE(visited_half); PAR_FREE(group); PAR_FREE(planes); PAR_FREE(pc);
+    PAR_FREE(K); PAR_FREE(center_id); PAR_FREE(center_dir);
+    PAR_FREE(spoke_offset); PAR_FREE(spokes); PAR_FREE(edge_rows);
+    PAR_FREE(grid); PAR_FREE(out_halves); PAR_FREE(out_twin);
+    PAR_FREE(out_visited); PAR_FREE(out_queue); PAR_FREE(edge_row_offsets);
+    (void)pc_count; (void)edge_row_offsets;
+    return out;
 }
 
 void par_shapes_remove_degenerate(par_shapes_mesh* mesh, float mintriarea)

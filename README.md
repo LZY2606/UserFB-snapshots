@@ -38,6 +38,37 @@ $ build/test_shapes
 $ build/test_octasphere
 ```
 
+## rounded convex meshes
+
+`par_shapes_create_rounded(source, radius, max_error)` builds the closed
+triangle boundary of the Minkowski sum of a convex polyhedron and a sphere.
+The source must be a connected, outward-oriented, closed, non-degenerate convex
+triangle mesh; its vertices must be true extreme points.  Coplanar triangle
+diagonals are merged before constructing planar, cylindrical edge and spherical
+corner patches, so triangulation of a polygonal face does not create false
+rounded seams.
+
+Let `L` be the source bounding-box diagonal.  The documented geometry range is
+`0.1 <= L <= 100`, `0.02 <= radius/L <= 1`, and
+`0.001 <= max_error/radius <= 0.1`.  Invalid topology, reversed faces,
+non-convex or degenerate input, non-finite numbers, non-positive parameters and
+unsupported ranges return `NULL`.  `max_error` is the world-space two-sided
+Hausdorff budget for the complete output surface; subdivision uses the actual
+edge normal angles.
+
+The returned mesh is an indexed closed shell with allocated analytic normals
+and no texture coordinates.  Each normal points from the nearest point on the
+original polyhedron toward the rounded surface, making planar, edge and corner
+normals continuous at shared indices.  The result owns independent storage, so
+the source can be freed immediately.  Use `par_shapes_free_mesh` to release it.
+
+The task test and example can be built and run with:
+
+```bash
+$ bash support/run.sh target
+$ cc -std=c99 -DPAR_SHAPES_IMPLEMENTATION -I. examples/rounded.c -lm -o rounded
+```
+
 ## code formatting
 
 This library's code style is strictly enforced to be vertically dense (no consecutive newlines) and 100 columns or less.
