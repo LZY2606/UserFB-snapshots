@@ -1,5 +1,8 @@
 #ifndef MINIH264_H
 #define MINIH264_H
+
+#include <stdint.h>
+
 /*
     https://github.com/lieff/minih264
     To the extent possible under law, the author(s) have dedicated all copyright and related and neighboring rights to this software to the public domain worldwide.
@@ -169,7 +172,37 @@ typedef struct H264E_create_param_tag
     void (*run_func_in_thread)(void *token, void (*job_func)(void*), void *job_data[], int njobs);
 #endif
 
+    // Temporal scalability. 0 keeps the legacy behavior, 3 enables the
+    // three-layer I/P temporal hierarchy described in the project README.
+    int temporal_layers;
+
+    // Cumulative rate and coded-byte capacity for layer sets {0}, {0,1},
+    // and {0,1,2}.
+    int temporal_bitrate_bps[3];
+    int temporal_buffer_bytes[3];
+
+    // Input timestamp clock used by the cumulative budget model.
+    int temporal_fps_num;
+    int temporal_fps_den;
+
 } H264E_create_param_t;
+
+/**
+*   Temporal layer budget observation
+*
+*   All arrays are ordered by cumulative layer set: base only, base+middle,
+*   and all three layers. The object passed to temporal_observe and all of
+*   its arrays are borrowed only for the duration of the callback.
+*/
+typedef struct H264E_temporal_stats_tag
+{
+    uint64_t input_index;   // Zero-based successful input number
+    int temporal_id;        // Encoded temporal layer: 0, 1, or 2
+    int64_t quota_bytes[3]; // This frame's incremental supply
+    int64_t debt_bytes[3];  // Signed settled debt after this frame
+    int actual_bytes;       // Complete returned Annex-B access-unit size
+    int budget_bytes;       // desired_frame_bytes sent to the rate controller
+} H264E_temporal_stats_t;
 
 /**
 *   Run-time parameters
@@ -222,6 +255,11 @@ typedef struct H264E_run_param_tag
 
     // token to pass to NALU callback
     void *nalu_callback_token;
+
+    // Called once after a temporal-layer frame is successfully output.
+    // Ignored when create_param::temporal_layers == 0.
+    void (*temporal_observe)(const H264E_temporal_stats_t *stats, void *opaque);
+    void *temporal_opaque;
 
 } H264E_run_param_t;
 
@@ -750,6 +788,24 @@ typedef struct H264E_persist_tag
     int sizeof_scaratch;
 #endif
     H264E_run_param_t run_param;    // Copy of run-time parameters
+
+    // State for the optional three-layer temporal budget/reference scheduler.
+    // It is intentionally part of persistent storage: no per-frame allocation.
+    struct
+    {
+        uint64_t successful_inputs; // Number of committed outputs
+        int phase;                  // Next position in {2,1,2,0}
+        int64_t debt_bytes[3];      // Signed cumulative-set balances
+        struct
+        {
+            int qp_smooth;
+            int dqp_smooth;
+            int max_dqp;
+            int prev_qp;
+            int prev_err;
+            int stable_count;
+        } rc_feedback[3];
+    } temporal;
 
     // Consecutive IDR's must have different idr_pic_id,
     // unless there are some P between them
@@ -8892,7 +8948,7 @@ static void encode_sps(h264e_enc_t *enc, int profile_idc)
     UE(log2_max_frame_num_minus4);  // log2_max_frame_num_minus4  1 UE(0);  // log2_max_frame_num_minus4  1
     UE(2);  // pic_order_cnt_type         011
     UE(1 + enc->param.max_long_term_reference_frames);  // num_ref_frames
-    U1(0);                                      // gaps_in_frame_num_value_allowed_flag);
+    U1(enc->param.temporal_layers == 3); // gaps_in_frame_num_value_allowed_flag
     UE(((enc->param.width + 15) >> 4) - 1);     // pic_width_in_mbs_minus1
     UE(((enc->param.height + 15) >> 4) - 1);    // pic_height_in_map_units_minus1
     U(3, 6 + enc->frame.cropping_flag);         // frame_mbs_only_flag|direct_8x8_inference_flag|frame_cropping_flag
@@ -11043,6 +11099,70 @@ static pix_t *io_yuv_set_pointers(pix_t *base, H264E_io_yuv_t *frm, int w, int h
     return base;
 }
 
+static int enc_check_temporal_params(const H264E_create_param_t *par)
+{
+    int k;
+    int64_t fps_ratio_num, fps_ratio_den;
+
+    if (par->temporal_layers == 0)
+    {
+        return H264E_STATUS_SUCCESS;
+    }
+    if (par->temporal_layers != 3)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+
+#if H264E_SVC_API
+    if (par->num_layers < 0 || par->num_layers > 1)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+#endif
+    if (par->gop != 0 ||
+        par->temporal_denoise_flag != 0 || par->vbv_size_bytes != 0 ||
+        par->max_long_term_reference_frames != 2)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+#if H264E_MAX_THREADS
+    if (par->max_threads < 0 || par->max_threads > 1)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+#endif
+
+    for (k = 0; k < 3; k++)
+    {
+        if (par->temporal_bitrate_bps[k] <= 0 ||
+            par->temporal_bitrate_bps[k] > 100000000 ||
+            par->temporal_buffer_bytes[k] < 1 ||
+            par->temporal_buffer_bytes[k] > 1000000)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+        if (k && par->temporal_bitrate_bps[k - 1] >= par->temporal_bitrate_bps[k])
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+    }
+
+    if (par->temporal_fps_num < 1 || par->temporal_fps_num > 1000000 ||
+        par->temporal_fps_den < 1 || par->temporal_fps_den > 1000000)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+
+    fps_ratio_num = par->temporal_fps_num;
+    fps_ratio_den = par->temporal_fps_den;
+    if (fps_ratio_num < fps_ratio_den || fps_ratio_num > 120 * fps_ratio_den)
+    {
+        return H264E_STATUS_BAD_PARAMETER;
+    }
+
+    return H264E_STATUS_SUCCESS;
+}
+
 /**
 *   Verify encoder creation parameters. Return error code, or 0 if prameters
 */
@@ -11051,6 +11171,10 @@ static int enc_check_create_params(const H264E_create_param_t *par)
     if (!par)
     {
         return H264E_STATUS_BAD_ARGUMENT;   // NULL argument
+    }
+    if (enc_check_temporal_params(par))
+    {
+        return H264E_STATUS_BAD_PARAMETER;
     }
     if ((int)(par->vbv_size_bytes | par->gop) < 0)
     {
@@ -11174,6 +11298,12 @@ int H264E_init(h264e_enc_t *enc, const H264E_create_param_t *opt)
     h264e_enc_t *enc_curr = enc;
     int i, ret;
     (void)i;
+
+    ret = enc_check_create_params(opt);
+    if (ret)
+    {
+        return ret;
+    }
 
     ret = H264E_init_one(enc_curr, opt, 0);
 
@@ -11447,6 +11577,35 @@ static int check_parameters_align(const H264E_create_param_t *opt, const H264E_i
     return H264E_STATUS_SUCCESS;
 }
 
+static int64_t temporal_cumulative_supply(const H264E_create_param_t *p, int k, uint64_t n)
+{
+    /* The parameter bounds keep the practical intermediate values small;
+       __int128 also makes the integer model exact for very long sessions. */
+    __int128 value = (__int128)n * p->temporal_bitrate_bps[k] * p->temporal_fps_den;
+    value /= (__int128)8 * p->temporal_fps_num;
+    return (int64_t)value;
+}
+
+static void temporal_rc_load(h264e_enc_t *enc, int layer)
+{
+    enc->rc.qp_smooth = enc->temporal.rc_feedback[layer].qp_smooth;
+    enc->rc.dqp_smooth = enc->temporal.rc_feedback[layer].dqp_smooth;
+    enc->rc.max_dqp = enc->temporal.rc_feedback[layer].max_dqp;
+    enc->rc.prev_qp = enc->temporal.rc_feedback[layer].prev_qp;
+    enc->rc.prev_err = enc->temporal.rc_feedback[layer].prev_err;
+    enc->rc.stable_count = enc->temporal.rc_feedback[layer].stable_count;
+}
+
+static void temporal_rc_save(h264e_enc_t *enc, int layer)
+{
+    enc->temporal.rc_feedback[layer].qp_smooth = enc->rc.qp_smooth;
+    enc->temporal.rc_feedback[layer].dqp_smooth = enc->rc.dqp_smooth;
+    enc->temporal.rc_feedback[layer].max_dqp = enc->rc.max_dqp;
+    enc->temporal.rc_feedback[layer].prev_qp = enc->rc.prev_qp;
+    enc->temporal.rc_feedback[layer].prev_err = enc->rc.prev_err;
+    enc->temporal.rc_feedback[layer].stable_count = enc->rc.stable_count;
+}
+
 /**
 *   Top-level encode function
 *   See header file for details.
@@ -11460,6 +11619,26 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     int long_term_idx_update;
     int is_refers_to_long_term;
     int error;
+    int temporal_active = enc->param.temporal_layers == 3;
+    uint64_t temporal_input_index = 0;
+    int temporal_id = 0;
+    int temporal_is_key = 0;
+    int temporal_use = 0;
+    int temporal_update = 0;
+    int temporal_budget = 0;
+    int64_t temporal_quota[3] = {0, 0, 0};
+
+    /* Reject unsupported run-time types before touching the input or output. */
+    if (temporal_active)
+    {
+        int requested_frame_type = opt ? opt->frame_type : H264E_FRAME_TYPE_DEFAULT;
+        if (requested_frame_type != H264E_FRAME_TYPE_DEFAULT &&
+            requested_frame_type != H264E_FRAME_TYPE_P &&
+            requested_frame_type != H264E_FRAME_TYPE_KEY)
+        {
+            return H264E_STATUS_BAD_FRAME_TYPE;
+        }
+    }
 
     error = check_parameters_align(&enc->param, in);
     if (error)
@@ -11512,6 +11691,75 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     if (!enc->run_param.qp_min || enc->run_param.qp_min < MIN_QP)
     {
         enc->run_param.qp_min = MIN_QP;
+    }
+
+    if (temporal_active)
+    {
+        static const int temporal_pattern[4] = {2, 1, 2, 0};
+        uint64_t n;
+        int k;
+        int64_t best_budget;
+
+        temporal_input_index = enc->temporal.successful_inputs;
+        n = temporal_input_index + 1;
+        temporal_is_key = temporal_input_index == 0 ||
+            opt->frame_type == H264E_FRAME_TYPE_KEY;
+        temporal_id = temporal_is_key ? 0 :
+            temporal_pattern[enc->temporal.phase & 3];
+
+        for (k = 0; k < 3; k++)
+        {
+            temporal_quota[k] = temporal_cumulative_supply(&enc->param, k, n) -
+                temporal_cumulative_supply(&enc->param, k, n - 1);
+        }
+
+        best_budget = INT64_MAX;
+        for (k = temporal_id; k < 3; k++)
+        {
+            int64_t candidate = (int64_t)enc->param.temporal_buffer_bytes[k] -
+                enc->temporal.debt_bytes[k] + temporal_quota[k];
+            if (candidate < best_budget)
+            {
+                best_budget = candidate;
+            }
+        }
+        best_budget = MAX(best_budget, 1);
+        best_budget = MIN(best_budget, 1000000);
+        temporal_budget = (int)best_budget;
+        enc->run_param.desired_frame_bytes = temporal_budget;
+
+        if (temporal_is_key)
+        {
+            /* IDR resets both persistent slots through the KEY path. */
+            temporal_use = -1;
+            temporal_update = 1;
+        }
+        else if (temporal_id == 0)
+        {
+            /* Base references and replaces only slot 1. */
+            temporal_use = 1;
+            temporal_update = 1;
+        }
+        else if (temporal_id == 1)
+        {
+            /* Middle references base slot 1 and owns slot 2. */
+            temporal_use = 1;
+            temporal_update = 2;
+        }
+        else
+        {
+            /* First high frame follows base; the second follows middle. */
+            temporal_use = (enc->temporal.phase & 3) == 0 ? 1 : 2;
+            temporal_update = -1;
+        }
+
+        temporal_rc_load(enc, temporal_id);
+
+        /* Translate the public DEFAULT/P/KEY request into the explicit
+           long-term reference operation required by this temporal layer. */
+        enc->run_param.frame_type = H264E_FRAME_TYPE_CUSTOM;
+        enc->run_param.long_term_idx_use = temporal_use;
+        enc->run_param.long_term_idx_update = temporal_update;
     }
 
     enc->speed.disable_deblock = (opt->encode_speed == 8 || opt->encode_speed == 10);
@@ -11651,8 +11899,60 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     } else
 #endif // H264E_SVC_API
     {
-        H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
+        error = H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
             frame_type, enc->param.sps_id*4 + 0, 0);
+    }
+
+    if (temporal_active)
+    {
+        H264E_temporal_stats_t stats;
+        int actual_bytes;
+        int k;
+
+        if (error)
+        {
+            return error;
+        }
+
+        /* Save feedback before committing any budget/schedule state.  The
+           encoder's ordinary return path currently cannot fail after this
+           point, but keep the transaction boundary explicit. */
+        temporal_rc_save(enc, temporal_id);
+        actual_bytes = (int)enc->out_pos;
+
+        for (k = 0; k < 3; k++)
+        {
+            enc->temporal.debt_bytes[k] -= temporal_quota[k];
+            if (k >= temporal_id)
+            {
+                enc->temporal.debt_bytes[k] += actual_bytes;
+            }
+        }
+
+        enc->temporal.successful_inputs = temporal_input_index + 1;
+        if (temporal_is_key)
+        {
+            enc->temporal.phase = 0;
+        }
+        else
+        {
+            enc->temporal.phase = (enc->temporal.phase + 1) & 3;
+        }
+
+        stats.input_index = temporal_input_index;
+        stats.temporal_id = temporal_id;
+        for (k = 0; k < 3; k++)
+        {
+            stats.quota_bytes[k] = temporal_quota[k];
+            stats.debt_bytes[k] = enc->temporal.debt_bytes[k];
+        }
+        stats.actual_bytes = actual_bytes;
+        stats.budget_bytes = temporal_budget;
+
+        if (opt->temporal_observe)
+        {
+            opt->temporal_observe(&stats, opt->temporal_opaque);
+        }
     }
 
     *sizeof_coded_data = enc->out_pos;
@@ -11670,6 +11970,10 @@ int H264E_sizeof(const H264E_create_param_t *par, int *sizeof_persist, int *size
     int i;
     int error = H264E_sizeof_one(par, sizeof_persist, sizeof_scratch, 0);
     (void)i;
+    if (error)
+    {
+        return error;
+    }
 #if H264E_SVC_API
     for (i = par->num_layers; i > 1; i--)
     {
