@@ -1,0 +1,47 @@
+{
+  "file": "mixed.mp2",
+  "sha256": "21315a2526bc7f6ab633256d8a573f0f527ff5c547f013fe85a3b06004c292ab",
+  "bytes": 75828,
+  "license": "CC0-1.0 (generated synthetic audio)",
+  "origin": "Finite integer PCM generated locally, encoded with unmodified njh/twolame production library",
+  "encoder": {
+    "repo": "https://github.com/njh/twolame",
+    "commit": "6fced852d4d5cfad58cf9dbe3ea619b08e87d398",
+    "license": "LGPL-2.1-or-later",
+    "psycho_model": 3,
+    "padding": false,
+    "gapless_metadata": false
+  },
+  "segments": [
+    {
+      "rate": 44100,
+      "channels": 2,
+      "kbps": 192,
+      "mpeg_frames": 42,
+      "pcm_frames": 48384,
+      "seed": 1,
+      "bytes": 26292
+    },
+    {
+      "rate": 24000,
+      "channels": 1,
+      "kbps": 96,
+      "mpeg_frames": 38,
+      "pcm_frames": 43776,
+      "seed": 2,
+      "bytes": 21888
+    },
+    {
+      "rate": 48000,
+      "channels": 2,
+      "kbps": 192,
+      "mpeg_frames": 48,
+      "pcm_frames": 55296,
+      "seed": 3,
+      "bytes": 27648
+    }
+  ],
+  "pcm_formula": "short(9000*sin(2*pi*(431+seed*131+channel*217)*i/rate)+2000*cos(2*pi*83*i/rate)); i is local input frame starting at 0",
+  "generator_source_sha256": "ab9bb0287f2ca1cf0dc0e96ebf777744a5e27b2ebf4b78759a9cc7a3a92ba7f2",
+  "runtime": "The binary is already included. No encoder or fixture generation step is used at runtime."
+}
