@@ -32,6 +32,11 @@ Features
 
 * Large collection of type-safe DIE attribute fetchers.
 
+* Offline DWARF4 inline stack query (`dwarf::inline_stacks`) that
+  returns every candidate concrete inline chain covering a linked PC,
+  including parallel inlines and overlapping compilation units, with
+  self-owned frame identity and source coordinates.
+
 Non-features
 ------------
 
@@ -52,6 +57,11 @@ To use a local build of libelfin, set `PKG_CONFIG_PATH`.  For example,
     export PKG_CONFIG_PATH=$PWD/elf:$PWD/dwarf
 
 There are various example programs in `examples/`.
+
+The DWARF4 inline stack contract tests build the real library and run
+entirely offline:
+
+    bash test/run-inline-stacks.sh
 
 Status
 ------

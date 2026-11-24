@@ -1,0 +1,8 @@
+.task-build/
+*.o
+*.a
+*.so
+*.so.*
+*.pc
+examples/.find-pc.d
+examples/.*.d

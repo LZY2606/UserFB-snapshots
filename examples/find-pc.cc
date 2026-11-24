@@ -1,5 +1,6 @@
 #include "elf++.hh"
 #include "dwarf++.hh"
+#include "inline.hh"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -9,12 +10,15 @@
 using namespace std;
 
 void
-usage(const char *cmd) 
+usage(const char *cmd)
 {
         fprintf(stderr, "usage: %s elf-file pc\n", cmd);
         exit(2);
 }
 
+// Original single-branch concrete-tree traversal.  Kept as a
+// reference path for the offline baseline comparison; the command
+// itself reports every candidate through dwarf::inline_stacks.
 bool
 find_pc(const dwarf::die &d, dwarf::taddr pc, vector<dwarf::die> *stack)
 {
@@ -44,16 +48,48 @@ find_pc(const dwarf::die &d, dwarf::taddr pc, vector<dwarf::die> *stack)
         return found;
 }
 
-void
-dump_die(const dwarf::die &node)
+static string
+field_or_unknown(bool present, const string &value)
 {
-        printf("<%" PRIx64 "> %s\n",
-               node.get_section_offset(),
-               to_string(node.tag).c_str());
-        for (auto &attr : node.attributes())
-                printf("      %s %s\n",
-                       to_string(attr.first).c_str(),
-                       to_string(attr.second).c_str());
+        if (!present)
+                return "unknown";
+        return value;
+}
+
+static string
+number_or_unknown(bool present, uint64_t value)
+{
+        if (!present)
+                return "unknown";
+        return to_string(value);
+}
+
+static string
+format_position(const dwarf::inline_source_position &pos)
+{
+        // Every field is independent; an unknown file, line, or
+        // column is printed as unknown rather than backfilled.
+        return field_or_unknown(pos.file_present, pos.file) + ":"
+               + number_or_unknown(pos.line_present, pos.line) + ":"
+               + number_or_unknown(pos.column_present, pos.column);
+}
+
+static void
+print_frame(const dwarf::inline_frame &frame, unsigned depth)
+{
+        printf("  frame %u: cu=0x%" PRIx64 " die=0x%" PRIx64
+               " tag=%s\n",
+               depth, frame.unit_offset, frame.die_offset,
+               to_string(frame.tag).c_str());
+        printf("    name: %s\n",
+               field_or_unknown(frame.name_present, frame.name).c_str());
+        printf("    linkage_name: %s\n",
+               field_or_unknown(frame.linkage_name_present,
+                                frame.linkage_name).c_str());
+        printf("    declaration: %s\n",
+               format_position(frame.declaration).c_str());
+        printf("    call: %s\n",
+               format_position(frame.call).c_str());
 }
 
 int
@@ -80,34 +116,17 @@ main(int argc, char **argv)
         elf::elf ef(elf::create_mmap_loader(fd));
         dwarf::dwarf dw(dwarf::elf::create_loader(ef));
 
-        // Find the CU containing pc
-        // XXX Use .debug_aranges
-        for (auto &cu : dw.compilation_units()) {
-                if (die_pc_range(cu.root()).contains(pc)) {
-                        // Map PC to a line
-                        auto &lt = cu.get_line_table();
-                        auto it = lt.find_address(pc);
-                        if (it == lt.end())
-                                printf("UNKNOWN\n");
-                        else
-                                printf("%s\n",
-                                       it->get_description().c_str());
+        vector<dwarf::inline_stack> stacks = dwarf::inline_stacks(dw, pc);
+        printf("pc=0x%" PRIx64 " candidates=%zu\n", pc, stacks.size());
+        if (stacks.empty())
+                printf("no inline stack covers this pc\n");
 
-                        // Map PC to an object
-                        // XXX Index/helper/something for looking up PCs
-                        // XXX DW_AT_specification and DW_AT_abstract_origin
-                        vector<dwarf::die> stack;
-                        if (find_pc(cu.root(), pc, &stack)) {
-                                bool first = true;
-                                for (auto &d : stack) {
-                                        if (!first)
-                                                printf("\nInlined in:\n");
-                                        first = false;
-                                        dump_die(d);
-                                }
-                        }
-                        break;
-                }
+        for (size_t i = 0; i < stacks.size(); ++i) {
+                printf("candidate %zu:\n", i + 1);
+                for (size_t j = 0; j < stacks[i].frames.size(); ++j)
+                        print_frame(stacks[i].frames[j], (unsigned)j);
+                if (i + 1 < stacks.size())
+                        printf("---\n");
         }
 
         return 0;
