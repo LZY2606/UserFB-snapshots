@@ -57,48 +57,72 @@ using std::unique_ptr;
 Module::InlineOrigin* Module::InlineOriginMap::GetOrCreateInlineOrigin(
     uint64_t offset,
     StringView name) {
-  uint64_t specification_offset = references_[offset];
-  // Find the root offset.
-  auto iter = references_.find(specification_offset);
-  while (iter != references_.end() &&
-         specification_offset != references_[specification_offset]) {
-    specification_offset = references_[specification_offset];
-    iter = references_.find(specification_offset);
+  uint64_t root_offset = FindRootOffset(offset);
+  auto it = inline_origins_.find(root_offset);
+  if (it == inline_origins_.end()) {
+    it = inline_origins_
+             .emplace(root_offset, new Module::InlineOrigin(name))
+             .first;
+  } else if (it->second->name == "<name omitted>" &&
+             name != "<name omitted>") {
+    // A real name always supersedes a placeholder. The terminal declaration
+    // may be parsed after the inline instances that cite it, in which case
+    // the origin was first created with "<name omitted>".
+    it->second->name = name;
   }
-  if (inline_origins_.find(specification_offset) != inline_origins_.end()) {
-    if (inline_origins_[specification_offset]->name == "<name omitted>") {
-      inline_origins_[specification_offset]->name = name;
+
+  // Several origin objects may have been created separately before their
+  // chains converged onto this same terminal (two inline instances each
+  // citing an unnamed intermediate, for example). Every object handed out so
+  // far must keep its address, but they all describe the same declaration,
+  // so propagate the resolved name across the whole component. Write() still
+  // merges same-named origins via CreateInlineOrigins; this only makes sure
+  // no surviving object keeps an un-updated placeholder name.
+  if (name != "<name omitted>") {
+    for (auto& entry : inline_origins_) {
+      if (FindRootOffset(entry.first) == root_offset &&
+          entry.second->name == "<name omitted>") {
+        entry.second->name = name;
+      }
     }
-    return inline_origins_[specification_offset];
   }
-  inline_origins_[specification_offset] = new Module::InlineOrigin(name);
-  return inline_origins_[specification_offset];
+  return it->second;
+}
+
+uint64_t Module::InlineOriginMap::FindRootOffset(uint64_t offset) const {
+  // Walk the specification / abstract-origin chain to its terminal DIE. The
+  // chain may be extended after an origin has been handed out, so resolve
+  // from the current map every time rather than caching the root.
+  uint64_t root = offset;
+  for (;;) {
+    auto ref = references_.find(root);
+    if (ref == references_.end() || ref->second == root)
+      break;
+    root = ref->second;
+  }
+  return root;
 }
 
 void Module::InlineOriginMap::SetReference(uint64_t offset,
                                            uint64_t specification_offset) {
   // If we haven't seen this doesn't exist in reference map, always add it.
-  if (references_.find(offset) == references_.end()) {
+  auto existing = references_.find(offset);
+  if (existing == references_.end()) {
     references_[offset] = specification_offset;
     return;
   }
-  // If offset equals specification_offset and offset exists in
-  // references_, there is no need to update the references_ map.
-  // This early return is necessary because the call to erase in following if
-  // will remove the entry of specification_offset in inline_origins_. If
-  // specification_offset equals to references_[offset], it might be
-  // duplicate debug info.
+  // A self reference or a repeated reference carries no new edge. Keeping
+  // this no-op preserves the duplicate debug information behaviour.
   if (offset == specification_offset ||
-      specification_offset == references_[offset])
+      specification_offset == existing->second)
     return;
 
-  // Fix up mapping in inline_origins_.
-  auto remove = inline_origins_.find(references_[offset]);
-  if (remove != inline_origins_.end()) {
-    inline_origins_[specification_offset] = std::move(remove->second);
-    inline_origins_.erase(remove);
-  }
-  references_[offset] = specification_offset;
+  // Extend the chain. Origin objects are deliberately left in place: inline
+  // instances may already hold raw pointers to them, and separately created
+  // origins can later converge on one terminal. Name resolution happens
+  // through FindRootOffset in GetOrCreateInlineOrigin, so no pointer is ever
+  // invalidated and no previously handed-out origin becomes unreachable.
+  existing->second = specification_offset;
 }
 
 Module::Module(const std::string& name, const std::string& os,
@@ -200,6 +224,23 @@ bool Module::AddFunction(Function* function) {
     return false;
   }
   function_addresses_.emplace(function->address);
+  // FunctionCompare orders functions by address and object identity, so the
+  // set no longer rejects same-address entries on its own. A genuine
+  // duplicate --- same address and same resolved name --- is still dropped
+  // here, matching the previous behaviour. Same-address functions whose name
+  // is still the "<name omitted>" placeholder are always retained: their
+  // real names may arrive from forward declarations later, and collapsing
+  // them now would lose a distinct concrete function.
+  if (function->name != "<name omitted>") {
+    FunctionSet::iterator duplicate = std::find_if(
+        functions_.begin(), functions_.end(),
+        [&](Function* other) {
+          return other->address == function->address &&
+                 other->name == function->name;
+        });
+    if (duplicate != functions_.end())
+      return false;
+  }
   std::pair<FunctionSet::iterator, bool> ret = functions_.insert(function);
   if (!ret.second && (*ret.first != function)) {
     // Free the duplicate that was not inserted because this Module
@@ -207,6 +248,28 @@ bool Module::AddFunction(Function* function) {
     return false;
   }
   return true;
+}
+
+bool Module::RetireDuplicateFunction(Function* function) {
+  // Placeholder-named functions are never duplicates: their identity is not
+  // known yet.
+  if (function->name == "<name omitted>")
+    return false;
+  FunctionSet::iterator self = functions_.find(function);
+  if (self == functions_.end()) {
+    // Not owned by this module yet (for example, still accumulating in a
+    // compilation unit); the normal AddFunction dedup will handle it.
+    return false;
+  }
+  for (Function* other : functions_) {
+    if (other != function && other->address == function->address &&
+        other->name == function->name) {
+      functions_.erase(self);
+      delete function;
+      return true;
+    }
+  }
+  return false;
 }
 
 void Module::AddStackFrameEntry(std::unique_ptr<StackFrameEntry> stack_frame_entry) {

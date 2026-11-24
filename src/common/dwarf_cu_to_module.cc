@@ -112,9 +112,105 @@ struct DwarfCUToModule::FilePrivate {
 
   AbstractOriginByOffset origins;
 
-  // Keep a list of forward references from DW_AT_abstract_origin and
-  // DW_AT_specification attributes so names can be fixed up.
-  std::map<uint64_t, Module::Function*> forward_ref_die_to_func;
+  FilePrivate() {}
+
+  // --- Forward declaration / abstract-origin resolution ----------------
+  //
+  // A concrete subprogram or inline instance may cite a declaration that
+  // appears later in .debug_info, possibly in another CU and possibly after
+  // several specification/abstract-origin hops. The structures below keep
+  // enough information to resolve every such reference to a terminal
+  // declaration name once that declaration is parsed. All offsets are
+  // absolute .debug_info section offsets, never CU-relative.
+
+  // link[offset] is the DIE cited by the DW_AT_specification or
+  // DW_AT_abstract_origin attribute on the DIE at offset. A missing entry
+  // means the DIE has no such link.
+  std::map<uint64_t, uint64_t> link;
+
+  // Terminal names learned so far, keyed by the offset of the DIE carrying
+  // the name.
+  std::map<uint64_t, StringView> names;
+
+  // A concrete function waiting for the declaration reachable from
+  // TARGET. The original target is retained rather than the root resolved at
+  // registration time: an intermediate DIE may gain another specification
+  // hop later, moving the terminal. The root is re-resolved on every wake.
+  struct Waiter {
+    uint64_t target;
+    Module::Function* function;
+  };
+
+  // Concrete functions still waiting for a name. A single declaration can
+  // have many waiters (fan-out); eliminating one duplicate function must not
+  // disturb the others, hence the per-function erase support.
+  std::vector<Waiter> function_waiters;
+
+  // Follow link[] from OFFSET until reaching a DIE with no outgoing link.
+  // Chains are acyclic in well-formed DWARF; a hop bound keeps a malformed
+  // cycle from looping forever.
+  uint64_t ResolveRoot(uint64_t offset) const {
+    uint64_t root = offset;
+    std::map<uint64_t, uint64_t>::const_iterator edge = link.find(root);
+    unsigned hops = 0;
+    const unsigned kMaxHops = 100000;
+    while (edge != link.end() && edge->second != root && hops < kMaxHops) {
+      root = edge->second;
+      edge = link.find(root);
+      ++hops;
+    }
+    return root;
+  }
+
+  // Return the name carried by any DIE on the chain starting at OFFSET,
+  // following links to the terminal. Prefer a name nearest the terminal,
+  // since the terminal declaration is the authoritative one. Returns an
+  // empty StringView if no name is available yet.
+  StringView ResolveName(uint64_t offset) const {
+    // Collect the chain so we can inspect it terminal-first.
+    std::vector<uint64_t> chain;
+    uint64_t node = offset;
+    unsigned hops = 0;
+    const unsigned kMaxHops = 100000;
+    for (;;) {
+      chain.push_back(node);
+      std::map<uint64_t, uint64_t>::const_iterator edge = link.find(node);
+      if (edge == link.end() || edge->second == node || hops >= kMaxHops)
+        break;
+      node = edge->second;
+      ++hops;
+    }
+    for (std::vector<uint64_t>::const_reverse_iterator it = chain.rbegin();
+         it != chain.rend(); ++it) {
+      std::map<uint64_t, StringView>::const_iterator named =
+          names.find(*it);
+      if (named != names.end() && !named->second.empty())
+        return named->second;
+    }
+    return StringView();
+  }
+
+  // Re-evaluate every pending concrete function after a link or name changed
+  // at TRIGGER. Each waiter is re-resolved from its own original target, so an
+  // intermediate hop added after registration still reaches the new terminal.
+  // Functions already owned by MODULE are retired here if they turn out to be
+  // a same-address/same-name duplicate; CU-local functions are deduplicated
+  // through AddFunction when their own CU finishes.
+  void WakeFunctionWaiters(uint64_t /*trigger*/, Module* module) {
+    std::vector<Waiter> still_waiting;
+    still_waiting.reserve(function_waiters.size());
+    for (const Waiter& waiter : function_waiters) {
+      uint64_t root = ResolveRoot(waiter.target);
+      StringView name = ResolveName(root);
+      if (name.empty()) {
+        still_waiting.push_back(waiter);
+        continue;
+      }
+      waiter.function->name = name;
+      module->RetireDuplicateFunction(waiter.function);
+    }
+    function_waiters.swap(still_waiting);
+  }
 };
 
 DwarfCUToModule::FileContext::FileContext(const std::string& filename,
@@ -162,6 +258,48 @@ bool DwarfCUToModule::FileContext::IsUnhandledInterCUReference(
   if (handle_inter_cu_refs_)
     return false;
   return offset < compilation_unit_start;
+}
+
+void DwarfCUToModule::FileContext::RecordSubprogram(uint64_t offset,
+                                                    uint64_t link_target,
+                                                    StringView name) {
+  FilePrivate* priv = file_private_.get();
+  if (link_target != 0)
+    priv->link[offset] = link_target;
+  if (!name.empty())
+    priv->names[offset] = name;
+
+  // A new edge or name can complete a previously pending chain. Re-evaluate
+  // both this DIE itself (it may be the terminal some waiter points at) and
+  // its target (the edge may now lead through to a name).
+  priv->WakeFunctionWaiters(offset, module_);
+  if (link_target != 0)
+    priv->WakeFunctionWaiters(link_target, module_);
+}
+
+void DwarfCUToModule::FileContext::RegisterFunctionWaiter(
+    uint64_t target, Module::Function* function) {
+  FilePrivate* priv = file_private_.get();
+  uint64_t root = priv->ResolveRoot(target);
+  StringView name = priv->ResolveName(root);
+  if (!name.empty()) {
+    function->name = name;
+    return;
+  }
+  priv->function_waiters.push_back(FilePrivate::Waiter{target, function});
+}
+
+void DwarfCUToModule::FileContext::RemoveFunctionWaiter(
+    Module::Function* function) {
+  std::vector<FilePrivate::Waiter>& waiters =
+      file_private_->function_waiters;
+  for (std::vector<FilePrivate::Waiter>::iterator it = waiters.begin();
+       it != waiters.end(); ++it) {
+    if (it->function == function) {
+      waiters.erase(it);
+      return;
+    }
+  }
 }
 
 // Information global to the particular compilation unit we're
@@ -267,9 +405,6 @@ struct DwarfCUToModule::CUContext {
   //
   // Destroying this destroys all the functions this vector points to.
   vector<Module::Function*> functions;
-
-  // A map of function pointers to the its forward specification DIE's offset.
-  map<Module::Function*, uint64_t> spec_function_offsets;
 };
 
 // Information about the context of a particular DIE. This is for
@@ -304,7 +439,7 @@ class DwarfCUToModule::GenericDIEHandler: public DIEHandler {
         specification_(nullptr),
         no_specification(false),
         abstract_origin_(nullptr),
-        forward_ref_die_offset_(0), specification_offset_(0) { }
+        specification_offset_(0) { }
 
   // Derived classes' ProcessAttributeUnsigned can defer to this to
   // handle DW_AT_declaration, or simply not override it.
@@ -359,11 +494,6 @@ class DwarfCUToModule::GenericDIEHandler: public DIEHandler {
   // Otherwise, this is NULL.
   const AbstractOrigin* abstract_origin_;
 
-  // If this DIE has a DW_AT_specification or DW_AT_abstract_origin and it is a
-  // forward reference, no Specification will be available. Track the reference
-  // to be fixed up when the DIE is parsed.
-  uint64_t forward_ref_die_offset_;
-
   // The root offset of Specification or abstract origin.
   uint64_t specification_offset_;
 
@@ -413,9 +543,7 @@ void DwarfCUToModule::GenericDIEHandler::ProcessAttributeReference(
       SpecificationByOffset::iterator spec = specifications->find(data);
       if (spec != specifications->end()) {
         specification_ = &spec->second;
-      } else if (data > offset_) {
-        forward_ref_die_offset_ = data;
-      } else {
+      } else if (data <= offset_) {
         no_specification = true;
       }
       specification_offset_ = data;
@@ -427,8 +555,6 @@ void DwarfCUToModule::GenericDIEHandler::ProcessAttributeReference(
       AbstractOriginByOffset::const_iterator origin = origins.find(data);
       if (origin != origins.end()) {
         abstract_origin_ = &(origin->second);
-      } else if (data > offset_) {
-        forward_ref_die_offset_ = data;
       }
       specification_offset_ = data;
       break;
@@ -734,6 +860,7 @@ void DwarfCUToModule::InlineHandler::Finish() {
   unique_ptr<Module::Inline> in(
       new Module::Inline(origin, ranges, call_site_line_, call_site_file_id_,
                          inline_nest_level_, std::move(child_inlines_)));
+  in->debug_info_offset = offset_;
   inlines_.push_back(std::move(in));
 }
 
@@ -890,6 +1017,12 @@ bool DwarfCUToModule::FuncHandler::EndAttributes() {
   if (name_.empty() && abstract_origin_) {
     name_ = abstract_origin_->name;
   }
+  // Record this subprogram's outgoing specification / abstract-origin link
+  // and any name it carries. Forward references (declaration parsed later),
+  // multi-hop chains and inter-CU references are all resolved from this
+  // record, so a concrete instance never has to guess a declaration name.
+  cu_context_->file_context->RecordSubprogram(
+      offset_, specification_offset_, name_);
   child_context_.name = name_;
   if (name_.empty() && no_specification) {
     cu_context_->reporter->UnknownSpecification(offset_, specification_offset_);
@@ -899,18 +1032,6 @@ bool DwarfCUToModule::FuncHandler::EndAttributes() {
 
 void DwarfCUToModule::FuncHandler::Finish() {
   vector<Module::Range> ranges;
-
-  // Check if this DIE was one of the forward references that was not able
-  // to be processed, and fix up the name of the appropriate Module::Function.
-  // "name_" will have already been fixed up in EndAttributes().
-  if (!name_.empty()) {
-    auto iter =
-        cu_context_->file_context->file_private_->forward_ref_die_to_func.find(
-            offset_);
-    if (iter !=
-        cu_context_->file_context->file_private_->forward_ref_die_to_func.end())
-      iter->second->name = name_;
-  }
 
   if (!has_range_data_) {
     // Make high_pc_ an address, if it isn't already.
@@ -962,20 +1083,22 @@ void DwarfCUToModule::FuncHandler::Finish() {
     // If the name was unqualified, prefer the Extern name if there's a mismatch
     // (the Extern name will be fully-qualified in that case).
     func->prefer_extern_name = !has_qualified_name_;
+    func->debug_info_offset = offset_;
     if (func->address) {
       // If the function address is zero this is a sign that this function
       // description is just empty debug data and should just be discarded.
+      Module::Function* raw_function = func.get();
       cu_context_->functions.push_back(func.release());
-      if (forward_ref_die_offset_ != 0) {
-        cu_context_->file_context->file_private_
-            ->forward_ref_die_to_func[forward_ref_die_offset_] =
-            cu_context_->functions.back();
-
-        cu_context_->spec_function_offsets[cu_context_->functions.back()] =
-            forward_ref_die_offset_;
-      }
-
       cu_context_->functions.back()->inlines.swap(child_inlines_);
+      // This concrete instance has no name of its own but cites a
+      // declaration. The declaration may appear later, in another CU, or be
+      // reached through several specification/abstract-origin hops. Register
+      // a waiter so the terminal name is applied when it becomes known,
+      // rather than leaving "<name omitted>" or guessing from an address.
+      if (name_.empty() && specification_offset_ != 0) {
+        cu_context_->file_context->RegisterFunctionWaiter(
+            specification_offset_, raw_function);
+      }
     }
   } else if (inline_) {
     AbstractOrigin origin(name_);
@@ -1605,13 +1728,13 @@ void DwarfCUToModule::Finish() {
   AssignFilesToInlines();
 
   // Add our functions, which now have source lines assigned to them,
-  // to module_, and remove duplicate functions.
+  // to module_, and remove duplicate functions. A function dropped as a
+  // duplicate must leave the forward-declaration waiter table first,
+  // otherwise the late arrival of a declaration name would dereference the
+  // freed object. Other waiters on the same declaration are unaffected.
   for (Module::Function* func : *functions)
     if (!cu_context_->file_context->module_->AddFunction(func)) {
-      auto iter = cu_context_->spec_function_offsets.find(func);
-      if (iter != cu_context_->spec_function_offsets.end())
-        cu_context_->file_context->file_private_->forward_ref_die_to_func.erase(
-            iter->second);
+      cu_context_->file_context->RemoveFunctionWaiter(func);
       delete func;
     }
 

@@ -88,6 +88,26 @@ class DwarfCUToModule: public RootDIEHandler {
 
     const SectionMap& section_map() const;
 
+    // Record that the DW_TAG_subprogram at OFFSET cites another DIE via
+    // DW_AT_specification / DW_AT_abstract_origin (LINK_TARGET, zero when it
+    // has no such attribute) and, optionally, carries its own resolved NAME.
+    // Declaration DIEs may appear after the concrete instances that cite
+    // them, and chains may span several hops and several CUs. Each call
+    // propagates any newly available terminal name to every concrete
+    // function still waiting for one.
+    void RecordSubprogram(uint64_t offset, uint64_t link_target,
+                          StringView name);
+
+    // Register FUNCTION, which has no usable name of its own, as waiting for
+    // the declaration reachable through TARGET. If TARGET already resolves to
+    // a name the function is renamed immediately.
+    void RegisterFunctionWaiter(uint64_t target, Module::Function* function);
+
+    // Drop exactly FUNCTION's waiter registration. Other concrete functions
+    // waiting on the same declaration are left untouched, so eliminating one
+    // duplicate never revokes their pending names.
+    void RemoveFunctionWaiter(Module::Function* function);
+
    private:
     friend class DwarfCUToModule;
 

@@ -135,6 +135,12 @@ class Module {
     // If the function's name should be filled out from a matching Extern,
     // should they not match.
     bool prefer_extern_name = false;
+
+    // Absolute .debug_info section offset of the concrete
+    // DW_TAG_subprogram DIE this Function was produced from. Zero when the
+    // function did not come from DWARF. In-memory correlation aid only; it
+    // is never written to the symbol file.
+    uint64_t debug_info_offset = 0;
   };
 
   struct InlineOrigin {
@@ -182,6 +188,11 @@ class Module {
     // A list of inlines which are children of this inline.
     vector<std::unique_ptr<Inline>> child_inlines;
 
+    // Absolute .debug_info section offset of the concrete
+    // DW_TAG_inlined_subroutine DIE this Inline was produced from.
+    // In-memory correlation aid only; never written to the symbol file.
+    uint64_t debug_info_offset = 0;
+
     int getCallSiteFileID() const {
       return call_site_file ? call_site_file->source_id : -1;
     }
@@ -215,6 +226,10 @@ class Module {
     }
 
    private:
+    // Follow references_ from OFFSET to the terminal DIE of its
+    // specification / abstract-origin chain.
+    uint64_t FindRootOffset(uint64_t offset) const;
+
     // A map from a DW_TAG_subprogram's offset to the DW_TAG_subprogram.
     InlineOriginByOffset inline_origins_;
 
@@ -279,8 +294,15 @@ class Module {
 
   struct FunctionCompare {
     bool operator() (const Function* lhs, const Function* rhs) const {
-      if (lhs->address == rhs->address)
-        return lhs->name < rhs->name;
+      if (lhs->address == rhs->address) {
+        // Order concrete functions at the same address by object identity,
+        // not by name. A function's name can be filled in later, once a
+        // forward declaration reaches the parser; using the mutable name as
+        // part of the key would violate the set ordering when that happens.
+        // Same-address/same-name duplicates are detected explicitly in
+        // AddFunction.
+        return lhs < rhs;
+      }
       return lhs->address < rhs->address;
     }
   };
@@ -345,6 +367,14 @@ class Module {
   // destroying the module destroys them as well.
   // Return false if the function is duplicate and needs to be freed.
   bool AddFunction(Function* function);
+
+  // If another retained function shares FUNCTION's address and resolved
+  // (non-placeholder) name, remove FUNCTION from the module and delete it.
+  // This retires duplicates that only became detectable once a forward
+  // declaration name arrived after AddFunction. Returns true if FUNCTION was
+  // a duplicate and has been deleted; in that case the caller must not use
+  // it. Pending ("<name omitted>") functions are never retired here.
+  bool RetireDuplicateFunction(Function* function);
 
   // Add STACK_FRAME_ENTRY to the module.
   // This module owns all StackFrameEntry objects added with this
