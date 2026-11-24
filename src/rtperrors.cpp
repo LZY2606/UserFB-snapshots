@@ -62,6 +62,7 @@ static RTPErrorInfo ErrorDescriptions[]=
 	{ ERR_RTP_PACKBUILD_DEFAULTTSINCNOTSET, "The RTP packet builder's default timestamp increment is not set"},
 	{ ERR_RTP_PACKBUILD_INVALIDMAXPACKETSIZE, "The specified maximum packet size for the RTP packet builder is invalid"},
 	{ ERR_RTP_PACKBUILD_NOTINIT, "The RTP packet builder is not initialized"},
+	{ ERR_RTP_PACKBUILD_INVALIDPAYLOADTYPE, "The payload type is not allowed while RTCP multiplexing is enabled"},
 	{ ERR_RTP_PACKET_BADPAYLOADTYPE, "Invalid payload type"},
 	{ ERR_RTP_PACKET_DATAEXCEEDSMAXSIZE, "Tried to create an RTP packet which whould exceed the specified maximum packet size"},
 	{ ERR_RTP_PACKET_EXTERNALBUFFERNULL, "Illegal value (null) passed as external buffer for the RTP packet"},

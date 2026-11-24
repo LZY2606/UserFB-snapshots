@@ -45,6 +45,7 @@
 RTPPacketBuilder::RTPPacketBuilder() : lastwallclocktime(0,0)
 {
 	init = false;
+	rtcpmultiplexing = false;
 }
 
 RTPPacketBuilder::~RTPPacketBuilder()
@@ -70,9 +71,9 @@ int RTPPacketBuilder::Init(size_t max)
 	deftsset = false;
 	defptset = false;
 	defmarkset = false;
-		
+
 	numcsrcs = 0;
-	
+
 	init = true;
 	return 0;
 }
@@ -83,6 +84,17 @@ void RTPPacketBuilder::Destroy()
 		return;
 	delete [] buffer;
 	init = false;
+	rtcpmultiplexing = false;
+}
+
+int RTPPacketBuilder::SetRTCPMultiplexing(bool mux)
+{
+	if (!init)
+		return ERR_RTP_PACKBUILD_NOTINIT;
+	if (mux && defptset && defaultpayloadtype >= 64 && defaultpayloadtype <= 95)
+		return ERR_RTP_PACKBUILD_INVALIDPAYLOADTYPE;
+	rtcpmultiplexing = mux;
+	return 0;
 }
 
 int RTPPacketBuilder::SetMaximumPacketSize(size_t max)
@@ -233,6 +245,9 @@ int RTPPacketBuilder::PrivateBuildPacket(const void *data,size_t len,
 	                  u_int8_t pt,bool mark,u_int32_t timestampinc,bool gotextension,
 	                  u_int16_t hdrextID,const void *hdrextdata,size_t numhdrextwords)
 {
+	if (rtcpmultiplexing && pt >= 64 && pt <= 95)
+		return ERR_RTP_PACKBUILD_INVALIDPAYLOADTYPE;
+
 	RTPPacket p(pt,data,len,seqnr,timestamp,ssrc,mark,numcsrcs,csrcs,gotextension,hdrextID,
 	            (u_int16_t)numhdrextwords,hdrextdata,buffer,maxpacksize);
 	int status = p.GetCreationError();

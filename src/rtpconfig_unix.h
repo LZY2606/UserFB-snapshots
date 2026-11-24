@@ -1,0 +1,14 @@
+#ifndef RTPCONFIG_UNIX_H
+#define RTPCONFIG_UNIX_H
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define RTP_BIG_ENDIAN
+#endif
+#define RTP_SOCKLENTYPE_UINT
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define RTP_HAVE_SOCKADDR_LEN
+#endif
+#define RTP_SUPPORT_IPV4MULTICAST
+#define RTP_SUPPORT_SDESPRIV
+#define RTP_SUPPORT_INLINETEMPLATEPARAM
+#define RTP_SUPPORT_PROBATION
+#endif

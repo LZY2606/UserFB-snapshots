@@ -51,21 +51,24 @@
 class RTPUDPv4TransmissionParams : public RTPTransmissionParams
 {
 public:
-	RTPUDPv4TransmissionParams():RTPTransmissionParams(RTPTransmitter::IPv4UDPProto)	{ portbase = RTPUDPV4TRANS_DEFAULTPORTBASE; bindIP = 0; multicastTTL = 1; }
+	RTPUDPv4TransmissionParams():RTPTransmissionParams(RTPTransmitter::IPv4UDPProto)	{ portbase = RTPUDPV4TRANS_DEFAULTPORTBASE; bindIP = 0; multicastTTL = 1; rtcpmultiplexing = false; }
 	void SetBindIP(u_int32_t ip)								{ bindIP = ip; }
 	void SetPortbase(u_int16_t pbase)							{ portbase = pbase; }
 	void SetMulticastTTL(u_int8_t mcastTTL)							{ multicastTTL = mcastTTL; }
-	void SetLocalIPList(std::list<u_int32_t> &iplist)					{ localIPs = iplist; } 
+	void SetLocalIPList(std::list<u_int32_t> &iplist)					{ localIPs = iplist; }
 	void ClearLocalIPList()									{ localIPs.clear(); }
+	void SetRTCPMultiplexing(bool mux)							{ rtcpmultiplexing = mux; }
 	u_int32_t GetBindIP() const								{ return bindIP; }
 	u_int16_t GetPortbase() const								{ return portbase; }
 	u_int8_t GetMulticastTTL() const							{ return multicastTTL; }
+	bool IsRTCPMultiplexing() const								{ return rtcpmultiplexing; }
 	const std::list<u_int32_t> &GetLocalIPList() const					{ return localIPs; }
 private:
 	u_int16_t portbase;
 	u_int32_t bindIP;
 	std::list<u_int32_t> localIPs;
 	u_int8_t multicastTTL;
+	bool rtcpmultiplexing;
 };
 	
 #ifdef RTP_SUPPORT_INLINETEMPLATEPARAM
@@ -91,6 +94,7 @@ public:
 	int GetLocalHostName(u_int8_t *buffer,size_t *bufferlength);
 	bool ComesFromThisTransmitter(const RTPAddress *addr);
 	size_t GetHeaderOverhead()							{ return RTPUDPV4TRANS_HEADERSIZE; }
+	bool IsRTCPMultiplexing() const							{ return rtcpmultiplexing; }
 	
 	int Poll();
 	int WaitForIncomingData(const RTPTime &delay);
@@ -130,6 +134,8 @@ private:
 	void AddLoopbackAddress();
 	void FlushPackets();
 	int PollSocket(bool rtp);
+	int PollMultiplexedSocket();
+	int ProcessIncomingData(const char *packetbuffer,int recvlen,const struct sockaddr_in &srcaddr,RTPTime &curtime,bool rtpsocket);
 	int ProcessAddAcceptIgnoreEntry(u_int32_t ip,u_int16_t port);
 	int ProcessDeleteAcceptIgnoreEntry(u_int32_t ip,u_int16_t port);
 #ifdef RTP_SUPPORT_IPV4MULTICAST
@@ -151,6 +157,7 @@ private:
 	u_int16_t portbase;
 	bool acceptownpackets;
 	u_int8_t multicastTTL;
+	bool rtcpmultiplexing;
 	RTPTransmitter::ReceiveMode receivemode;
 
 	u_int8_t *localhostname;

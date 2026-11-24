@@ -69,6 +69,9 @@ public:
 
 	virtual bool ComesFromThisTransmitter(const RTPAddress *addr) = 0;
 	virtual size_t GetHeaderOverhead() = 0;
+
+	// Indicates whether RTP and RTCP are carried over a single port/socket
+	virtual bool IsRTCPMultiplexing() const								{ return false; }
 	
 	virtual int Poll() = 0;
 	virtual int WaitForIncomingData(const RTPTime &delay) = 0;

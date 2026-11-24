@@ -54,6 +54,9 @@ public:
 	u_int32_t GetPayloadOctetCount()				{ if (!init) return 0; return numpayloadbytes; }
 	int SetMaximumPacketSize(size_t maxpacksize);
 
+	int SetRTCPMultiplexing(bool mux);
+	bool IsRTCPMultiplexing() const					{ return rtcpmultiplexing; }
+
 	int AddCSRC(u_int32_t csrc);
 	int DeleteCSRC(u_int32_t csrc);
 	void ClearCSRCList();	
@@ -106,6 +109,8 @@ private:
 	u_int8_t defaultpayloadtype;
 	bool defaultmark;
 
+	bool rtcpmultiplexing;
+
 	bool deftsset,defptset,defmarkset;
 
 	u_int32_t csrcs[RTP_MAXCSRCS];
@@ -120,6 +125,8 @@ inline int RTPPacketBuilder::SetDefaultPayloadType(u_int8_t pt)
 {
 	if (!init)
 		return ERR_RTP_PACKBUILD_NOTINIT;
+	if (rtcpmultiplexing && pt >= 64 && pt <= 95)
+		return ERR_RTP_PACKBUILD_INVALIDPAYLOADTYPE;
 	defptset = true;
 	defaultpayloadtype = pt;
 	return 0;

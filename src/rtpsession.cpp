@@ -125,9 +125,15 @@ int RTPSession::Create(const RTPSessionParams &sessparams,const RTPTransmissionP
 	}
 
 	// Initialize packet builder
-	
+
 	if ((status = packetbuilder.Init(maxpacksize)) < 0)
 	{
+		delete rtptrans;
+		return status;
+	}
+	if ((status = packetbuilder.SetRTCPMultiplexing(rtptrans->IsRTCPMultiplexing())) < 0)
+	{
+		packetbuilder.Destroy();
 		delete rtptrans;
 		return status;
 	}

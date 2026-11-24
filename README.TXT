@@ -71,6 +71,48 @@ INSTALLATION NOTES
   and rtpudpv6transmitter.h to a lower value to avoid memory being wasted.
   Note that the library will have to be recompiled.
 
+RTP/RTCP MULTIPLEXING (IPv4 UNICAST)
+====================================
+
+By default an IPv4 unicast session uses two consecutive UDP ports: the even
+port base p for RTP and p+1 for RTCP. To interoperate with a peer that has
+negotiated rtcp-mux, the transport can instead carry both RTP and RTCP over a
+single UDP port.
+
+* Enable it with RTPUDPv4TransmissionParams::SetRTCPMultiplexing(true) before
+  passing the parameters to RTPSession::Create. IsRTCPMultiplexing() queries
+  the configured value; the default is false.
+
+* When enabled, only the single port given by SetPortbase is bound. That port
+  may be odd and no second socket or p+1 port is used. SendRTPData and
+  SendRTCPData both transmit from that port to the port passed to
+  AddDestination. With multiplexing disabled the original p/p+1 rule still
+  applies (the port base must be even).
+
+* Incoming datagrams are classified by their second byte: a length of at
+  least 2 and RTP version 2, with the second byte in the range 192..223, is
+  RTCP; everything else is RTP. The marker bit is not masked, so payload type
+  96 with the marker set is still RTP. Datagrams that are shorter than 2 bytes
+  or do not use version 2 are silently ignored (including zero-length
+  datagrams); normal traffic after them is still delivered. Full format
+  validation is done by the regular RTP and RTCP parsers, and a malformed RTCP
+  packet is not reclassified as RTP. Received packets keep their real source
+  IP/port and arrival time, so ignore/accept filtering uses the actual sender.
+
+* While multiplexing is enabled, payload types 64..95 must not be used, since
+  their marker/PT byte would collide with RTCP packet types. RTPPacketBuilder
+  rejects these values in SetDefaultPayloadType and in every BuildPacket /
+  BuildPacketEx overload regardless of the marker value; a rejected call
+  leaves the sequence number, timestamp, counters and last packet unchanged.
+  RTPPacketBuilder::SetRTCPMultiplexing(true) itself fails if a default
+  payload type in that range was already configured; RTPSession::Create passes
+  the transport mode to the builder it uses. The mode is off by default and is
+  reset by RTPPacketBuilder::Destroy.
+
+This extension covers IPv4 unicast only. IPv6 and multicast are unchanged, and
+no SDP signalling is provided: the application is responsible for negotiating
+rtcp-mux out of band.
+
 * Used defines:
 	- WIN32:
 		For compilation on an MS-Windows platform.
