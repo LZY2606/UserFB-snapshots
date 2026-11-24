@@ -53,7 +53,7 @@ RTPRandom::RTPRandom()
 	x = (u_int32_t)getpid();
 	x += (u_int32_t)time(0);
 	x -= (u_int32_t)clock();
-	x ^= (u_int32_t)(this);
+	x ^= (u_int32_t)(uintptr_t)(this);
 
 #ifdef RTP_SUPPORT_GNUDRAND
 	srand48_r(x,&drandbuffer);
@@ -70,7 +70,7 @@ RTPRandom::RTPRandom()
 	x = (u_int32_t)getpid();
 	x += (u_int32_t)time(0);
 	x -= (u_int32_t)clock();
-	x ^= (u_int32_t)(this);
+	x ^= (u_int32_t)(uintptr_t)(this);
 	srand((unsigned int)x);
 
 	init = true;
