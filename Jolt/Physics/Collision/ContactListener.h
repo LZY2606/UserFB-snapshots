@@ -49,6 +49,14 @@ public:
 	bool					mIsSensor;							///< If the contact should be treated as a sensor vs body contact (no collision response)
 	Vec3					mRelativeLinearSurfaceVelocity = Vec3::sZero(); ///< Relative linear surface velocity between the bodies (world space surface velocity of body 2 - world space surface velocity of body 1), can be used to create a conveyor belt effect
 	Vec3					mRelativeAngularSurfaceVelocity = Vec3::sZero(); ///< Relative angular surface velocity between the bodies (world space angular surface velocity of body 2 - world space angular surface velocity of body 1). Note that this angular velocity is relative to the center of mass of body 1, so if you want it relative to body 2's center of mass you need to add body 2 angular velocity x (body 1 world space center of mass - body 2 world space center of mass) to mRelativeLinearSurfaceVelocity.
+
+	// Elliptical (anisotropic) sliding friction. Disabled by default, when disabled the regular isotropic Coulomb friction model based on mCombinedFriction is used and nothing changes.
+	// Only supported for discrete rigid body contacts (not for soft bodies, character controllers or continuous collision detection). Only linear (sliding) friction is taken over by this model;
+	// angular friction keeps using the scalar mCombinedFriction value. The settings can be changed every step in both OnContactAdded and OnContactPersisted, the contact is not cached based on them.
+	bool					mUseFrictionEllipse = false;		///< Enable the elliptical sliding friction model for this contact. When true, mFrictionCoefficientAlong / mFrictionCoefficientAcross replace mCombinedFriction for linear friction.
+	Vec3					mFrictionDirection = Vec3::sAxisX(); ///< World space groove / tread axis. It is projected onto the contact plane and normalized to form the first tangential basis axis u; the second axis is v = contact_normal x u. Must be finite and non-zero, and the length of its projection onto the contact plane must be larger than 1.0e-4. A persisted contact may use a different direction every step.
+	float					mFrictionCoefficientAlong = 0.5f;	///< Sliding friction coefficient along u (the projected mFrictionDirection). Valid range is [0.05, 2]. The allowed tangential impulse region is (p_u / mFrictionCoefficientAlong)^2 + (p_v / mFrictionCoefficientAcross)^2 <= N^2, where N is the sum of the non-penetration impulses.
+	float					mFrictionCoefficientAcross = 0.5f; ///< Sliding friction coefficient along v (contact_normal x projected mFrictionDirection). Valid range is [0.05, 2].
 };
 
 /// Return value for the OnContactValidate callback. Determines if the contact is being processed or not.

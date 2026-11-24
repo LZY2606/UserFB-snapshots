@@ -6,6 +6,7 @@ Changes that make some state saved through SaveBinaryState from a prior version 
 
 ## Changes between v5.6.0 and latest
 
+* 20261125 - *Replay* - Added the elliptical friction fields to `ContactSettings` (`mUseFrictionEllipse`, `mFrictionDirection`, `mFrictionCoefficientAlong`, `mFrictionCoefficientAcross`) and a world space tangential impulse to the contact manifold cache. The new settings are additive and default to the previous isotropic behavior, but the `StateRecorder` contact cache stream gained one `Float3`, so recordings made with an older library cannot be replayed with the new one.
 * 20261107 - *SBS* - `ConvexHullShape` now tracks vertex to face links. This changes the binary serialization format. (2238d2a95b7159beffbdb176f2f2fbd5089c515d)
 * 20261022 - *SBS* - `VehicleEngineSettings::mInertia` and `mAngularDamping` were not serialized by `SaveBinaryState`, this changes the serialization format. (33c944b0388a6744f54f96e0d160bd24c3510048)
 * 20261018 - EstimateCollisionResponse now takes surface velocities into account. This changes the function signature to accapt a `ContactSettings` parameter. (dc9b1e8eb64aaf7c06dfadac310f781f7c7a5871)

@@ -6,6 +6,7 @@ For breaking API changes see [this document](https://github.com/jrouwe/JoltPhysi
 
 ### New functionality
 
+* Added an optional elliptical (anisotropic) sliding friction model for discrete rigid body contacts. Set `ContactSettings::mUseFrictionEllipse` in an `OnContactAdded`/`OnContactPersisted` callback and provide a world space groove direction (`mFrictionDirection`) and two coefficients (`mFrictionCoefficientAlong`, `mFrictionCoefficientAcross`, range `[0.05, 2]`). The tangential impulse is limited by the ellipse `(p_u / mu_along)^2 + (p_v / mu_across)^2 <= N^2` using the full 2x2 effective inverse mass matrix. It only replaces linear friction (angular friction keeps using `mCombinedFriction`), defaults to off so existing simulations are unchanged, and is not used by soft bodies, the character controller or continuous collision detection. See "Elliptical (Anisotropic) Friction" in `Docs/Architecture.md`.
 * The Samples application now runs on iOS and Android. Touch input is mapped to mouse and keyboard input, see `Build/README.md`.
 * Added support for 64-bit ObjectLayer. This e.g. allows for more groups in case you're using `ObjectLayerPairFilterMask`.
 * `EstimateCollisionResponse` now takes surface velocities into account.

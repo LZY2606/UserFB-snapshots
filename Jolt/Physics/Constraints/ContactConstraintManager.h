@@ -12,6 +12,7 @@
 #include <Jolt/Physics/Collision/ManifoldBetweenTwoFaces.h>
 #include <Jolt/Physics/Constraints/ConstraintPart/ContactConstraintPart.h>
 #include <Jolt/Physics/Constraints/ConstraintPart/AngularFrictionConstraintPart.h>
+#include <Jolt/Physics/Constraints/ConstraintPart/FrictionEllipseConstraintPart.h>
 #include <Jolt/Physics/StateRecorder.h>
 #include <Jolt/Core/HashCombine.h>
 #include <Jolt/Core/NonCopyable.h>
@@ -306,11 +307,17 @@ private:
 		Vector<2>				mFrictionLambda;
 		float					mAngularFrictionLambda;
 
+		/// World space tangential friction impulse applied during the last update.
+		/// Only used by the elliptical friction model (mFrictionLambda stays zero in that case) so that the warm start
+		/// can rotate the previous impulse into the current contact plane and groove basis. Zero for isotropic contacts.
+		Float3					mFrictionImpulseWorld;
+
 		/// Flags for this cached manifold
 		enum class EFlags : uint16
 		{
 			ContactPersisted	= 1,																///< If this cache entry was reused in the next simulation update
-			CCDContact			= 2																	///< This is a cached manifold reported by continuous collision detection and was only used to create a contact callback
+			CCDContact			= 2,																	///< This is a cached manifold reported by continuous collision detection and was only used to create a contact callback
+			FrictionEllipse		= 4																	///< The elliptical sliding friction model was active when the cached impulse was applied
 		};
 
 		/// @see EFlags
@@ -323,7 +330,7 @@ private:
 		CachedContactPoint		mContactPoints[1];
 	};
 
-	static_assert(sizeof(CachedManifold) == 60, "This structure is expect to not contain any waste due to alignment");
+	static_assert(sizeof(CachedManifold) == 72, "This structure is expect to not contain any waste due to alignment");
 	static_assert(alignof(CachedManifold) == 4, "Assuming 4 byte aligned");
 
 	/// Define a map that maps SubShapeIDPair -> manifold
@@ -474,6 +481,9 @@ private:
 		float					mInvInertiaScale1;
 		float					mInvMass2;
 		float					mInvInertiaScale2;
+		bool					mUseFrictionEllipse = false;								///< If the elliptical sliding friction model is used for this constraint
+		float					mFrictionCoefficientAlong = 0.0f;							///< Ellipse coefficient along the projected groove axis (valid when mUseFrictionEllipse)
+		float					mFrictionCoefficientAcross = 0.0f;							///< Ellipse coefficient along the axis normal x groove (valid when mUseFrictionEllipse)
 		uint32					mCachedManifoldHandle;
 		uint32					mNumContactPoints;
 	};
@@ -494,6 +504,7 @@ private:
 		ContactConstraintPart<Type1, Type2> mFrictionConstraint1;
 		ContactConstraintPart<Type1, Type2>	mFrictionConstraint2;
 		AngularFrictionConstraintPart<Type1, Type2> mAngularFrictionConstraint;
+		FrictionEllipseConstraintPart<Type1, Type2> mFrictionEllipseConstraint;				///< Elliptical sliding friction, only active when mUseFrictionEllipse
 
 		WorldContactPoint<Type1, Type2> mContactPoints[1];
 	};

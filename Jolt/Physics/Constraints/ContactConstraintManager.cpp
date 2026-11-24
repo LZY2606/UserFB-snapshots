@@ -32,6 +32,16 @@ bool ContactConstraintManager::sDrawContactManifolds = false;
 
 //#define JPH_MANIFOLD_CACHE_DEBUG
 
+/// Build the tangential basis for the elliptical friction model. The world space groove direction is projected onto
+/// the contact plane and normalized to u; the second axis is v = normal x u. The ContactSettings contract guarantees
+/// that the direction is finite and non-zero and that the projection length is larger than 1.0e-4.
+static JPH_INLINE void sCalculateFrictionEllipseAxes(Vec3Arg inNormal, Vec3Arg inFrictionDirection, Vec3 &outU, Vec3 &outV)
+{
+	Vec3 projected = inFrictionDirection - inNormal * inFrictionDirection.Dot(inNormal);
+	outU = projected.Normalized();
+	outV = inNormal.Cross(outU);
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ContactConstraintManager::WorldContactPoint
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,8 +143,69 @@ template <EMotionType Type1, EMotionType Type2>
 void ContactConstraintManager::ContactConstraint<Type1, Type2>::CalculateFrictionConstraintProperties(float inInvM1, float inInvM2, Mat44Arg inInvI1, Mat44Arg inInvI2, const Vec3 *inR1, const Vec3 *inR2, Vec3Arg inWorldSpaceNormal, Vec3Arg inWorldSpaceTangent1, Vec3Arg inWorldSpaceTangent2, const ContactSettings &inSettings)
 {
 	// Calculate friction part
-	if (inSettings.mCombinedFriction > 0.0f)
+	if (inSettings.mUseFrictionEllipse)
 	{
+		// Elliptical (anisotropic) sliding friction. It fully takes over the linear friction; angular friction keeps
+		// using the scalar combined friction.
+		JPH_ASSERT(inSettings.mFrictionCoefficientAlong >= 0.05f && inSettings.mFrictionCoefficientAlong <= 2.0f);
+		JPH_ASSERT(inSettings.mFrictionCoefficientAcross >= 0.05f && inSettings.mFrictionCoefficientAcross <= 2.0f);
+
+		mUseFrictionEllipse = true;
+		mFrictionCoefficientAlong = inSettings.mFrictionCoefficientAlong;
+		mFrictionCoefficientAcross = inSettings.mFrictionCoefficientAcross;
+
+		// The isotropic linear friction parts stay deactivated, they are not used in this mode
+		mFrictionConstraint1.Deactivate();
+		mFrictionConstraint2.Deactivate();
+
+		// Calculate the point where the friction applies for each body separately by averaging that
+		// body's own contact points. For a speculative contact the two bodies' contact points are still
+		// separated along the normal, so using their shared midpoint as the friction application point
+		// would give both friction lever arms an error along the normal.
+		Vec3 friction_point1 = inR1[0], friction_point2 = inR2[0];
+		for (uint32 i = 1; i < mNumContactPoints; ++i)
+		{
+			friction_point1 += inR1[i];
+			friction_point2 += inR2[i];
+		}
+		friction_point1 /= float(mNumContactPoints);
+		friction_point2 /= float(mNumContactPoints);
+
+		JPH_DET_LOG("CalculateFrictionConstraintProperties (ellipse): point1: " << friction_point1 << " point2: " << friction_point2
+			<< " mu_along: " << inSettings.mFrictionCoefficientAlong << " mu_across: " << inSettings.mFrictionCoefficientAcross
+			<< " surface_vel: " << inSettings.mRelativeLinearSurfaceVelocity << " surface_ang: " << inSettings.mRelativeAngularSurfaceVelocity);
+
+		// Calculate distance of contact points to friction center in the normal plane (used by the angular friction)
+		for (uint32 i = 0; i < mNumContactPoints; ++i)
+		{
+			Vec3 delta = inR1[i] - friction_point1;
+			mContactPoints[i].mDistanceToFrictionCenter = (delta - delta.Dot(inWorldSpaceNormal) * inWorldSpaceNormal).Length();
+		}
+
+		// Build the tangential basis from the projected groove direction
+		Vec3 u, v;
+		sCalculateFrictionEllipseAxes(inWorldSpaceNormal, inSettings.mFrictionDirection, u, v);
+
+		// Get surface velocity relative to the tangential basis
+		Vec3 ws_surface_velocity = inSettings.mRelativeLinearSurfaceVelocity + inSettings.mRelativeAngularSurfaceVelocity.Cross(friction_point1);
+		float surface_velocity_u = u.Dot(ws_surface_velocity);
+		float surface_velocity_v = v.Dot(ws_surface_velocity);
+
+		// The full 2x2 effective inverse mass matrix, including off-diagonal terms
+		mFrictionEllipseConstraint.CalculateConstraintProperties(inInvM1, inInvI1, friction_point1, inInvM2, inInvI2, friction_point2, u, v, surface_velocity_u, surface_velocity_v, inSettings.mFrictionCoefficientAlong, inSettings.mFrictionCoefficientAcross);
+
+		// Angular friction keeps using the scalar combined friction and is only applied with more than 1 contact point
+		if (inSettings.mCombinedFriction > 0.0f && mNumContactPoints > 1)
+			mAngularFrictionConstraint.CalculateConstraintProperties(inInvI1, inInvI2, inWorldSpaceNormal, inSettings.mRelativeAngularSurfaceVelocity.Dot(inWorldSpaceNormal));
+		else
+			mAngularFrictionConstraint.Deactivate();
+	}
+	else if (inSettings.mCombinedFriction > 0.0f)
+	{
+		// Isotropic Coulomb friction (unchanged default path)
+		mUseFrictionEllipse = false;
+		mFrictionEllipseConstraint.Deactivate();
+
 		// Calculate the point where the friction applies for each body separately by averaging that
 		// body's own contact points. For a speculative contact the two bodies' contact points are still
 		// separated along the normal, so using their shared midpoint as the friction application point
@@ -177,8 +248,10 @@ void ContactConstraintManager::ContactConstraint<Type1, Type2>::CalculateFrictio
 	else
 	{
 		// Turn off friction constraint
+		mUseFrictionEllipse = false;
 		mFrictionConstraint1.Deactivate();
 		mFrictionConstraint2.Deactivate();
+		mFrictionEllipseConstraint.Deactivate();
 		mAngularFrictionConstraint.Deactivate();
 	}
 }
@@ -258,6 +331,7 @@ void ContactConstraintManager::CachedManifold::SaveState(StateRecorder &inStream
 	inStream.Write(mContactNormal);
 	inStream.Write(mFrictionLambda);
 	inStream.Write(mAngularFrictionLambda);
+	inStream.Write(mFrictionImpulseWorld);
 }
 
 void ContactConstraintManager::CachedManifold::RestoreState(StateRecorder &inStream)
@@ -265,6 +339,7 @@ void ContactConstraintManager::CachedManifold::RestoreState(StateRecorder &inStr
 	inStream.Read(mContactNormal);
 	inStream.Read(mFrictionLambda);
 	inStream.Read(mAngularFrictionLambda);
+	inStream.Read(mFrictionImpulseWorld);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -984,6 +1059,32 @@ void ContactConstraintManager::TemplatedGetContactsFromCache(ContactAllocator &i
 			constraint->mAngularFrictionConstraint.SetTotalLambda(output_cm->mAngularFrictionLambda);
 			constraint->CalculateFrictionConstraintProperties(constraint->mInvMass1, constraint->mInvMass2, inv_i1, inv_i2, r1, r2, world_space_normal, t1, t2, settings);
 
+			// Seed the elliptical friction warm start. The previous frame's actual tangential impulse is rotated from the
+			// old contact plane / basis into the current one (the groove direction may change every persisted step).
+			if (constraint->mUseFrictionEllipse)
+			{
+				Vec3 previous_world_impulse;
+				if ((output_cm->mFlags & (uint16)CachedManifold::EFlags::FrictionEllipse) != 0)
+				{
+					previous_world_impulse = Vec3::sLoadFloat3Unsafe(output_cm->mFrictionImpulseWorld);
+				}
+				else
+				{
+					// Previous frame used isotropic friction: reconstruct its world impulse from the old contact normal and its deterministic tangents
+					Vec3 old_normal = rotation2.Multiply3x3(Vec3::sLoadFloat3Unsafe(output_cm->mContactNormal)).Normalized();
+					Vec3 old_t1 = old_normal.GetNormalizedPerpendicular();
+					Vec3 old_t2 = old_normal.Cross(old_t1);
+					previous_world_impulse = output_cm->mFrictionLambda[0] * old_t1 + output_cm->mFrictionLambda[1] * old_t2;
+				}
+
+				// Project onto the current contact plane in case the normal rotated
+				previous_world_impulse -= world_space_normal * previous_world_impulse.Dot(world_space_normal);
+
+				Vec3 u, v;
+				constraint->mFrictionEllipseConstraint.GetAxes(u, v);
+				constraint->mFrictionEllipseConstraint.SetTotalLambda(previous_world_impulse.Dot(u), previous_world_impulse.Dot(v));
+			}
+
 		#ifdef JPH_DEBUG_RENDERER
 			// Draw the manifold
 			if (sDrawContactManifolds)
@@ -1305,8 +1406,34 @@ void ContactConstraintManager::TemplatedAddContactConstraint(ContactAllocator &i
 			constraint->mFrictionConstraint1.SetTotalLambda(0.0f);
 			constraint->mFrictionConstraint2.SetTotalLambda(0.0f);
 			constraint->mAngularFrictionConstraint.SetTotalLambda(0.0f);
+			constraint->mFrictionEllipseConstraint.SetTotalLambda(0.0f, 0.0f);
 		}
 		constraint->CalculateFrictionConstraintProperties(constraint->mInvMass1, constraint->mInvMass2, inv_i1, inv_i2, r1, r2, inManifold.mWorldSpaceNormal, t1, t2, settings);
+
+		// Seed the elliptical friction warm start from the previous frame's actual world space tangential impulse
+		if (constraint->mUseFrictionEllipse && old_manifold_kv != nullptr)
+		{
+			const CachedManifold *old_manifold = &old_manifold_kv->GetValue();
+			Vec3 previous_world_impulse;
+			if ((old_manifold->mFlags & (uint16)CachedManifold::EFlags::FrictionEllipse) != 0)
+			{
+				previous_world_impulse = Vec3::sLoadFloat3Unsafe(old_manifold->mFrictionImpulseWorld);
+			}
+			else
+			{
+				// Previous frame used isotropic friction: reconstruct its world impulse from the old contact normal and its deterministic tangents
+				Vec3 old_normal = (inBody2.GetRotation() * Vec3::sLoadFloat3Unsafe(old_manifold->mContactNormal)).Normalized();
+				Vec3 old_t1 = old_normal.GetNormalizedPerpendicular();
+				Vec3 old_t2 = old_normal.Cross(old_t1);
+				previous_world_impulse = old_manifold->mFrictionLambda[0] * old_t1 + old_manifold->mFrictionLambda[1] * old_t2;
+			}
+			// Project onto the current contact plane in case the normal rotated
+			previous_world_impulse -= inManifold.mWorldSpaceNormal * previous_world_impulse.Dot(inManifold.mWorldSpaceNormal);
+
+			Vec3 u, v;
+			constraint->mFrictionEllipseConstraint.GetAxes(u, v);
+			constraint->mFrictionEllipseConstraint.SetTotalLambda(previous_world_impulse.Dot(u), previous_world_impulse.Dot(v));
+		}
 
 #ifdef JPH_DEBUG_RENDERER
 		// Draw the manifold
@@ -1335,6 +1462,7 @@ void ContactConstraintManager::TemplatedAddContactConstraint(ContactAllocator &i
 		new_manifold->mFrictionLambda[0] = 0.0f;
 		new_manifold->mFrictionLambda[1] = 0.0f;
 		new_manifold->mAngularFrictionLambda = 0.0f;
+		new_manifold->mFrictionImpulseWorld = Float3(0, 0, 0);
 	}
 
 	// Store cached contact point in body pair cache
@@ -1613,11 +1741,29 @@ void ContactConstraintManager::sWarmStartConstraint(ContactConstraintBase &ioCon
 
 	Vec3 ws_normal = constraint.GetWorldSpaceNormal();
 
+	// Sum the non-penetration impulses that are about to be warm started. The elliptical friction clips its warm start
+	// against this bound (after the warm start impulse ratio is applied) so that e.g. a rotated groove direction or
+	// smaller coefficients can never leave a stale tangential impulse.
+	float warm_start_normal_lambda = 0.0f;
+	for (uint32 i = 0; i < constraint.mNumContactPoints; ++i)
+		warm_start_normal_lambda += constraint.mContactPoints[i].mNonPenetrationConstraint.GetTotalLambda();
+	warm_start_normal_lambda *= inWarmStartImpulseRatio;
+
 	// Warm starting: Apply impulse from last frame
-	if (constraint.mFrictionConstraint1.IsActive() && constraint.mFrictionConstraint1.WarmStart(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t1, inWarmStartImpulseRatio))
-		any_impulse_applied = true;
-	if (constraint.mFrictionConstraint2.IsActive() && constraint.mFrictionConstraint2.WarmStart(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t2, inWarmStartImpulseRatio))
-		any_impulse_applied = true;
+	if (constraint.mUseFrictionEllipse)
+	{
+		// Elliptical sliding friction, the isotropic linear friction parts are deactivated in this mode
+		if (constraint.mFrictionEllipseConstraint.IsActive()
+			&& constraint.mFrictionEllipseConstraint.WarmStart(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, inWarmStartImpulseRatio, warm_start_normal_lambda))
+			any_impulse_applied = true;
+	}
+	else
+	{
+		if (constraint.mFrictionConstraint1.IsActive() && constraint.mFrictionConstraint1.WarmStart(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t1, inWarmStartImpulseRatio))
+			any_impulse_applied = true;
+		if (constraint.mFrictionConstraint2.IsActive() && constraint.mFrictionConstraint2.WarmStart(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t2, inWarmStartImpulseRatio))
+			any_impulse_applied = true;
+	}
 	if (constraint.mAngularFrictionConstraint.IsActive() && constraint.mAngularFrictionConstraint.WarmStart(angular_velocity1, angular_velocity2, inWarmStartImpulseRatio))
 		any_impulse_applied = true;
 
@@ -1707,47 +1853,62 @@ bool ContactConstraintManager::sSolveVelocityConstraint(ContactConstraintBase &i
 	Vec3 linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2;
 	sGetVelocities<Type1, Type2>(ioMotionProperties1, ioMotionProperties2, linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2);
 
-	bool linear_friction_active = constraint.mFrictionConstraint1.IsActive() || constraint.mFrictionConstraint2.IsActive();
+	bool linear_friction_active = constraint.mUseFrictionEllipse
+		? constraint.mFrictionEllipseConstraint.IsActive()
+		: (constraint.mFrictionConstraint1.IsActive() || constraint.mFrictionConstraint2.IsActive());
 	bool angular_friction_active = constraint.mAngularFrictionConstraint.IsActive();
 
 	// Calculate max impulse that can be applied. Note that we're using the non-penetration impulse from the previous iteration here.
 	// We do this because non-penetration is more important so is solved last (the last things that are solved in an iterative solver
 	// contribute the most).
-	float max_linear_lambda = 0.0f, max_angular_lambda = 0.0f;
+	// N is the sum of all available accumulated non-penetration impulses this iteration; for isotropic friction it is multiplied
+	// with the scalar combined friction, for the elliptical model the coefficients are baked into the ellipse itself.
+	float normal_lambda_sum = 0.0f, max_angular_lambda = 0.0f;
 	if (linear_friction_active || angular_friction_active)
 	{
 		for (uint32 i = 0; i < constraint.mNumContactPoints; ++i)
 		{
 			WorldContactPoint<Type1, Type2> &wcp = constraint.mContactPoints[i];
 			float lambda = wcp.mNonPenetrationConstraint.GetTotalLambda();
-			max_linear_lambda += lambda;
+			normal_lambda_sum += lambda;
 			max_angular_lambda += wcp.mDistanceToFrictionCenter * lambda;
 		}
-		max_linear_lambda *= constraint.mCombinedFriction;
 		max_angular_lambda *= constraint.mCombinedFriction;
 	}
+	float max_linear_lambda = normal_lambda_sum * constraint.mCombinedFriction;
 
 	// First apply friction constraint (non-penetration is more important than friction)
 	if (linear_friction_active)
 	{
-		// Calculate impulse to stop motion in tangential direction
-		float lambda1 = constraint.mFrictionConstraint1.SolveVelocityConstraintGetTotalLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, t1);
-		float lambda2 = constraint.mFrictionConstraint2.SolveVelocityConstraintGetTotalLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, t2);
-
-		// If the total lambda that we will apply is too large, scale it back
-		float total_lambda_sq = Square(lambda1) + Square(lambda2);
-		if (total_lambda_sq > Square(max_linear_lambda) + FLT_MIN) // ensure total_lambda_sq > FLT_MIN to avoid division by zero in MulRSqrtApproximate
+		if (constraint.mUseFrictionEllipse)
 		{
-			float scale = MulRSqrtApproximate(max_linear_lambda, total_lambda_sq);
-			lambda1 *= scale;
-			lambda2 *= scale;
+			// Elliptical sliding friction: solve the full 2x2 tangential system and project the stop impulse onto the
+			// ellipse (p_u / mu_along)^2 + (p_v / mu_across)^2 <= N^2. This is a single coupled projection, not two
+			// independent scalar clamps.
+			if (constraint.mFrictionEllipseConstraint.SolveVelocityConstraint(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, normal_lambda_sum))
+				any_impulse_applied = true;
 		}
+		else
+		{
+			// Calculate impulse to stop motion in tangential direction
+			float lambda1 = constraint.mFrictionConstraint1.SolveVelocityConstraintGetTotalLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, t1);
+			float lambda2 = constraint.mFrictionConstraint2.SolveVelocityConstraintGetTotalLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, t2);
 
-		// Apply the friction impulse
-		if (constraint.mFrictionConstraint1.SolveVelocityConstraintApplyLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t1, lambda1))
-			any_impulse_applied = true;
-		if (constraint.mFrictionConstraint2.SolveVelocityConstraintApplyLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t2, lambda2))
-			any_impulse_applied = true;
+			// If the total lambda that we will apply is too large, scale it back
+			float total_lambda_sq = Square(lambda1) + Square(lambda2);
+			if (total_lambda_sq > Square(max_linear_lambda) + FLT_MIN) // ensure total_lambda_sq > FLT_MIN to avoid division by zero in MulRSqrtApproximate
+			{
+				float scale = MulRSqrtApproximate(max_linear_lambda, total_lambda_sq);
+				lambda1 *= scale;
+				lambda2 *= scale;
+			}
+
+			// Apply the friction impulse
+			if (constraint.mFrictionConstraint1.SolveVelocityConstraintApplyLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t1, lambda1))
+				any_impulse_applied = true;
+			if (constraint.mFrictionConstraint2.SolveVelocityConstraintApplyLambda(linear_velocity1, angular_velocity1, linear_velocity2, angular_velocity2, constraint.mInvMass1, constraint.mInvMass2, t2, lambda2))
+				any_impulse_applied = true;
+		}
 	}
 
 	// Apply angular friction
@@ -1844,6 +2005,21 @@ void ContactConstraintManager::sStoreAppliedImpulses(ContactConstraintBase &ioCo
 	cached_manifold.mFrictionLambda[0] = constraint.mFrictionConstraint1.GetTotalLambda();
 	cached_manifold.mFrictionLambda[1] = constraint.mFrictionConstraint2.GetTotalLambda();
 	cached_manifold.mAngularFrictionLambda = constraint.mAngularFrictionConstraint.GetTotalLambda();
+
+	if (constraint.mUseFrictionEllipse)
+	{
+		// Store the actual world space tangential impulse so the next frame can rotate it into a possibly different basis
+		Vec3 u, v;
+		constraint.mFrictionEllipseConstraint.GetAxes(u, v);
+		Vec3 world_impulse = constraint.mFrictionEllipseConstraint.GetTotalLambdaU() * u + constraint.mFrictionEllipseConstraint.GetTotalLambdaV() * v;
+		world_impulse.StoreFloat3(&cached_manifold.mFrictionImpulseWorld);
+		cached_manifold.mFlags |= (uint16)CachedManifold::EFlags::FrictionEllipse;
+	}
+	else
+	{
+		cached_manifold.mFrictionImpulseWorld = Float3(0, 0, 0);
+		cached_manifold.mFlags = (cached_manifold.mFlags & (uint16)~(uint16)CachedManifold::EFlags::FrictionEllipse);
+	}
 }
 
 void ContactConstraintManager::StoreAppliedImpulses(const uint32 *inConstraintOffsetBegin, const uint32 *inConstraintOffsetEnd) const

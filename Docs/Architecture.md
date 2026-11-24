@@ -102,6 +102,24 @@ Friction and restitution can be changed after body creation using [BodyInterface
 
 To vary friction or restitution per triangle of a [MeshShape](@ref MeshShape) see the following [example](https://github.com/jrouwe/JoltPhysics/blob/master/Samples/Tests/General/FrictionPerTriangleTest.cpp).
 
+### Elliptical (Anisotropic) Friction {#elliptical-friction}
+
+The default sliding friction is isotropic: a single scalar coefficient limits the magnitude of the tangential impulse to \f$\mu N\f$, where \f$N\f$ is the sum of the accumulated non-penetration impulses of the contact manifold. Some surfaces (e.g. a grooved or treaded wheel contact patch) need a different friction coefficient along two perpendicular directions. For discrete rigid body contacts only, [ContactSettings](@ref ContactSettings) offers an optional elliptical friction model, enabled by setting `mUseFrictionEllipse = true` in an [ContactListener::OnContactAdded](@ref ContactListener::OnContactAdded) or [ContactListener::OnContactPersisted](@ref ContactListener::OnContactPersisted) callback:
+
+* `mFrictionDirection` is a world space groove axis. It is projected onto the contact plane and normalized to form the first tangential basis axis `u`; the second axis is `v = contact_normal x u`. The projection of the direction onto the contact plane must have a length larger than `1.0e-4`.
+* `mFrictionCoefficientAlong` is the coefficient along `u` and `mFrictionCoefficientAcross` the coefficient along `v`. Both are in the range `[0.05, 2]`.
+* With `p = (p_u, p_v)` the accumulated tangential impulse and `N` the sum of the accumulated non-penetration impulses, the allowed region is the ellipse
+
+\f[
+(p_u / \mu_{along})^2 + (p_v / \mu_{across})^2 \leq N^2
+\f]
+
+The tangential effective inverse mass matrix is the full 2x2 matrix \f$K = J M^{-1} J^T\f$, including the off-diagonal terms caused by the eccentric friction lever arms and the (scaled) world space inertia tensors. This model is therefore not solved as two independent scalar clamps: the unconstrained stop impulse `q` is projected onto the ellipse by minimizing \f$(p - q)^T K (p - q)\f$. Radially scaling an isotropic solution onto the ellipse would give a different (incorrect) result when `K` is not diagonal.
+
+The elliptical model only replaces the *linear* (sliding) friction; the angular friction constraint keeps using the scalar `mCombinedFriction`, as do the surface velocity, mass and inertia scale settings. When `mUseFrictionEllipse` is false (the default) the contact takes the unchanged isotropic path, so existing simulations produce identical results. The model is not used by soft bodies, the character controller or continuous collision detection (CCD); those always use `mCombinedFriction`.
+
+The setting is read fresh from the callback for every contact, including persisted ones, so the groove direction and both coefficients may change every step. Warm starting rotates the previous frame's world space tangential impulse into the current contact plane and groove basis and clips it against the current ellipse (using the warm-started normal impulse bound), which means rotating the groove, shrinking a coefficient or turning the model back off never leaves a stale impulse.
+
 ## Linear and Angular Damping {#linear-and-angular-damping}
 
 Damping gradually reduces the velocity of a body over time, simulating energy loss due to air resistance or internal friction. It is applied every simulation step, independently of any contact or constraint forces.
