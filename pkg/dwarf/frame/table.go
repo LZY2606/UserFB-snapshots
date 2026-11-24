@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"maps"
 
 	"github.com/go-delve/delve/pkg/dwarf/leb128"
@@ -22,6 +23,7 @@ type FrameContext struct {
 	loc             uint64
 	order           binary.ByteOrder
 	address         uint64
+	addressSize     int
 	CFA             DWRule
 	Regs            map[uint64]DWRule
 	initialRegs     map[uint64]DWRule
@@ -159,18 +161,49 @@ func executeCIEInstructions(cie *CommonInformationEntry) *FrameContext {
 		dataAlignment:   cie.DataAlignmentFactor,
 		buf:             bytes.NewBuffer(initialInstructions),
 		rememberedState: newStateStack(),
+		order:           cie.order,
+		addressSize:     cie.addressSize(),
 	}
 
 	frame.executeDwarfProgram()
 	return frame
 }
 
+// addressSize returns the size of addresses described by this CIE. Version 4
+// CIEs record it explicitly, older versions use the pointer size passed to
+// Parse.
+func (cie *CommonInformationEntry) addressSize() int {
+	if cie.AddressSize != 0 {
+		return int(cie.AddressSize)
+	}
+	if cie.ptrSize != 0 {
+		return cie.ptrSize
+	}
+	return 8
+}
+
 // Unwind the stack to find the return address register.
-func executeDwarfProgramUntilPC(fde *FrameDescriptionEntry, pc uint64) *FrameContext {
-	frame := executeCIEInstructions(fde.CIE)
+func executeDwarfProgramUntilPC(fde *FrameDescriptionEntry, pc uint64) (frame *FrameContext) {
+	// Truncated or invalid instruction operands cause the instruction decoders
+	// to panic; report them as an error instead. This also covers the CIE's
+	// initial instructions.
+	defer func() {
+		if r := recover(); r != nil {
+			if frame == nil {
+				frame = &FrameContext{}
+			}
+			frame.err = fmt.Errorf("could not execute CFA instructions: %v", r)
+		}
+	}()
+
+	frame = executeCIEInstructions(fde.CIE)
 	frame.order = fde.order
+	if fde.addressSize != 0 {
+		frame.addressSize = fde.addressSize
+	}
 	frame.loc = fde.Begin()
 	frame.address = pc
+
 	frame.ExecuteUntilPC(fde.Instructions)
 
 	return frame
@@ -202,7 +235,8 @@ func executeDwarfInstruction(frame *FrameContext) {
 	}
 	instruction, err := frame.buf.ReadByte()
 	if err != nil {
-		panic("Could not read from instruction buffer")
+		frame.err = fmt.Errorf("could not read from instruction buffer: %v", err)
+		return
 	}
 
 	if instruction == DW_CFA_nop {
@@ -242,7 +276,7 @@ func lookupFunc(instruction byte, buf *bytes.Buffer) instruction {
 		// Restore the last byte as it actually contains the argument for the opcode.
 		err := buf.UnreadByte()
 		if err != nil {
-			panic("Could not unread byte")
+			return nil
 		}
 	}
 
@@ -252,7 +286,8 @@ func lookupFunc(instruction byte, buf *bytes.Buffer) instruction {
 func advanceloc(frame *FrameContext) {
 	b, err := frame.buf.ReadByte()
 	if err != nil {
-		panic("Could not read byte")
+		frame.err = fmt.Errorf("truncated DW_CFA_advance_loc operand: %v", err)
+		return
 	}
 
 	delta := b & low_6_offset
@@ -262,7 +297,8 @@ func advanceloc(frame *FrameContext) {
 func advanceloc1(frame *FrameContext) {
 	delta, err := frame.buf.ReadByte()
 	if err != nil {
-		panic("Could not read byte")
+		frame.err = fmt.Errorf("truncated DW_CFA_advance_loc1 operand: %v", err)
+		return
 	}
 
 	frame.loc += uint64(delta) * frame.codeAlignment
@@ -270,14 +306,20 @@ func advanceloc1(frame *FrameContext) {
 
 func advanceloc2(frame *FrameContext) {
 	var delta uint16
-	binary.Read(frame.buf, frame.order, &delta)
+	if err := binary.Read(frame.buf, frame.order, &delta); err != nil {
+		frame.err = fmt.Errorf("truncated DW_CFA_advance_loc2 operand: %v", err)
+		return
+	}
 
 	frame.loc += uint64(delta) * frame.codeAlignment
 }
 
 func advanceloc4(frame *FrameContext) {
 	var delta uint32
-	binary.Read(frame.buf, frame.order, &delta)
+	if err := binary.Read(frame.buf, frame.order, &delta); err != nil {
+		frame.err = fmt.Errorf("truncated DW_CFA_advance_loc4 operand: %v", err)
+		return
+	}
 
 	frame.loc += uint64(delta) * frame.codeAlignment
 }
@@ -285,7 +327,8 @@ func advanceloc4(frame *FrameContext) {
 func offset(frame *FrameContext) {
 	b, err := frame.buf.ReadByte()
 	if err != nil {
-		panic(err)
+		frame.err = fmt.Errorf("truncated DW_CFA_offset operand: %v", err)
+		return
 	}
 
 	var (
@@ -299,7 +342,8 @@ func offset(frame *FrameContext) {
 func restore(frame *FrameContext) {
 	b, err := frame.buf.ReadByte()
 	if err != nil {
-		panic(err)
+		frame.err = fmt.Errorf("truncated DW_CFA_restore operand: %v", err)
+		return
 	}
 
 	reg := uint64(b & low_6_offset)
@@ -312,10 +356,37 @@ func restore(frame *FrameContext) {
 }
 
 func setloc(frame *FrameContext) {
-	var loc uint64
-	binary.Read(frame.buf, frame.order, &loc)
+	loc, err := readAddressValue(frame.buf, frame.order, frame.addressSize)
+	if err != nil {
+		frame.err = fmt.Errorf("truncated DW_CFA_set_loc operand: %v", err)
+		return
+	}
 
 	frame.loc = loc + frame.cie.staticBase
+}
+
+// readAddressValue reads an address of addrSize bytes from buf using order.
+func readAddressValue(buf *bytes.Buffer, order binary.ByteOrder, addrSize int) (uint64, error) {
+	var b [8]byte
+	if addrSize == 0 {
+		addrSize = 8
+	}
+	if order == nil {
+		order = binary.LittleEndian
+	}
+	if addrSize != 4 && addrSize != 8 {
+		return 0, fmt.Errorf("unsupported address size %d", addrSize)
+	}
+	if buf.Len() < addrSize {
+		return 0, io.ErrUnexpectedEOF
+	}
+	if _, err := io.ReadFull(buf, b[:addrSize]); err != nil {
+		return 0, err
+	}
+	if addrSize == 4 {
+		return uint64(order.Uint32(b[:4])), nil
+	}
+	return order.Uint64(b[:8]), nil
 }
 
 func offsetextended(frame *FrameContext) {
@@ -349,6 +420,10 @@ func rememberstate(frame *FrameContext) {
 }
 
 func restorestate(frame *FrameContext) {
+	if len(frame.rememberedState.items) == 0 {
+		frame.err = fmt.Errorf("DW_CFA_restore_state with an empty state stack")
+		return
+	}
 	restored := frame.rememberedState.pop()
 
 	frame.CFA = restored.cfa

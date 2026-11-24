@@ -128,7 +128,7 @@ The following tests should not be skipped even if you will be tempted to:
 
 ### Porting to Big Endian architectures
 
-Delve was initially written for amd64 and assumed 64bit and little endianness everywhere. The assumption on pointer size has been removed throughout the codebase, the assumption about endianness hasn't. Both `pkg/dwarf/loclist` and `pkg/dwarf/frame` incorrectly assume little endian encoding. Other parts of the code might do the same.
+Delve was initially written for amd64 and assumed 64bit and little endianness everywhere. The assumption on pointer size has been removed throughout the codebase, the assumption about endianness hasn't. `pkg/dwarf/loclist` still incorrectly assumes little endian encoding. `pkg/dwarf/frame` reads all fixed-width fields using the byte order passed to `Parse` and supports both the 32-bit and 64-bit DWARF record formats (mixed freely within a section); its `.eh_frame` handling, however, is still limited to the 32-bit format. Other parts of the code might make the same assumption.
 
 ### Porting to ARM32, MIPS and Software Single Stepping
 

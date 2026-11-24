@@ -10,14 +10,20 @@ import (
 // the Dwarf .debug_frame section.
 type CommonInformationEntry struct {
 	Length                uint32
+	IsDWARF64             bool
 	CIE_id                uint32
 	Version               uint8
 	Augmentation          string
+	AddressSize           uint8 // CIE version 4 only, 0 for older versions
+	SegmentSelectorSize   uint8
 	CodeAlignmentFactor   uint64
 	DataAlignmentFactor   int64
 	ReturnAddressRegister uint64
 	InitialInstructions   []byte
 	staticBase            uint64
+	sectionOffset         int
+	order                 binary.ByteOrder
+	ptrSize               int
 
 	// eh_frame pointer encoding
 	ptrEncAddr ptrEnc
@@ -26,11 +32,14 @@ type CommonInformationEntry struct {
 // FrameDescriptionEntry represents a Frame Descriptor Entry in the
 // Dwarf .debug_frame section.
 type FrameDescriptionEntry struct {
-	Length       uint32
-	CIE          *CommonInformationEntry
-	Instructions []byte
-	begin, size  uint64
-	order        binary.ByteOrder
+	Length        uint32
+	IsDWARF64     bool
+	CIE           *CommonInformationEntry
+	Instructions  []byte
+	begin, size   uint64
+	addressSize   int
+	sectionOffset int
+	order         binary.ByteOrder
 }
 
 // Cover returns whether or not the given address is within the
@@ -58,7 +67,7 @@ func (fde *FrameDescriptionEntry) Translate(delta uint64) {
 func (fde *FrameDescriptionEntry) EstablishFrame(pc uint64) (*FrameContext, error) {
 	fctxt := executeDwarfProgramUntilPC(fde, pc)
 	if fctxt.err != nil {
-		return nil, fctxt.err
+		return nil, fmt.Errorf("%v (FDE at %#x)", fctxt.err, fde.sectionOffset)
 	}
 	return fctxt, nil
 }
