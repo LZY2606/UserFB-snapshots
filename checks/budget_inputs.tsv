@@ -1,0 +1,5 @@
+# pattern<TAB>text; input only, no expected result or resource profile
+(a|aa)+\z	aaaaaa!
+(?<t>a|aa){0}(?:\g<t>)+\z	aaaaaa!
+(?<r>a(?:\g<r>)?b){0}\g<r>\z	aaabbb!
+(?<item>a|aa)+\z	aaaa
