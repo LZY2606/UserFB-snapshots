@@ -1,0 +1,13 @@
+src/test/java/bdsup2sub/bitmap/BitmapBoundsTest.java
+src/test/java/bdsup2sub/bitmap/BitmapTest.java
+src/test/java/bdsup2sub/bitmap/BitmapWithPaletteTest.java
+src/test/java/bdsup2sub/bitmap/ErasePatchTest.java
+src/test/java/bdsup2sub/cli/CommandLineOptionsTest.java
+src/test/java/bdsup2sub/cli/CommandLineParserTest.java
+src/test/java/bdsup2sub/supstream/bd/SupBDTest.java
+src/test/java/bdsup2sub/utils/ByteUtilsTest.java
+src/test/java/bdsup2sub/utils/FilenameUtilsTest.java
+src/test/java/bdsup2sub/utils/TimeUtilsTest.java
+src/test/java/bdsup2sub/utils/ToolBoxTest.java
+src/test/java/bdsup2sub/utils/optional/AbsentTest.java
+src/test/java/bdsup2sub/utils/optional/PresentTest.java

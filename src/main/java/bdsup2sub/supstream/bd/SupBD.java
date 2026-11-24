@@ -18,7 +18,10 @@ package bdsup2sub.supstream.bd;
 import bdsup2sub.bitmap.Bitmap;
 import bdsup2sub.bitmap.Palette;
 import bdsup2sub.core.*;
-import bdsup2sub.supstream.*;
+import bdsup2sub.supstream.ImageObjectFragment;
+import bdsup2sub.supstream.PaletteInfo;
+import bdsup2sub.supstream.SubPicture;
+import bdsup2sub.supstream.SubtitleStream;
 import bdsup2sub.tools.FileBuffer;
 import bdsup2sub.tools.FileBufferException;
 import bdsup2sub.utils.ToolBox;
@@ -29,6 +32,8 @@ import java.util.List;
 
 /**
  * Reading and writing of Blu-Ray captions demuxed from M2TS transport streams (BD-SUP).
+ * A caption may consist of up to two composition objects; decode/getBitmap/getPalette
+ * and getSubPicture always operate on the fully composed caption.
  */
 public class SupBD implements SubtitleStream {
 
@@ -54,24 +59,19 @@ public class SupBD implements SubtitleStream {
     }
 
     /**
-     * Decode caption from the input stream.
-     * @param subPictureBD SubPicture object containing info about the caption
-     * @param transparentColorIndex index of the transparent color
-     * @return bitmap of the decoded caption
+     * Decode the RLE stream of one object definition.
+     * @param object object definition containing the RLE fragments
+     * @param transparentColorIndex index used to initialize the bitmap
+     * @return bitmap of the decoded object
      * @throws CoreException
      */
-    private Bitmap decodeImage(SubPictureBD subPictureBD, int transparentColorIndex) throws CoreException {
-        int width = subPictureBD.getImageWidth();
-        int height = subPictureBD.getImageHeight();
-        // always decode image obj 0, start with first entry in fragment list
-        ImageObjectFragment imageObjectFragment = subPictureBD.getImageObject().getFragmentList().get(0);
-        long startOfs = imageObjectFragment.getImageBufferOfs();
+    private Bitmap decodeObject(PGSObject object, int transparentColorIndex) throws CoreException {
+        int width = object.getWidth();
+        int height = object.getHeight();
+        ImageObjectFragment firstFragment = object.getFragments().get(0);
+        long startOfs = firstFragment.getImageBufferOfs();
 
-        if (width > subPictureBD.getWidth() || height > subPictureBD.getHeight()) {
-            throw new CoreException("Subpicture too large: " + width + "x" + height + " at offset " + ToolBox.toHexLeftZeroPadded(startOfs, 8));
-        }
-
-        Bitmap bm = new Bitmap(width, height, (byte)transparentColorIndex);
+        Bitmap bm = new Bitmap(width, height, (byte) transparentColorIndex);
 
         int b;
         int index = 0;
@@ -81,88 +81,129 @@ public class SupBD implements SubtitleStream {
 
         try {
             // just for multi-packet support, copy all of the image data in one common buffer
-            byte[] buffer = new byte[subPictureBD.getImageObject().getBufferSize()];
+            byte[] rleBuffer = new byte[object.getBufferSize()];
             index = 0;
-
-            for (ImageObjectFragment fragment : subPictureBD.getImageObject().getFragmentList()) {
-                // copy data of all packet to one common buffer
-                imageObjectFragment = fragment;
-                for (int i=0; i < imageObjectFragment.getImagePacketSize(); i++) {
-                    buffer[index+i] = (byte) this.buffer.getByte(imageObjectFragment.getImageBufferOfs() + i);
+            for (ImageObjectFragment fragment : object.getFragments()) {
+                // copy data of all packets to one common buffer
+                for (int i = 0; i < fragment.getImagePacketSize(); i++) {
+                    rleBuffer[index + i] = (byte) buffer.getByte(fragment.getImageBufferOfs() + i);
                 }
-                index += imageObjectFragment.getImagePacketSize();
+                index += fragment.getImagePacketSize();
             }
 
             index = 0;
-
             do {
-                b = buffer[index++] & 0xff;
+                b = rleBuffer[index++] & 0xff;
                 if (b == 0) {
-                    b = buffer[index++] & 0xff;
+                    b = rleBuffer[index++] & 0xff;
                     if (b == 0) {
                         // next line
-                        ofs = (ofs/width) * width;
+                        ofs = (ofs / width) * width;
                         if (xpos < width) {
                             ofs += width;
                         }
                         xpos = 0;
                     } else {
-                        if ( (b & 0xC0) == 0x40) {
+                        if ((b & 0xC0) == 0x40) {
                             // 00 4x xx -> xxx zeroes
-                            size = ((b - 0x40) << 8) + (buffer[index++] & 0xff);
-                            for (int i=0; i < size; i++) {
-                                bm.getInternalBuffer()[ofs++] = 0; /*(byte)b;*/
+                            size = ((b - 0x40) << 8) + (rleBuffer[index++] & 0xff);
+                            for (int i = 0; i < size; i++) {
+                                bm.getInternalBuffer()[ofs++] = 0;
                             }
                             xpos += size;
                         } else if ((b & 0xC0) == 0x80) {
                             // 00 8x yy -> x times value y
-                            size = (b-0x80);
-                            b = buffer[index++]&0xff;
-                            for (int i=0; i < size; i++) {
-                                bm.getInternalBuffer()[ofs++] = (byte)b;
+                            size = (b - 0x80);
+                            b = rleBuffer[index++] & 0xff;
+                            for (int i = 0; i < size; i++) {
+                                bm.getInternalBuffer()[ofs++] = (byte) b;
                             }
                             xpos += size;
-                        } else if  ((b & 0xC0) != 0) {
+                        } else if ((b & 0xC0) != 0) {
                             // 00 cx yy zz -> xyy times value z
-                            size = ((b - 0xC0) << 8) + (buffer[index++] & 0xff);
-                            b = buffer[index++] & 0xff;
-                            for (int i=0; i < size; i++) {
-                                bm.getInternalBuffer()[ofs++] = (byte)b;
+                            size = ((b - 0xC0) << 8) + (rleBuffer[index++] & 0xff);
+                            b = rleBuffer[index++] & 0xff;
+                            for (int i = 0; i < size; i++) {
+                                bm.getInternalBuffer()[ofs++] = (byte) b;
                             }
                             xpos += size;
-                        }  else {
+                        } else {
                             // 00 xx -> xx times 0
-                            for (int i=0; i < b; i++) {
+                            for (int i = 0; i < b; i++) {
                                 bm.getInternalBuffer()[ofs++] = 0;
                             }
                             xpos += b;
                         }
                     }
                 } else {
-                    bm.getInternalBuffer()[ofs++] = (byte)b;
+                    bm.getInternalBuffer()[ofs++] = (byte) b;
                     xpos++;
                 }
-            } while (index < buffer.length);
+            } while (index < rleBuffer.length);
 
             return bm;
         } catch (FileBufferException ex) {
             throw new CoreException(ex.getMessage());
         } catch (ArrayIndexOutOfBoundsException ex) {
-            logger.warn("Problems during RLE decoding of picture OBJ at offset " + ToolBox.toHexLeftZeroPadded(startOfs + index, 8) + "\n");
+            logger.warn("Problems during RLE decoding of picture OBJ at offset "
+                    + ToolBox.toHexLeftZeroPadded(startOfs + index, 8) + "\n");
             return bm;
         }
     }
 
     /**
+     * Decode all composition objects of a caption and composite them in PCS
+     * order. Palette indices with an alpha of zero let the lower layers show
+     * through, all other indices overwrite the previous pixels. The output
+     * bitmap covers the bounding box of the cropped object rectangles.
+     * @param pic SubPicture object containing info about the caption
+     * @return composed bitmap of the caption
+     * @throws CoreException
+     */
+    private Bitmap decodeImage(SubPictureBD pic, int transparentColorIndex) throws CoreException {
+        Bitmap composed = new Bitmap(pic.getImageWidth(), pic.getImageHeight(), (byte) transparentColorIndex);
+        byte[] alpha = palette.getAlpha();
+        byte[] target = composed.getInternalBuffer();
+        int frameWidth = composed.getWidth();
+
+        for (ResolvedComposition composition : pic.getResolvedCompositions()) {
+            PGSObject object = composition.getObject();
+            if (object.getWidth() > pic.getWidth() || object.getHeight() > pic.getHeight()) {
+                throw new CoreException("Subpicture too large: " + object.getWidth() + "x" + object.getHeight()
+                        + " at offset " + ToolBox.toHexLeftZeroPadded(object.getFragments().get(0).getImageBufferOfs(), 8));
+            }
+            Bitmap objectBitmap = decodeObject(object, transparentColorIndex);
+            byte[] source = objectBitmap.getInternalBuffer();
+            int objectWidth = objectBitmap.getWidth();
+            int baseX = composition.getDestinationX() - pic.getXOffset();
+            int baseY = composition.getDestinationY() - pic.getYOffset();
+
+            for (int y = 0; y < composition.getHeight(); y++) {
+                int sourceRowOfs = (composition.getSourceY() + y) * objectWidth + composition.getSourceX();
+                int targetRowOfs = (baseY + y) * frameWidth + baseX;
+                for (int x = 0; x < composition.getWidth(); x++) {
+                    int colorIndex = source[sourceRowOfs + x] & 0xff;
+                    if ((alpha[colorIndex] & 0xff) == 0) {
+                        // fully transparent index: let the lower layer show through
+                        continue;
+                    }
+                    target[targetRowOfs + x] = (byte) colorIndex;
+                }
+            }
+        }
+        return composed;
+    }
+
+    /**
      * decode palette from the input stream
-     * @param pic SubPicture object containing info about the current caption
+     * @param pic SubPicture object containing info about the current frame
      * @return
      * @throws CoreException
      */
     private Palette decodePalette(SubPictureBD pic) throws CoreException {
         boolean fadeOut = false;
         int paletteIndex;
-        List<PaletteInfo> paletteInfos = pic.getPalettes().get(pic.getImageObject().getPaletteID());
+        List<PaletteInfo> paletteInfos = pic.getPalettes().get(pic.getPaletteId());
         if (paletteInfos == null) {
             throw new CoreException("Palette ID out of bounds.");
         }
@@ -219,9 +260,9 @@ public class SupBD implements SubtitleStream {
      * @param pic SubPicture object containing info about caption
      * @throws CoreException
      */
-    private void decode(SubPictureBD pic)  throws CoreException {
+    private void decode(SubPictureBD pic) throws CoreException {
         palette = decodePalette(pic);
-        bitmap  = decodeImage(pic, palette.getIndexOfMostTransparentPaletteEntry());
+        bitmap = decodeImage(pic, palette.getIndexOfMostTransparentPaletteEntry());
         primaryColorIndex = bitmap.getPrimaryColorIndex(palette.getAlpha(), configuration.getAlphaThreshold(), palette.getY());
     }
 
@@ -232,7 +273,7 @@ public class SupBD implements SubtitleStream {
         if (index < subPictures.size()) {
             decode(subPictures.get(index));
         } else {
-            throw new CoreException("Index "+index+" out of bounds\n");
+            throw new CoreException("Index " + index + " out of bounds\n");
         }
     }
 
@@ -327,7 +368,7 @@ public class SupBD implements SubtitleStream {
      */
     public long getStartOffset(int index) {
         SubPictureBD pic = subPictures.get(index);
-        return pic.getImageObject().getFragmentList().get(0).getImageBufferOfs();
+        return pic.getResolvedCompositions().get(0).getObject().getFragments().get(0).getImageBufferOfs();
     }
 
     /**
@@ -339,4 +380,3 @@ public class SupBD implements SubtitleStream {
         return Framerate.valueForId(subPictures.get(index).getType());
     }
 }
-

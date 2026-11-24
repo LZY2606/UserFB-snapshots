@@ -15,39 +15,49 @@
  */
 package bdsup2sub.supstream.bd;
 
-import bdsup2sub.core.Configuration;
-import bdsup2sub.supstream.ImageObject;
 import bdsup2sub.supstream.PaletteInfo;
 import bdsup2sub.supstream.SubPicture;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
+/**
+ * One committed display set (caption frame) of a BD-SUP stream.
+ * The frame stores the PCS composition references, the WDS windows, its own
+ * palette snapshot and - once committed - the resolved composition objects.
+ * Because every frame keeps references to the exact object versions it
+ * displays, later object or palette updates can never rewrite an earlier
+ * frame, and a new epoch does not need to keep the old object cache.
+ */
 public class SubPictureBD extends SubPicture {
 
-    private static final Configuration configuration = Configuration.getInstance();
-
-    /** objectID used in decoded object */
-    private int objectID;
-    /** list of ODS packets containing image info */
-    private List<ImageObject> imageObjectList = new ArrayList<ImageObject>();
-    /** width of subtitle window (might be larger than image) */
-    private int windowWidth;
-    /** height of subtitle window (might be larger than image) */
-    private int windowHeight;
-    /** upper left corner of subtitle window x */
-    private int xWindowOffset;
-    /** upper left corner of subtitle window y */
-    private int yWindowOffset;
-    /** FPS type (e.g. 0x10 = 24p) */
-    private int type;
-    /** list of (list of) palette info - there are up to 8 palettes per epoch, each can be updated several times */
-    private List<List<PaletteInfo>> palettes = new ArrayList<List<PaletteInfo>>();
+    /** raw composition references in PCS order (0..2 entries), used for interval detection */
+    private final List<CompositionObjectRef> compositionRefs = new ArrayList<CompositionObjectRef>();
+    /** window definitions keyed by window id (0..2 entries) */
+    private final Map<Integer, WindowDefinition> windows = new LinkedHashMap<Integer, WindowDefinition>();
+    /** resolved, clipped compositions (filled when the display set is committed) */
+    private final List<ResolvedComposition> resolvedCompositions = new ArrayList<ResolvedComposition>();
+    /** palette updates visible to this frame, one list per palette id */
+    private final List<List<PaletteInfo>> palettes = new ArrayList<List<PaletteInfo>>();
     {
-        for (int i=0; i < 8; i++) {
-        palettes.add(new ArrayList<PaletteInfo>());
+        for (int i = 0; i < 8; i++) {
+            palettes.add(new ArrayList<PaletteInfo>());
         }
     }
+    /** FPS type (e.g. 0x10 = 24p) */
+    private int type;
+    /** palette_id_ref of the PCS */
+    private int paletteId;
+    /** bounding box of the cropped object rectangles: x offset on the video canvas */
+    private int frameX;
+    /** bounding box of the cropped object rectangles: y offset on the video canvas */
+    private int frameY;
+    /** bounding box width */
+    private int frameWidth;
+    /** bounding box height */
+    private int frameHeight;
 
     public SubPictureBD() {
     }
@@ -55,119 +65,55 @@ public class SubPictureBD extends SubPicture {
     public SubPictureBD(SubPictureBD other) {
         super(other);
 
-        this.objectID = other.objectID;
-        this.windowWidth = other.windowWidth;
-        this.windowHeight = other.windowHeight;
-        this.xWindowOffset = other.xWindowOffset;
-        this.yWindowOffset = other.yWindowOffset;
         this.type = other.type;
+        this.paletteId = other.paletteId;
+        this.frameX = other.frameX;
+        this.frameY = other.frameY;
+        this.frameWidth = other.frameWidth;
+        this.frameHeight = other.frameHeight;
 
-        if (other.palettes != null) {
-            this.palettes = new ArrayList<List<PaletteInfo>>();
-            for (List<PaletteInfo> pi : other.palettes) {
-                List<PaletteInfo> cpi = new ArrayList<PaletteInfo>(pi);
-                this.palettes.add(cpi);
-            }
+        this.compositionRefs.addAll(other.compositionRefs);
+        this.windows.putAll(other.windows);
+        this.resolvedCompositions.addAll(other.resolvedCompositions);
+        for (int i = 0; i < other.palettes.size(); i++) {
+            this.palettes.get(i).addAll(other.palettes.get(i));
         }
-        for (ImageObject io : other.imageObjectList) {
-            this.imageObjectList.add(new ImageObject(io));
-        }
-    }
-
-    public boolean isMergableWith(SubPictureBD previous) {
-        if (previous != null && (previous.getEndTime() == 0 || getStartTime() - previous.getEndTime() < configuration.getMergePTSdiff())) {
-            return isThisImageObjectIdenticalWith(previous.getImageObject());
-        }
-        return false;
-    }
-
-    private boolean isThisImageObjectIdenticalWith(ImageObject previousImageObject) {
-        ImageObject thisImageObject = getImageObject();
-        if (previousImageObject != null && thisImageObject != null) {
-            return previousImageObject.getBufferSize() == thisImageObject.getBufferSize() && previousImageObject.getWidth() == thisImageObject.getWidth() && previousImageObject.getHeight() == thisImageObject.getHeight();
-        }
-        return false;
     }
 
     @Override
     public int getImageWidth() {
-        return imageObjectList.get(objectID).getWidth();
+        return frameWidth;
     }
 
     @Override
     public int getImageHeight() {
-        return imageObjectList.get(objectID).getHeight();
+        return frameHeight;
     }
 
     @Override
     public int getXOffset() {
-        return imageObjectList.get(objectID).getXOffset();
+        return frameX;
     }
 
     @Override
     public int getYOffset() {
-        return imageObjectList.get(objectID).getYOffset();
+        return frameY;
     }
 
-    /**
-     * Get image object containing RLE data
-     * @param index index of subtitle
-     * @return image object containing RLE data
-     */
-    ImageObject getImageObject(int index) {
-        return imageObjectList.get(index);
+    public List<CompositionObjectRef> getCompositionRefs() {
+        return compositionRefs;
     }
 
-    /**
-     * Get image object containing RLE data
-     * @return image object containing RLE data
-     */
-    ImageObject getImageObject() {
-        return imageObjectList.get(objectID);
+    public Map<Integer, WindowDefinition> getWindows() {
+        return windows;
     }
 
-    int getObjectID() {
-        return objectID;
+    public List<ResolvedComposition> getResolvedCompositions() {
+        return resolvedCompositions;
     }
 
-    public void setObjectID(int objectID) {
-        this.objectID = objectID;
-    }
-
-    public List<ImageObject> getImageObjectList() {
-        return imageObjectList;
-    }
-
-    public int getWindowWidth() {
-        return windowWidth;
-    }
-
-    public void setWindowWidth(int windowWidth) {
-        this.windowWidth = windowWidth;
-    }
-
-    public int getWindowHeight() {
-        return windowHeight;
-    }
-
-    public void setWindowHeight(int windowHeight) {
-        this.windowHeight = windowHeight;
-    }
-
-    int getXWindowOffset() {
-        return xWindowOffset;
-    }
-
-    public void setXWindowOffset(int xWindowOffset) {
-        this.xWindowOffset = xWindowOffset;
-    }
-
-    int getYWindowOffset() {
-        return yWindowOffset;
-    }
-
-    public void setYWindowOffset(int yWindowOffset) {
-        this.yWindowOffset = yWindowOffset;
+    public List<List<PaletteInfo>> getPalettes() {
+        return palettes;
     }
 
     public int getType() {
@@ -178,7 +124,18 @@ public class SubPictureBD extends SubPicture {
         this.type = type;
     }
 
-    public List<List<PaletteInfo>> getPalettes() {
-        return palettes;
+    public int getPaletteId() {
+        return paletteId;
+    }
+
+    public void setPaletteId(int paletteId) {
+        this.paletteId = paletteId;
+    }
+
+    public void setFrameBounds(int x, int y, int width, int height) {
+        this.frameX = x;
+        this.frameY = y;
+        this.frameWidth = width;
+        this.frameHeight = height;
     }
 }
