@@ -33,6 +33,8 @@
 #define SRLA_LTP_MIN_PERIOD 8
 /* LTPの最大ピッチ周期 */
 #define SRLA_LTP_MAX_PERIOD (SRLA_LTP_MIN_PERIOD + (1 << SRLA_LTP_PERIOD_BITWIDTH) - 2)
+/* LTP候補周期の最大数 */
+#define SRLA_MAX_LTP_CANDIDATES 8
 
 /* アサートマクロ */
 #ifdef NDEBUG

@@ -65,6 +65,13 @@ SRLAApiResult SRLAEncoder_EncodeBlock(
     const int32_t *const *input, uint32_t num_samples,
     uint8_t *data, uint32_t data_size, uint32_t *output_size);
 
+/* LTP候補周期の設定 */
+/* 補足）周期を1つ以上設定すると、各チャンネル（およびMS/LS/SR変換後の各信号）で
+ * 無効LTP・各周期の1次/3次LTPを実際の符号長で比較するモードになる。
+ * count=0でモードを無効化する。設定はエンコードパラメータ設定とは独立に保持される。 */
+SRLAApiResult SRLAEncoder_SetLTPCandidates(
+    struct SRLAEncoder *encoder, const uint32_t *periods, uint32_t count);
+
 /* 最適なブロック分割探索を含めたエンコード */
 SRLAApiResult SRLAEncoder_EncodeOptimalPartitionedBlock(
     struct SRLAEncoder *encoder,

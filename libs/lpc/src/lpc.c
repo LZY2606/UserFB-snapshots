@@ -344,7 +344,8 @@ static LPCError LPC_CalculateAutoCorrelationByFFT(
 
     /* FFTサイズの確定 */
     fft_size = LPC_RoundUp2Powered(num_samples);
-    assert(num_buffer_samples >= fft_size);
+    /* 補足）作業バッファはRoundUp2Powered(max_num_samples)分確保されている */
+    assert(LPC_RoundUp2Powered(num_buffer_samples) >= fft_size);
 
     /* 後半0埋め */
     for (i = num_samples; i < fft_size; i++) {
@@ -1554,6 +1555,45 @@ static LPCError LPCCalculator_DetectPitch(
     return LPC_ERROR_OK;
 }
 
+/* 指定されたラグにおけるLTP係数を自己相関から解く */
+/* 補足）窓適用・自己相関計算が済んだ lpcc->auto_corr を入力とする */
+static LPCError LPCCalculator_SolveLTPCoefficientsAtPeriod(
+    struct LPCCalculator *lpcc, uint32_t coef_order, int32_t period, double regular_term)
+{
+    uint32_t j, k;
+
+    assert(lpcc != NULL);
+    assert(coef_order > 0);
+    assert((coef_order % 2) == 1);
+    assert(period >= ((int32_t)(coef_order / 2) + 1));
+
+    /* 0次相関を強調(Ridge正則化) */
+    lpcc->auto_corr[0] *= (1.0 + regular_term);
+
+    /* 自己相関行列 */
+    /* (i,j)要素にギャップ|i-j|の自己相関 */
+    for (j = 0; j < coef_order; j++) {
+        for (k = j; k < coef_order; k++) {
+            const uint32_t lag = (j >= k) ? (j - k) : (k - j);
+            lpcc->r_mat[j][k] = lpcc->r_mat[k][j] = lpcc->auto_corr[lag];
+        }
+    }
+
+    /* コレスキー分解（特異なら失敗） */
+    if (LPC_CholeskyDecomposition(lpcc->r_mat, coef_order, lpcc->work_buffer) != LPC_ERROR_OK) {
+        return LPC_ERROR_SINGULAR_MATRIX;
+    }
+
+    /* 求解 */
+    /* 右辺は中心においてピッチ周期の自己相関が入ったベクトル */
+    if (LPC_SolveByCholeskyDecomposition(lpcc->r_mat,
+        coef_order, lpcc->u_vec, &lpcc->auto_corr[period - (int32_t)(coef_order / 2)], lpcc->work_buffer) != LPC_ERROR_OK) {
+        return LPC_ERROR_SINGULAR_MATRIX;
+    }
+
+    return LPC_ERROR_OK;
+}
+
 /* LTP係数を求める */
 LPCApiResult LPCCalculator_CalculateLTPCoefficients(
     struct LPCCalculator *lpcc,
@@ -1613,37 +1653,109 @@ LPCApiResult LPCCalculator_CalculateLTPCoefficients(
     }
 
     /* ロングターム係数の導出 */
-    {
-        uint32_t j, k;
-
-        /* 0次相関を強調(Ridge正則化) */
-        lpcc->auto_corr[0] *= (1.0 + regular_term);
-
-        /* 自己相関行列 */
-        /* (i,j)要素にギャップ|i-j|の自己相関 */
-        for (j = 0; j < coef_order; j++) {
-            for (k = j; k < coef_order; k++) {
-                const uint32_t lag = (j >= k) ? (j - k) : (k - j);
-                lpcc->r_mat[j][k] = lpcc->r_mat[k][j] = lpcc->auto_corr[lag];
-            }
-        }
-
-        /* コレスキー分解 */
-        if (LPC_CholeskyDecomposition(lpcc->r_mat, coef_order, lpcc->work_buffer) != LPC_ERROR_OK) {
-            return LPC_APIRESULT_FAILED_TO_CALCULATION;
-        }
-
-        /* 求解 */
-        /* 右辺は中心においてピッチ周期の自己相関が入ったベクトル */
-        if (LPC_SolveByCholeskyDecomposition(lpcc->r_mat,
-            coef_order, lpcc->u_vec, &lpcc->auto_corr[tmp_pitch_period - coef_order / 2], lpcc->work_buffer) != LPC_ERROR_OK) {
-            return LPC_APIRESULT_FAILED_TO_CALCULATION;
-        }
+    if (LPCCalculator_SolveLTPCoefficientsAtPeriod(
+            lpcc, coef_order, (int32_t)tmp_pitch_period, regular_term) != LPC_ERROR_OK) {
+        return LPC_APIRESULT_FAILED_TO_CALCULATION;
     }
 
     /* 結果を出力にセット */
     memcpy(coef, lpcc->u_vec, sizeof(double) * coef_order);
     (*pitch_period) = tmp_pitch_period;
+
+    return LPC_APIRESULT_OK;
+}
+
+/* 指定されたピッチ周期(ラグ)におけるLTP係数を求める */
+LPCApiResult LPCCalculator_CalculateLTPCoefficientsAtPeriod(
+    struct LPCCalculator *lpcc,
+    const double *data, uint32_t num_samples,
+    int32_t period,
+    double *coef, uint32_t coef_order,
+    LPCWindowType window_type, double regular_term)
+{
+    uint32_t required_order;
+
+    /* 引数チェック */
+    if ((lpcc == NULL) || (data == NULL) || (coef == NULL)) {
+        return LPC_APIRESULT_INVALID_ARGUMENT;
+    }
+
+    /* タップ数は奇数であることを要求 */
+    if (!(coef_order & 1)) {
+        return LPC_APIRESULT_INVALID_ARGUMENT;
+    }
+
+    /* 最大のタップ数を越えている */
+    if (coef_order > lpcc->max_order) {
+        return LPC_APIRESULT_EXCEED_MAX_ORDER;
+    }
+
+    /* 入力サンプル数がワークサイズを越えている */
+    if (num_samples > lpcc->max_num_buffer_samples) {
+        return LPC_APIRESULT_EXCEED_MAX_NUM_SAMPLES;
+    }
+
+    /* 周期が不正
+     * 補足）フィルタが現在より未来のサンプルを参照しないよう、
+     *       次数の半分+1以上の周期を要求する */
+    if (period < ((int32_t)(coef_order / 2) + 1)) {
+        return LPC_APIRESULT_INVALID_ARGUMENT;
+    }
+
+    /* lagの両側で参照する自己相関の最大ラグ */
+    /* 右辺ベクトルは [period - order/2, period + order/2] の自己相関を使用する */
+    required_order = (uint32_t)period + (coef_order / 2) + 1;
+
+    /* 自己相関を計算するために必要なラグが入力長を越えている */
+    if ((required_order > num_samples) || (required_order > lpcc->max_num_buffer_samples)) {
+        return LPC_APIRESULT_FAILED_TO_CALCULATION;
+    }
+
+    /* 窓関数を適用 */
+    if (LPC_ApplyWindow(window_type, data, num_samples, lpcc->buffer) != LPC_ERROR_OK) {
+        return LPC_APIRESULT_NG;
+    }
+
+    /* 自己相関を計算（指定lagの両側分を確保） */
+    if (LPC_CalculateAutoCorrelationByFFT(
+        lpcc->buffer, lpcc->work_buffer,
+        lpcc->max_num_buffer_samples, num_samples, lpcc->auto_corr, required_order) != LPC_ERROR_OK) {
+        return LPC_APIRESULT_FAILED_TO_CALCULATION;
+    }
+
+    /* 零エネルギー（無音）は係数を定義できない */
+    if (!(fabs(lpcc->auto_corr[0]) > FLT_MIN)) {
+        return LPC_APIRESULT_FAILED_TO_CALCULATION;
+    }
+
+    /* 自己相関・自己相関行列にNaN/Infが混入していないか検査 */
+    {
+        uint32_t i;
+        for (i = 0; i < required_order; i++) {
+            if (!isfinite(lpcc->auto_corr[i])) {
+                return LPC_APIRESULT_FAILED_TO_CALCULATION;
+            }
+        }
+    }
+
+    /* ロングターム係数の導出（ピーク検出は行わない） */
+    if (LPCCalculator_SolveLTPCoefficientsAtPeriod(
+            lpcc, coef_order, period, regular_term) != LPC_ERROR_OK) {
+        return LPC_APIRESULT_FAILED_TO_CALCULATION;
+    }
+
+    /* 結果にNaN/Infが混入していないか検査（成功時のみ出力） */
+    {
+        uint32_t i;
+        for (i = 0; i < coef_order; i++) {
+            if (!isfinite(lpcc->u_vec[i])) {
+                return LPC_APIRESULT_FAILED_TO_CALCULATION;
+            }
+        }
+    }
+
+    /* 結果を出力にセット（成功時のみ。失敗時はNaNを残さない） */
+    memcpy(coef, lpcc->u_vec, sizeof(double) * coef_order);
 
     return LPC_APIRESULT_OK;
 }

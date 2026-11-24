@@ -114,6 +114,18 @@ LPCApiResult LPCCalculator_CalculateLTPCoefficients(
     double *coef, uint32_t coef_order, int32_t *pitch_period,
     LPCWindowType window_type, double regular_term);
 
+/* 指定されたピッチ周期（ラグ）におけるLTP係数を計算 */
+/* 補足）ピーク検出は行わない。lagが局所ピークでなくともフィッティングする。
+ * 指定lagの両側の自己相関項が参照可能であること、
+ * 次数・入力サンプル数・ワーク領域が十分であることを検査し、
+ * 零エネルギーや特異行列の場合は失敗を返す（NaNは出力しない）。 */
+LPCApiResult LPCCalculator_CalculateLTPCoefficientsAtPeriod(
+    struct LPCCalculator *lpcc,
+    const double *data, uint32_t num_samples,
+    int32_t period,
+    double *coef, uint32_t coef_order,
+    LPCWindowType window_type, double regular_term);
+
 #ifdef __cplusplus
 }
 #endif
