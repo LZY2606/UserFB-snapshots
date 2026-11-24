@@ -83,26 +83,31 @@ track_trimmed_to_range(
                 return nullptr;
             }
 
+            RationalTime head_trim(0, child_source_range.duration().rate());
+            RationalTime tail_trim(0, child_source_range.duration().rate());
+
             if (trim_range.start_time() > child_range.start_time())
             {
-                auto trim_amount =
-                    trim_range.start_time() - child_range.start_time();
-                child_source_range = TimeRange(
-                    child_source_range.start_time() + trim_amount,
-                    child_source_range.duration() - trim_amount);
+                head_trim = trim_range.start_time() - child_range.start_time();
             }
 
             auto trim_end  = trim_range.end_time_exclusive();
             auto child_end = child_range.end_time_exclusive();
             if (trim_end < child_end)
             {
-                auto trim_amount   = child_end - trim_end;
-                child_source_range = TimeRange(
-                    child_source_range.start_time(),
-                    child_source_range.duration() - trim_amount);
+                tail_trim = child_end - trim_end;
             }
 
-            child_item->set_source_range(child_source_range);
+            // Let the item convert program-time trims into source-time trims;
+            // the default is 1:1, retimed clips scale by the playback rate.
+            child_item->trim_source_range_in_parent_time(
+                head_trim,
+                tail_trim,
+                error_status);
+            if (is_error(error_status))
+            {
+                return nullptr;
+            }
         }
     }
 

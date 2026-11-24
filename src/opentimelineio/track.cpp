@@ -236,7 +236,9 @@ Track::range_of_all_children(ErrorStatus* error_status) const
     }
     else if (auto item = dynamic_retainer_cast<Item>(first_child))
     {
-        rate = item->trimmed_range(error_status).duration().rate();
+        // Use duration() (program length), not the source length, so retimed
+        // clips lay out at their playback-adjusted size.
+        rate = item->duration(error_status).rate();
         if (is_error(error_status))
         {
             return result;
@@ -254,9 +256,7 @@ Track::range_of_all_children(ErrorStatus* error_status) const
         }
         else if (auto item = dynamic_retainer_cast<Item>(child))
         {
-            auto last_range = TimeRange(
-                last_end_time,
-                item->trimmed_range(error_status).duration());
+            auto last_range = TimeRange(last_end_time, item->duration(error_status));
             result[child] = last_range;
             last_end_time = last_range.end_time_exclusive();
         }

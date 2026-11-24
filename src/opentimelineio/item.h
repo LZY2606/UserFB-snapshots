@@ -98,7 +98,8 @@ public:
     }
 
     /// @brief Return the visible range of the item.
-    OTIO_API TimeRange visible_range(ErrorStatus* error_status = nullptr) const;
+    OTIO_API virtual TimeRange
+    visible_range(ErrorStatus* error_status = nullptr) const;
 
     /// @brief Return the trimmed range of the item in the parent's time.
     OTIO_API std::optional<TimeRange>
@@ -115,10 +116,31 @@ public:
         ErrorStatus* error_status = nullptr) const;
 
     /// @brief Return the time range transformed to another item in the hierarchy.
+    ///
+    /// Both endpoints of the range are transformed and the result is
+    /// arranged so that it always has a non-negative duration.  This makes
+    /// the operation well defined for items that play backwards.
     OTIO_API TimeRange transformed_time_range(
         TimeRange    time_range,
         Item const*  to_item,
         ErrorStatus* error_status = nullptr) const;
+
+    /// @brief Trim this item's source range by amounts measured in the
+    /// parent's time.
+    ///
+    /// The default implementation assumes that one unit of parent time is one
+    /// unit of source time (a 1:1 mapping).  Items that retime their media
+    /// override this to convert the parent-time amounts into source lengths.
+    ///
+    /// @param head_trim The amount to remove from the start of the item in the
+    /// parent's time.
+    /// @param tail_trim The amount to remove from the end of the item in the
+    /// parent's time.
+    /// @param error_status The return status.
+    OTIO_API virtual void trim_source_range_in_parent_time(
+        RationalTime head_trim,
+        RationalTime tail_trim,
+        ErrorStatus* error_status = nullptr);
 
     std::optional<Color> color() const noexcept { return _color; }
 
@@ -130,6 +152,24 @@ protected:
 
     bool read_from(Reader&) override;
     void write_to(Writer&) const override;
+
+    /// @brief Convert a time in this item's local (source) coordinate system
+    /// into its parent's coordinate system.
+    ///
+    /// The default implementation is a 1:1 shift, which is correct for items
+    /// that play their media at speed 1.  Retiming items override this (and
+    /// _parent_time_to_local_time()) to provide their actual mapping.
+    OTIO_API virtual RationalTime _local_time_to_parent_time(
+        RationalTime const& time,
+        ErrorStatus*        error_status = nullptr) const;
+
+    /// @brief Convert a time in the parent's coordinate system into this
+    /// item's local (source) coordinate system.
+    ///
+    /// This must be the inverse of _local_time_to_parent_time().
+    OTIO_API virtual RationalTime _parent_time_to_local_time(
+        RationalTime const& time,
+        ErrorStatus*        error_status = nullptr) const;
 
 private:
     std::optional<TimeRange>      _source_range;

@@ -18,6 +18,7 @@
 #include "opentimelineio/marker.h"
 #include "opentimelineio/mediaReference.h"
 #include "opentimelineio/missingReference.h"
+#include "opentimelineio/retimedClip.h"
 #include "opentimelineio/serializableCollection.h"
 #include "opentimelineio/serializableObject.h"
 #include "opentimelineio/serializableObjectWithMetadata.h"
@@ -75,6 +76,7 @@ TypeRegistry::TypeRegistry()
     register_type<Marker>();
     register_type<MediaReference>();
     register_type<MissingReference>();
+    register_type<RetimedClip>();
 
     register_type<SerializableObject>();
     register_type<SerializableObjectWithMetadata>();
