@@ -1,0 +1,5 @@
+cu_header_off	var_die_off	var_name	location_hex	location_pretty	type_rel_off	type_die_off	type_size	type_signed	result_kind	value	piece_bytes
+0x0	0x25	plain	37	DW_OP_lit7					address	7	
+0x0	0x2e	narrow	a40d01fea8159f	DW_OP_const_type 0xd 1 [fe] DW_OP_convert 0x15 DW_OP_stack_value	0x15	0x15	2	signed	immediate	-2	feff
+0x3f	0x64	plain	37	DW_OP_lit7					address	7	
+0x3f	0x6d	narrow	a40d01fea8159f	DW_OP_const_type 0xd 1 [fe] DW_OP_convert 0x15 DW_OP_stack_value	0x15	0x54	2	signed	immediate	254	fe00

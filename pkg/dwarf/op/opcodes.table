@@ -17,6 +17,7 @@
 //  4		four bytes unsigned integer
 //  8		eight bytes unsigned integer
 //  B		an unsigned variable length integer 'n' followed by n a block of n bytes
+//  T		an unsigned variable length type offset, a one byte length 'n' and a block of n bytes
 
 
 DW_OP_addr	0x03	"8"	addr
@@ -173,3 +174,6 @@ DW_OP_call_frame_cfa	0x9c	""	callframecfa
 DW_OP_bit_piece	0x9d	"uu"
 DW_OP_implicit_value	0x9e	"B"	implicitvalue
 DW_OP_stack_value	0x9f	""	stackvalue
+DW_OP_const_type	0xa4	"T"	consttype
+DW_OP_convert	0xa8	"u"	convert
+DW_OP_reinterpret	0xa9	"u"	reinterpret

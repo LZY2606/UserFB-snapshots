@@ -158,6 +158,9 @@ const (
 	DW_OP_bit_piece           Opcode = 0x9d
 	DW_OP_implicit_value      Opcode = 0x9e
 	DW_OP_stack_value         Opcode = 0x9f
+	DW_OP_const_type          Opcode = 0xa4
+	DW_OP_convert             Opcode = 0xa8
+	DW_OP_reinterpret         Opcode = 0xa9
 )
 
 var opcodeName = map[Opcode]string{
@@ -315,6 +318,9 @@ var opcodeName = map[Opcode]string{
 	DW_OP_bit_piece:           "DW_OP_bit_piece",
 	DW_OP_implicit_value:      "DW_OP_implicit_value",
 	DW_OP_stack_value:         "DW_OP_stack_value",
+	DW_OP_const_type:          "DW_OP_const_type",
+	DW_OP_convert:             "DW_OP_convert",
+	DW_OP_reinterpret:         "DW_OP_reinterpret",
 }
 var opcodeArgs = map[Opcode]string{
 	DW_OP_addr:                "8",
@@ -471,6 +477,9 @@ var opcodeArgs = map[Opcode]string{
 	DW_OP_bit_piece:           "uu",
 	DW_OP_implicit_value:      "B",
 	DW_OP_stack_value:         "",
+	DW_OP_const_type:          "T",
+	DW_OP_convert:             "u",
+	DW_OP_reinterpret:         "u",
 }
 var oplut = map[Opcode]stackfn{
 	DW_OP_addr:           addr,
@@ -620,4 +629,7 @@ var oplut = map[Opcode]stackfn{
 	DW_OP_call_frame_cfa: callframecfa,
 	DW_OP_implicit_value: implicitvalue,
 	DW_OP_stack_value:    stackvalue,
+	DW_OP_const_type:     consttype,
+	DW_OP_convert:        convert,
+	DW_OP_reinterpret:    reinterpret,
 }
