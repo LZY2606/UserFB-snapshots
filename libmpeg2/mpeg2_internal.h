@@ -56,6 +56,9 @@ typedef void mpeg2_mc_fct (uint8_t *, const uint8_t *, int, int);
 typedef struct {
     uint8_t * ref[2][3];
     uint8_t ** ref2[2];
+    int stride[2][3];
+    int * stride2[2];
+    const int * src_stride;
     int pmv[2][2];
     int f_code[2];
 } motion_t;
@@ -78,8 +81,10 @@ struct mpeg2_decoder_s {
     int offset;
     int stride;
     int uv_stride;
+    int plane_stride[3];
     int slice_stride;
     int slice_uv_stride;
+    int slice_plane_stride[3];
     int stride_frame;
     unsigned int limit_x;
     unsigned int limit_y_16;
@@ -156,6 +161,8 @@ struct mpeg2_decoder_s {
 
 typedef struct {
     mpeg2_fbuf_t fbuf;
+    int strides[3];
+    int has_plane_strides;
 } fbuf_alloc_t;
 
 struct mpeg2dec_s {
@@ -257,6 +264,16 @@ void mpeg2_header_picture_finalize (mpeg2dec_t * mpeg2dec, uint32_t accels);
 mpeg2_state_t mpeg2_header_slice_start (mpeg2dec_t * mpeg2dec);
 mpeg2_state_t mpeg2_header_end (mpeg2dec_t * mpeg2dec);
 void mpeg2_set_fbuf (mpeg2dec_t * mpeg2dec, int b_type);
+void mpeg2_init_fbuf_layout (mpeg2_decoder_t * decoder,
+			     uint8_t * current_fbuf[3],
+			     const int current_strides[3],
+			     uint8_t * forward_fbuf[3],
+			     const int forward_strides[3],
+			     uint8_t * backward_fbuf[3],
+			     const int backward_strides[3]);
+void mpeg2_plane_mc_call (mpeg2_mc_fct * const * table, int index,
+			  uint8_t * dest, const uint8_t * ref,
+			  int dest_stride, int src_stride, int height);
 
 /* idct.c */
 extern void mpeg2_idct_init (uint32_t accel);

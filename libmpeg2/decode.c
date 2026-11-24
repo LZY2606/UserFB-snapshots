@@ -345,6 +345,7 @@ void mpeg2_set_buf (mpeg2dec_t * mpeg2dec, uint8_t * buf[3], void * id)
     fbuf->buf[1] = buf[1];
     fbuf->buf[2] = buf[2];
     fbuf->id = id;
+    ((fbuf_alloc_t *) fbuf)->has_plane_strides = 0;
 }
 
 void mpeg2_custom_fbuf (mpeg2dec_t * mpeg2dec, int custom_fbuf)
@@ -418,6 +419,12 @@ mpeg2dec_t * mpeg2_init (void)
 					    MPEG2_ALLOC_MPEG2DEC);
     if (mpeg2dec == NULL)
 	return NULL;
+
+    {
+	int i;
+	for (i = 0; i < 3; i++)
+	    mpeg2dec->fbuf_alloc[i].has_plane_strides = 0;
+    }
 
     memset (mpeg2dec->decoder.DCTblock, 0, 64 * sizeof (int16_t));
     memset (mpeg2dec->quantizer_matrix, 0, 4 * 64 * sizeof (uint8_t));

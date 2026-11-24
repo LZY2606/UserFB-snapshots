@@ -105,6 +105,10 @@ SOURCE=..\libmpeg2\motion_comp.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\libmpeg2\plane_stride.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\libmpeg2\slice.c
 # End Source File
 # Begin Source File

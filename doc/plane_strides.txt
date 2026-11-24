@@ -1,0 +1,78 @@
+libmpeg2 逐平面行距与外部缓冲说明
+================================
+
+``mpeg2_set_buf_strides()`` 用来登记调用方自管的 Y、U、V 平面。三个平面可以
+来自三个不同的 padding 缓冲池，行距可以互不相同；前向参考、后向参考和当前
+目的画面也可以各用各的行距：
+
+.. code:: c
+
+    int mpeg2_set_buf_strides (mpeg2dec_t *ctx,
+                               uint8_t *buf[3],
+                               const int strides[3],
+                               void *id);
+
+成功返回 0；不满足登记条件时返回 -1。
+
+调用时机
+--------
+
+沿用 ``doc/sample5.c`` 的公开 ``mpeg2_buffer()`` / ``mpeg2_parse()`` 流程：
+
+1. 收到 ``STATE_SEQUENCE`` 后，从 ``sequence->width``、
+   ``sequence->chroma_width`` 取得编码平面宽度；先调用
+   ``mpeg2_custom_fbuf(ctx, 1)``，然后调用两次
+   ``mpeg2_set_buf_strides()`` 登记两个初始参考槽。
+
+2. 每次收到第一个 ``STATE_PICTURE`` 时，调用一次
+   ``mpeg2_set_buf_strides()`` 登记本幅目的缓冲。
+
+3. 收到 ``STATE_PICTURE_2ND`` 时不要再次登记。成对场的第二场沿用第一场的
+   三个平面起始地址和行距。
+
+三个起始地址仍需满足 libmpeg2 传统的 16 字节对齐约定。
+``strides[0]`` 至少为 ``sequence->width``，``strides[1]`` 和
+``strides[2]`` 至少为 ``sequence->chroma_width``；更大的正数都接受，U/V
+行距不必相等，也不要求是 16 的倍数。
+
+函数会把三个行距复制到解码器自己的槽位中。调用返回后，局部的
+``strides`` 数组即可改写或释放；``buf`` 数组本身也只在调用期间使用，三个
+平面指针会保存到库内。
+
+以下情况会被拒绝，并且不会替换已登记缓冲、不会推进参考槽：
+
+* 任一平面指针为空；
+* 任一行距小于对应编码平面宽度；
+* 当前状态不是 ``STATE_SEQUENCE`` 或 ``STATE_PICTURE``；
+* 没有先用 ``mpeg2_custom_fbuf(ctx, 1)`` 进入自定义缓冲模式；
+* 已启用 ``mpeg2_convert()`` 颜色转换；
+* 码流不属于本次支持的原生 8 位 4:2:0 MPEG-2 C 重建范围。
+
+缓冲生命周期
+------------
+
+库不分配也不释放这些平面内存。调用方必须保证三个平面以及 ``id`` 指向的
+上下文一直有效，直到库明确不再需要该画面：它仍可能是前向/后向参考，或仍
+作为 ``info->display_fbuf`` 供显示。请按 ``doc/sample5.c`` 的方式管理：
+当某个 ``mpeg2_fbuf_t`` 或其 ``id`` 出现在 ``info->discard_fbuf`` 时，
+才回收或复用对应缓冲；显示端取走像素后也仍要遵守这个释放时机。
+``mpeg2_close()`` 后所有缓冲都应由调用方自行释放。
+
+padding、行尾余量和前后保护字节始终属于调用方。解码器按每个缓冲、每个平面
+自己的行距寻址，只写编码平面范围内的像素；测试可在 padding 和保护区填
+canary 来检查越界写。
+
+兼容范围
+--------
+
+旧的 ``mpeg2_set_buf()``、``mpeg2_stride()`` 和自动分配缓冲保持原行为。
+旧登记使用该槽位原来的默认布局，不会继承同一槽位或其他槽位通过新接口登记
+的行距；同一序列允许混用旧登记和新登记。已有 SIMD/优化后端的等行距入口
+不变；不同源/目的行距以及不同 U/V 行距由可移植 C 重建路径处理，不要求新的
+SIMD 实现。
+
+``tests/plane_layout_cases.c`` 中包含普通帧、P/B 参考布局不同、拒绝后继续
+解码、C 生成的成对场，以及固定的隔行帧素材对照。固定隔行素材
+``tests/interlaced_fixture.h`` 由 FFmpeg 的 testsrc2 以 32x32、6 幅、
+``mpeg2video -q:v 8 -g 3 -bf 2 -flags +ildct+ilme
+-alternate_scan 1`` 预先生成并转为 CC0 字节数组；运行测试不需要 FFmpeg。

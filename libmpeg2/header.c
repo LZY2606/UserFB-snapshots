@@ -76,9 +76,9 @@ uint8_t mpeg2_scan_alt[64] ATTR_ALIGN(16) = {
 
 void mpeg2_header_state_init (mpeg2dec_t * mpeg2dec)
 {
-    if (mpeg2dec->sequence.width != (unsigned)-1) {
-	int i;
+    int i;
 
+    if (mpeg2dec->sequence.width != (unsigned)-1) {
 	mpeg2dec->sequence.width = (unsigned)-1;
 	if (!mpeg2dec->custom_fbuf)
 	    for (i = mpeg2dec->alloc_index_user;
@@ -100,9 +100,10 @@ void mpeg2_header_state_init (mpeg2dec_t * mpeg2dec)
     mpeg2dec->decoder.convert = NULL;
     mpeg2dec->decoder.convert_id = NULL;
     mpeg2dec->picture = mpeg2dec->pictures;
-    mpeg2dec->fbuf[0] = &mpeg2dec->fbuf_alloc[0].fbuf;
-    mpeg2dec->fbuf[1] = &mpeg2dec->fbuf_alloc[1].fbuf;
-    mpeg2dec->fbuf[2] = &mpeg2dec->fbuf_alloc[2].fbuf;
+    for (i = 0; i < 3; i++) {
+	mpeg2dec->fbuf[i] = &mpeg2dec->fbuf_alloc[i].fbuf;
+	mpeg2dec->fbuf_alloc[i].has_plane_strides = 0;
+    }
     mpeg2dec->first = 1;
     mpeg2dec->alloc_index = 0;
     mpeg2dec->alloc_index_user = 0;
@@ -919,11 +920,47 @@ mpeg2_state_t mpeg2_header_slice_start (mpeg2dec_t * mpeg2dec)
 	}
     } else {
 	int b_type;
+	int current_strides[3], forward_strides[3], backward_strides[3];
+	fbuf_alloc_t * current;
+	fbuf_alloc_t * forward;
+	fbuf_alloc_t * backward;
 
 	b_type = (mpeg2dec->decoder.coding_type == B_TYPE);
-	mpeg2_init_fbuf (&(mpeg2dec->decoder), mpeg2dec->fbuf[0]->buf,
-			 mpeg2dec->fbuf[b_type + 1]->buf,
-			 mpeg2dec->fbuf[b_type]->buf);
+	current = (fbuf_alloc_t *) mpeg2dec->fbuf[0];
+	forward = (fbuf_alloc_t *) mpeg2dec->fbuf[b_type + 1];
+	backward = (fbuf_alloc_t *) mpeg2dec->fbuf[b_type];
+
+	if (current->has_plane_strides)
+	    memcpy (current_strides, current->strides,
+		    sizeof (current_strides));
+	else {
+	    current_strides[0] = decoder->stride_frame;
+	    current_strides[1] = current_strides[2] =
+		decoder->stride_frame >> 1;
+	}
+	if (forward->has_plane_strides)
+	    memcpy (forward_strides, forward->strides,
+		    sizeof (forward_strides));
+	else {
+	    forward_strides[0] = decoder->stride_frame;
+	    forward_strides[1] = forward_strides[2] =
+		decoder->stride_frame >> 1;
+	}
+	if (backward->has_plane_strides)
+	    memcpy (backward_strides, backward->strides,
+		    sizeof (backward_strides));
+	else {
+	    backward_strides[0] = decoder->stride_frame;
+	    backward_strides[1] = backward_strides[2] =
+		decoder->stride_frame >> 1;
+	}
+
+	mpeg2_init_fbuf_layout (&(mpeg2dec->decoder),
+				mpeg2dec->fbuf[0]->buf, current_strides,
+				mpeg2dec->fbuf[b_type + 1]->buf,
+				forward_strides,
+				mpeg2dec->fbuf[b_type]->buf,
+				backward_strides);
     }
     mpeg2dec->action = NULL;
     return STATE_INTERNAL_NORETURN;

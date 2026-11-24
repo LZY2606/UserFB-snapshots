@@ -150,6 +150,11 @@ typedef int mpeg2_convert_t (int stage, void * id,
 			     mpeg2_convert_init_t * result);
 int mpeg2_convert (mpeg2dec_t * mpeg2dec, mpeg2_convert_t convert, void * arg);
 int mpeg2_stride (mpeg2dec_t * mpeg2dec, int stride);
+/* Per-plane strides are copied; call only in STATE_SEQUENCE/PICTURE with
+   mpeg2_custom_fbuf() enabled and no color converter. See
+   doc/plane_strides.txt for buffer lifetime and call ordering. */
+int mpeg2_set_buf_strides (mpeg2dec_t * mpeg2dec, uint8_t * buf[3],
+			   const int strides[3], void * id);
 void mpeg2_set_buf (mpeg2dec_t * mpeg2dec, uint8_t * buf[3], void * id);
 void mpeg2_custom_fbuf (mpeg2dec_t * mpeg2dec, int custom_fbuf);
 

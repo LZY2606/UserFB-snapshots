@@ -3,7 +3,7 @@ SUBDIRS = convert
 AM_CFLAGS = $(OPT_CFLAGS) $(LIBMPEG2_CFLAGS)
 
 lib_LTLIBRARIES = libmpeg2.la
-libmpeg2_la_SOURCES = alloc.c header.c decode.c slice.c motion_comp.c idct.c
+libmpeg2_la_SOURCES = alloc.c header.c decode.c slice.c motion_comp.c plane_stride.c idct.c
 libmpeg2_la_LIBADD = libmpeg2arch.la
 libmpeg2_la_LDFLAGS = -no-undefined -version-info 1:0:1
 
