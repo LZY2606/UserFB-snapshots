@@ -62,6 +62,44 @@ namespace igl
     Eigen::MatrixXi & G,
     Eigen::VectorXi & J,
     Eigen::VectorXi & I);
+
+  /// Decimate a closed manifold while preserving per-corner UV wedges.
+  ///
+  /// Geometry uses the real igl::decimate / collapse_least_cost_edge /
+  /// collapse_edge queue and topology commit. UV quadrics are stored per
+  /// wedge and endpoint wedges share one geometry placement while retaining
+  /// independent UV coordinates across texture seams.
+  ///
+  /// Throws `std::invalid_argument` for inputs outside the validated finite,
+  /// positively oriented closed two-manifold and simple closed seam-loop
+  /// contract. Outputs are not assigned until validation succeeds.
+  ///
+  /// @param[in] V  #V by 3 geometry positions
+  /// @param[in] F  #F by 3 geometry face indices
+  /// @param[in] T  #T by 2 UV coordinates
+  /// @param[in] FT  #F by 3 UV indices
+  /// @param[in] max_m  target maximum number of output faces
+  /// @param[in] uv_weight  positive finite scale multiplying UV coordinates
+  /// @param[out] U  #U by 3 compacted output geometry positions
+  /// @param[out] G  #G by 3 output faces
+  /// @param[out] S  #S by 2 compacted output UV coordinates
+  /// @param[out] FS  #G by 3 compacted output UV indices
+  /// @param[out] J  #G birth-face indices into F
+  /// @param[out] I  #U birth-vertex indices into V
+  /// @return true iff the face target was reached
+  IGL_INLINE bool qslim_with_uv(
+    const Eigen::MatrixXd & V,
+    const Eigen::MatrixXi & F,
+    const Eigen::MatrixXd & T,
+    const Eigen::MatrixXi & FT,
+    const int max_m,
+    const double uv_weight,
+    Eigen::MatrixXd & U,
+    Eigen::MatrixXi & G,
+    Eigen::MatrixXd & S,
+    Eigen::MatrixXi & FS,
+    Eigen::VectorXi & J,
+    Eigen::VectorXi & I);
 }
 #ifndef IGL_STATIC_LIBRARY
 #  include "qslim.cpp"
