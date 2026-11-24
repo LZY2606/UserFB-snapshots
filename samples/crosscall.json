@@ -1,0 +1,117 @@
+{
+  "objects": [
+    {
+      "id": "input",
+      "base": 0,
+      "size": 16
+    },
+    {
+      "id": "buffer",
+      "base": 32,
+      "size": 8
+    },
+    {
+      "id": "state",
+      "base": 40,
+      "size": 8
+    }
+  ],
+  "sources": [
+    {
+      "id": "pointer",
+      "offset": 0,
+      "bytes": "Jg=="
+    },
+    {
+      "id": "length",
+      "offset": 4,
+      "bytes": "BA=="
+    },
+    {
+      "id": "data-a",
+      "offset": 8,
+      "bytes": "ESI="
+    },
+    {
+      "id": "data-b",
+      "offset": 10,
+      "bytes": "M0Q="
+    }
+  ],
+  "targets": [
+    {
+      "function": 0,
+      "offset": 7,
+      "object": "state"
+    },
+    {
+      "function": 0,
+      "offset": 17,
+      "object": "state"
+    },
+    {
+      "function": 1,
+      "offset": 16,
+      "object": "buffer"
+    },
+    {
+      "function": 3,
+      "offset": 4,
+      "object": "state"
+    },
+    {
+      "function": 4,
+      "offset": 4,
+      "object": "buffer"
+    },
+    {
+      "function": 4,
+      "offset": 13,
+      "object": "buffer"
+    },
+    {
+      "function": 5,
+      "offset": 6,
+      "object": "buffer"
+    },
+    {
+      "function": 6,
+      "offset": 12,
+      "object": "buffer"
+    }
+  ],
+  "calls": [
+    {
+      "export": "prime",
+      "args": []
+    },
+    {
+      "export": "run",
+      "args": []
+    },
+    {
+      "export": "prime",
+      "args": []
+    },
+    {
+      "export": "narrow",
+      "args": []
+    },
+    {
+      "export": "run",
+      "args": []
+    },
+    {
+      "export": "linear",
+      "args": []
+    },
+    {
+      "export": "prime",
+      "args": []
+    },
+    {
+      "export": "run",
+      "args": []
+    }
+  ]
+}

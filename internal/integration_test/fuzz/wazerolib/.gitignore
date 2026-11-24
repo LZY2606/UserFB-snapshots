@@ -1,0 +1,7 @@
+testdata/
+libwazero.a
+libwazero.h
+
+# Preserve the upstream-tracked test resource in the source snapshot.
+!testdata/
+!testdata/test.wasm
