@@ -1,0 +1,4 @@
+# Fixed offline contexts for test/golden-gcc-4.9.2/example, never executed.
+# Each case: name CU_offset function_DIE variable_DIE PC width endian CFA memory_address hex_bytes
+a 0 0x2b 0x4c 0x4004bd 4 little 0x7000 0x6fdc 2a000000
+b 0 0x2b 0x4c 0x4004bd 4 little 0x8000 0x7fdc 17000000
