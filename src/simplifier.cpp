@@ -1,6 +1,8 @@
 // This file is part of meshoptimizer library; see meshoptimizer.h for version/license details
 #include "meshoptimizer.h"
 
+#include "collision.h"
+
 #include <assert.h>
 #include <float.h>
 #include <math.h>
@@ -1524,7 +1526,7 @@ static void sortEdgeCollapses(unsigned int* sort_order, const Collapse* collapse
 	}
 }
 
-static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* collapse_locked, const Collapse* collapses, size_t collapse_count, const unsigned int* collapse_order, const unsigned int* remap, const unsigned int* wedge, const unsigned char* vertex_kind, const unsigned int* loop, const unsigned int* loopback, const Vector3* vertex_positions, const EdgeAdjacency& adjacency, size_t triangle_collapse_goal, float error_limit, float& result_error)
+static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* collapse_locked, const Collapse* collapses, size_t collapse_count, const unsigned int* collapse_order, const unsigned int* remap, const unsigned int* wedge, const unsigned char* vertex_kind, const unsigned int* loop, const unsigned int* loopback, const Vector3* vertex_positions, const EdgeAdjacency& adjacency, size_t triangle_collapse_goal, float error_limit, float& result_error, CollisionWorld* collision)
 {
 	size_t edge_collapses = 0;
 	size_t triangle_collapses = 0;
@@ -1593,6 +1595,15 @@ static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* 
 			continue;
 		}
 
+		if (collision && !collisionTestMove(collision, r0, r1, vertex_positions[r1]))
+		{
+			// continuous collision guard: the straight-line move would intersect a non-adjacent face.
+			// no state was mutated, so the rejection leaves remaps, locks, errors and the spatial index untouched
+			gCollisionCounters.collapse_rejected++;
+			edge_collapse_goal++;
+			continue;
+		}
+
 		assert(collapse_remap[r0] == r0);
 		assert(collapse_remap[r1] == r1);
 
@@ -1629,6 +1640,11 @@ static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* 
 
 			collapse_remap[i0] = i1;
 		}
+
+		// the collision world tracks the same alive geometry as result[]; apply this collapse
+		// immediately so that the next candidate in this pass observes the removed/moved faces
+		if (collision)
+			collisionCommitCollapse(collision, r0, collapse_remap);
 
 		// note: we technically don't need to lock r1 if it's a locked vertex, as it can't move and its quadric won't be used
 		// however, this results in slightly worse error on some meshes because the locked collapses get an unfair advantage wrt scheduling
@@ -1693,7 +1709,7 @@ static void updateQuadrics(const unsigned int* collapse_remap, size_t vertex_cou
 	}
 }
 
-static void solvePositions(Vector3* vertex_positions, size_t vertex_count, const Quadric* vertex_quadrics, const QuadricGrad* volume_gradients, const Quadric* attribute_quadrics, const QuadricGrad* attribute_gradients, size_t attribute_count, const unsigned int* remap, const unsigned int* wedge, const EdgeAdjacency& adjacency, const unsigned char* vertex_kind, const unsigned char* vertex_update)
+static void solvePositions(Vector3* vertex_positions, size_t vertex_count, const Quadric* vertex_quadrics, const QuadricGrad* volume_gradients, const Quadric* attribute_quadrics, const QuadricGrad* attribute_gradients, size_t attribute_count, const unsigned int* remap, const unsigned int* wedge, const EdgeAdjacency& adjacency, const unsigned char* vertex_kind, const unsigned char* vertex_update, CollisionWorld* collision)
 {
 #if TRACE
 	size_t stats[6] = {};
@@ -1774,8 +1790,26 @@ static void solvePositions(Vector3* vertex_positions, size_t vertex_count, const
 			continue;
 		}
 
+		// continuous collision guard: the solved position is reached through a straight-line move of
+		// this geometric vertex (source and target identity are the same for position solves)
+		if (collision && !collisionTestMove(collision, unsigned(i), unsigned(i), p))
+		{
+			// keep the original position; other legal solves continue unaffected
+			gCollisionCounters.position_rejected++;
+			continue;
+		}
+
 		TRACESTATS(1);
 		vertex_positions[i] = p;
+
+		if (collision)
+		{
+			// move every wedge together so the spatial index refit sees the final shared position
+			for (unsigned int v = wedge[i]; v != i; v = wedge[v])
+				vertex_positions[v] = p;
+
+			collisionCommitMove(collision, unsigned(i));
+		}
 	}
 
 #if TRACE
@@ -2352,6 +2386,11 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	for (size_t i = 0; i < attribute_count; ++i)
 		assert(attribute_weights[i] >= 0);
 
+	// the continuous collision guard is defined for the edge collapse pipeline only;
+	// Prune/Permissive/PreserveFolds combinations and the Sloppy entry point are out of scope
+	assert((options & meshopt_SimplifyNoSelfIntersections) == 0 ||
+	       ((options & (meshopt_SimplifyPrune | meshopt_SimplifyPermissive | meshopt_SimplifyPreserveFolds)) == 0));
+
 	meshopt_Allocator allocator;
 
 	unsigned int* result = destination;
@@ -2485,6 +2524,11 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	float result_error = 0;
 	float vertex_error = 0;
 
+	// continuous collision guard: a locally updatable BVH over the triangles that are alive right now
+	CollisionWorld* collision = NULL;
+	if (options & meshopt_SimplifyNoSelfIntersections)
+		collision = collisionCreate(result, result_count, vertex_positions, vertex_count, remap, wedge, allocator, &gCollisionCounters);
+
 	// target_error input is linear; we need to adjust it to match quadricError units
 	float error_scale = (options & meshopt_SimplifyErrorAbsolute) ? vertex_scale : 1.f;
 	float error_limit = (target_error * target_error) / (error_scale * error_scale);
@@ -2516,7 +2560,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 
 		memset(collapse_locked, 0, vertex_count);
 
-		size_t collapses = performEdgeCollapses(collapse_remap, collapse_locked, edge_collapses, edge_collapse_count, collapse_order, remap, wedge, vertex_kind, loop, loopback, vertex_positions, adjacency, triangle_collapse_goal, error_limit, result_error);
+		size_t collapses = performEdgeCollapses(collapse_remap, collapse_locked, edge_collapses, edge_collapse_count, collapse_order, remap, wedge, vertex_kind, loop, loopback, vertex_positions, adjacency, triangle_collapse_goal, error_limit, result_error, collision);
 
 		// no edges can be collapsed any more due to hitting the error limit or triangle collapse limit
 		if (collapses == 0)
@@ -2589,7 +2633,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 		// edge adjacency may be stale as we haven't updated it after last series of edge collapses
 		updateEdgeAdjacency(adjacency, result, result_count, vertex_count, remap);
 
-		solvePositions(vertex_positions, vertex_count, vertex_quadrics, volume_gradients, attribute_quadrics, attribute_gradients, attribute_count, remap, wedge, adjacency, vertex_kind, vertex_update);
+		solvePositions(vertex_positions, vertex_count, vertex_quadrics, volume_gradients, attribute_quadrics, attribute_gradients, attribute_count, remap, wedge, adjacency, vertex_kind, vertex_update, collision);
 
 		if (attribute_count)
 			solveAttributes(vertex_positions, vertex_attributes, vertex_count, attribute_quadrics, attribute_gradients, attribute_count, remap, wedge, vertex_kind, vertex_update);
@@ -2620,6 +2664,8 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	// result_error is quadratic; we need to remap it back to linear
 	if (out_result_error)
 		*out_result_error = sqrtf(result_error) * error_scale;
+
+	collisionDestroy(collision, allocator);
 
 	return result_count;
 }

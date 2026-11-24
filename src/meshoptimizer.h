@@ -483,6 +483,8 @@ enum
 	meshopt_SimplifyPreserveFolds = 1 << 7,
 	/* Experimental: Clamp attribute error to match position error scale and avoid extreme error values in areas with high attribute variance. */
 	meshopt_SimplifyErrorClamped = 1 << 8,
+	/* Reject edge collapses (and WithUpdate position moves) whose straight-line vertex motion would make non-adjacent triangles intersect over the full movement interval, contact included. */
+	meshopt_SimplifyNoSelfIntersections = 1 << 9,
 };
 
 /**
@@ -613,6 +615,28 @@ MESHOPTIMIZER_API size_t meshopt_simplifyPoints(unsigned int* destination, const
  * Relative error returned by meshopt_simplify via result_error must be *multiplied* by the scaling factor to get absolute error.
  */
 MESHOPTIMIZER_API float meshopt_simplifyScale(const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+
+/**
+ * Continuous collision guard counters (observation interface)
+ * Accumulated across simplification calls that use meshopt_SimplifyNoSelfIntersections.
+ * The counters describe events inside the simplifier (evaluated candidates, continuous narrow phase
+ * tests, incremental spatial index updates, accepted collapses and accepted WithUpdate position moves)
+ * and are never derived from the output triangle count.
+ */
+struct meshopt_SimplifyCollisionCounters
+{
+	size_t candidates;
+	size_t narrowphase_tests;
+	size_t local_updates;
+	size_t collapses;
+	size_t position_moves;
+	size_t collapse_rejected;
+	size_t position_rejected;
+	size_t index_rebuilds;
+};
+
+MESHOPTIMIZER_API const struct meshopt_SimplifyCollisionCounters* meshopt_simplifyCollisionCounters(void);
+MESHOPTIMIZER_API void meshopt_simplifyResetCollisionCounters(void);
 
 /**
  * Mesh stripifier
