@@ -13,4 +13,6 @@ all: .task-build/baseline
 	$(AR) rcs $@ $(OBJECTS)
 .task-build/baseline: task_support/baseline.c task_support/fixture.c .task-build/libelf.a
 	$(CC) $(CPPFLAGS) -std=c11 task_support/baseline.c task_support/fixture.c .task-build/libelf.a -o $@
+.task-build/analysis: task_support/analysis.c task_support/fixture.c .task-build/libelf.a
+	$(CC) $(CPPFLAGS) -std=c11 task_support/analysis.c task_support/fixture.c .task-build/libelf.a -o $@
 -include $(OBJECTS:.o=.d)

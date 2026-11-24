@@ -654,6 +654,22 @@ _libelf_resync_elf(Elf *e, struct _Elf_Extent_List *extents)
 	    _libelf_load_section_headers(e, ehdr) == 0)
 		return ((off_t) -1);
 
+	/*
+	 * Writing back a compressed section is not supported: the
+	 * read-only materialization path is the only SHF_COMPRESSED
+	 * entry point.  Section headers are all loaded at this point.
+	 */
+	if (e->e_cmd != ELF_C_READ) {
+		Elf_Scn *cs;
+
+		STAILQ_FOREACH(cs, &e->e_u.e_elf.e_scn, s_next) {
+			if (_libelf_section_is_compressed(cs) > 0) {
+				LIBELF_SET_ERROR(UNIMPL, 0);
+				return ((off_t) -1);
+			}
+		}
+	}
+
 	if ((rc = _libelf_resync_sections(e, rc, extents)) < 0)
 		return ((off_t) -1);
 

@@ -43,10 +43,12 @@ elf_getdata(Elf_Scn *s, Elf_Data *ed)
 {
 	Elf *e;
 	unsigned int sh_type;
-	int elfclass, elftype;
-	size_t count, fsz, msz;
+	int elfclass, elftype, compressed;
+	size_t count, fsz, msz, logical_size;
 	struct _Libelf_Data *d;
-	uint64_t sh_align, sh_offset, sh_size, raw_size;
+	uint64_t sh_align, sh_offset, sh_size, raw_size, logical_align;
+	uint64_t eff_size;
+	unsigned char *logbuf, *src;
 	_libelf_translator_function *xlate;
 
 	d = (struct _Libelf_Data *) ed;
@@ -96,6 +98,9 @@ elf_getdata(Elf_Scn *s, Elf_Data *ed)
 		return (NULL);
 	}
 
+	if ((compressed = _libelf_section_is_compressed(s)) < 0)
+		return (NULL);
+
 	raw_size = (uint64_t) e->e_rawsize;
 	if ((elftype = _libelf_xlate_shtype(sh_type)) < ELF_T_FIRST ||
 	    elftype > ELF_T_LAST || (sh_type != SHT_NOBITS &&
@@ -104,28 +109,62 @@ elf_getdata(Elf_Scn *s, Elf_Data *ed)
 		return (NULL);
 	}
 
+	logbuf = NULL;
+	logical_size = (size_t) sh_size;
+	logical_align = sh_align;
+	src = e->e_rawfile + sh_offset;
+	eff_size = sh_size;
+
+	if (compressed) {
+		uint64_t ch_align;
+
+		/*
+		 * Decompress the section's physical bytes into the
+		 * logical file-format contents.  The section type then
+		 * drives the ordinary translation below, so no separate
+		 * compressed-data access path exists.
+		 */
+		if (!_libelf_decompress_section(s, &logbuf, &logical_size,
+		    &ch_align))
+			return (NULL);
+		logical_align = ch_align;
+		src = logbuf;
+		eff_size = (uint64_t) logical_size;
+	}
+
 	if ((fsz = (elfclass == ELFCLASS32 ? elf32_fsize : elf64_fsize)
             (elftype, (size_t) 1, e->e_version)) == 0) {
+		free(logbuf);
 		LIBELF_SET_ERROR(UNIMPL, 0);
 		return (NULL);
 	}
 
-	if (sh_size % fsz) {
-		LIBELF_SET_ERROR(SECTION, 0);
+	/* Keep the divisibility/range arithmetic in 64 bits. */
+	if (eff_size % fsz) {
+		free(logbuf);
+		if (compressed)
+			LIBELF_SET_ERROR(DATA, 0);
+		else
+			LIBELF_SET_ERROR(SECTION, 0);
 		return (NULL);
 	}
 
-	if (sh_size / fsz > SIZE_MAX) {
+	if (eff_size / fsz > SIZE_MAX) {
+		free(logbuf);
 		LIBELF_SET_ERROR(RANGE, 0);
 		return (NULL);
 	}
 
-	count = (size_t) (sh_size / fsz);
+	count = (size_t) (eff_size / fsz);
+	logical_size = (size_t) eff_size;
 
-	if ((msz = _libelf_msize(elftype, elfclass, e->e_version)) == 0)
+	if ((msz = _libelf_msize(elftype, elfclass, e->e_version)) == 0) {
+		free(logbuf);
 		return (NULL);
+	}
 
 	if (count > 0 && msz > SIZE_MAX / count) {
+		free(logbuf);
 		LIBELF_SET_ERROR(RANGE, 0);
 		return (NULL);
 	}
@@ -134,23 +173,27 @@ elf_getdata(Elf_Scn *s, Elf_Data *ed)
 	assert(count <= SIZE_MAX);
 	assert(msz * count <= SIZE_MAX);
 
-	if ((d = _libelf_allocate_data(s)) == NULL)
+	if ((d = _libelf_allocate_data(s)) == NULL) {
+		free(logbuf);
 		return (NULL);
+	}
 
 	d->d_data.d_buf     = NULL;
 	d->d_data.d_off     = 0;
-	d->d_data.d_align   = sh_align;
+	d->d_data.d_align   = logical_align;
 	d->d_data.d_size    = msz * count;
 	d->d_data.d_type    = elftype;
 	d->d_data.d_version = e->e_version;
 
-	if (sh_type == SHT_NOBITS || sh_size == 0) {
-	        STAILQ_INSERT_TAIL(&s->s_data, d, d_next);
+	if (sh_type == SHT_NOBITS || logical_size == 0) {
+		free(logbuf);
+		STAILQ_INSERT_TAIL(&s->s_data, d, d_next);
 		return (&d->d_data);
-        }
+	}
 
 	if ((d->d_data.d_buf = malloc(msz * count)) == NULL) {
 		(void) _libelf_release_data(d);
+		free(logbuf);
 		LIBELF_SET_ERROR(RESOURCE, 0);
 		return (NULL);
 	}
@@ -160,12 +203,19 @@ elf_getdata(Elf_Scn *s, Elf_Data *ed)
 	xlate = _libelf_get_translator(elftype, ELF_TOMEMORY, elfclass,
 	    _libelf_elfmachine(e));
 	if (!(*xlate)(d->d_data.d_buf, (size_t) d->d_data.d_size,
-	    e->e_rawfile + sh_offset, count,
+	    src, count,
 	    e->e_byteorder != LIBELF_PRIVATE(byteorder))) {
 		_libelf_release_data(d);
+		free(logbuf);
 		LIBELF_SET_ERROR(DATA, 0);
 		return (NULL);
 	}
+
+	/*
+	 * The translated descriptor owns its own host representation;
+	 * the decompressed scratch buffer is no longer needed.
+	 */
+	free(logbuf);
 
 	STAILQ_INSERT_TAIL(&s->s_data, d, d_next);
 

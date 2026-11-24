@@ -50,6 +50,7 @@ SRCS=	elf.c							\
 	libelf_ar.c						\
 	libelf_ar_util.c					\
 	libelf_checksum.c					\
+	libelf_compress.c					\
 	libelf_data.c						\
 	libelf_ehdr.c						\
 	libelf_elfmachine.c					\

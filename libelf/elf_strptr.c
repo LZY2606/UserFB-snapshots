@@ -47,6 +47,7 @@ elf_strptr(Elf *e, size_t scndx, size_t offset)
 	Elf_Data *d;
 	GElf_Shdr shdr;
 	uint64_t alignment, count;
+	int compressed;
 
 	if (e == NULL || e->e_kind != ELF_K_ELF) {
 		LIBELF_SET_ERROR(ARGUMENT, 0);
@@ -57,8 +58,22 @@ elf_strptr(Elf *e, size_t scndx, size_t offset)
 	    gelf_getshdr(s, &shdr) == NULL)
 		return (NULL);
 
-	if (shdr.sh_type != SHT_STRTAB ||
-	    offset >= shdr.sh_size) {
+	if (shdr.sh_type != SHT_STRTAB) {
+		LIBELF_SET_ERROR(ARGUMENT, 0);
+		return (NULL);
+	}
+
+	if ((compressed = _libelf_section_is_compressed(s)) < 0)
+		return (NULL);
+
+	/*
+	 * For ordinary sections the section header's sh_size bounds the
+	 * offset directly.  A compressed string table's sh_size describes
+	 * the physical zlib container, so its logical bound is established
+	 * below from the materialized Elf_Data descriptors; an offset at or
+	 * beyond the logical length then fails through the same paths.
+	 */
+	if (!compressed && offset >= shdr.sh_size) {
 		LIBELF_SET_ERROR(ARGUMENT, 0);
 		return (NULL);
 	}

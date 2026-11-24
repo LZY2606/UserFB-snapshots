@@ -209,6 +209,9 @@ Elf	*_libelf_ar_open_member(int _fd, Elf_Cmd _c, Elf *_ar);
 Elf_Arsym *_libelf_ar_process_bsd_symtab(Elf *_ar, size_t *_dst);
 Elf_Arsym *_libelf_ar_process_svr4_symtab(Elf *_ar, size_t *_dst);
 long	 _libelf_checksum(Elf *_e, int _elfclass);
+int	 _libelf_section_is_compressed(Elf_Scn *_s);
+int	 _libelf_decompress_section(Elf_Scn *_s, unsigned char **_bufp,
+	    size_t *_logical_sizep, uint64_t *_alignp);
 void	*_libelf_ehdr(Elf *_e, int _elfclass, int _allocate);
 int	_libelf_elfmachine(Elf *_e);
 unsigned int _libelf_falign(Elf_Type _t, int _elfclass);

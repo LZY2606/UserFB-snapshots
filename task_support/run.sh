@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s tests/compressed_contract.c; fi
 make -f task_support/Makefile -j 4
 if [[ $mode == target ]]; then
   cc -std=c11 -D_DEFAULT_SOURCE -I. -Ilibelf -Icommon -Itask_support/include -Itask_support/vendor/zlib task_support/driver.c tests/compressed_contract.c task_support/fixture.c .task-build/libelf.a -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/task-run.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

@@ -1,0 +1,3 @@
+input_id	rela_scn	rela_record	target_scn	r_offset	r_type	r_addend	symtab_scn	sym_index	sym_name	raw_st_shndx	def_scn	st_value	st_size	logical_record_off	physical_scn_off	physical_scn_size	physical_mapping
+plain	5	0	1	0x8	2	-4	2	1	target	65535	1	0x40	8	0x0	0x360	24	exact:sh_offset+logical_record_off
+compressed	5	0	1	0x8	2	-4	2	1	target	65535	1	0x40	8	0x0	0x2b0	44	container-only:no-per-record-byte-mapping
