@@ -1,0 +1,23 @@
+[  9%] Building CXX object gme/CMakeFiles/gme_static.dir/Blip_Buffer.cpp.o
+[  9%] Building CXX object gme/CMakeFiles/gme_static.dir/Classic_Emu.cpp.o
+[ 13%] Building CXX object gme/CMakeFiles/gme_static.dir/Data_Reader.cpp.o
+[ 18%] Building CXX object gme/CMakeFiles/gme_static.dir/Dual_Resampler.cpp.o
+[ 22%] Building CXX object gme/CMakeFiles/gme_static.dir/Effects_Buffer.cpp.o
+[ 27%] Building CXX object gme/CMakeFiles/gme_static.dir/Fir_Resampler.cpp.o
+[ 31%] Building CXX object gme/CMakeFiles/gme_static.dir/gme.cpp.o
+[ 36%] Building CXX object gme/CMakeFiles/gme_static.dir/Gme_File.cpp.o
+[ 40%] Building CXX object gme/CMakeFiles/gme_static.dir/M3u_Playlist.cpp.o
+[ 45%] Building CXX object gme/CMakeFiles/gme_static.dir/Multi_Buffer.cpp.o
+[ 50%] Building CXX object gme/CMakeFiles/gme_static.dir/Music_Emu.cpp.o
+[ 54%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Apu.cpp.o
+[ 59%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Cpu.cpp.o
+[ 63%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Fme7_Apu.cpp.o
+[ 68%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Namco_Apu.cpp.o
+[ 72%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Oscs.cpp.o
+[ 77%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Vrc6_Apu.cpp.o
+[ 81%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Fds_Apu.cpp.o
+[ 86%] Building CXX object gme/CMakeFiles/gme_static.dir/Nes_Vrc7_Apu.cpp.o
+[ 90%] Building C object gme/CMakeFiles/gme_static.dir/ext/emu2413.c.o
+[ 95%] Building CXX object gme/CMakeFiles/gme_static.dir/Nsf_Emu.cpp.o
+[100%] Linking CXX static library libgme.a
+[100%] Built target gme_static

@@ -204,6 +204,8 @@ loop:
 	}; // 0x00 was 7 and 0xF2 was 2
 
 	uint16_t data;
+	int result_ = -1;
+	int brk_flag_ = 0; // set when entering the shared interrupt block from BRK
 
 #if !BLARGG_CPU_X86
 	if ( s_time >= 0 )
@@ -1014,8 +1016,18 @@ imm##op:
 	case 0xEA: case 0x1A: case 0x3A: case 0x5A: case 0x7A: case 0xDA: case 0xFA:
 		goto loop;
 
-	case bad_opcode: // HLT
+	case bad_opcode: // HLT / emulator trap
 		pc--;
+		FLUSH_TIME();
+		CPU_DONE( this, TIME, result_ );
+		CACHE_TIME();
+		if ( result_ >= 0 )
+		{
+			brk_flag_ = 0;
+			goto interrupt;
+		}
+		goto stop;
+
 	case 0x02: case 0x12: case 0x22: case 0x32: case 0x42: case 0x52:
 	case 0x62: case 0x72: case 0x92: case 0xB2: case 0xD2:
 		goto stop;
@@ -1046,10 +1058,10 @@ imm##op:
 	}
 	assert( false );
 
-	int result_;
 handle_brk:
 	pc++;
 	result_ = 4;
+	brk_flag_ = 1;
 
 interrupt:
 	{
@@ -1063,8 +1075,8 @@ interrupt:
 		uint8_t temp;
 		CALC_STATUS( temp );
 		temp |= st_r;
-		if ( result_ )
-			temp |= st_b; // TODO: incorrectly sets B flag for IRQ
+		if ( brk_flag_ )
+			temp |= st_b; // B flag set only for BRK, clear for IRQ
 		WRITE_LOW( sp, temp );
 
 		this->r.status = status |= st_i;
@@ -1081,7 +1093,10 @@ out_of_time:
 	CPU_DONE( this, TIME, result_ );
 	CACHE_TIME();
 	if ( result_ >= 0 )
+	{
+		brk_flag_ = 0;
 		goto interrupt;
+	}
 	if ( s_time < 0 )
 		goto loop;
 

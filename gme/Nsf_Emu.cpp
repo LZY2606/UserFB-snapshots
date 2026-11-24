@@ -66,6 +66,7 @@ Nsf_Emu::Nsf_Emu()
 	Music_Emu::set_equalizer( nes_eq );
 	set_gain( 1.4 );
 	memset( unmapped_code, Nes_Cpu::bad_opcode, sizeof unmapped_code );
+	nsf2_reset();
 }
 
 Nsf_Emu::~Nsf_Emu() { unload(); }
@@ -137,8 +138,24 @@ struct Nsf_File : Gme_Info_
 		if ( h.chip_flags & ~(namco_flag | vrc6_flag | fme7_flag | fds_flag | mmc5_flag | vrc7_flag) )
 			set_warning( "Uses unsupported audio expansion hardware" );
 
+		blargg_err_t header_err = check_nsf_header( &h );
+		if ( header_err )
+			return header_err;
+
+		if ( h.vers == 2 )
+		{
+			if ( h.chip_flags != 0 )
+				return "NSF2 with expansion sound hardware is not supported";
+
+			if ( h.unused [0] & ~0x50u )
+				return "Unsupported NSF2 feature flags (only IRQ and PLAY-disable supported)";
+
+			if ( h.unused [1] || h.unused [2] || h.unused [3] )
+				return "NSF2 program length field must be zero";
+		}
+
 		set_track_count( h.track_count );
-		return check_nsf_header( &h );
+		return 0;
 	}
 
 	blargg_err_t track_info_( track_info_t* out, int ) const
@@ -337,8 +354,24 @@ blargg_err_t Nsf_Emu::load_( Data_Reader& in )
 	set_track_count( header_.track_count );
 	RETURN_ERR( check_nsf_header( &header_ ) );
 
-	if ( header_.vers != 1 )
+	if ( header_.vers == 2 )
+	{
+		// Supported NSF2 subset: no expansion sound, zero program-length
+		// field ($7D-$7F) and only feature bits 4 (IRQ) and 6 (no PLAY).
+		if ( header_.chip_flags != 0 )
+			return "NSF2 with expansion sound hardware is not supported";
+
+		unsigned features = header_.unused [0];
+		if ( features & ~0x50u )
+			return "Unsupported NSF2 feature flags (only IRQ and PLAY-disable supported)";
+
+		if ( header_.unused [1] || header_.unused [2] || header_.unused [3] )
+			return "NSF2 program length field must be zero";
+	}
+	else if ( header_.vers != 1 )
+	{
 		set_warning( "Unknown file version" );
+	}
 
 	// sound and memory
 	blargg_err_t err = init_sound();
@@ -567,6 +600,147 @@ void Nsf_Emu::cpu_write_misc( nes_addr_t addr, int data )
 	#endif
 }
 
+// NSF2 IRQ timer and writable IRQ vector override
+
+void Nsf_Emu::nsf2_reset()
+{
+	nsf2_irq_vector [0] = 0;
+	nsf2_irq_vector [1] = 0;
+	nsf2_vector_page_mapped = false;
+	nsf2_timer_running = false;
+	nsf2_timer_flag = false;
+	nsf2_timer_reload = 0xFFFF;
+	nsf2_timer_deadline = future_nes_time;
+	memset( nsf2_vector_page, Nes_Cpu::bad_opcode, sizeof nsf2_vector_page );
+}
+
+void Nsf_Emu::nsf2_timer_write( nes_addr_t addr, int data )
+{
+	// account for any period elapsed before changing state/reload
+	nsf2_timer_catch_up( cpu::time() );
+
+	switch ( addr )
+	{
+	case 0x401B:
+		nsf2_timer_reload = (nsf2_timer_reload & 0xFF00) | (data & 0xFF);
+		break;
+
+	case 0x401C:
+		nsf2_timer_reload = (nsf2_timer_reload & 0x00FF) | ((data & 0xFF) << 8);
+		break;
+
+	case 0x401D: {
+		// A write that starts the timer loads the current reload value into
+		// the countdown. Re-writing bit0 while running does not restart it.
+		bool running = (data & 0x01) != 0;
+		if ( running && !nsf2_timer_running )
+			nsf2_timer_deadline = cpu::time() + (nes_time_t) nsf2_timer_reload + 1;
+		nsf2_timer_running = running;
+		break;
+	}
+	}
+
+	nsf2_update_cpu_irq_time();
+}
+
+int Nsf_Emu::nsf2_timer_read( nes_addr_t addr )
+{
+	if ( addr == 0x401B )
+		return nsf2_timer_reload & 0xFF;
+
+	if ( addr == 0x401C )
+		return (nsf2_timer_reload >> 8) & 0xFF;
+
+	// $401D: bit7 is the pre-clear timer IRQ flag, bit0 the running state.
+	// This acknowledges only the timer source; APU requests stay asserted.
+	nsf2_timer_catch_up( cpu::time() );
+	int result = (nsf2_timer_flag ? 0x80 : 0x00) | (nsf2_timer_running ? 0x01 : 0x00);
+	nsf2_timer_flag = false;
+	nsf2_update_cpu_irq_time();
+	return result;
+}
+
+void Nsf_Emu::nsf2_vector_write( nes_addr_t addr, int data )
+{
+	if ( addr == 0xFFFE )
+		nsf2_irq_vector [0] = data;
+	else if ( addr == 0xFFFF )
+		nsf2_irq_vector [1] = data;
+	else
+		return;
+
+	// keep shadow page and independent override in sync
+	nsf2_vector_page [addr & 0x7FF] = (byte) data;
+}
+
+void Nsf_Emu::nsf2_bank7_changed()
+{
+	// Rebuild the $F800-$FFFF shadow from the newly selected $F000 bank,
+	// then re-apply the independent $FFFE/$FFFF override. The ROM buffer
+	// itself is never modified.
+	for ( int i = 0; i < 0x800; ++i )
+		nsf2_vector_page [i] = *cpu::get_code( 0xF800 + i );
+
+	nsf2_vector_page [0x7FE] = nsf2_irq_vector [0];
+	nsf2_vector_page [0x7FF] = nsf2_irq_vector [1];
+	cpu::map_code( 0xF800, 0x800, nsf2_vector_page );
+	nsf2_vector_page_mapped = true;
+}
+
+void Nsf_Emu::nsf2_timer_catch_up( nes_time_t now )
+{
+	if ( !nsf2_timer_running || nsf2_timer_deadline > now )
+		return;
+
+	// One period per reload+1 CPU cycles. Reload changes apply to the next
+	// period; the current deadline itself is never moved by a write.
+	nsf2_timer_flag = true;
+	unsigned period = nsf2_timer_reload + 1u; // 1..65536
+	int64_t missed = (int64_t) (now - nsf2_timer_deadline) / period + 1;
+	nsf2_timer_deadline += (nes_time_t) (missed * period);
+}
+
+nes_time_t Nsf_Emu::nsf2_irq_deadline( nes_time_t now )
+{
+	nes_time_t deadline = future_nes_time;
+
+	if ( nsf2_timer_flag )
+		deadline = 0;
+	else if ( nsf2_timer_running )
+		deadline = nsf2_timer_deadline;
+
+	nes_time_t apu_irq = apu.earliest_irq( now );
+	if ( apu_irq < deadline )
+		deadline = apu_irq;
+
+	return deadline;
+}
+
+void Nsf_Emu::nsf2_update_cpu_irq_time()
+{
+	if ( !nsf2_irq_supported() )
+		return;
+
+	cpu::set_irq_time( nsf2_irq_deadline( cpu::time() ) );
+}
+
+int Nsf_Emu::cpu_done()
+{
+	if ( !nsf2_irq_supported() )
+		return -1;
+
+	nes_time_t now = cpu::time();
+	nsf2_timer_catch_up( now );
+
+	if ( r.status & Nes_Cpu::irq_inhibit )
+		return -1;
+
+	if ( nsf2_timer_flag || apu.earliest_irq( now ) <= now )
+		return 4; // IRQ/BRK vector at $FFFE, B flag clear
+
+	return -1;
+}
+
 blargg_err_t Nsf_Emu::start_track_( int track )
 {
 	RETURN_ERR( Classic_Emu::start_track_( track ) );
@@ -574,10 +748,22 @@ blargg_err_t Nsf_Emu::start_track_( int track )
 	memset( low_mem, 0, sizeof low_mem );
 	memset( sram,    0, sizeof sram );
 
+	nsf2_reset();
+
 	cpu::reset( unmapped_code ); // also maps low_mem
 	cpu::map_code( sram_addr, sizeof sram, sram );
 	for ( int i = 0; i < bank_count; ++i )
 		cpu_write( bank_select_addr + i, initial_banks [i] );
+
+	if ( nsf2_irq_supported() )
+	{
+		// Before INIT the override takes its value from the IRQ vector in
+		// the initially mapped ROM banks.
+		nsf2_irq_vector [0] = *cpu::get_code( 0xFFFE );
+		nsf2_irq_vector [1] = *cpu::get_code( 0xFFFF );
+		nsf2_bank7_changed();
+		cpu::set_irq_time( future_nes_time );
+	}
 
 	apu.reset( pal_only, (header_.speed_flags & 0x20) ? 0x3F : 0 );
 	apu.write_register( 0, 0x4015, 0x0F );
@@ -618,8 +804,15 @@ blargg_err_t Nsf_Emu::start_track_( int track )
 blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 {
 	set_time( 0 );
+	bool nsf2_irq = nsf2_irq_supported();
 	while ( time() < duration )
 	{
+		if ( nsf2_irq )
+		{
+			nsf2_timer_catch_up( time() );
+			cpu::set_irq_time( nsf2_irq_deadline( time() ) );
+		}
+
 		nes_time_t end = min( (blip_time_t) next_play, duration );
 		end = min( end, time() + 32767 ); // allows CPU to use 16-bit time delta
 		if ( cpu::run( end ) )
@@ -639,7 +832,19 @@ blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 				}
 				else
 				{
-					set_time( end );
+					nes_time_t skip_to = end;
+					if ( nsf2_irq && !(r.status & Nes_Cpu::irq_inhibit) )
+					{
+						// Idle at the trap opcode: skip the idle cycles, but
+						// wake at the earliest timer/APU IRQ event.
+						nes_time_t now = time();
+						nes_time_t wake = nsf2_irq_deadline( now );
+						if ( wake < skip_to )
+							skip_to = wake;
+						if ( skip_to < now )
+							skip_to = now;
+					}
+					set_time( skip_to );
 				}
 			}
 		}
@@ -649,7 +854,7 @@ blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 			nes_time_t period = (play_period + play_extra) / clock_divisor;
 			play_extra = play_period - period * clock_divisor;
 			next_play += period;
-			if ( play_ready && !--play_ready )
+			if ( !nsf2_play_disabled() && play_ready && !--play_ready )
 			{
 				check( saved_state.pc == badop_addr );
 				if ( r.pc != badop_addr )
@@ -674,6 +879,9 @@ blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 	check( next_play >= 0 );
 	if ( next_play < 0 )
 		next_play = 0;
+
+	if ( nsf2_irq && nsf2_timer_running )
+		nsf2_timer_deadline -= duration;
 
 	apu.end_frame( duration );
 

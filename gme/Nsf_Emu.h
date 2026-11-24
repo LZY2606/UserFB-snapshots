@@ -88,6 +88,26 @@ public: private: friend class Nes_Cpu;
 	void cpu_write_misc( nes_addr_t, int );
 	enum { badop_addr = bank_select_addr };
 
+	// NSF2 IRQ timer / vector override (supported subset)
+	bool nsf2_irq_supported() const { return header_.vers == 2 && (header_.unused [0] & 0x10) != 0; }
+	bool nsf2_play_disabled() const { return header_.vers == 2 && (header_.unused [0] & 0x40) != 0; }
+	void nsf2_reset();
+	void nsf2_timer_write( nes_addr_t addr, int data );
+	int  nsf2_timer_read( nes_addr_t addr );
+	void nsf2_vector_write( nes_addr_t addr, int data );
+	void nsf2_bank7_changed();
+	void nsf2_timer_catch_up( nes_time_t now );
+	nes_time_t nsf2_irq_deadline( nes_time_t now );
+	void nsf2_update_cpu_irq_time();
+	int  cpu_done(); // CPU_DONE hook: returns 4 when an IRQ should be taken
+	byte nsf2_irq_vector [2];
+	byte nsf2_vector_page [0x800];
+	bool nsf2_vector_page_mapped;
+	bool nsf2_timer_running;
+	bool nsf2_timer_flag;
+	unsigned nsf2_timer_reload;
+	nes_time_t nsf2_timer_deadline;
+
 private:
 	byte mmc5_mul [2];
 
