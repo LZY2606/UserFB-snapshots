@@ -46,7 +46,7 @@
 // Constructor
 FfsParser::FfsParser(TreeModel* treeModel) : model(treeModel),
 imageBase(0), addressDiff(0x100000000ULL), protectedRegionsBase(0),
-pspSpiRomBase(0), pspMaxOffset(0) {
+pspSpiRomBase(0), pspMaxOffset(0), fmpCapsule(false) {
     fitParser = new FitParser(treeModel, this);
     nvramParser = new NvramParser(treeModel, this);
     meParser = new MeParser(treeModel, this);
@@ -98,11 +98,18 @@ USTATUS FfsParser::parse(const UByteArray & buffer)
     protectedRanges.clear();
     lastVtf = UModelIndex();
     dxeCore = UModelIndex();
-    
+    fmpCapsule = false;
+    fmpPayloads.clear();
+    fmpPayloadVtfs.clear();
+
     // Parse input buffer
     USTATUS result = performFirstPass(buffer, root);
     if (result == U_SUCCESS) {
-        if (lastVtf.isValid()) {
+        if (fmpCapsule) {
+            // Every FMP payload image with its own VTF gets its own second pass
+            result = performFmpSecondPass();
+        }
+        else if (lastVtf.isValid()) {
             result = performSecondPass(root);
         }
         else {
@@ -122,8 +129,13 @@ USTATUS FfsParser::performFirstPass(const UByteArray & buffer, UModelIndex & ind
     }
     
     // Try parsing as UEFI Capsule
-    if (U_SUCCESS == parseCapsule(buffer, 0, UModelIndex(), index)) {
+    USTATUS capsuleResult = parseCapsule(buffer, 0, UModelIndex(), index);
+    if (U_SUCCESS == capsuleResult) {
         return U_SUCCESS;
+    }
+    // A recognized FMP capsule is never silently reinterpreted as a bare generic image
+    if (fmpCapsule) {
+        return capsuleResult;
     }
     // Try parsing as some image
     return parseImage(buffer, 0, UModelIndex(), index);
@@ -170,6 +182,7 @@ USTATUS FfsParser::parseCapsule(const UByteArray & capsule, const UINT32 localOf
     }
     
     UINT32 capsuleHeaderSize = 0;
+    bool isFmpCapsule = false;
     // Check buffer for being normal EFI capsule header
     if (capsule.startsWith(EFI_CAPSULE_GUID)
         || capsule.startsWith(EFI_FMP_CAPSULE_GUID)
@@ -178,7 +191,13 @@ USTATUS FfsParser::parseCapsule(const UByteArray & capsule, const UINT32 localOf
         || capsule.startsWith(LENOVO2_CAPSULE_GUID)) {
         // Get info
         const EFI_CAPSULE_HEADER* capsuleHeader = (const EFI_CAPSULE_HEADER*)capsule.constData();
-        
+
+        // An FMP capsule is parsed as an FMP item table, never as a single firmware image
+        isFmpCapsule = capsule.startsWith(EFI_FMP_CAPSULE_GUID);
+        if (isFmpCapsule) {
+            fmpCapsule = true;
+        }
+
         // Check sanity of HeaderSize and CapsuleImageSize values
         if (capsuleHeader->HeaderSize == 0 || capsuleHeader->HeaderSize > (UINT32)capsule.size()
             || capsuleHeader->HeaderSize > capsuleHeader->CapsuleImageSize) {
@@ -197,14 +216,14 @@ USTATUS FfsParser::parseCapsule(const UByteArray & capsule, const UINT32 localOf
         capsuleHeaderSize = capsuleHeader->HeaderSize;
         UByteArray header = capsule.left(capsuleHeaderSize);
         UByteArray body = capsule.mid(capsuleHeaderSize);
-        UString name("UEFI capsule");
+        UString name = isFmpCapsule ? UString("FMP capsule") : UString("UEFI capsule");
         UString info = UString("Capsule GUID: ") + guidToUString(capsuleHeader->CapsuleGuid, false) +
         usprintf("\nImage size: %Xh (%u)\nFlags: %08Xh",
                  capsuleHeader->CapsuleImageSize - capsuleHeaderSize, capsuleHeader->CapsuleImageSize - capsuleHeaderSize,
                  capsuleHeader->Flags);
-        
+
         // Add tree item
-        index = model->addItem(localOffset, Types::Capsule, Subtypes::UefiCapsule, name, UString(), info, header, body, UByteArray(), Fixed, parent);
+        index = model->addItem(localOffset, Types::Capsule, isFmpCapsule ? Subtypes::FmpCapsule : Subtypes::UefiCapsule, name, UString(), info, header, body, UByteArray(), Fixed, parent);
     }
     // Check buffer for being Toshiba capsule header
     else if (capsule.startsWith(TOSHIBA_CAPSULE_GUID)) {
@@ -283,8 +302,14 @@ USTATUS FfsParser::parseCapsule(const UByteArray & capsule, const UINT32 localOf
     
     // Capsule present
     if (capsuleHeaderSize > 0) {
+        // FMP capsules carry an item table with drivers and payload images instead of a single image
+        if (isFmpCapsule) {
+            const EFI_CAPSULE_HEADER* capsuleHeader = (const EFI_CAPSULE_HEADER*)capsule.constData();
+            return parseFmpCapsuleBody(capsule, localOffset, capsuleHeaderSize, capsuleHeader->CapsuleImageSize, index);
+        }
+
         UModelIndex imageIndex;
-        
+
         // Try parsing as some image
         return parseImage(capsule.mid(capsuleHeaderSize), capsuleHeaderSize, index, imageIndex);
     }
@@ -4060,9 +4085,20 @@ USTATUS FfsParser::addInfoRecursive(const UModelIndex & index, bool enableCpuAdd
         if (enableCpuAddresses) {
             // Add physical address of the whole item or its header and data portions separately
             UINT64 address = addressDiff + model->base(index);
-            for (int i = 0; i < indexesAddressDiffs.size(); i++) {
-                if (model->base(index) >= model->base(indexesAddressDiffs.at(i).first))
-                    address = indexesAddressDiffs.at(i).second + model->base(index);
+            // Use the difference of the innermost mapped ancestor image instead of a plain
+            // lower-bound base comparison, so that sibling images (e.g. FMP payload images
+            // inside one capsule) keep their own CPU address mappings
+            for (UModelIndex current = index; current.isValid(); current = current.parent()) {
+                bool mapped = false;
+                for (int i = 0; i < indexesAddressDiffs.size(); i++) {
+                    if (current == indexesAddressDiffs.at(i).first) {
+                        address = indexesAddressDiffs.at(i).second + model->base(index);
+                        mapped = true;
+                        break;
+                    }
+                }
+                if (mapped)
+                    break;
             }
             if (address <= 0xFFFFFFFFUL) {
                 UINT32 headerSize = model->headerSize(index);

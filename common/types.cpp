@@ -93,6 +93,7 @@ UString itemTypeToUString(const UINT8 type)
         case Types::DirectoryTable:             return UString("Table");
         case Types::DirectoryTableEntry:        return UString("Table entry");
         case Types::AmdMicrocode:               return UString("AMD microcode");
+        case Types::FmpItem:                    return UString("FMP item");
     }
     
     return usprintf("Unknown %02Xh", type);
@@ -123,6 +124,7 @@ UString itemSubtypeToUString(const UINT8 type, const UINT8 subtype)
             else if (subtype == Subtypes::AptioUnsignedCapsule)         return UString("Aptio unsigned");
             else if (subtype == Subtypes::UefiCapsule)                  return UString("UEFI 2.0");
             else if (subtype == Subtypes::ToshibaCapsule)               return UString("Toshiba");
+            else if (subtype == Subtypes::FmpCapsule)                   return UString("FMP");
             break;
         case Types::Region:                                             return regionTypeToUString(subtype);
         case Types::File:                                               return fileTypeToUString(subtype);
@@ -195,6 +197,12 @@ UString itemSubtypeToUString(const UINT8 type, const UINT8 subtype)
             if (subtype == Subtypes::PSPDirectory)                 return UString("PSP directory");
             if (subtype == Subtypes::ComboDirectory)               return UString("Combo directory");
             if (subtype == Subtypes::BIOSDirectory)                return UString("BIOS directory");
+            break;
+        case Types::FmpItem:
+            if      (subtype == Subtypes::FmpHeaderItem)           return UString("Header");
+            else if (subtype == Subtypes::FmpDriverItem)           return UString("Driver");
+            else if (subtype == Subtypes::FmpPayloadItem)          return UString("Payload");
+            else if (subtype == Subtypes::FmpVendorCodeItem)       return UString("Vendor code");
             break;
     }
     

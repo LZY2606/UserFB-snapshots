@@ -96,6 +96,19 @@ class FitParser;
 class NvramParser;
 class MeParser;
 
+// FMP capsule payload item info, filled by FfsParser::parse when the input is an FMP capsule
+struct FmpPayloadInfo {
+    UModelIndex item;       // node containing exactly header + image + vendor, excluding padding
+    UModelIndex image;      // child Types::Image for a parsed update image, invalid for opaque data
+    UINT32 version = 0;
+    UByteArray imageTypeId; // exactly the 16 on-disk bytes
+    UINT8 imageIndex = 0;
+    UINT64 hardwareInstance = 0, imageCapsuleSupport = 0;
+    UINT32 itemBase = 0, headerSize = 0, imageBase = 0, imageSize = 0, vendorBase = 0, vendorSize = 0;
+    bool hasCpuMapping = false;
+    UINT64 addressDiff = 0;
+};
+
 class FfsParser
 {
 public:
@@ -120,6 +133,9 @@ public:
     // Obtain offset/address difference
     UINT64 getAddressDiff() const { return addressDiff; }
     std::vector<std::pair<UModelIndex, UINT64> > getIndexesAddressDiffs() const { return indexesAddressDiffs; }
+
+    // Obtain FMP capsule payload items in payload table order, empty for non-FMP inputs
+    const std::vector<FmpPayloadInfo>& getFmpPayloads() const { return fmpPayloads; }
 
     // Output some info to stdout
     void outputInfo(void);
@@ -149,10 +165,16 @@ private:
     UINT64 protectedRegionsBase;
     UModelIndex dxeCore;
 
+    // FMP capsule state, reset at each parse
+    bool fmpCapsule;
+    std::vector<FmpPayloadInfo> fmpPayloads;
+    std::vector<UModelIndex> fmpPayloadVtfs; // Last VTF of each payload's update image, invalid when absent
+
     // First pass
     USTATUS performFirstPass(const UByteArray & imageFile, UModelIndex & index);
 
     USTATUS parseCapsule(const UByteArray & capsule, const UINT32 localOffset, const UModelIndex & parent, UModelIndex & index);
+    USTATUS parseFmpCapsuleBody(const UByteArray & capsule, const UINT32 localOffset, const UINT32 capsuleHeaderSize, const UINT32 capsuleImageSize, const UModelIndex & capsuleIndex);
     USTATUS parseImage(const UByteArray& buffer, const UINT32 localOffset, const UModelIndex& parent, UModelIndex& index);
     USTATUS parseIntelImage(const UByteArray & intelImage, const UINT32 localOffset, const UModelIndex & parent, UModelIndex & index);
     USTATUS parseGenericImage(const UByteArray & intelImage, const UINT32 localOffset, const UModelIndex & parent, UModelIndex & index);
@@ -235,6 +257,7 @@ private:
     
     // Second pass
     USTATUS performSecondPass(const UModelIndex & index);
+    USTATUS performFmpSecondPass();
     USTATUS addInfoRecursive(const UModelIndex & index, bool enableCpuAddresses = false);
     USTATUS checkTeImageBase(const UModelIndex & index);
     

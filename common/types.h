@@ -80,6 +80,7 @@ namespace Types {
         DirectoryTable,
         DirectoryTableEntry,
         AmdMicrocode,
+        FmpItem,
     };
 }
 
@@ -95,6 +96,7 @@ namespace Subtypes {
         AptioUnsignedCapsule,
         UefiCapsule,
         ToshibaCapsule,
+        FmpCapsule,
     };
 
     enum VolumeSubtypes {
@@ -221,6 +223,13 @@ namespace Subtypes {
 
     enum StartupApDataEntrySubtypes {
         x86128kStartupApDataEntry = 250,
+    };
+
+    enum FmpItemSubtypes {
+        FmpHeaderItem = 226,
+        FmpDriverItem,
+        FmpPayloadItem,
+        FmpVendorCodeItem,
     };
 }
 

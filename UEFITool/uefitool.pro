@@ -111,6 +111,7 @@ SOURCES += uefitool_main.cpp \
  ../common/utility.cpp \
  ../common/ffsbuilder.cpp \
  ../common/ffsparser.cpp \
+ ../common/fmp.cpp \
  ../common/amd_microcode.cpp \
  ../common/ffsreport.cpp \
  ../common/treeitem.cpp \
