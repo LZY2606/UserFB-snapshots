@@ -156,6 +156,43 @@ typedef struct {
   int32_t s[MAX_GRANULES][MAX_CHANNELS][13][3]; /* [window][cb] */
 } shine_scalefac_t;
 
+/* Per-candidate trial state for the adaptive stereo decision.  Each frame is
+ * encoded twice; the losing trial is thrown away before the next frame. */
+typedef struct {
+  shine_side_info_t side;
+  int l3_enc[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  int gain[MAX_CHANNELS][MAX_GRANULES];
+  int part2_3[MAX_CHANNELS][MAX_GRANULES];
+  int bits;
+  double error;
+  int valid;
+} shine_ms_trial_t;
+
+/* Adaptive mid/side (MPEG-1 long blocks) state. */
+typedef struct {
+  int mode;                  /* 0 = LR only, 1 = forced MS, 2 = automatic */
+  int base_mode;             /* mode field the encoder was initialised with */
+  int selected_ms;           /* representation used by the current frame */
+  int floor_log2;            /* power-of-two pre-scale applied to M and S */
+  int32_t lr_freq[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  int32_t ms_freq[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  shine_ms_trial_t trial[2];
+#ifdef SHINE_MS_TESTING
+  /* Read-only observation points for the test harness. */
+  int32_t obs_lr_spectrum[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  int32_t obs_ms_spectrum[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  int obs_q[2][MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
+  int obs_gain[2][MAX_CHANNELS][MAX_GRANULES];
+  int obs_part2_3[2][MAX_CHANNELS][MAX_GRANULES];
+  int obs_bits[2];
+  int obs_floor_log2[2];
+  int obs_valid[2];
+  int obs_selected;
+  int obs_mode;
+  int obs_mode_ext;
+#endif
+} shine_ms_t;
+
 typedef struct shine_global_flags {
   priv_shine_wave_t wave;
   priv_shine_mpeg_t mpeg;
@@ -172,6 +209,8 @@ typedef struct shine_global_flags {
   int32_t mdct_freq[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
   int ResvSize;
   int ResvMax;
+  int ms_exact_slots; /* exact slot count when the historical float drifted */
+  shine_ms_t ms;
   l3loop_t l3loop;
   mdct_t mdct;
   subband_t subband;

@@ -39,6 +39,77 @@ write(written, data);
 shine_close(s);
 ```
 
+Adaptive mid/side stereo
+------------------------
+
+Shine always advertised a joint-stereo header but never actually coded the
+mid/side (M/S) representation: `JOINT_STEREO` only changed the frame header.
+`shine_set_ms()` adds a real, long-block M/S mode for MPEG-1 stereo:
+
+```c
+int shine_set_ms(shine_t s, int mode);
+```
+
+* `mode == 0` keeps the historical left/right path (the default).
+* `mode == 1` forces the M/S representation.
+* `mode == 2` quantises both the left/right and the M/S representation for the
+  frame, reconstructs each one, and keeps whichever has the smaller total
+  squared error in the original left/right domain.  M/S is only chosen when it
+  is strictly better than left/right.
+
+It returns `0` on success.  It returns `-1` for a `NULL` handle, an out-of-range
+mode, or an encoder that is not a 32 kHz / 44.1 kHz / 48 kHz stereo instance
+initialised as `STEREO` or `JOINT_STEREO`; in that case the previous setting and
+the encoding state are left untouched.  A successful call takes effect from the
+next `shine_encode_buffer()` or `shine_encode_buffer_interleaved()` call, and
+either PCM entry point behaves identically.
+
+M/S frames are signalled as `JOINT_STEREO` with `mode_ext == 2` for the whole
+frame (both granules share the decision); left/right frames restore the mode the
+encoder was initialised with and use `mode_ext == 0`.  Both representations are
+held to the same real CBR frame capacity, `main_data_begin` always stays `0`,
+and an all-zero channel releases its half of the granule budget to the channel
+that still carries signal.
+
+Switching modes between frames is allowed; the analysis history (subband and
+MDCT overlap) is shared, so it is the same as if the setting had never changed.
+Disabling M/S returns the encoder to the byte-for-byte historical output.
+
+```c
+#include <shine/layer3.h>
+
+shine_config_t config;
+shine_t s;
+int16_t *pcm[2];
+int written;
+
+/* ... fill in config and initialise as usual ... */
+s = shine_initialise(&config);
+if (!s)
+  error("cannot initialise encoder");
+
+/* Strongly correlated material: let the encoder decide per frame. */
+if (shine_set_ms(s, 2) < 0)
+  error("adaptive M/S needs 32/44.1/48 kHz stereo");
+
+while ((pcm[0] = read_channel(infile, 0, shine_samples_per_pass(s))) &&
+       (pcm[1] = read_channel(infile, 1, shine_samples_per_pass(s)))) {
+  unsigned char *data = shine_encode_buffer(s, pcm, &written);
+  write(data, written);
+}
+
+/* Later, go back to the plain left/right path for a quiet passage. */
+shine_set_ms(s, 0);
+
+data = shine_flush(s, &written);
+write(data, written);
+shine_close(s);
+```
+
+The switch is not limited to the start of the stream: the call may be made
+between any two `shine_encode_buffer()` calls, and either PCM entry point
+supports it.
+
 How fast is it?
 ---------------
 

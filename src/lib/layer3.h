@@ -139,6 +139,23 @@ unsigned char *shine_encode_buffer_interleaved(shine_t s, int16_t *data,
  * closing the encoder, to make all encoded data has been written. */
 unsigned char *shine_flush(shine_t s, int *written);
 
+/* Enable adaptive long-block mid/side stereo.
+ *
+ * `mode` selects how the encoder represents a stereo frame:
+ *   0  follow the historical path and always code left/right spectra;
+ *   1  always code the mid/side representation;
+ *   2  quantise both representations and keep the one with the smaller
+ *      squared reconstruction error in the original left/right domain.
+ *
+ * The setting takes effect from the next call to `shine_encode_buffer` or
+ * `shine_encode_buffer_interleaved`. It is only accepted for 32/44.1/48 kHz
+ * stereo encoders initialised as STEREO or JOINT_STEREO.
+ *
+ * Returns 0 on success. Returns -1 for a NULL handle, an out of range mode or
+ * an unsupported configuration, leaving the current setting and the encoding
+ * state untouched. */
+int shine_set_ms(shine_t s, int mode);
+
 /* Close an encoder, freeing all associated memory. Encoder handler is not
  * valid after this call. */
 void shine_close(shine_t s);

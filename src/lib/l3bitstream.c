@@ -8,6 +8,7 @@
 #include "layer3.h"
 #include "tables.h"
 #include "types.h"
+#include "bitstream.h"
 
 static void shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y);
 static void shine_huffman_coder_count1(bitstream_t *bs,
@@ -44,6 +45,33 @@ void shine_format_bitstream(shine_global_config *config) {
 
   encodeSideInfo(config);
   encodeMainData(config);
+
+  /* The adaptive stereo path makes every buffer a whole number of physical
+   * CBR frames: 144 * bitrate / samplerate plus the padding slot.  The fill
+   * carries the real bits to the end of the frame as zero ancillary data, the
+   * cache is drained, and the buffer is cut exactly at the slot count.  The
+   * historical LR path keeps its original byte layout untouched, so an
+   * encoder that never enables M/S produces the same bytes as before. */
+  if (config->ms.mode != 0) {
+    int want = config->ms_exact_slots
+                   ? config->ms_exact_slots
+                   : config->mpeg.whole_slots_per_frame + config->mpeg.padding;
+    int real_bits = shine_get_bits_count(&config->bs);
+    int real_bytes = (real_bits + 7) / 8;
+    int i;
+
+    /* Flush the pending cache so every real bit reaches the buffer. */
+    if (config->bs.cache_bits < 32)
+      shine_putbits(&config->bs, 0, (unsigned)config->bs.cache_bits);
+
+    if (real_bytes > want)
+      real_bytes = want; /* cannot happen with a legal allocation */
+    for (i = real_bytes; i < want; i++)
+      config->bs.data[i] = 0;
+    config->bs.data_position = want;
+    config->bs.cache = 0;
+    config->bs.cache_bits = 32;
+  }
 }
 
 static void encodeMainData(shine_global_config *config) {

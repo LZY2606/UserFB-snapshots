@@ -95,73 +95,120 @@ int shine_outer_loop(
  * ------------------
  */
 void shine_iteration_loop(shine_global_config *config) {
+  shine_iteration_frame(config, config->mdct_freq, 0);
+}
+
+/* Return the historical per-channel bit allowance for a granule. */
+static int channel_max_bits(shine_global_config *config, int ch, int gr) {
+  return shine_max_reservoir_bits(&config->pe[ch][gr], config);
+}
+
+/* Quantise one granule/channel starting from a zeroed side info record.
+ * `max_bits` is the bit allowance, `gain_shift` the power-of-two pre-scale
+ * that has to be folded into global_gain. */
+static void quantise_granule(shine_global_config *config, int ch, int gr,
+                             int32_t *xr, int gain_shift, int max_bits) {
   shine_psy_xmin_t l3_xmin;
-  gr_info *cod_info;
-  int max_bits;
-  int ch, gr, i;
-  int *ix;
+  shine_side_info_t *side_info = &config->side_info;
+  gr_info *cod_info = &side_info->gr[gr].ch[ch].tt;
+  int *ix = config->l3_enc[ch][gr];
+  int i;
 
-  for (ch = config->wave.channels; ch--;) {
+  config->l3loop.xr = xr;
+
+  for (i = GRANULE_SIZE, config->l3loop.xrmax = 0; i--;) {
+    config->l3loop.xrsq[i] = mulsr(config->l3loop.xr[i], config->l3loop.xr[i]);
+    config->l3loop.xrabs[i] = labs(config->l3loop.xr[i]);
+    if (config->l3loop.xrabs[i] > config->l3loop.xrmax)
+      config->l3loop.xrmax = config->l3loop.xrabs[i];
+  }
+
+  cod_info->sfb_lmax = SFB_LMAX - 1; /* gr_deco */
+
+  calc_xmin(&config->ratio, cod_info, &l3_xmin, gr, ch);
+
+  if (config->mpeg.version == MPEG_I)
+    calc_scfsi(&l3_xmin, ch, gr, config);
+
+  memset(config->scalefactor.l[gr][ch], 0,
+         sizeof(config->scalefactor.l[gr][ch]));
+  memset(config->scalefactor.s[gr][ch], 0,
+         sizeof(config->scalefactor.s[gr][ch]));
+
+  for (i = 4; i--;)
+    cod_info->slen[i] = 0;
+
+  cod_info->part2_3_length = 0;
+  cod_info->big_values = 0;
+  cod_info->count1 = 0;
+  cod_info->scalefac_compress = 0;
+  cod_info->table_select[0] = 0;
+  cod_info->table_select[1] = 0;
+  cod_info->table_select[2] = 0;
+  cod_info->region0_count = 0;
+  cod_info->region1_count = 0;
+  cod_info->part2_length = 0;
+  cod_info->preflag = 0;
+  cod_info->scalefac_scale = 0;
+  cod_info->count1table_select = 0;
+
+  if (config->l3loop.xrmax)
+    cod_info->part2_3_length =
+        shine_outer_loop(max_bits, &l3_xmin, ix, gr, ch, config);
+  else
+    memset(ix, 0, GRANULE_SIZE * sizeof(int));
+
+  shine_ResvAdjust(cod_info, config);
+  /* The iteration loop searched on the spectrum as supplied.  When that
+   * spectrum was pre-scaled by 2^-gain_shift, the decoder has to apply the
+   * same factor, i.e. global_gain grows by 4*gain_shift (four units per
+   * power of two). */
+  cod_info->quantizerStepSize += 4 * gain_shift;
+  cod_info->global_gain = cod_info->quantizerStepSize + 210;
+}
+
+void shine_iteration_frame(shine_global_config *config,
+                           int32_t (*freq)[MAX_GRANULES][GRANULE_SIZE],
+                           int gain_shift) {
+  int ch, gr;
+
+  /* Channel outer, granule inner: the historical traversal order, which the
+   * MPEG-1 scfsi decision is written against. */
+  for (ch = config->wave.channels; ch--;)
+    for (gr = 0; gr < config->mpeg.granules_per_frame; gr++)
+      quantise_granule(config, ch, gr, freq[ch][gr], gain_shift,
+                       channel_max_bits(config, ch, gr));
+
+  shine_ResvFrameEnd(config);
+}
+
+void shine_iteration_frame_ms(
+    shine_global_config *config,
+    int32_t (*freq)[MAX_GRANULES][GRANULE_SIZE], int gain_shift,
+    const int empty[MAX_CHANNELS][MAX_GRANULES]) {
+  int ch, gr;
+
+  for (ch = config->wave.channels; ch--;)
     for (gr = 0; gr < config->mpeg.granules_per_frame; gr++) {
-      /* setup pointers */
-      ix = config->l3_enc[ch][gr];
-      config->l3loop.xr = config->mdct_freq[ch][gr];
+      int own = channel_max_bits(config, ch, gr);
+      int other = ch ? 0 : 1;
+      int other_own = channel_max_bits(config, other, gr);
+      int max_bits;
 
-      /* Precalculate the square, abs,  and maximum,
-       * for use later on.
-       */
-      for (i = GRANULE_SIZE, config->l3loop.xrmax = 0; i--;) {
-        config->l3loop.xrsq[i] =
-            mulsr(config->l3loop.xr[i], config->l3loop.xr[i]);
-        config->l3loop.xrabs[i] = labs(config->l3loop.xr[i]);
-        if (config->l3loop.xrabs[i] > config->l3loop.xrmax)
-          config->l3loop.xrmax = config->l3loop.xrabs[i];
-      }
+      /* A channel that carries no coefficient costs nothing, so its half of
+       * the granule is offered to the channel that still has signal.
+       * Otherwise the shares stay as they always were. */
+      if (empty[ch][gr])
+        max_bits = 0;
+      else if (empty[other][gr]) {
+        max_bits = own + other_own;
+        if (max_bits > SHINE_MAX_GRANULE_BITS)
+          max_bits = SHINE_MAX_GRANULE_BITS;
+      } else
+        max_bits = own;
 
-      cod_info = (gr_info *)&(config->side_info.gr[gr].ch[ch]);
-      cod_info->sfb_lmax = SFB_LMAX - 1; /* gr_deco */
-
-      calc_xmin(&config->ratio, cod_info, &l3_xmin, gr, ch);
-
-      if (config->mpeg.version == MPEG_I)
-        calc_scfsi(&l3_xmin, ch, gr, config);
-
-      /* calculation of number of available bit( per granule ) */
-      max_bits = shine_max_reservoir_bits(&config->pe[ch][gr], config);
-
-      /* reset of iteration variables */
-      memset(config->scalefactor.l[gr][ch], 0,
-             sizeof(config->scalefactor.l[gr][ch]));
-      memset(config->scalefactor.s[gr][ch], 0,
-             sizeof(config->scalefactor.s[gr][ch]));
-
-      for (i = 4; i--;)
-        cod_info->slen[i] = 0;
-
-      cod_info->part2_3_length = 0;
-      cod_info->big_values = 0;
-      cod_info->count1 = 0;
-      cod_info->scalefac_compress = 0;
-      cod_info->table_select[0] = 0;
-      cod_info->table_select[1] = 0;
-      cod_info->table_select[2] = 0;
-      cod_info->region0_count = 0;
-      cod_info->region1_count = 0;
-      cod_info->part2_length = 0;
-      cod_info->preflag = 0;
-      cod_info->scalefac_scale = 0;
-      cod_info->count1table_select = 0;
-
-      /* all spectral values zero ? */
-      if (config->l3loop.xrmax)
-        cod_info->part2_3_length =
-            shine_outer_loop(max_bits, &l3_xmin, ix, gr, ch, config);
-
-      shine_ResvAdjust(cod_info, config);
-      cod_info->global_gain = cod_info->quantizerStepSize + 210;
-
-    } /* for gr */
-  }   /* for ch */
+      quantise_granule(config, ch, gr, freq[ch][gr], gain_shift, max_bits);
+    }
 
   shine_ResvFrameEnd(config);
 }

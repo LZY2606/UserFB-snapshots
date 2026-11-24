@@ -5,6 +5,7 @@
 #include "l3bitstream.h"
 #include "l3loop.h"
 #include "l3mdct.h"
+#include "l3ms.h"
 #include "l3subband.h"
 #include "tables.h"
 #include "types.h"
@@ -90,11 +91,7 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   if (config == NULL)
     return config;
 
-  shine_subband_initialise(config);
-  shine_mdct_initialise(config);
-  shine_loop_initialise(config);
-
-  /* Copy public config. */
+  /* Copy public config before anything reads the mode. */
   config->wave.channels = pub_config->wave.channels;
   config->wave.samplerate = pub_config->wave.samplerate;
   config->mpeg.mode = pub_config->mpeg.mode;
@@ -102,6 +99,11 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   config->mpeg.emph = pub_config->mpeg.emph;
   config->mpeg.copyright = pub_config->mpeg.copyright;
   config->mpeg.original = pub_config->mpeg.original;
+
+  shine_subband_initialise(config);
+  shine_mdct_initialise(config);
+  shine_loop_initialise(config);
+  shine_ms_initialise(config);
 
   /* Set default values. */
   config->ResvMax = 0;
@@ -131,6 +133,17 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
       avg_slots_per_frame - (double)config->mpeg.whole_slots_per_frame;
   config->mpeg.slot_lag = -config->mpeg.frac_slots_per_frame;
 
+  /* A few bitrate/samplerate pairs give a mathematically integral slot count
+   * that the floating point evaluation lands just below (for example
+   * 32 kHz / 48 kbps is exactly 216 slots).  The historical path keeps its
+   * old framing, broken or not, so that an encoder which never enables M/S
+   * produces exactly the bytes it always did.  The adaptive path uses the
+   * exact slot count, which keeps its headers and physical frame sizes in
+   * agreement. */
+  config->ms_exact_slots = 0;
+  if (config->mpeg.frac_slots_per_frame > 1.0 - 1e-9)
+    config->ms_exact_slots = config->mpeg.whole_slots_per_frame + 1;
+
   if (config->mpeg.frac_slots_per_frame == 0)
     config->mpeg.padding = 0;
 
@@ -156,16 +169,35 @@ static unsigned char *shine_encode_buffer_internal(shine_global_config *config,
         (config->mpeg.padding - config->mpeg.frac_slots_per_frame);
   }
 
-  config->mpeg.bits_per_frame =
-      8 * (config->mpeg.whole_slots_per_frame + config->mpeg.padding);
+  /* For a mathematically integral slot count the historical accumulator
+   * always asks for a padding slot that the encoder then does not write.  The
+   * adaptive path uses the exact count instead, so its header and physical
+   * frame size agree. */
+  if (config->ms.mode != 0 && config->ms_exact_slots) {
+    config->mpeg.padding = 0;
+    config->mpeg.bits_per_frame = 8 * config->ms_exact_slots;
+  } else {
+    config->mpeg.bits_per_frame =
+        8 * (config->mpeg.whole_slots_per_frame + config->mpeg.padding);
+  }
   config->mean_bits = (config->mpeg.bits_per_frame - config->sideinfo_len) /
                       config->mpeg.granules_per_frame;
 
   /* apply mdct to the polyphase output */
   shine_mdct_sub(config, stride);
 
-  /* bit and noise allocation */
-  shine_iteration_loop(config);
+  /* bit and noise allocation; the adaptive stereo decision owns the
+   * quantisation for MPEG-1 stereo once it has been enabled. */
+  if (config->mpeg.version == MPEG_I && config->wave.channels == 2 &&
+      config->ms.mode != 0)
+    shine_ms_frame(config);
+  else {
+    /* The historical path always codes LR; make sure a previous MS frame
+     * left no stale mode extension in the header. */
+    config->mpeg.mode = config->ms.base_mode;
+    config->mpeg.mode_ext = 0;
+    shine_iteration_loop(config);
+  }
 
   /* write the frame to the bitstream */
   shine_format_bitstream(config);
@@ -205,4 +237,24 @@ unsigned char *shine_flush(shine_global_config *config, int *written) {
 void shine_close(shine_global_config *config) {
   shine_close_bit_stream(&config->bs);
   free(config);
+}
+
+int shine_set_ms(shine_t s, int mode) {
+  if (s == NULL)
+    return -1;
+  if (mode < 0 || mode > 2)
+    return -1;
+  if (s->wave.channels != 2)
+    return -1;
+  if (s->mpeg.version != MPEG_I)
+    return -1;
+  if (s->mpeg.samplerate_index < 0 || s->mpeg.samplerate_index > 2)
+    return -1;
+  /* mpeg.mode is rewritten per frame by the adaptive path, so the initial
+   * mode recorded at initialisation is what decides support here. */
+  if (s->ms.base_mode != STEREO && s->ms.base_mode != JOINT_STEREO)
+    return -1;
+
+  s->ms.mode = mode;
+  return 0;
 }
