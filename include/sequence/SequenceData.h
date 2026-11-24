@@ -30,6 +30,8 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
+#include <vector>
 
 AUD_NAMESPACE_BEGIN
 
@@ -42,7 +44,43 @@ class ISound;
 class AUD_API SequenceData : public ILockable
 {
 	friend class SequenceReader;
+	friend class Sequence;
+	friend class SequenceEntry;
 private:
+	/// The tracked state of an entry that can be part of the edit history.
+	struct EntryState
+	{
+		EntryState() : begin(0.0), end(0.0), skip(0.0), muted(false) {}
+
+		std::shared_ptr<ISound> sound;
+		double begin;
+		double end;
+		double skip;
+		bool muted;
+	};
+
+	/// The kind of edit that is stored in the history.
+	enum EditType
+	{
+		EDIT_ADD,
+		EDIT_REMOVE,
+		EDIT_MOVE,
+		EDIT_MUTE,
+		EDIT_SOUND
+	};
+
+	/// A single edit operation.
+	struct EditOperation
+	{
+		EditType type;
+		std::shared_ptr<SequenceEntry> entry;
+		EntryState before;
+		EntryState after;
+	};
+
+	/// A group of operations that form one history step.
+	typedef std::vector<EditOperation> EditStep;
+
 	/// The target specification.
 	Specs m_specs;
 
@@ -82,12 +120,110 @@ private:
 	/// The animated listener orientation.
 	AnimateableProperty m_orientation;
 
+	/// Whether an edit group is currently open.
+	bool m_editing;
+
+	/// The operations collected in the currently open edit group.
+	EditStep m_current_edit;
+
+	/// The undo history, one entry per applied edit step.
+	std::vector<EditStep> m_undo_history;
+
+	/// The redo history, one entry per undone edit step.
+	std::vector<EditStep> m_redo_history;
+
 	/// The mutex for locking.
 	std::recursive_mutex m_mutex;
 
 	// delete copy constructor and operator=
 	SequenceData(const SequenceData&) = delete;
 	SequenceData& operator=(const SequenceData&) = delete;
+
+	/**
+	 * Captures the history relevant state of an entry.
+	 * \param entry The entry to capture.
+	 * \return The captured state.
+	 */
+	EntryState captureEntryState(const std::shared_ptr<SequenceEntry>& entry) const;
+
+	/**
+	 * Applies a captured state to an entry.
+	 * Only the state tracked by the edit history is changed, animated
+	 * properties and other settings are left untouched.
+	 * \param entry The entry to modify.
+	 * \param state The state to apply.
+	 */
+	void applyEntryState(const std::shared_ptr<SequenceEntry>& entry, const EntryState& state);
+
+	/**
+	 * Records an edit operation in the current history location.
+	 * \param operation The operation to record.
+	 */
+	void recordOperation(const EditOperation& operation);
+
+	/**
+	 * Records an edit of an entry that is part of this sequence.
+	 * Entries which are currently not part of the sequence do not create
+	 * history.
+	 * \param entry The entry that has been edited.
+	 * \param type The kind of edit.
+	 * \param before The state before the edit.
+	 * \param after The state after the edit.
+	 */
+	void recordEntryEdit(SequenceEntry* entry, EditType type, const EntryState& before, const EntryState& after);
+
+	/**
+	 * Inserts an entry into the sequence keeping the entries ordered by ID.
+	 * \param entry The entry to insert.
+	 */
+	void insertEntry(const std::shared_ptr<SequenceEntry>& entry);
+
+	/**
+	 * Removes an entry from the sequence if it is part of it.
+	 * \param entry The entry to remove.
+	 * \return Whether the entry was part of the sequence.
+	 */
+	bool detachEntry(const std::shared_ptr<SequenceEntry>& entry);
+
+	/**
+	 * Applies a single operation in reverse direction (undo).
+	 * \param operation The operation to undo.
+	 */
+	void undoOperation(const EditOperation& operation);
+
+	/**
+	 * Applies a single operation in forward direction (redo).
+	 * \param operation The operation to redo.
+	 */
+	void redoOperation(const EditOperation& operation);
+
+	/**
+	 * Opens an edit group. All subsequent tracked edits are collected into
+	 * a single history step until endEdit() is called.
+	 * \exception std::logic_error If a group is already open.
+	 */
+	void beginEdit();
+
+	/**
+	 * Closes the currently open edit group. If the group did not contain any
+	 * effective change, no history step is created.
+	 * \exception std::logic_error If no group is open.
+	 */
+	void endEdit();
+
+	/**
+	 * Undoes the last edit step.
+	 * \return Whether a step was undone.
+	 * \exception std::logic_error If an edit group is currently open.
+	 */
+	bool undo();
+
+	/**
+	 * Redoes the last undone edit step.
+	 * \return Whether a step was redone.
+	 * \exception std::logic_error If an edit group is currently open.
+	 */
+	bool redo();
 
 public:
 	/**

@@ -1111,7 +1111,7 @@ endif()
 if(BUILD_DEMOS)
 	include_directories(${INCLUDE})
 
-	set(DEMOS audainfo audaplay audaconvert audaremap signalgen randsounds dynamicmusic playbackmanager)
+	set(DEMOS audainfo audaplay audaconvert audaremap signalgen randsounds dynamicmusic playbackmanager sequenceedit)
 
 	add_executable(audainfo demos/audainfo.cpp)
 	target_link_libraries(audainfo audaspace)
@@ -1136,6 +1136,9 @@ if(BUILD_DEMOS)
 
 	add_executable(playbackmanager demos/playbackmanager.cpp)
 	target_link_libraries(playbackmanager audaspace)
+
+	add_executable(sequenceedit demos/sequenceedit.cpp)
+	target_link_libraries(sequenceedit audaspace)
 
 	if(WITH_FFTW)
 		list(APPEND DEMOS convolution binaural)

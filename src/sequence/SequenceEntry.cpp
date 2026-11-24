@@ -76,26 +76,54 @@ std::shared_ptr<ISound> SequenceEntry::getSound()
 
 void SequenceEntry::setSound(std::shared_ptr<ISound> sound)
 {
-	std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	// keep the lock order sequence -> entry, matching the reader and handle
+	// code which locks the sequence first
+	std::unique_lock<ILockable> sequence_lock;
+	if(m_sequence_data)
+		sequence_lock = std::unique_lock<ILockable>(*m_sequence_data);
 
-	if(m_sound.get() != sound.get())
+	SequenceData::EntryState before, after;
+
 	{
+		std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+		if(m_sound.get() == sound.get())
+			return;
+
+		before = getEditState();
 		m_sound = sound;
 		m_sound_status++;
+		after = getEditState();
 	}
+
+	if(m_sequence_data)
+		m_sequence_data->recordEntryEdit(this, SequenceData::EDIT_SOUND, before, after);
 }
 
 void SequenceEntry::move(double begin, double end, double skip)
 {
-	std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	std::unique_lock<ILockable> sequence_lock;
+	if(m_sequence_data)
+		sequence_lock = std::unique_lock<ILockable>(*m_sequence_data);
 
-	if(m_begin != begin || m_skip != skip || m_end != end)
+	SequenceData::EntryState before, after;
+
 	{
+		std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+		if(m_begin == begin && m_skip == skip && m_end == end)
+			return;
+
+		before = getEditState();
 		m_begin = begin;
 		m_skip = skip;
 		m_end = end;
 		m_pos_status++;
+		after = getEditState();
 	}
+
+	if(m_sequence_data)
+		m_sequence_data->recordEntryEdit(this, SequenceData::EDIT_MOVE, before, after);
 }
 
 bool SequenceEntry::isMuted()
@@ -105,9 +133,38 @@ bool SequenceEntry::isMuted()
 
 void SequenceEntry::mute(bool mute)
 {
+	std::unique_lock<ILockable> sequence_lock;
+	if(m_sequence_data)
+		sequence_lock = std::unique_lock<ILockable>(*m_sequence_data);
+
+	SequenceData::EntryState before, after;
+
+	{
+		std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+		if(m_muted == mute)
+			return;
+
+		before = getEditState();
+		m_muted = mute;
+		after = getEditState();
+	}
+
+	if(m_sequence_data)
+		m_sequence_data->recordEntryEdit(this, SequenceData::EDIT_MUTE, before, after);
+}
+
+SequenceData::EntryState SequenceEntry::getEditState()
+{
 	std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
-	m_muted = mute;
+	SequenceData::EntryState state;
+	state.sound = m_sound;
+	state.begin = m_begin;
+	state.end = m_end;
+	state.skip = m_skip;
+	state.muted = m_muted;
+	return state;
 }
 
 int SequenceEntry::getID() const

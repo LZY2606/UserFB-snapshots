@@ -100,6 +100,26 @@ void Sequence::remove(std::shared_ptr<SequenceEntry> entry)
 	m_sequence->remove(entry);
 }
 
+void Sequence::beginEdit()
+{
+	m_sequence->beginEdit();
+}
+
+void Sequence::endEdit()
+{
+	m_sequence->endEdit();
+}
+
+bool Sequence::undo()
+{
+	return m_sequence->undo();
+}
+
+bool Sequence::redo()
+{
+	return m_sequence->redo();
+}
+
 std::shared_ptr<IReader> Sequence::createQualityReader(ResampleQuality quality)
 {
 	return std::shared_ptr<IReader>(new SequenceReader(m_sequence, quality));

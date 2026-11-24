@@ -39,6 +39,7 @@ class ISound;
 class AUD_API SequenceEntry : public ILockable
 {
 	friend class SequenceHandle;
+	friend class SequenceData;
 private:
 	/// The status of the entry. Changes every time a non-animated parameter changes.
 	int m_status;
@@ -118,6 +119,12 @@ private:
 	// delete copy constructor and operator=
 	SequenceEntry(const SequenceEntry&) = delete;
 	SequenceEntry& operator=(const SequenceEntry&) = delete;
+
+	/**
+	 * Captures the history relevant state of this entry.
+	 * \return The captured state.
+	 */
+	SequenceData::EntryState getEditState();
 
 public:
 	/**

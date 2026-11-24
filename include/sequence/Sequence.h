@@ -28,6 +28,7 @@
 #include "sequence/AnimateableProperty.h"
 
 #include <list>
+#include <stdexcept>
 
 AUD_NAMESPACE_BEGIN
 
@@ -158,6 +159,36 @@ public:
 	 * \param entry The entry to remove.
 	 */
 	void remove(std::shared_ptr<SequenceEntry> entry);
+
+	/**
+	 * Opens an edit group. All tracked edits performed until endEdit() are
+	 * combined into a single history step.
+	 * The edits are applied immediately, only the history grouping is
+	 * deferred.
+	 * \exception std::logic_error If a group is already open.
+	 */
+	void beginEdit();
+
+	/**
+	 * Closes the currently open edit group. A group without effective
+	 * changes does not create a history step.
+	 * \exception std::logic_error If no group is open.
+	 */
+	void endEdit();
+
+	/**
+	 * Undoes the last edit step.
+	 * \return Whether a step was undone, false if there is nothing to undo.
+	 * \exception std::logic_error If an edit group is currently open.
+	 */
+	bool undo();
+
+	/**
+	 * Redoes the last undone edit step.
+	 * \return Whether a step was redone, false if there is nothing to redo.
+	 * \exception std::logic_error If an edit group is currently open.
+	 */
+	bool redo();
 
 	/**
 	 * Creates a new reader with indicated resampling quality.

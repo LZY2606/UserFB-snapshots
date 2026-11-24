@@ -1,0 +1,7 @@
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/audaspace.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z2105/attempts/20261124T001320965677Z/repo/.task-build/lib/CMakeFiles/install/strip.dir
