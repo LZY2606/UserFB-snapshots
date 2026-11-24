@@ -28,8 +28,23 @@ type decoder struct {
 	byteOrder binary.ByteOrder
 	*sharedBuf
 	strings *stringTable
+	// stringBaseLen is the length of the string table relative to which raw
+	// name offsets are encoded. For a split decoder this is the length of the
+	// original base string section and never changes during Rebase.
+	stringBaseLen uint32
+	// baseStringBytes is an immutable snapshot of the original base string
+	// section for a split decoder. Member or type names can live in the base
+	// string section, so the bytes are retained even though the base type
+	// graph is detached during Rebase. Nil for a base decoder.
+	baseStringBytes []byte
+	// localStringBytes is the string section carried by this BTF blob. For a
+	// split decoder it excludes the (virtual) base prefix; it is immutable.
+	localStringBytes []byte
 	// The ID for offsets[0].
 	firstTypeID TypeID
+	// The ID for offsets[0] as encoded in the raw BTF. Unlike firstTypeID this
+	// never changes during Rebase, since raw type references are immutable.
+	rawFirstTypeID TypeID
 	// Map from TypeID to offset of the marshaled data in raw. Contains an entry
 	// for each TypeID, including 0 aka Void. The offset for Void is invalid.
 	offsets  []int
@@ -42,6 +57,10 @@ type decoder struct {
 	types           map[TypeID]Type
 	typeIDs         map[Type]TypeID
 	legacyBitfields map[TypeID][2]Bits // offset, size
+	// Translation from raw encoded IDs to the IDs in effect after Rebase.
+	// Raw references in the split BTF always use encoded IDs, so this map
+	// rewires lazy inflation without touching raw. Nil before any Rebase.
+	rebasedIDs map[TypeID]TypeID
 }
 
 // len returns the number of types in the decoder, including Void for
@@ -126,11 +145,25 @@ func newDecoder(raw []byte, bo binary.ByteOrder, strings *stringTable, base *dec
 
 	namedTypes.Build()
 
+	var (
+		stringBaseLen    uint32
+		baseStringBytes  []byte
+		localStringBytes = append([]byte(nil), strings.bytes...)
+	)
+	if base != nil {
+		stringBaseLen = uint32(len(base.strings.bytes))
+		baseStringBytes = append([]byte(nil), base.strings.bytes...)
+	}
+
 	return &decoder{
 		base,
 		bo,
 		&sharedBuf{raw},
 		strings,
+		stringBaseLen,
+		baseStringBytes,
+		localStringBytes,
+		firstTypeID,
 		firstTypeID,
 		offsets,
 		declTags,
@@ -139,6 +172,7 @@ func newDecoder(raw []byte, bo binary.ByteOrder, strings *stringTable, base *dec
 		make(map[TypeID]Type),
 		make(map[Type]TypeID),
 		make(map[TypeID][2]Bits),
+		nil,
 	}, nil
 }
 
@@ -197,7 +231,11 @@ func (d *decoder) copy(copiedTypes map[Type]Type) *decoder {
 		d.byteOrder,
 		d.sharedBuf,
 		d.strings,
+		d.stringBaseLen,
+		d.baseStringBytes,
+		d.localStringBytes,
 		d.firstTypeID,
+		d.rawFirstTypeID,
 		d.offsets,
 		d.declTags,
 		d.namedTypes,
@@ -205,6 +243,7 @@ func (d *decoder) copy(copiedTypes map[Type]Type) *decoder {
 		types,
 		typeIDs,
 		maps.Clone(d.legacyBitfields),
+		maps.Clone(d.rebasedIDs),
 	}
 }
 
@@ -294,7 +333,7 @@ func (d *decoder) inflateType(id TypeID) (typ Type, err error) {
 	}
 
 	fixup := func(id TypeID, typ *Type) {
-		fixup, err := d.inflateType(id)
+		fixup, err := d.inflateType(d.resolveID(id))
 		if err != nil {
 			panic(err)
 		}
@@ -335,7 +374,7 @@ func (d *decoder) inflateType(id TypeID) (typ Type, err error) {
 			}
 
 			// This may be a legacy bitfield, try to fix it up.
-			data, ok := d.legacyBitfields[bm.Type]
+			data, ok := d.legacyBitfields[d.resolveID(bm.Type)]
 			if ok {
 				// Bingo!
 				m.Offset += data[0]

@@ -1,0 +1,9 @@
+endianness	phase	struct_id	struct_size	member	bit_offset	ref_type_id	raw_bytes	value	target_addr	pointed_struct
+LE	before-rebase	3	16	member	0	2	00 40 00 00 00 00 00 00	0x4000	0x4000	leaf
+LE	before-rebase	3	16	value	64	1	78 56 34 12	0x12345678 (305419896)	-	-
+LE	after-rebase	4	16	member	0	3	00 40 00 00 00 00 00 00	0x4000	0x4000	leaf
+LE	after-rebase	4	16	value	64	2	78 56 34 12	0x12345678 (305419896)	-	-
+BE	before-rebase	3	16	member	0	2	00 00 00 00 00 00 40 00	0x4000	0x4000	leaf
+BE	before-rebase	3	16	value	64	1	12 34 56 78	0x12345678 (305419896)	-	-
+BE	after-rebase	4	16	member	0	3	00 00 00 00 00 00 40 00	0x4000	0x4000	leaf
+BE	after-rebase	4	16	value	64	2	12 34 56 78	0x12345678 (305419896)	-	-
