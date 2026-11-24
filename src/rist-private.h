@@ -109,6 +109,9 @@ enum rist_peer_state {
 	RIST_PEER_STATE_PING = 1,
 	RIST_PEER_STATE_CONNECT = 2
 };
+struct rist_buffer;
+struct rist_buffer_retry;
+
 struct rist_buffer {
 	void *data;
 	size_t size;
@@ -126,16 +129,26 @@ struct rist_buffer {
 
 	uint8_t fragment_number;
 	uint8_t fragment_final;
-	// TODO: These four are only used by sender ... do I split buffer into sender and receiver?
-	uint64_t last_retry_request;
-	uint8_t transmit_count;
+	/* Per-(receiver, packet) retransmission accounting. The array is
+	 * indexed by peer retry generation (never a peer pointer), so a
+	 * destroyed peer leaves no dangling reference and a recreated peer
+	 * starts with a clean count. Freed together with this cached
+	 * packet; a packet reusing the same ring slot gets a fresh array. */
+	struct rist_buffer_retry *retry_states;
+	size_t retry_state_len;
 	uint16_t ts_null_bytes;
 	struct rist_peer *peer;
 
 	struct rist_buffer *next_free;
 	size_t alloc_size;
 	bool free;
-	bool retry_queued;
+	/* Process-wide identity stamp, unique per allocated cached packet.
+	 * A queued retry remembers the serial of the packet it was created
+	 * for; if that packet is evicted and its ring slot reused (even by a
+	 * packet whose low 16-bit sequence collides), the serial mismatch
+	 * makes dequeue drop the stale request instead of sending the new
+	 * packet. */
+	uint64_t cache_serial;
 };
 
 /* Largest recovery depth whose ring (UINT16_SIZE << depth packets) is
@@ -331,6 +344,16 @@ struct rist_retry {
 	uint64_t insert_time;
 	uint32_t seq;
 	bool active;//signal whether this retry has been consumed (false) or not
+	/* Recovery-ring slot occupied by the requested packet at enqueue
+	 * time. Dequeue re-resolves the sequence and requires the same
+	 * slot to still hold that packet; if the packet was evicted and
+	 * the slot was reused (even by a packet sharing the low 16-bit
+	 * sequence), the stale request is dropped rather than sent. */
+	size_t buffer_slot;
+	/* Identity stamp (struct rist_buffer.cache_serial) of the packet
+	 * present in buffer_slot at enqueue time; the second guard against
+	 * slot reuse after eviction. */
+	uint64_t cache_serial;
 };
 
 struct rist_common_ctx {
@@ -567,6 +590,12 @@ struct rist_sender {
 	struct rist_peer **peer_lst;
 	size_t peer_lst_len;
 
+	/* Monotonic source of retry generations: each inserted sender
+	 * peer takes the next value as its retry_generation, which keys
+	 * its per-packet retransmission records. Never reused, so a
+	 * replacement peer starts with empty retry state. */
+	uint64_t retry_generation_next;
+
 	/* Queue lock for fifo buffer */
 	pthread_mutex_t queue_lock;
 
@@ -735,6 +764,13 @@ struct rist_peer {
 
 	/* shutting down flag */
 	atomic_bool shutdown;
+
+	/* Sender-only: identity used to key per-packet retransmission
+	 * accounting (struct rist_buffer_retry). Allocated from the
+	 * sender's generation counter when the peer is inserted, so a peer
+	 * created after a previous one was destroyed never inherits its
+	 * retry counts. Zero on receiver-side peers. */
+	uint64_t retry_generation;
 
 	/* Timers */
 	uint32_t rtcp_keepalive_interval;

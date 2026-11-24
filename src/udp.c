@@ -12,6 +12,7 @@
 #include "udp-private.h"
 #include "rist-private.h"
 #include "rist-retx-domain.h"
+#include "rist-retry-state.h"
 #include "log-private.h"
 #include "socket-shim.h"
 #include "endian-shim.h"
@@ -1073,6 +1074,22 @@ size_t rist_get_sender_retry_queue_size(struct rist_sender *ctx)
 	return retry_queue_size;
 }
 
+/* Minimum spacing between two accepted NACKs of the same receiver for
+ * the same cached packet. The measured RTT is clamped into the peer's
+ * configured recovery_rtt_min/max and doubled in AGGRESSIVE congestion
+ * mode. OFF mode never consults this and keeps accepting duplicates. */
+static uint64_t rist_retry_spacing_ticks(const struct rist_peer *peer)
+{
+	uint64_t rtt = peer->last_rtt;
+	if (peer->config.recovery_rtt_min > rtt)
+		rtt = peer->config.recovery_rtt_min;
+	if (peer->config.recovery_rtt_max < rtt)
+		rtt = peer->config.recovery_rtt_max;
+	if (peer->config.congestion_control_mode == RIST_CONGESTION_CONTROL_MODE_AGGRESSIVE)
+		rtt *= 2;
+	return rtt;
+}
+
 /* This function must return, 0 when there is nothing to send, < 0 on error and > 0 for bytes sent */
 ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 {
@@ -1109,26 +1126,47 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 	// the one on that buffer position and it does not match
 
 	size_t idx = rist_sender_index_get(ctx, retry->seq, idx_target);
-	if (RIST_UNLIKELY(ctx->sender_queue[idx] == NULL)) {
+	struct rist_buffer *buffer = ctx->sender_queue[idx];
+
+	/* The queued request belongs to one specific cached packet. If its
+	 * recovery-ring slot now holds nothing or a different packet
+	 * (cache_serial differs, which also catches a reused slot whose low
+	 * 16-bit sequence happens to match), the original packet was
+	 * evicted while the request was queued: drop the stale request
+	 * rather than sending the new occupant. */
+	if (RIST_UNLIKELY(idx != retry->buffer_slot || buffer == NULL ||
+	                  buffer->cache_serial != retry->cache_serial)) {
 		rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-			" Couldn't find block %" PRIu32 " (i=%zu/r=%zu/w=%zu/d=%zu/rs=%zu), consider increasing the buffer size\n",
+			" Stale retry for block %" PRIu32 " (i=%zu/r=%zu/w=%zu/d=%zu/rs=%zu): packet was evicted, consider increasing the buffer size\n",
 			retry->seq, idx, atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire), atomic_load_explicit(&ctx->sender_queue_write_index, memory_order_acquire), ctx->sender_queue_delete_index,
 			rist_get_sender_retry_queue_size(ctx));
+		retry->active = false;
 		retry->peer->stats_sender_instant.retrans_skip++;
 		return -1;
 	} else if (RIST_UNLIKELY(
 		(ctx->common.profile == RIST_PROFILE_ADVANCED && !main_domain_retx)
-			? (retry->seq != ctx->sender_queue[idx]->seq)
-			: ((uint16_t)retry->seq != ctx->sender_queue[idx]->seq_rtp))) {
+			? (retry->seq != buffer->seq)
+			: ((uint16_t)retry->seq != buffer->seq_rtp))) {
 		rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
 			" Couldn't find block %" PRIu32 " (i=%zu/r=%zu/w=%zu/d=%zu/rs=%zu), found an old one instead %" PRIu32 " (%" PRIu64 "), bitrate is too high\n",
 			retry->seq, idx, atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire), atomic_load_explicit(&ctx->sender_queue_write_index, memory_order_acquire), ctx->sender_queue_delete_index,
-			rist_get_sender_retry_queue_size(ctx), ctx->sender_queue[idx]->seq, ctx->sender_queue_max);
+			rist_get_sender_retry_queue_size(ctx), buffer->seq, ctx->sender_queue_max);
+		retry->active = false;
 		retry->peer->stats_sender_instant.retrans_skip++;
 		return -1;
 	}
-	/* we're consuming the retry for an existing buffer, set it to false to allow new retries to come in */
-	ctx->sender_queue[idx]->retry_queued = false;
+
+	/* Per-(receiver, packet) accounting. enqueue() always creates the
+	 * record before queueing, so its absence is an internal error. */
+	struct rist_buffer_retry *rstate = rist_retry_state_get(buffer, retry->peer, false);
+	if (RIST_UNLIKELY(!rstate)) {
+		retry->active = false;
+		retry->peer->stats_sender_instant.retrans_skip++;
+		return -1;
+	}
+	/* The pending request is now being handled; release the merge flag
+	 * so a later NACK for this pair can be accepted again. */
+	rstate->outstanding = false;
 	retry->active = false;
 
 	// TODO: re-enable rist_send_data_allowed (cooldown feature)
@@ -1167,9 +1205,9 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 	}
 
 	// Check buffer element age
-	uint64_t now = timestampNTP_u64();
+	uint64_t now = rist_retry_clock_now();
 	/* queue_time holds the original insertion time for this seq */
-	uint64_t data_age = (now - ctx->sender_queue[idx]->time) / RIST_CLOCK;
+	uint64_t data_age = (now - buffer->time) / RIST_CLOCK;
 	uint64_t retry_age = (now - retry->insert_time) / RIST_CLOCK;
 	if (RIST_UNLIKELY(retry_age > retry->peer->config.recovery_length_max)) {
 		rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
@@ -1180,7 +1218,6 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 		return -1;
 	}
 
-	struct rist_buffer *buffer = ctx->sender_queue[idx];
 	if (ctx->common.debug)
 		rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
 			"Resending %"PRIu32"/%"PRIu32"/%"PRIu16" (idx %zu) after %" PRIu64
@@ -1191,10 +1228,13 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 	uint8_t *payload = buffer->data;
 
 	size_t ret = 0;
-	if (buffer->transmit_count >= retry->peer->config.max_retries) {
+	/* The retransmission budget belongs to this (receiver, packet)
+	 * pair; another receiver's successes never spend it, and the
+	 * original media transmission is not counted here. */
+	if (rstate->success_count >= retry->peer->config.max_retries) {
 		rist_log_priv(&ctx->common, RIST_LOG_ERROR, "Datagram %"PRIu32
-			" is missing, but nack count is too large (%u), age is %"PRIu64"ms, retry #%lu\n",
-			retry->seq, buffer->transmit_count, data_age, buffer->transmit_count);
+			" is missing, but nack count is too large (%u), age is %"PRIu64"ms, retry #%u\n",
+			retry->seq, rstate->success_count, data_age, rstate->success_count);
 			retry->peer->stats_sender_instant.retrans_skip++;
 			return -1;
 	}
@@ -1203,7 +1243,7 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 	if (src_port == 0)
 		src_port = 32768 + retry->peer->peer_data->adv_peer_id;
 	uint32_t retry_wire_seq = (ctx->common.profile == RIST_PROFILE_ADVANCED && !main_domain_retx) ? buffer->seq : (uint32_t)buffer->seq_rtp;
-	ret = rist_send_seq_rtcp(retry->peer->peer_data, retry_wire_seq, buffer->type, &payload[RIST_MAX_PAYLOAD_OFFSET], buffer->size, buffer->source_time, src_port, (retry->peer->peer_data->config.virt_dst_port & ~1UL), true, ctx->sender_queue[idx]->ts_null_bytes);
+	ret = rist_send_seq_rtcp(retry->peer->peer_data, retry_wire_seq, buffer->type, &payload[RIST_MAX_PAYLOAD_OFFSET], buffer->size, buffer->source_time, src_port, (retry->peer->peer_data->config.virt_dst_port & ~1UL), true, buffer->ts_null_bytes);
 	// update bandwidth value
 	rist_calculate_bitrate(ret, retry_bw);
 
@@ -1211,10 +1251,16 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 		rist_log_priv(&ctx->common, RIST_LOG_ERROR,
 			"Resending of packet failed %zu != %zu for seq %"PRIu32"\n", ret, buffer->size, retry->seq);
 		retry->peer->stats_sender_instant.retrans_skip++;
+		/* The datagram did not go out: do not charge the attempt
+		 * against this receiver's retry budget and leave the merge
+		 * flag cleared so a fresh NACK can retry the packet. */
 		return -1;
 	}
 
-	buffer->transmit_count++;
+	/* Count only completed sends. Saturate instead of wrapping so a
+	 * capped pair can never reopen after enough attempts. */
+	if (rstate->success_count < UINT32_MAX)
+		rstate->success_count++;
 	if (retry->peer->peer_data) {
 		retry->peer->peer_data->stats_sender_instant.retrans++;
 		retry->peer->peer_data->stats_sender_instant.retransmitted_bytes += (uint64_t)ret;
@@ -1227,23 +1273,22 @@ ssize_t rist_retry_dequeue(struct rist_sender *ctx)
 
 void rist_retry_enqueue(struct rist_sender *ctx, uint32_t seq, struct rist_peer *peer)
 {
-	uint64_t now = timestampNTP_u64();
+	uint64_t now = rist_retry_clock_now();
 	struct rist_peer *idx_target = peer ? (peer->peer_data ? peer->peer_data : peer) : NULL;
 	size_t idx = rist_sender_index_get(ctx, seq, idx_target);
 	struct rist_buffer *buffer = ctx->sender_queue[idx];
-	struct rist_retry *retry;
 
 	// Even though all the checks are on the dequeue function, we leave one here
-	// to prevent the flooding of our fifo .. It is based on the date of the
-	// last queued item with the same seq for this peer.
-	// The policy of whether to allow or not allow duplicate inactive seq entries in the retry queue
-	// is dependent on the bloat_mode.
-	// No duplicate unhandled (i.e.: still queued) retries are accepted.
-	// bloat_mode disabled mode = unlimited duplicates
-	// bloat_mode normal mode = we enforce rtt spacing and allow duplicates
-	// bloat_mode aggressive mode = we enforce 2*rtt spacing and allow duplicates
-	// This is a safety check to protect against buggy or non compliant receivers that request the
-	// same seq number without waiting one RTT.
+	// to prevent the flooding of our fifo. The accounting below is keyed per
+	// (receiver, cached packet), so the single-peer and multi-peer cases run
+	// the exact same code and give the same results:
+	//  - a NACK whose request for this pair has not been dequeued yet merges
+	//    into the outstanding request, in every congestion mode;
+	//  - NORMAL enforces one clamped-RTT spacing and AGGRESSIVE two RTTs,
+	//    measured from the last ACCEPTED request (rejected duplicates do not
+	//    move the stamp);
+	//  - OFF applies no spacing and keeps accepting duplicates, while the
+	//    success count remains bounded by max_retries at dequeue time.
 
 	if (peer->config.recovery_mode == RIST_RECOVERY_MODE_DISABLED) {
 		rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
@@ -1257,104 +1302,63 @@ void rist_retry_enqueue(struct rist_sender *ctx, uint32_t seq, struct rist_peer 
 			ctx->sender_recover_min_time);
 			peer->stats_sender_instant.retrans_skip++;
 		return;
-	} else {
-		uint64_t age_ticks =  (now - buffer->time);
-		if (peer->config.congestion_control_mode == RIST_CONGESTION_CONTROL_MODE_OFF) {
-			// All duplicates allowed, just report it
-			if (ctx->common.debug)
-				rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					"Nack request for seq %" PRIu32 " with age %" PRIu64 "ms and rtt_min %" PRIu64 " for peer #%d\n",
-					seq, age_ticks / RIST_CLOCK, peer->config.recovery_rtt_min / RIST_CLOCK, peer->adv_peer_id);
-		} else if (ctx->peer_lst_len == 1) {
-			/* there is a retry outstanding for this buffer, no need to add another */
-			if (buffer->retry_queued)
-				return;
-			// Only one peer (faster algorithm with no lookups)
-			if (buffer->last_retry_request != 0)
-			{
-				// This is a safety check to protect against buggy or non compliant receivers that request the
-				// same seq number without waiting one RTT.
-				uint64_t delta = (now - buffer->last_retry_request);
-				if (ctx->common.debug)
-					rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-						"Nack request for seq %" PRIu32 " with delta %" PRIu64 "ms, age %" PRIu64 "ms and rtt_min %" PRIu64 "\n",
-						seq, delta /RIST_CLOCK, age_ticks / RIST_CLOCK, peer->config.recovery_rtt_min / RIST_CLOCK);
-				uint64_t rtt = peer->last_rtt;
-				if (peer->config.recovery_rtt_min > rtt)
-					rtt = peer->config.recovery_rtt_min;
-				if (peer->config.recovery_rtt_max < rtt)
-					rtt = peer->config.recovery_rtt_max;
-				if (peer->config.congestion_control_mode == RIST_CONGESTION_CONTROL_MODE_AGGRESSIVE) {
-					// Aggressive congestion control only allows every two RTTs
-					rtt = rtt * 2;
-				}
-				if (delta < rtt)
-				{
-					rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-						"Nack request for seq %" PRIu32 ", age %"PRIu64"ms, is already queued (too soon to add another one), skipped, %" PRIu64 " < %" PRIu64 " ms\n",
-						seq, age_ticks / RIST_CLOCK, delta / RIST_CLOCK, rtt);
-					peer->stats_sender_instant.bloat_skip++;
-					return;
-				}
-				buffer->retry_queued = true;
-			}
-			else
-			{
-				if (ctx->common.debug)
-					rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-						"First nack request for seq %"PRIu32", age %"PRIu64"ms\n", seq, age_ticks / RIST_CLOCK);
-			}
-		} else {
-			// Multiple peers, we need to search for other retries in the queue for comparison
-			uint64_t delta = 0;
-			//We work backwards from the write index till we either find a retry with same peer & seq
-			//or it's too old to matter,looking up to 8 RTT's ago (4 in normal mode, 8 in aggressive)
-			size_t index = (ctx->sender_retry_queue_write_index -1) & (ctx->sender_retry_queue_size -1);
-			uint64_t rtt = peer->last_rtt;
-			if (peer->config.recovery_length_min > rtt)
-				rtt = peer->config.recovery_length_min;
-			// Aggressive congestion control only allows every two RTTs
-			if (peer->config.congestion_control_mode == RIST_CONGESTION_CONTROL_MODE_AGGRESSIVE)
-				rtt *= 2;
-			struct rist_retry *lookup = NULL;
-			uint64_t search_period = rtt * 4;
-			while (index != ctx->sender_retry_queue_write_index) {
-				lookup = &ctx->sender_retry_queue[index];
-				if (lookup->seq == seq && lookup->peer == peer)
-					break;
-				if (lookup->insert_time < (now - search_period))
-					break;
-				index = (index -1 ) & (ctx->sender_retry_queue_size -1);
-			}
-			retry = &ctx->sender_retry_queue[index];
-			if (retry->seq == seq && retry->peer == peer) {
-				delta = (now - retry->insert_time);
-				/* this retry hasn't been handled yet, it makes no sense to insert a duplicate */
-				if (retry->active)
-					return;
-				if (delta < rtt)
-				{
-					rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-						"Nack request for seq %" PRIu32 " with delta %" PRIu64 "ms (age %"PRIu64"ms) is already queued (too soon to add another one), skipped, peer #%d '%s'\n",
-						seq, delta / RIST_CLOCK, age_ticks / RIST_CLOCK, peer->adv_peer_id, peer->receiver_name);
-					peer->stats_sender_instant.bloat_skip++;
-					return;
-				}
-			}
-			if (ctx->common.debug) {
-				rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					"Nack request for seq %" PRIu32 " with delta %" PRIu64 "ms (age %"PRIu64"ms) and rtt_min %" PRIu64 " for peer #%"PRIu32" '%s'\n",
-					seq, delta / RIST_CLOCK, age_ticks / RIST_CLOCK, peer->config.recovery_rtt_min / RIST_CLOCK, peer->adv_peer_id, peer->receiver_name);
-			}
+	}
+
+	/* Per-(receiver, packet) record; created on the first NACK for this
+	 * pair and reclaimed with the cached packet. */
+	struct rist_buffer_retry *rstate = rist_retry_state_get(buffer, peer, true);
+	if (RIST_UNLIKELY(!rstate)) {
+		peer->stats_sender_instant.retrans_skip++;
+		return;
+	}
+
+	/* A request for this exact pair is already queued and has not been
+	 * handled: a duplicate NACK adds nothing, merge it. */
+	if (rstate->outstanding)
+		return;
+
+	if (peer->config.congestion_control_mode != RIST_CONGESTION_CONTROL_MODE_OFF) {
+		uint64_t spacing = rist_retry_spacing_ticks(peer);
+		if (rstate->last_accepted != 0 && (now - rstate->last_accepted) < spacing) {
+			rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
+				"Nack request for seq %" PRIu32 ", age %"PRIu64"ms, is too soon after the accepted one (%" PRIu64 " < %" PRIu64 " ms), skipped, peer #%d '%s'\n",
+				seq, (now - buffer->time) / RIST_CLOCK,
+				(now - rstate->last_accepted) / RIST_CLOCK, spacing / RIST_CLOCK,
+				peer->adv_peer_id, peer->receiver_name);
+			/* Rejected: do not touch last_accepted, so the interval keeps
+			 * running from the most recent accepted request. */
+			peer->stats_sender_instant.bloat_skip++;
+			return;
 		}
 	}
-	// Now insert into the missing queue
-	buffer->last_retry_request = now;
-	retry = &ctx->sender_retry_queue[ctx->sender_retry_queue_write_index];
+
+	/* Accepted: stamp and queue. */
+	rstate->outstanding = true;
+	rstate->last_accepted = now;
+
+	struct rist_retry *retry = &ctx->sender_retry_queue[ctx->sender_retry_queue_write_index];
+	/* Ring wrap guard: if this slot still holds an unconsumed request,
+	 * overwriting it must release that pair's merge flag, otherwise the
+	 * pair could never enqueue again. Only touch state when the original
+	 * cached packet is still the slot's occupant. */
+	if (RIST_UNLIKELY(retry->active && retry->peer)) {
+		struct rist_buffer *old_buffer = ctx->sender_queue[retry->buffer_slot];
+		if (old_buffer && old_buffer->cache_serial == retry->cache_serial) {
+			struct rist_buffer_retry *old_state =
+				rist_retry_state_get(old_buffer, retry->peer, false);
+			if (old_state)
+				old_state->outstanding = false;
+		}
+		retry->active = false;
+	}
 	retry->seq = seq;
 	retry->peer = peer;
 	retry->insert_time = now;
 	retry->active = true;
+	/* Bind the request to the exact cached packet occupying this slot
+	 * right now; dequeue refuses to send it once the slot changes. */
+	retry->buffer_slot = idx;
+	retry->cache_serial = buffer->cache_serial;
 	if (++ctx->sender_retry_queue_write_index >= ctx->sender_retry_queue_size) {
 		ctx->sender_retry_queue_write_index = 0;
 	}

@@ -33,6 +33,7 @@
 #include "config.h"
 #include "rist-thread.h"
 #include "rist-nack-select.h"
+#include "rist-retry-state.h"
 #include "peer.h"
 #include <stdbool.h>
 #include "stdio-shim.h"
@@ -532,16 +533,23 @@ struct rist_buffer *rist_new_buffer(struct rist_common_ctx *ctx, const void *buf
 	b->type = type;
 	b->src_port = src_port;
 	b->dst_port = dst_port;
-	b->last_retry_request = 0;
-	b->transmit_count = 0;
+	/* A fresh cached packet owns no retry state; even when the ring
+	 * slot is reused, the new packet never inherits the old one's
+	 * per-peer counts. */
+	b->retry_states = NULL;
+	b->retry_state_len = 0;
+	/* Unique identity so queued retries can detect slot reuse. */
+	b->cache_serial = rist_retry_next_cache_serial();
 	b->use_seq = 0;
-	b->retry_queued = false;
 	return b;
 }
 
 void free_rist_buffer(struct rist_common_ctx *ctx, struct rist_buffer *b)
 {
 	RIST_MARK_UNUSED(ctx);
+	/* Reclaim the per-(receiver, packet) retry records together with
+	 * the media cache entry they belong to. */
+	rist_retry_state_discard_buffer(b);
 	free(b->data);
 	free(b);
 
@@ -4243,6 +4251,10 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 				ctx->sender_queue[delete_idx]->data = NULL;
 			}
 			if (ctx->sender_queue[delete_idx]) {
+				/* Evict the per-peer retry accounting together with
+				 * the media cache entry; queued retries referencing
+				 * this slot are invalidated at dequeue time. */
+				rist_retry_state_discard_buffer(ctx->sender_queue[delete_idx]);
 				free(ctx->sender_queue[delete_idx]);
 				ctx->sender_queue[delete_idx] = NULL;
 			}
@@ -4281,6 +4293,12 @@ static struct rist_peer *peer_initialize(const char *url, struct rist_sender *se
 	p->rtcp_keepalive_interval = RIST_PING_INTERVAL * RIST_CLOCK;
 	p->sender_ctx = sender_ctx;
 	p->receiver_ctx = receiver_ctx;
+	/* Every sender-side peer gets a never-reused generation, which
+	 * keys its per-packet retry records. A replacement endpoint created
+	 * after this one is destroyed therefore starts with empty retry
+	 * state, and destroyed peers leave no pointers behind in the cache. */
+	if (sender_ctx)
+		p->retry_generation = ++sender_ctx->retry_generation_next;
 	p->birthtime_local = timestampNTP_u64();
 	p->handled_first = true;
 	p->sd = -1;
