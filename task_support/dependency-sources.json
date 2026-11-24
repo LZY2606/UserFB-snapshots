@@ -1,0 +1,81 @@
+[
+  {
+    "name": "scaling",
+    "version": "0.8.5",
+    "url": "https://repo.maven.apache.org/maven2/com/mortennobel/java-image-scaling/0.8.5/java-image-scaling-0.8.5-sources.jar",
+    "source_archive_sha256": "1b13e3fde0c7744341d0de8b08965614da80b8a602c4d423cc2af06c6627f530",
+    "files": {
+      "vendor/scaling/COPYING": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "vendor/scaling/COPYING.LESSER": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+      "vendor/scaling/META-INF/MANIFEST.MF": "48ad5aaaeb1b0d5fc9b378b6ef898fa20cfd45d9de1b60324f799e96a4650023",
+      "vendor/scaling/com/mortennobel/imagescaling/AdvancedResizeOp.java": "6e9314383d759ecd7364aabdb01b80f6cb757a576853a07f0f9785cecb3c1baa",
+      "vendor/scaling/com/mortennobel/imagescaling/BSplineFilter.java": "73215d04c55c090d501c286d3fc58ca79aa2d07d512b24358155f8a4b18b7c8f",
+      "vendor/scaling/com/mortennobel/imagescaling/BellFilter.java": "345b1b498894d8322c14af019b3fab295196db28101f9a46f5098710e9403ca0",
+      "vendor/scaling/com/mortennobel/imagescaling/BiCubicFilter.java": "cc30b23d72537f4e0736ea069d8c9ca0951b9551077ab3a66c7eedfcda46478c",
+      "vendor/scaling/com/mortennobel/imagescaling/BiCubicHighFreqResponse.java": "cbc99742fe961e2a218a1e08429a7ef73190f1a4c9127f414882ca24b6c93fce",
+      "vendor/scaling/com/mortennobel/imagescaling/BoxFilter.java": "464c8071fd2240f67801d3dc32de599c4278dfea48ee83d05debb89465afafff",
+      "vendor/scaling/com/mortennobel/imagescaling/DimensionConstrain.java": "3a5dbb7d5e8911cdfa1a6fe189bed17ad8abc69c17104b11ef0f78611d1fadf4",
+      "vendor/scaling/com/mortennobel/imagescaling/HermiteFilter.java": "0db842a4e36815ce6398476fd492c13c6ecdd29f1e1ff5ce056a51b375ed85b3",
+      "vendor/scaling/com/mortennobel/imagescaling/ImageUtils.java": "287f5f983a9b9bdd8d3be597fc0516b15e65d673f9bcb078a82555502b6bfb94",
+      "vendor/scaling/com/mortennobel/imagescaling/Lanczos3Filter.java": "7daa0c889e6d781a6d3c8cb82c40942e7f986faccf41e7c5e9dfaa187808adad",
+      "vendor/scaling/com/mortennobel/imagescaling/MitchellFilter.java": "8a8b0ea346aa3b6f66a2389c8a089204906e557235dd156e48c7eb5bd032db2a",
+      "vendor/scaling/com/mortennobel/imagescaling/MultiStepRescaleOp.java": "ed36d9799ddebd51beac26760d41493563d1e3ba0557ddf4fe61d269be06366c",
+      "vendor/scaling/com/mortennobel/imagescaling/ProgressListener.java": "2436f5eb4ee0e0e212df843130148455c558862aab1c71681cb2cabc02ab6ccd",
+      "vendor/scaling/com/mortennobel/imagescaling/ResampleFilter.java": "73e3ad914fddd654a9eeef4de3cc744746f391b9f70193dc5e0feaf392dc131b",
+      "vendor/scaling/com/mortennobel/imagescaling/ResampleFilters.java": "163b7210bf4914cbe6a75ac4f835aa18878d3e54d646d006870331d7195b0e59",
+      "vendor/scaling/com/mortennobel/imagescaling/ResampleOp.java": "f3d9f9991368e78b3ebbe4bb4623bbf02c918e9583d3a0dd2d046aac6cd3a2ff",
+      "vendor/scaling/com/mortennobel/imagescaling/ThumpnailRescaleOp.java": "395637489535a10b23e261dfbb29b6f83a3dadaf55f9c04387c433928c1fc56b",
+      "vendor/scaling/com/mortennobel/imagescaling/TriangleFilter.java": "3ca2e9cfa1cee3f96c6ed48da3d4e429d96cbfe87925713b455d34a6be7cca4b",
+      "vendor/scaling/com/mortennobel/imagescaling/experimental/ImprovedMultistepRescaleOp.java": "15153dcca345dc31c4a7d4423797ea3eb7eab82a589c7f3d2c88f4af2f169e71",
+      "vendor/scaling/com/mortennobel/imagescaling/experimental/ResampleOpSingleThread.java": "3a186cb93fedc6df95bf56feb8f358687cc69d4471bfe8071d3c583c599ad8a3"
+    }
+  },
+  {
+    "name": "cli",
+    "version": "1.2",
+    "url": "https://repo.maven.apache.org/maven2/commons-cli/commons-cli/1.2/commons-cli-1.2-sources.jar",
+    "source_archive_sha256": "b7017c4e576504decd4230f54d79d1140060d57d4d0a65fd3746c0758450a6f1",
+    "files": {
+      "vendor/cli/META-INF/LICENSE.txt": "c95bae1d1ce0235ecccd3560b772ec1efb97f348a79f0fbe0a634f0c2ccefe2c",
+      "vendor/cli/META-INF/MANIFEST.MF": "def6e1cdd10c34cbb356a39eb35e059f277d02d0f07f9e17568966e1a1b58da9",
+      "vendor/cli/META-INF/NOTICE.txt": "ef0d671115935e29fbde70011340bb8b8854bc269b551b96742b7654db03f381",
+      "vendor/cli/org/apache/commons/cli/AlreadySelectedException.java": "0c98f75011e833a18cc935d72d40657a71c191f8eaa0fddbdaa64299205310a8",
+      "vendor/cli/org/apache/commons/cli/BasicParser.java": "60eb3dbc2bbb587bb2ae4a6f32e4b8f4700e1c91aa9d9b3ea8cbb8e8259e26fa",
+      "vendor/cli/org/apache/commons/cli/CommandLine.java": "d0545fea51c7570ec3bf5c325adbfc21ae9627f5160dfeb17146b662057af4f2",
+      "vendor/cli/org/apache/commons/cli/CommandLineParser.java": "008cbd55eda7c2ae7752a3782f1d9d43b43414567f7690be47cf4fa6fb3ae4d2",
+      "vendor/cli/org/apache/commons/cli/GnuParser.java": "4be8308355fb9c505c86f43f320f0b8b89788e2273bbc25e4fced08c0804136a",
+      "vendor/cli/org/apache/commons/cli/HelpFormatter.java": "11b8100d804b3ed978081e641292ee0a0efe3f0eace917ebbd74a824ed427b41",
+      "vendor/cli/org/apache/commons/cli/MissingArgumentException.java": "12a1b9c6508b163b043a782b052f7f8afb3b6039dbd31cd501ac4f4278dfccfe",
+      "vendor/cli/org/apache/commons/cli/MissingOptionException.java": "85cfd8c6caa2239f34b6c199605008bc85e0adebaed2e19bf4be3cfccb7fe62a",
+      "vendor/cli/org/apache/commons/cli/Option.java": "ad1945e2222b2d4814f8bbec7e6bda467cb938a33ea0f0963d9d40d8e33a3ff7",
+      "vendor/cli/org/apache/commons/cli/OptionBuilder.java": "ed930cd8459e1a2deaa9113538ffd3714b6b27d78297c3b65c97772a7a2d2810",
+      "vendor/cli/org/apache/commons/cli/OptionGroup.java": "9bcc75e29768ae592d777cdaac8181e0cf0409ab8208ef19b68ad4c19baa9ac1",
+      "vendor/cli/org/apache/commons/cli/OptionValidator.java": "3735bfe72bc6c99edbcd36a8b201d3b3b23b5683910c451ed2ddb996c60f905c",
+      "vendor/cli/org/apache/commons/cli/Options.java": "1e78417ff02d9e4c0ed8f9cf65e3abd59425cdb34baa235608a5394bd808c7a3",
+      "vendor/cli/org/apache/commons/cli/ParseException.java": "04f94620ce864bf1241600ba059cc223f2baa9ccf2799e3cdb32079be14ad6fb",
+      "vendor/cli/org/apache/commons/cli/Parser.java": "2169291c9e203c38d857afc46de3960bed9ab06c6ec669f139b465e6b4746a50",
+      "vendor/cli/org/apache/commons/cli/PatternOptionBuilder.java": "cd0db1f94f848c0da8b7b98e984971128f18a8de654383f94991af283c2dfab6",
+      "vendor/cli/org/apache/commons/cli/PosixParser.java": "f963f954c8d20f5c405dfe3899b200022bf3aa9ca31865c57dfb20fbfb095381",
+      "vendor/cli/org/apache/commons/cli/TypeHandler.java": "5d535d78d71d04a0d13d285d19a57186c3d0acf8b17646373b923310f198aece",
+      "vendor/cli/org/apache/commons/cli/UnrecognizedOptionException.java": "c6d7756b1b37d1d54d56b479f389f6718e96632b86d01a24c5ff97074acc8e5e",
+      "vendor/cli/org/apache/commons/cli/Util.java": "a27f64bdf3b7923aa20d2ddc0bae5cb8be3b472f24bc12c863fb5d350cbe698a",
+      "vendor/cli/org/apache/commons/cli/overview.html": "564ce6e8b392d9b285dc51569e0f8de33cedd4f0705e3942f528ca3b2f6d72af",
+      "vendor/cli/org/apache/commons/cli/package.html": "1569ac3bbda17dd789198377f375e9a6b39aea34c0e0a843584e99be5fdd1812"
+    }
+  },
+  {
+    "name": "macify",
+    "version": "1.6",
+    "url": "https://repo.maven.apache.org/maven2/org/simplericity/macify/macify/1.6/macify-1.6-sources.jar",
+    "source_archive_sha256": "8c7b830a9ada35030a26962f481007923476c24defe4546d9f90dcf850356138",
+    "files": {
+      "vendor/macify/LICENSE-2.0.txt": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
+      "vendor/macify/META-INF/MANIFEST.MF": "90ac2b4ae26d362649938b6d6ea8371b28ac6dd03bf54acdee335ea5a2b03dd3",
+      "vendor/macify/org/simplericity/macify/eawt/Application.java": "f51ef1cebf18dc2ba732a9ab1e50b73602b043a2f4dd325a75dbddd019b2f6c1",
+      "vendor/macify/org/simplericity/macify/eawt/ApplicationAdapter.java": "7cdd1101b6af4aae88a75b4a6fd6d91678a7e889de63b88df6e0af8b1a41c4dc",
+      "vendor/macify/org/simplericity/macify/eawt/ApplicationEvent.java": "292e4d70a908831050ef74ef2daec83c93b20c9b954523b662fc9d71c5c6d115",
+      "vendor/macify/org/simplericity/macify/eawt/ApplicationListener.java": "51c8137b8755b7e0dc955460f845824d5367ec31699d3bac24aba4a7aeeca734",
+      "vendor/macify/org/simplericity/macify/eawt/DefaultApplication.java": "db539d323a680b0f544dc050d08fb2facc2cf9b6818a6465060cc207df665424"
+    }
+  }
+]
