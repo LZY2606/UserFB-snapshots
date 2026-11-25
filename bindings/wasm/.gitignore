@@ -1,0 +1,11 @@
+/manifold.js
+/manifold.wasm
+/manifold-3d-*.tgz
+/manifold.d.ts
+/test/*.js
+/test/*.js.map
+/test/*.d.ts
+/test/*.d.ts.map
+/coverage
+/public
+dist

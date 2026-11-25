@@ -1,0 +1,29 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "extends": ["./typedoc.common.json"],
+  "name": "Manifold WASM Developer Guide",
+  "displayBasePath": "./manifold-cad",
+  "customCss": "./documents/developer-guide.css",
+  "out": "docs/jsapi",
+  "entryPoints": [
+    "./manifold.d.ts",
+    "./manifold-cad/lib/*.ts"
+  ],
+  "exclude": [
+    "./manifold-cad/lib/scene-builder.ts",
+    "./**/*.test.ts",
+    "./manifold-cad/lib/*.d.ts"
+  ],
+  "sortEntryPoints": false,
+  "projectDocuments": [
+    "./documents/embedding-manifoldcad.md",
+    "./documents/bindings.md",
+    "./documents/bindings-examples.md",
+    "./documents/contributing.md"
+  ],
+  "navigation": {
+    "includeGroups": true,
+  },
+  "groupReferencesByType": true,
+  "defaultCategory": "none"
+}

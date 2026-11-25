@@ -1,0 +1,95 @@
+{
+  "name": "manifold-3d",
+  "version": "3.5.1",
+  "description": "Geometry library for topological robustness",
+  "main": "manifold.js",
+  "workspaces": [
+    ".",
+    "manifold-cad"
+  ],
+  "scripts": {
+    "prebuild": "api-extractor run -c api-extractor-manifold.json",
+    "build": "npm run build -w manifold-cad",
+    "build:wasm": "mkdir -p ../../buildWASM && cd ../../buildWASM && emcmake cmake -DCMAKE_BUILD_TYPE=MinSizeRel .. && emmake make",
+    "build:all": "npm run build:wasm && npm run build && npm run build:editor && npm run build:examples",
+    "build:editor": "cd examples/editor && npm run build",
+    "build:examples": "(cd examples/three && npm run build) && (cd examples/model-viewer && npm run build) && (cd examples/make-manifold && npm run build)",
+    "ci:all": "npm ci && npm run ci:editor && npm run ci:examples",
+    "ci:editor": "cd examples/editor && npm ci",
+    "ci:examples": "(cd examples/three && npm ci) && (cd examples/model-viewer && npm ci) && (cd examples/make-manifold && npm ci)",
+    "install:all": "npm install && npm run install:editor && npm run install:examples",
+    "install:editor": "cd examples/editor && npm install",
+    "install:examples": "(cd examples/three && npm install) && (cd examples/model-viewer && npm install) && (cd examples/make-manifold && npm install)",
+    "docs": "npm run docs:jsapi && npm run docs:jsuser",
+    "docs:jsapi": "typedoc --options typedoc.api.json",
+    "docs:jsuser": "typedoc --options typedoc.user.json",
+    "docs:cppapi": "cd ../.. && doxygen",
+    "public": "mkdir -p ./public && npm run public:docs && npm run public:editor && npm run public:examples",
+    "public:docs": "cp -rv docs public/",
+    "public:editor": "cd examples/editor && npm run public",
+    "public:examples": "(cd examples/three && npm run public) && (cd examples/model-viewer && npm run public) && (cd examples/make-manifold && npm run public)",
+    "test": "vitest run && npm test -w manifold-cad",
+    "test:dev": "vitest",
+    "clean": "npm run clean -w manifold-cad && rm -fr ./coverage ./docs",
+    "format": "cd ../.. && ./scripts/format.sh",
+    "prepare": "npm run build"
+  },
+  "files": [
+    "manifold.js",
+    "manifold.wasm",
+    "manifold.d.ts",
+    "manifold-encapsulated-types.d.ts",
+    "manifold-global-types.d.ts"
+  ],
+  "exports": {
+    "./manifold.wasm": "./manifold.wasm",
+    "./manifold.js": "./manifold.js",
+    "./manifold.d.ts": "./manifold.d.ts",
+    "./manifold": {
+      "import": {
+        "types": "./manifold.d.ts",
+        "default": "./manifold.js"
+      }
+    },
+    "./manifold-encapsulated-types.d.ts": "./manifold-encapsulated-types.d.ts",
+    "./manifold-global-types.d.ts": "./manifold-global-types.d.ts",
+    ".": {
+      "import": {
+        "types": "./manifold.d.ts",
+        "default": "./manifold.js"
+      }
+    }
+  },
+  "typings": "manifold.d.ts",
+  "types": "manifold.d.ts",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elalish/manifold.git"
+  },
+  "keywords": [
+    "3D",
+    "mesh",
+    "manifold",
+    "geometry",
+    "solid",
+    "CAD",
+    "triangle",
+    "SDF"
+  ],
+  "contributors": [
+    "Emmett Lalish <elalish>",
+    "Chun Kit LAM <pca006132>"
+  ],
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/elalish/manifold/issues"
+  },
+  "homepage": "https://github.com/elalish/manifold#readme",
+  "devDependencies": {
+    "@microsoft/api-extractor": "^7.57.7",
+    "typedoc": "^0.28.16",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17"
+  }
+}
