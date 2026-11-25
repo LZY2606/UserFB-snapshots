@@ -8,6 +8,7 @@ add_library(cpurast
     framebuf.cpp
     renderer.cpp
     rasterizer.cpp
+    normal_moments.cpp
 )
 
 set(CPURAST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR} PARENT_SCOPE)

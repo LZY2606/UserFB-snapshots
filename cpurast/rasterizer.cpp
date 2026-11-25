@@ -14,6 +14,9 @@ namespace cr
 
     void rasterizer::fill_point(int x, int y, float d, const vector<float>* v)
     {
+        // points carry no 2D attribute plane
+        invalidate_gradients();
+
         // whether interpolation is enabled or not, point is rendered the same in both cases
         if (!interp_enabled)
         {
@@ -27,6 +30,9 @@ namespace cr
     void rasterizer::fill_line(int x1, int y1, float d1, const vector<float>* v1,
                                int x2, int y2, float d2, const vector<float>* v2)
     {
+        // lines carry no 2D attribute plane
+        invalidate_gradients();
+
         if (!interp_enabled)
         {
             provoking_depth = d1;
@@ -86,10 +92,22 @@ namespace cr
                                    int x2, int y2, float d2, const vector<float>* v2,
                                    int x3, int y3, float d3, const vector<float>* v3)
     {
-        if (!interp_enabled)
+        if (!interp_enabled || !fs->uses_gradients())
         {
-            provoking_depth = d1;
-            provoking_attribs = v1;
+            if (!interp_enabled)
+            {
+                provoking_depth = d1;
+                provoking_attribs = v1;
+            }
+            // no gradient plane: either interpolation is off, or the bound
+            // fragment shader keeps the legacy run(in) path and its old output
+            invalidate_gradients();
+        }
+        else
+        {
+            // the affine planes pass through the three vertices as actually
+            // quantized to integer canvas coordinates (before any scanline sorting)
+            init_gradient_planes(x1, y1, *v1, x2, y2, *v2, x3, y3, *v3);
         }
 
         // sort vertices by its y position (so that y1 <= y2 <= y3)
@@ -170,7 +188,18 @@ namespace cr
             for (int fb_x = left_x; fb_x < right_x; fb_x++)
             {
                 interpolation(2, interp_depth[0], interp_attribs[0], interp_depth[1], interp_attribs[1], fb_x - left_x);
-                process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                // depth and coverage keep using the scanline interpolation;
+                // only attribute values (and their derivatives) come from the
+                // affine plane through the three quantized vertices
+                if (gradients_valid)
+                {
+                    evaluate_gradient_planes(fb_x, fb_y, plane_attribs);
+                    process_fragment(fb_x, fb_y, interp_depth[2], plane_attribs);
+                }
+                else
+                {
+                    process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                }
             }
 
             left_error -= 2 * left_dx;
@@ -226,7 +255,18 @@ namespace cr
             for (int fb_x = left_x; fb_x < right_x; fb_x++)
             {
                 interpolation(2, interp_depth[0], interp_attribs[0], interp_depth[1], interp_attribs[1], fb_x - left_x);
-                process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                // depth and coverage keep using the scanline interpolation;
+                // only attribute values (and their derivatives) come from the
+                // affine plane through the three quantized vertices
+                if (gradients_valid)
+                {
+                    evaluate_gradient_planes(fb_x, fb_y, plane_attribs);
+                    process_fragment(fb_x, fb_y, interp_depth[2], plane_attribs);
+                }
+                else
+                {
+                    process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                }
             }
 
             left_error -= 2 * left_dx;
@@ -281,8 +321,74 @@ namespace cr
         // depth test -> fragment shader -> write to framebuffer
         if (fb.depth_test(fb_index, final_d)) // early depth test before running fragment shader
         {
-            const color fb_col = fs->run(final_v);
+            const color fb_col = fs->run(final_v, fragment_gradients, gradients_valid);
             fb.write(fb_index, fb_col);
+        }
+    }
+
+    void rasterizer::init_gradient_planes(int x1, int y1, const vector<float>& v1,
+                                          int x2, int y2, const vector<float>& v2,
+                                          int x3, int y3, const vector<float>& v3)
+    {
+        assert(v1.size() == v2.size() && v1.size() == v3.size());
+
+        const unsigned n = static_cast<unsigned>(v1.size());
+        plane_a.resize(n);
+        plane_b.resize(n);
+        plane_c.resize(n);
+        fragment_gradients.resize(n);
+        plane_attribs.resize(n);
+
+        // signed doubled area of the quantized triangle; zero would mean a
+        // degenerate quantized triangle, which the rasterizer never fills
+        const float det = float((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1));
+
+        if (det == 0.f)
+        {
+            invalidate_gradients();
+            return;
+        }
+
+        for (unsigned i = 0; i < n; i++)
+        {
+            // solve for a, b in value = a*x + b*y + c using vertices 1..3
+            const float dv12 = v2[i] - v1[i];
+            const float dv13 = v3[i] - v1[i];
+            const float a = (dv12 * float(y3 - y1) - dv13 * float(y2 - y1)) / det;
+            const float b = (float(x2 - x1) * dv13 - float(x3 - x1) * dv12) / det;
+            const float c = v1[i] - a * float(x1) - b * float(y1);
+
+            plane_a[i] = a;
+            plane_b[i] = b;
+            plane_c[i] = c;
+            // derivatives are constant over the affine plane, units are canvas pixels
+            fragment_gradients[i].dx = a;
+            fragment_gradients[i].dy = b;
+        }
+
+        gradients_valid = true;
+    }
+
+    void rasterizer::evaluate_gradient_planes(int x, int y, vector<float>& v) const
+    {
+        assert(gradients_valid);
+        assert(v.size() == plane_a.size());
+
+        const float fx = static_cast<float>(x);
+        const float fy = static_cast<float>(y);
+        for (unsigned i = 0; i < v.size(); i++)
+        {
+            v[i] = plane_a[i] * fx + plane_b[i] * fy + plane_c[i];
+        }
+    }
+
+    void rasterizer::invalidate_gradients()
+    {
+        gradients_valid = false;
+        for (gradient& g : fragment_gradients)
+        {
+            g.dx = 0.f;
+            g.dy = 0.f;
         }
     }
 

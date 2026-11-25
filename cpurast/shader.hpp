@@ -10,6 +10,14 @@ using std::vector;
 
 namespace cr
 {
+    // screen-space derivative of one interpolated attribute component
+    // both units are one framebuffer (canvas) pixel
+    struct gradient
+    {
+        float dx = 0.f; // derivative along the canvas x axis
+        float dy = 0.f; // derivative along the canvas y axis
+    };
+
     // abstract class for shader representation
     class shader
     {
@@ -50,6 +58,29 @@ namespace cr
         // run per-fragment operation with given fragment attributes
         // returns: output normalized color, arguments: input attributes
         virtual color run(const vector<float>& in) const = 0;
+
+        // optional per-fragment entry point with screen-space gradients
+        // gradients_valid is true only for triangle fragments produced while
+        // interpolation is enabled; it is false for points, lines and for every
+        // fragment when interpolation is disabled, and gradients then holds zeros
+        // (a stale triangle plane must never leak through it)
+        // the default implementation simply ignores the gradients and calls run()
+        virtual color run(const vector<float>& in, const vector<gradient>& gradients,
+                          bool gradients_valid) const
+        {
+            (void)gradients;
+            (void)gradients_valid;
+            return run(in);
+        }
+
+        // whether this shader consumes the affine-plane attribute values and
+        // screen-space gradients; shaders that keep the default run(in) return
+        // false and keep receiving the original scanline-interpolated values,
+        // so their output is unchanged
+        virtual bool uses_gradients() const
+        {
+            return false;
+        }
     };
 
     // default vertex shader
