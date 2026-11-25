@@ -1,0 +1,317 @@
+      vector<uint64_t> hardPoints;
+      struct LocalSeg {
+        uint64_t a, b;
+        vec2 ua, ub;
+        vector<std::pair<double, uint64_t>> splits;
+      };
+      vector<LocalSeg> localSegs;
+      for (size_t sid : incident[op][ti]) {
+        const RawSeg& s = raw[sid];
+        const uint64_t a = s.v0, b = s.v1;
+        const vec2 ua = UVOf(pool, a, src);
+        const vec2 ub = UVOf(pool, b, src);
+        if (la::dot(ub - ua, ub - ua) < 1.0e-20) continue;
+        LocalSeg ls{a, b, ua, ub, {{0.0, a}, {1.0, b}}};
+        localSegs.push_back(std::move(ls));
+        if (std::find(hardPoints.begin(), hardPoints.end(), a) ==
+            hardPoints.end())
+          hardPoints.push_back(a);
+        if (std::find(hardPoints.begin(), hardPoints.end(), b) ==
+            hardPoints.end())
+          hardPoints.push_back(b);
+      }
+
+      for (size_t i = 0; i < localSegs.size(); ++i) {
+        LocalSeg& li = localSegs[i];
+        const vec2 di = li.ub - li.ua;
+        const double li2 = la::dot(di, di);
+        for (uint64_t hid : hardPoints) {
+          const vec2 h = UVOf(pool, hid, src);
+          double t = la::dot(h - li.ua, di) / li2;
+          t = std::max(0.0, std::min(1.0, t));
+          const vec2 q = li.ua + di * t;
+          if (la::dot(h - q, h - q) < 1.0e-14 && t > 1.0e-8 &&
+              t < 1.0 - 1.0e-8)
+            li.splits.push_back({t, hid});
+        }
+        for (size_t j = i + 1; j < localSegs.size(); ++j) {
+          LocalSeg& lj = localSegs[j];
+          double ti2 = 0.0, tj = 0.0;
+          if (!SegmentIntersection2D(li.ua, li.ub, lj.ua, lj.ub, ti2, tj))
+            continue;
+          if (ti2 <= 1.0e-7 || ti2 >= 1.0 - 1.0e-7 || tj <= 1.0e-7 ||
+              tj >= 1.0 - 1.0e-7)
+            continue;
+          const vec2 uv = lj.ua + (lj.ub - lj.ua) * tj;
+          const uint64_t xid = pool.Add(PointFromUV(src, uv));
+          li.splits.push_back({ti2, xid});
+          lj.splits.push_back({tj, xid});
+        }
+      }
+
+      vector<std::pair<uint64_t, uint64_t>> constraints;
+      for (auto& ls : localSegs) {
+        std::sort(ls.splits.begin(), ls.splits.end(),
+                  [](const auto& x, const auto& y) {
+                    return x.first < y.first;
+                  });
+        uint64_t last = ls.a;
+        for (const auto& [t, id] : ls.splits) {
+          if (id != last && id != ls.a && id != ls.b) {
+            constraints.push_back({last, id});
+            last = id;
+          }
+        }
+        if (last != ls.b) constraints.push_back({last, ls.b});
+      }
+
+      using UTri = array<uint64_t, 3>;
+      vector<UTri> mesh = {UTri{corner[0], corner[1], corner[2]}};
+      auto meshHasVertex = [&](uint64_t id) {
+        for (const auto& t : mesh)
+          if (t[0] == id || t[1] == id || t[2] == id) return true;
+        return false;
+      };
+      auto splitEdge = [&](uint64_t ea, uint64_t eb, uint64_t xid) {
+        vector<UTri> nextMesh;
+        nextMesh.reserve(mesh.size() + 4);
+        for (const UTri& t : mesh) {
+          int ia = -1, ib = -1;
+          for (int k = 0; k < 3; ++k) {
+            if (t[k] == ea) ia = k;
+            if (t[k] == eb) ib = k;
+          }
+          if (ia < 0 || ib < 0) {
+            nextMesh.push_back(t);
+            continue;
+          }
+          const uint64_t c = t[3 - ia - ib];
+          nextMesh.push_back({ea, xid, c});
+          nextMesh.push_back({xid, eb, c});
+        }
+        mesh.swap(nextMesh);
+      };
+
+      for (uint64_t hid : hardPoints) {
+        if (meshHasVertex(hid)) continue;
+        const vec2 h = UVOf(pool, hid, src);
+        bool handled = false;
+        for (const UTri& t : mesh) {
+          for (int e = 0; e < 3 && !handled; ++e) {
+            const uint64_t ea = t[e];
+            const uint64_t eb = t[(e + 1) % 3];
+            const vec2 a = UVOf(pool, ea, src);
+            const vec2 b = UVOf(pool, eb, src);
+            const vec2 ab = b - a;
+            const double len2 = la::dot(ab, ab);
+            const double tt = la::dot(h - a, ab) / len2;
+            const vec2 q = a + ab * std::max(0.0, std::min(1.0, tt));
+            if (tt > 1.0e-8 && tt < 1.0 - 1.0e-8 &&
+                la::dot(h - q, h - q) < 1.0e-16) {
+              splitEdge(ea, eb, hid);
+              handled = true;
+            }
+          }
+          if (handled) break;
+        }
+        if (handled) continue;
+
+        for (size_t ti2 = 0; ti2 < mesh.size(); ++ti2) {
+          const UTri& t = mesh[ti2];
+          array<vec2, 3> q = {UVOf(pool, t[0], src), UVOf(pool, t[1], src),
+                              UVOf(pool, t[2], src)};
+          const double ar = Cross2(q[1] - q[0], q[2] - q[0]);
+          bool inside = true;
+          for (int e = 0; e < 3; ++e) {
+            const double s = Cross2(q[(e + 1) % 3] - q[e], h - q[e]);
+            if (ar > 0.0 ? s < -1.0e-10 : s > 1.0e-10) inside = false;
+          }
+          if (!inside) continue;
+          vector<UTri> nextMesh;
+          nextMesh.reserve(mesh.size() + 2);
+          for (size_t k = 0; k < mesh.size(); ++k) {
+            if (k == ti2) {
+              nextMesh.push_back({t[0], t[1], hid});
+              nextMesh.push_back({t[1], t[2], hid});
+              nextMesh.push_back({t[2], t[0], hid});
+            } else {
+              nextMesh.push_back(mesh[k]);
+            }
+          }
+          mesh.swap(nextMesh);
+          break;
+        }
+      }
+
+      auto edgeExists = [&](uint64_t a, uint64_t b) {
+        for (const UTri& t : mesh)
+          for (int e = 0; e < 3; ++e) {
+            const uint64_t x = t[e], y = t[(e + 1) % 3];
+            if ((x == a && y == b) || (x == b && y == a)) return true;
+          }
+        return false;
+      };
+
+      bool arrangementOK = true;
+      for (auto [a, b] : constraints) {
+        if (a == b || edgeExists(a, b)) continue;
+        const vec2 ua = UVOf(pool, a, src);
+        const vec2 ub = UVOf(pool, b, src);
+        vector<unsigned char> marked(mesh.size(), 0);
+        size_t markCount = 0;
+        for (size_t ti2 = 0; ti2 < mesh.size(); ++ti2) {
+          const UTri& t = mesh[ti2];
+          array<vec2, 3> q = {UVOf(pool, t[0], src), UVOf(pool, t[1], src),
+                              UVOf(pool, t[2], src)};
+          if (SegmentTriangleInterval(ua, ub, q)) {
+            marked[ti2] = 1;
+            ++markCount;
+          }
+        }
+        if (markCount == 0) {
+          arrangementOK = false;
+          break;
+        }
+
+        std::map<std::pair<uint64_t, uint64_t>, int> edgeCount;
+        for (size_t ti2 = 0; ti2 < mesh.size(); ++ti2) {
+          if (!marked[ti2]) continue;
+          const UTri& t = mesh[ti2];
+          for (int e = 0; e < 3; ++e) {
+            uint64_t x = t[e], y = t[(e + 1) % 3];
+            if (x > y) std::swap(x, y);
+            edgeCount[{x, y}]++;
+          }
+        }
+        std::map<uint64_t, vector<uint64_t>> adj;
+        for (const auto& [e, cnt] : edgeCount) {
+          if (cnt != 1) continue;
+          adj[e.first].push_back(e.second);
+          adj[e.second].push_back(e.first);
+        }
+
+        vector<vector<uint64_t>> loops;
+        std::set<std::pair<uint64_t, uint64_t>> usedBoundary;
+        for (const auto& [e, cnt] : edgeCount) {
+          if (cnt != 1) continue;
+          auto directed = e;
+          if (usedBoundary.count(directed)) continue;
+          vector<uint64_t> loop;
+          uint64_t start = e.first;
+          uint64_t prev = e.first;
+          uint64_t cur = e.second;
+          loop.push_back(start);
+          size_t guard = 0;
+          while (cur != start && guard++ < mesh.size() + 10) {
+            loop.push_back(cur);
+            usedBoundary.insert({std::min(prev, cur), std::max(prev, cur)});
+            const auto it = adj.find(cur);
+            if (it == adj.end()) {
+              arrangementOK = false;
+              break;
+            }
+            uint64_t next = cur;
+            for (uint64_t cand : it->second)
+              if (cand != prev) {
+                next = cand;
+                break;
+              }
+            if (next == cur) {
+              arrangementOK = false;
+              break;
+            }
+            prev = cur;
+            cur = next;
+          }
+          if (!arrangementOK) break;
+          usedBoundary.insert({std::min(prev, cur), std::max(prev, cur)});
+          loops.push_back(std::move(loop));
+        }
+        if (!arrangementOK) break;
+
+        vector<UTri> replacement;
+        for (const auto& loop : loops) {
+          auto iaIt = std::find(loop.begin(), loop.end(), a);
+          auto ibIt = std::find(loop.begin(), loop.end(), b);
+          if (iaIt == loop.end() || ibIt == loop.end()) continue;
+          size_t ia = static_cast<size_t>(iaIt - loop.begin());
+          size_t ib = static_cast<size_t>(ibIt - loop.begin());
+          const size_t L = loop.size();
+          vector<uint64_t> c1;
+          for (size_t k = ia;; k = (k + 1) % L) {
+            c1.push_back(loop[k]);
+            if (k == ib) break;
+          }
+          vector<uint64_t> c2;
+          for (size_t k = ib;; k = (k + 1) % L) {
+            c2.push_back(loop[k]);
+            if (k == ia) break;
+          }
+          for (vector<uint64_t> chain : {c1, c2}) {
+            Poly poly;
+            for (uint64_t id : chain)
+              poly.push_back({id, UVOf(pool, id, src)});
+            if (PolyArea(poly) < 0.0) std::reverse(poly.begin(), poly.end());
+            PolygonsIdx polygons;
+            SimplePolygonIdx spi;
+            for (const PNode& n : poly)
+              spi.push_back(PolyVert{n.uv, static_cast<int>(n.gid)});
+            polygons.push_back(std::move(spi));
+            vector<ivec3> tt = TriangulateIdx(polygons);
+            for (const ivec3& x : tt)
+              replacement.push_back(
+                  {static_cast<uint64_t>(x[0]), static_cast<uint64_t>(x[1]),
+                   static_cast<uint64_t>(x[2])});
+          }
+        }
+        if (replacement.empty()) {
+          arrangementOK = false;
+          break;
+        }
+
+        vector<UTri> nextMesh;
+        for (size_t ti2 = 0; ti2 < mesh.size(); ++ti2)
+          if (!marked[ti2]) nextMesh.push_back(mesh[ti2]);
+        for (const UTri& t : replacement) nextMesh.push_back(t);
+        mesh.swap(nextMesh);
+      }
+      if (!arrangementOK)
+        return fail(Error::UnsupportedArrangement,
+                    "could not enforce a common intersection constraint");
+
+      const vec3 sourceNormal =
+          la::cross(src[1] - src[0], src[2] - src[0]);
+      for (const UTri& ids : mesh) {
+          if (ids[0] == ids[1] || ids[1] == ids[2] || ids[2] == ids[0])
+            continue;
+          array<array<double, 3>, 3> bary;
+          for (int c = 0; c < 3; ++c)
+            bary[c] = Barycentric(pool.v[ids[c]], src);
+
+          vec3 n = la::cross(pool.v[ids[1]] - pool.v[ids[0]],
+                             pool.v[ids[2]] - pool.v[ids[0]]);
+          array<uint64_t, 3> oriented = ids;
+          if (la::dot(n, sourceNormal) < 0.0) {
+            std::swap(oriented[1], oriented[2]);
+            std::swap(bary[1], bary[2]);
+          }
+
+          vec3 centroid = (pool.v[oriented[0]] + pool.v[oriented[1]] +
+                           pool.v[oriented[2]]) /
+                          3.0;
+          uint32_t other = 0;
+          for (uint32_t j = 0; j < operands.size(); ++j) {
+            if (j == op || positions[j].empty()) continue;
+            if (IsInside(centroid, positions[j])) other |= 1u << j;
+          }
+          SurfacePartition::Triangle tri;
+          tri.vertices = {oriented[0], oriented[1], oriented[2]};
+          tri.minusMask = other | (1u << op);
+          tri.plusMask = other & ~(1u << op);
+          tri.sourceOperand = op;
+          tri.sourceTriangle = ti;
+          for (int c = 0; c < 3; ++c)
+            tri.sourceBarycentric[c] =
+                vec3(bary[c][0], bary[c][1], bary[c][2]);
+          next.triangles_.push_back(std::move(tri));
+      }

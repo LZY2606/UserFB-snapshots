@@ -77,6 +77,16 @@ To aid in speed, this library makes extensive use of parallelization through TBB
 
 Look in the [samples](https://github.com/elalish/manifold/tree/master/samples) directory for examples of how to use this library to make interesting 3D models. You may notice that some of these examples bear a certain resemblance to my OpenSCAD designs on [Thingiverse](https://www.thingiverse.com/emmett), which is no accident. Much as I love OpenSCAD, my library is dramatically faster and the code is more flexible.
 
+### Surface partitions
+
+`manifold/surface_partition.h` provides `SurfacePartition`, a common arrangement for up to four closed solids used for multi-material modeling. It builds one shared subdivision of all source surfaces; call `Extract(mask)` to obtain the closed region with exact bit-mask occupancy. Mask zero is rejected because it is the unbounded exterior.
+
+Stored interface triangles follow their source surface's outward winding. Their negative-normal side is `minusMask` and positive-normal side is `plusMask`; the masks differ in exactly the source operand's bit. The same stored triangle is used by both adjacent regions, with winding reversed for the positive side.
+
+The supported input range is valid closed triangle solids within coordinates `±100`, minimum source edge length `1e-3`, and maximum long-edge/minimum-altitude ratio `1000`. Non-convex objects, cavities, and disconnected components are supported. Coplanar overlap, tangencies, intersection lines through source vertices, source-edge/source-edge crossings, and four-surface common points are unsupported and reported as errors. Under the intended generic-position limits, pairwise normal cross-products and triple-normal determinants are at least `1e-4`, and relevant events are separated by at least `1e-6`.
+
+Each triangle records its operand, source triangle index in that operand's `GetMeshGL64()` snapshot, and three source-triangle barycentric coordinates. Extra scalar properties are interpolated through those coordinates without merging geometric and property vertices, preserving native property seams. Output runs retain the original `runOriginalID`, `runTransform`, and `faceID` provenance. `examples/surface_partition.cpp` writes all extracted mask regions as groups in one shared-vertex OBJ.
+
 ### Dependencies
 
 Manifold no longer has **any** required dependencies! However, we do have several optional dependencies, of which the first two are strongly encouraged:

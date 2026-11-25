@@ -1,0 +1,71 @@
+-- ====================================
+-- Manifold Build Configuration Summary
+-- ====================================
+--  
+-- Environment: macOS
+--  
+-- CMAKE_VERSION:                 4.3.3
+-- CMAKE_TOOLCHAIN_FILE:          
+-- CMAKE_GENERATOR:               Unix Makefiles
+-- CPACK_CMAKE_GENERATOR:         
+-- CMAKE_BUILD_TYPE:              Release
+-- CMAKE_PREFIX_PATH:             
+-- CMAKE_CXX_COMPILER_ID:         AppleClang
+-- CMAKE_CXX_COMPILER_VERSION:    21.0.0.21000401
+-- CMAKE_OSX_DEPLOYMENT_TARGET:   
+-- CMAKE_OSX_ARCHITECTURES:       
+-- BUILD_SHARED_LIBS:             OFF
+--  
+-- MANIFOLD_VERSION:              3.5.1
+-- MANIFOLD_PAR:                  OFF
+-- MANIFOLD_TEST:                 OFF
+-- MANIFOLD_DEBUG:                OFF
+-- MANIFOLD_ASSERT:               OFF
+-- MANIFOLD_CBIND:                OFF
+-- MANIFOLD_PYBIND:               OFF
+-- MANIFOLD_JSBIND:               OFF
+-- MANIFOLD_FLAGS:                -Wall;-Wno-unknown-warning-option;-Wno-unused;-Wno-shorten-64-to-32;-Wno-sign-compare;-Wno-alloc-size-larger-than;-O3;-ffp-contract=off;-fexcess-precision=standard
+-- MANIFOLD_COMPILE_OPTIONS:      -Wall;-Wno-unknown-warning-option;-Wno-unused;-Wno-shorten-64-to-32;-Wno-sign-compare;-Wno-alloc-size-larger-than;-O3;-ffp-contract=off;-fexcess-precision=standard
+-- MANIFOLD_LINK_OPTIONS:         
+-- MANIFOLD_DOWNLOADS:            OFF
+-- MANIFOLD_USE_BUILTIN_TBB:      OFF
+-- MANIFOLD_USE_BUILTIN_NANOBIND: OFF
+-- MANIFOLD_FUZZ:                 OFF
+-- TRACY_ENABLE:                  OFF
+-- TRACY_MEMORY_USAGE:            OFF
+-- ASSIMP_ENABLE:                 OFF
+--  
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake
+/opt/homebrew/bin/cmake -S/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo -B/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake --check-build-system CMakeFiles/Makefile.cmake 0
+/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/Makefile2 manifold
+/opt/homebrew/bin/cmake -S/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo -B/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake --check-build-system CMakeFiles/Makefile.cmake 0
+/opt/homebrew/bin/cmake -E cmake_progress_start /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/CMakeFiles 26
+/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/Makefile2 src/CMakeFiles/manifold.dir/all
+/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f src/CMakeFiles/manifold.dir/build.make src/CMakeFiles/manifold.dir/depend
+cd /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake && /opt/homebrew/bin/cmake -E cmake_depends "Unix Makefiles" /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/src /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/src /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/src/CMakeFiles/manifold.dir/DependInfo.cmake "--color=" manifold
+/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f src/CMakeFiles/manifold.dir/build.make src/CMakeFiles/manifold.dir/build
+[  3%] Building CXX object src/CMakeFiles/manifold.dir/surface_partition.cpp.o
+cd /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/src && /usr/bin/c++ -DMANIFOLD_PAR=-1 -I/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/include -I/Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/include -O3 -DNDEBUG -std=c++17 -fPIC -Wall -Wno-unknown-warning-option -Wno-unused -Wno-shorten-64-to-32 -Wno-sign-compare -Wno-alloc-size-larger-than -O3 -ffp-contract=off -fexcess-precision=standard -MD -MT src/CMakeFiles/manifold.dir/surface_partition.cpp.o -MF CMakeFiles/manifold.dir/surface_partition.cpp.o.d -o CMakeFiles/manifold.dir/surface_partition.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/src/surface_partition.cpp
+[  7%] Linking CXX static library libmanifold.a
+cd /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/src && /opt/homebrew/bin/cmake -P CMakeFiles/manifold.dir/cmake_clean_target.cmake
+cd /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/src && /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/manifold.dir/link.txt --verbose=1
+/usr/bin/ar qc libmanifold.a CMakeFiles/manifold.dir/boolean2.cpp.o CMakeFiles/manifold.dir/boolean2_diagnostics.cpp.o CMakeFiles/manifold.dir/boolean2_offset.cpp.o CMakeFiles/manifold.dir/boolean2_predicates.cpp.o CMakeFiles/manifold.dir/boolean2_sweep.cpp.o CMakeFiles/manifold.dir/boolean3.cpp.o CMakeFiles/manifold.dir/boolean_result.cpp.o CMakeFiles/manifold.dir/constructors.cpp.o CMakeFiles/manifold.dir/cross_section.cpp.o CMakeFiles/manifold.dir/csg_tree.cpp.o CMakeFiles/manifold.dir/edge_op.cpp.o CMakeFiles/manifold.dir/execution_impl.cpp.o CMakeFiles/manifold.dir/face_op.cpp.o CMakeFiles/manifold.dir/impl.cpp.o CMakeFiles/manifold.dir/manifold.cpp.o CMakeFiles/manifold.dir/minkowski.cpp.o CMakeFiles/manifold.dir/polygon.cpp.o CMakeFiles/manifold.dir/properties.cpp.o CMakeFiles/manifold.dir/quickhull.cpp.o CMakeFiles/manifold.dir/sdf.cpp.o CMakeFiles/manifold.dir/smoothing.cpp.o CMakeFiles/manifold.dir/sort.cpp.o CMakeFiles/manifold.dir/surface_partition.cpp.o CMakeFiles/manifold.dir/subdivision.cpp.o CMakeFiles/manifold.dir/tree2d.cpp.o
+/usr/bin/ranlib libmanifold.a
+[100%] Built target manifold
+/opt/homebrew/bin/cmake -E cmake_progress_start /Users/lzy/pro/UserFB/workspace/Z02432/attempts/20261125T163148463408Z/repo/.task-build/cmake/CMakeFiles 0
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+Wrote 70 shared vertices, 224 unique interface triangles, 352 grouped region faces to .task-build/partition.obj
+CASE junctions triple_shared_index checks=13
+CASE junctions axis_exact_point checks=10
+GROUP junctions cases=2 checks=23 COMPLETE
+CASE regions axis_volumes_probes_fans checks=874
+CASE regions nonconvex_cavity_four checks=78
+GROUP regions cases=2 checks=952 COMPLETE
+CASE properties bary_native_ids_destroyed_sources checks=444
+GROUP properties cases=1 checks=444 COMPLETE
+CASE reuse errors_empty_legacy_boolean checks=27
+GROUP reuse cases=1 checks=27 COMPLETE
+TARGET_COMPLETE cases=6
+MANIFOLD_BASELINE intersection=0.5 difference=0.5 union=1.5 properties=2 source_runs=1 triangles=12
