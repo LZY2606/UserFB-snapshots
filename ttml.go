@@ -690,6 +690,14 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 		return ErrNoSubtitlesToWrite
 	}
 
+	// Build the WebVTT cue cascade from the STYLE lines currently carried by
+	// the subtitles. It is recomputed on every export so edits to
+	// WebVTTStyles or WebVTTTags are reflected. When the STYLE contains no
+	// supported valid declaration the cascade stays disabled and the legacy
+	// export path is used unchanged. The cascade only feeds local output
+	// attributes and never mutates s.
+	var cueSheet = parseCueStylesheet(s.subtitleCueCSSText())
+
 	// Init TTML
 	var ttml = TTMLOut{
 		XMLNamespaceTTM: "http://www.w3.org/ns/ttml#metadata",
@@ -766,10 +774,28 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 		for _, line := range item.Lines {
 			// Loop through line items
 			for _, lineItem := range line.Items {
+				// Build the output attributes
+				var attrs = ttmlOutStyleAttributesFromStyleAttributes(lineItem.InlineStyle)
+
+				// When the WebVTT cue cascade is enabled, the five cascaded
+				// properties are authoritative: recompute them from the
+				// current tag stack and STYLE and export the fully resolved
+				// values, including explicit normal/none. This only replaces
+				// fields on the local output struct and never mutates the
+				// source LineItem.
+				if cueSheet.enabled {
+					var cue = cueSheet.computeLineItem(lineItem.InlineStyle)
+					attrs.Color = astikit.StrPtr(cue.color.HTMLString())
+					attrs.BackgroundColor = astikit.StrPtr(cue.backgroundColor.HTMLString())
+					attrs.FontWeight = astikit.StrPtr(cue.fontWeight)
+					attrs.FontStyle = astikit.StrPtr(cue.fontStyle)
+					attrs.TextDecoration = astikit.StrPtr(cue.textDecoration)
+				}
+
 				// Init ttml item
 				var ttmlItem = TTMLOutItem{
 					Text:                   lineItem.Text,
-					TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(lineItem.InlineStyle),
+					TTMLOutStyleAttributes: attrs,
 					XMLName:                xml.Name{Local: "span"},
 				}
 

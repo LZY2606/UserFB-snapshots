@@ -420,6 +420,22 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 	return
 }
 
+// sameWebVTTTag reports whether two stack entries describe the same opened
+// element. Comparing names alone is not enough: adjacent <c.a>x</c><c.b>y</c>
+// runs share the "c" name but are different elements, so they must be closed
+// and reopened for their classes to survive a WebVTT save/re-read.
+func sameWebVTTTag(a, b WebVTTTag) bool {
+	if a.Name != b.Name || a.Annotation != b.Annotation || len(a.Classes) != len(b.Classes) {
+		return false
+	}
+	for idx := range a.Classes {
+		if a.Classes[idx] != b.Classes[idx] {
+			return false
+		}
+	}
+	return true
+}
+
 // parseTextWebVTT parses the input line to fill the Line
 func parseTextWebVTT(i string, sa *StyleAttributes) (o Line) {
 	// Create tokenizer
@@ -766,7 +782,7 @@ func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
 	}
 	if li.InlineStyle != nil {
 		for idx, tag := range li.InlineStyle.WebVTTTags {
-			if previous != nil && previous.InlineStyle != nil && len(previous.InlineStyle.WebVTTTags) > idx && tag.Name == previous.InlineStyle.WebVTTTags[idx].Name {
+			if previous != nil && previous.InlineStyle != nil && len(previous.InlineStyle.WebVTTTags) > idx && sameWebVTTTag(tag, previous.InlineStyle.WebVTTTags[idx]) {
 				continue
 			}
 			c = append(c, []byte(tag.startTag())...)
@@ -776,7 +792,7 @@ func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
 	if li.InlineStyle != nil {
 		for i := len(li.InlineStyle.WebVTTTags) - 1; i >= 0; i-- {
 			tag := li.InlineStyle.WebVTTTags[i]
-			if next != nil && next.InlineStyle != nil && len(next.InlineStyle.WebVTTTags) > i && tag.Name == next.InlineStyle.WebVTTTags[i].Name {
+			if next != nil && next.InlineStyle != nil && len(next.InlineStyle.WebVTTTags) > i && sameWebVTTTag(tag, next.InlineStyle.WebVTTTags[i]) {
 				continue
 			}
 			c = append(c, []byte(tag.endTag())...)
