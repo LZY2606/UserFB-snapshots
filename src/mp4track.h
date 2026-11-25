@@ -107,6 +107,12 @@ public:
 
     uint64_t    GetDuration();      // in track timeScale units
     uint32_t    GetTimeScale();
+
+    // Endpoint-preserving time scale conversion. Validates the entire
+    // track layout and computes all new tables before mutating any state.
+    // Returns false when the track or its content is not supported.
+    bool        RescaleTimeScale(uint32_t newScale);
+
     uint32_t    GetNumberOfSamples();
     uint32_t    GetSampleSize(MP4SampleId sampleId);
     uint32_t    GetMaxSampleSize();

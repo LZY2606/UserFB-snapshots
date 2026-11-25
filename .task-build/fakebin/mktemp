@@ -1,0 +1,5 @@
+#!/bin/bash
+d=".task-build"
+f="$d/mktemp_shim_$$_$RANDOM"
+: > "$f"
+echo "$f"

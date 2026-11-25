@@ -166,6 +166,62 @@ bool MP4SetTrackTimeScale(
     MP4TrackId    trackId,
     uint32_t      value );
 
+/** Rescale a track onto a new time scale without moving sample positions.
+ *
+ *  MP4RescaleTrackTimeScale converts all timing information of the specified
+ *  track from its current time scale S to @p newScale N while preserving the
+ *  original presentation positions of every sample. Sample bytes, sample
+ *  order, sync flags, chunk assignment and chunk offsets are not modified;
+ *  no media data is repacketized.
+ *
+ *  Time conversion is done by absolute endpoints. With Q(t) = floor(t*N/S),
+ *  a sample whose DTS, duration and composition offset are d, u and c gets:
+ *  @li new DTS = Q(d)
+ *  @li new duration = Q(d+u) - Q(d)
+ *  @li new composition offset = Q(d+c) - Q(d)
+ *
+ *  stts and ctts tables are rebuilt from these per-sample values and adjacent
+ *  equal values are merged. mdhd.duration becomes Q(old mdhd.duration).
+ *  Non-empty edit list media_time values are converted the same way; empty
+ *  edits (media_time = -1) are left untouched. Edit segment durations,
+ *  tkhd.duration, the movie (mvhd) time scale and duration, and all other
+ *  tracks are unchanged.
+ *
+ *  The new time scale is also adopted by the in-memory chunking state:
+ *  duration based chunk thresholds become max(1, Q(old threshold)), while
+ *  sample-count based chunking is unchanged. Cached sample-time indexes are
+ *  invalidated so subsequent queries use the new tables immediately.
+ *
+ *  The operation is intended for files being created with MP4Create() and
+ *  ordinary self-contained MP4 files opened with MP4Modify(). It is limited
+ *  to non-fragmented files with a single sample description of type avc1 or
+ *  mp4a, non-negative ctts offsets, and edits that are either rate 1.0 media
+ *  segments or empty (media_time = -1) segments.
+ *
+ *  The whole request is validated before any track state is modified. On
+ *  failure the track, its tables and its unflushed chunk buffer are left
+ *  unchanged. This includes a zero @p newScale, a zero-duration sample, a
+ *  positive duration that would convert to zero, values that cannot be
+ *  represented by their atom fields, malformed tables and non-unit edit
+ *  rates. Passing the track's current time scale still performs the full
+ *  content validation.
+ *
+ *  MP4SetTrackTimeScale() remains a plain field setter and does not convert
+ *  any timing values.
+ *
+ *  @param hFile handle of file for operation.
+ *  @param trackId id of track to rescale.
+ *  @param newScale desired time scale for the track; must be non-zero.
+ *
+ *  @return <b>true</b> on success, <b>false</b> if the request or the
+ *      track's layout/content is not supported or valid.
+ */
+MP4V2_EXPORT
+bool MP4RescaleTrackTimeScale(
+    MP4FileHandle hFile,
+    MP4TrackId    trackId,
+    uint32_t      newScale );
+
 /** Get ISO-639-2/T language code of a track.
  *  The language code is a 3-char alpha code consisting of lower-case letters.
  *

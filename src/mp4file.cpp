@@ -3550,6 +3550,11 @@ void MP4File::SetTrackTimeScale(MP4TrackId trackId, uint32_t value)
     SetTrackIntegerProperty(trackId, "mdia.mdhd.timeScale", value);
 }
 
+bool MP4File::RescaleTrackTimeScale(MP4TrackId trackId, uint32_t value)
+{
+    return m_pTracks[FindTrackIndex(trackId)]->RescaleTimeScale(value);
+}
+
 MP4Duration MP4File::GetTrackDuration(MP4TrackId trackId)
 {
     return GetTrackIntegerProperty(trackId, "mdia.mdhd.duration");

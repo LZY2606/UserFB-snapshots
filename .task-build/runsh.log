@@ -1,0 +1,26 @@
+CASE quantize rich_modify_reopen checks=18
+CASE quantize splits_same_stts_run checks=16
+CASE quantize other_ratio checks=22
+CASE quantize 64bit_endpoints checks=6
+CASE quantize overflow_safe_fit checks=11
+GROUP quantize cases=5 checks=73 COMPLETE
+CASE state warm_caches_and_queries checks=21
+CASE state unflushed_chunk_append checks=17
+CASE state fixed_duration_converts checks=6
+GROUP state cases=3 checks=44 COMPLETE
+FindTrackIndex: Track id 0 doesn't exist (/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T164544868842Z/repo/src/mp4file.cpp,3042)
+FindTrackIndex: Track id 100 doesn't exist (/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T164544868842Z/repo/src/mp4file.cpp,3042)
+CASE reject bad_arguments checks=8
+CASE reject modify_leaves_file checks=15
+CASE reject keeps_buffer_and_continues checks=18
+CASE reject zero_and_collapsed checks=5
+CASE reject unrepresentable checks=8
+CASE reject unsupported_tracks checks=5
+CASE reject bad_edit_rate checks=4
+CASE reject bad_tables checks=5
+GROUP reject cases=8 checks=68 COMPLETE
+CASE compat legacy_setter_preserves_ticks checks=21
+SetTrackTimeScale: invalid value (/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T164544868842Z/repo/src/mp4file.cpp,3548)
+CASE compat legacy_setter_zero checks=2
+GROUP compat cases=2 checks=23 COMPLETE
+TARGET_COMPLETE cases=18

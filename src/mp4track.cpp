@@ -29,6 +29,8 @@
 
 #include "src/impl.h"
 
+#include <vector>
+
 namespace mp4v2 { namespace impl {
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1935,6 +1937,404 @@ MP4Duration MP4Track::GetDurationPerChunk()
 void MP4Track::SetDurationPerChunk( MP4Duration duration )
 {
     m_durationPerChunk = duration;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Endpoint preserving time scale rescale
+//
+// The conversion is driven by absolute endpoints: Q(t) = floor(t*N/S),
+// new sample duration = Q(d+u)-Q(d), new composition offset = Q(d+c)-Q(d).
+// All arithmetic uses a 128 bit intermediate so large endpoints or scales
+// cannot wrap into a wrong range decision.  Every check and every new table
+// is computed against local storage first; atom properties are only mutated
+// after the whole request has been accepted, so a rejection leaves the
+// track state (including the unflushed chunk buffer) untouched.
+
+namespace {
+
+struct RetimeRun {
+    uint32_t sampleCount;
+    uint32_t value;
+};
+
+void RetimeAppendRun( std::vector<RetimeRun>& runs, uint32_t value )
+{
+    // merge with the previous run when the value is unchanged
+    if( !runs.empty() && runs.back().value == value
+        && runs.back().sampleCount < 0xFFFFFFFFu ) {
+        runs.back().sampleCount++;
+    } else {
+        RetimeRun run;
+        run.sampleCount = 1;
+        run.value = value;
+        runs.push_back( run );
+    }
+}
+
+// table entryCount properties are marked read-only against SetValue(),
+// but IncrementValue() is the library's own way to update them
+void RetimeSetEntryCount( MP4Integer32Property* pCount, uint32_t newCount )
+{
+    const int64_t diff =
+        (int64_t)newCount - (int64_t)pCount->GetValue();
+    if( diff != 0 ) {
+        pCount->IncrementValue( (int32_t)diff );
+    }
+}
+
+inline unsigned __int128 RetimeQuantize(
+    uint64_t t, uint32_t newScale, uint32_t oldScale )
+{
+    return ( (unsigned __int128)t * (unsigned __int128)newScale )
+           / (unsigned __int128)oldScale;
+}
+
+} // anonymous namespace
+
+bool MP4Track::RescaleTimeScale( uint32_t newScale )
+{
+    static const uint64_t RETIME_U32_MAX = 0xFFFFFFFFULL;
+    static const uint64_t RETIME_U64_MAX = 0xFFFFFFFFFFFFFFFFULL;
+    static const uint64_t RETIME_I32_MAX = 0x7FFFFFFFULL;
+    static const uint64_t RETIME_I64_MAX = 0x7FFFFFFFFFFFFFFFULL;
+
+    if( newScale == 0 ) {
+        return false;
+    }
+    if( !m_File.IsWriteMode() ) {
+        return false;
+    }
+
+    const uint32_t oldScale = m_pTimeScaleProperty->GetValue();
+    if( oldScale == 0 ) {
+        // malformed content: would divide by zero during conversion
+        return false;
+    }
+
+    // only non-fragmented files are in scope
+    if( m_File.FindAtom( "moov.mvex" ) != NULL ) {
+        return false;
+    }
+
+    // exactly one sample description, and it must be avc1 or mp4a
+    MP4Atom* pStsd =
+        m_trakAtom.FindAtom( "trak.mdia.minf.stbl.stsd" );
+    if( pStsd == NULL || pStsd->GetNumberOfChildAtoms() != 1 ) {
+        return false;
+    }
+    const char* sampleEntryType = pStsd->GetChildAtom( 0 )->GetType();
+    if( !strequal( sampleEntryType, "avc1" )
+        && !strequal( sampleEntryType, "mp4a" ) ) {
+        return false;
+    }
+
+    const uint32_t numSamples = GetNumberOfSamples();
+
+    // every stsc entry must reference the single sample description
+    const uint32_t numStsc = m_pStscCountProperty->GetValue();
+    for( uint32_t i = 0; i < numStsc; i++ ) {
+        if( m_pStscSampleDescrIndexProperty->GetValue( i ) != 1 ) {
+            return false;
+        }
+    }
+
+    // InitEditListProperties() failure is not fatal to track construction;
+    // a half-initialized elst is an unsupported/bad layout for this operation
+    if( m_pElstCountProperty != NULL
+        && ( m_pElstMediaTimeProperty == NULL
+             || m_pElstDurationProperty == NULL
+             || m_pElstRateProperty == NULL
+             || m_pElstReservedProperty == NULL ) ) {
+        return false;
+    }
+
+    // ---- stts: expand runs to absolute DTS endpoints ----------------------
+
+    const uint32_t numStts = m_pSttsCountProperty->GetValue();
+
+    std::vector<uint64_t> oldDts( (size_t)numSamples + 1, 0 );
+
+    uint64_t d = 0;
+    uint32_t covered = 0;
+
+    for( uint32_t i = 0; i < numStts; i++ ) {
+        const uint32_t count =
+            m_pSttsSampleCountProperty->GetValue( i );
+        const uint32_t delta =
+            m_pSttsSampleDeltaProperty->GetValue( i );
+
+        if( count > 0 && delta == 0 ) {
+            return false; // zero duration sample
+        }
+        if( (uint64_t)covered + count > numSamples ) {
+            return false; // stts runs past the stsz sample count
+        }
+
+        for( uint32_t j = 0; j < count; j++ ) {
+            if( covered >= numSamples ) {
+                return false;
+            }
+            oldDts[covered] = d;
+            if( delta > 0 && d > RETIME_U64_MAX - delta ) {
+                return false; // endpoint cannot be represented: bad table
+            }
+            d += delta;
+            covered++;
+        }
+    }
+
+    if( covered != numSamples ) {
+        return false; // stts does not cover exactly all samples
+    }
+    oldDts[numSamples] = d;
+
+    // ---- new stts runs from endpoint differences --------------------------
+
+    std::vector<uint32_t> newDelta( (size_t)numSamples, 0 );
+    std::vector<RetimeRun> newStts;
+
+    for( uint32_t i = 0; i < numSamples; i++ ) {
+        const unsigned __int128 qd =
+            RetimeQuantize( oldDts[i], newScale, oldScale );
+        const unsigned __int128 qend =
+            RetimeQuantize( oldDts[i + 1], newScale, oldScale );
+        const unsigned __int128 nd = qend - qd;
+
+        if( nd == 0 || nd > RETIME_U32_MAX ) {
+            // positive duration collapsed to zero, or does not fit stts
+            return false;
+        }
+        newDelta[i] = (uint32_t)nd;
+        RetimeAppendRun( newStts, (uint32_t)nd );
+    }
+
+    // ---- ctts: new offsets against absolute endpoints ---------------------
+
+    std::vector<RetimeRun> newCtts;
+
+    if( m_pCttsCountProperty != NULL ) {
+        MP4Atom* pCttsAtom =
+            m_trakAtom.FindAtom( "trak.mdia.minf.stbl.ctts" );
+        uint8_t cttsVersion = 0;
+        if( pCttsAtom != NULL ) {
+            MP4Property* pVersionProperty = NULL;
+            if( pCttsAtom->FindProperty( "version", &pVersionProperty )
+                && pVersionProperty != NULL ) {
+                cttsVersion = (uint8_t)
+                    ((MP4IntegerProperty*)pVersionProperty)->GetValue();
+            }
+        }
+        const bool cttsV1Signed = ( cttsVersion >= 1 );
+        const uint64_t cttsLimit =
+            cttsV1Signed ? RETIME_I32_MAX : RETIME_U32_MAX;
+
+        const uint32_t numCtts = m_pCttsCountProperty->GetValue();
+        uint32_t cttsCovered = 0;
+
+        for( uint32_t i = 0; i < numCtts; i++ ) {
+            const uint32_t count =
+                m_pCttsSampleCountProperty->GetValue( i );
+            const uint32_t offset =
+                m_pCttsSampleOffsetProperty->GetValue( i );
+
+            if( cttsV1Signed && ( offset & 0x80000000u ) ) {
+                return false; // negative composition offset: out of scope
+            }
+            if( (uint64_t)cttsCovered + count > numSamples ) {
+                return false;
+            }
+
+            for( uint32_t j = 0; j < count; j++ ) {
+                if( cttsCovered >= numSamples ) {
+                    return false;
+                }
+
+                const unsigned __int128 t =
+                    (unsigned __int128)oldDts[cttsCovered]
+                    + (unsigned __int128)offset;
+                const unsigned __int128 qdc =
+                    ( t * (unsigned __int128)newScale )
+                    / (unsigned __int128)oldScale;
+                const unsigned __int128 qd =
+                    RetimeQuantize( oldDts[cttsCovered],
+                                    newScale, oldScale );
+                const unsigned __int128 noff = qdc - qd;
+
+                if( noff > cttsLimit ) {
+                    return false; // does not fit the ctts field
+                }
+
+                RetimeAppendRun( newCtts, (uint32_t)noff );
+                cttsCovered++;
+            }
+        }
+
+        if( cttsCovered != numSamples ) {
+            return false; // ctts does not cover exactly all samples
+        }
+    }
+
+    // ---- mdhd.duration ----------------------------------------------------
+
+    const uint64_t oldMediaDuration =
+        m_pMediaDurationProperty->GetValue();
+    const unsigned __int128 qmd =
+        RetimeQuantize( oldMediaDuration, newScale, oldScale );
+
+    const uint64_t mdhdLimit =
+        ( m_pMediaDurationProperty->GetType() == Integer64Property )
+        ? RETIME_U64_MAX : RETIME_U32_MAX;
+
+    if( oldMediaDuration > 0 && qmd == 0 ) {
+        return false; // positive track duration collapsed to zero
+    }
+    if( qmd > mdhdLimit ) {
+        return false; // does not fit the mdhd.duration field
+    }
+    const uint64_t newMediaDuration = (uint64_t)qmd;
+
+    // ---- edit list --------------------------------------------------------
+
+    std::vector<uint64_t> newEditMediaTime;
+
+    if( m_pElstCountProperty != NULL ) {
+        const uint32_t numEdits = m_pElstCountProperty->GetValue();
+        const bool mediaTimeIs64 =
+            ( m_pElstMediaTimeProperty->GetType() == Integer64Property );
+
+        newEditMediaTime.resize( numEdits );
+
+        for( uint32_t i = 0; i < numEdits; i++ ) {
+            // only unit rate (1.0) edits are supported
+            if( m_pElstRateProperty->GetValue( i ) != 1
+                || m_pElstReservedProperty->GetValue( i ) != 0 ) {
+                return false;
+            }
+
+            const uint64_t mediaTime =
+                m_pElstMediaTimeProperty->GetValue( i );
+
+            // an empty edit carries media_time = -1; preserve it as-is
+            const bool emptyEdit = mediaTimeIs64
+                ? ( mediaTime == RETIME_U64_MAX )
+                : ( (uint32_t)mediaTime == 0xFFFFFFFFu );
+
+            if( emptyEdit ) {
+                newEditMediaTime[i] = mediaTime;
+                continue;
+            }
+
+            // any other negative media time is unsupported
+            const uint64_t signBit =
+                mediaTimeIs64 ? ( 1ULL << 63 ) : ( 1ULL << 31 );
+            if( mediaTime & signBit ) {
+                return false;
+            }
+
+            const uint64_t mediaTimeLimit =
+                mediaTimeIs64 ? RETIME_I64_MAX : RETIME_I32_MAX;
+            const unsigned __int128 qmt =
+                RetimeQuantize( mediaTime, newScale, oldScale );
+
+            if( qmt > mediaTimeLimit ) {
+                return false; // does not fit the elst.media_time field
+            }
+            newEditMediaTime[i] = (uint64_t)qmt;
+        }
+    }
+
+    // ---- fixed duration for samples not written yet -----------------------
+
+    MP4Duration newFixedSampleDuration = m_fixedSampleDuration;
+    if( m_pSttsCountProperty->GetValue() == 0
+        && m_fixedSampleDuration != 0
+        && m_fixedSampleDuration != MP4_INVALID_DURATION ) {
+
+        const unsigned __int128 qf =
+            RetimeQuantize( m_fixedSampleDuration, newScale, oldScale );
+
+        if( qf == 0 || qf > RETIME_U32_MAX ) {
+            return false;
+        }
+        newFixedSampleDuration = (MP4Duration)(uint64_t)qf;
+    }
+
+    // ---- duration driven chunking threshold -------------------------------
+    // max(1, Q(old threshold)); sample count based grouping is untouched.
+
+    const unsigned __int128 qChunk =
+        RetimeQuantize( m_durationPerChunk, newScale, oldScale );
+    const MP4Duration newDurationPerChunk =
+        ( qChunk == 0 ) ? 1
+        : ( qChunk > RETIME_U64_MAX ) ? RETIME_U64_MAX
+        : (MP4Duration)(uint64_t)qChunk;
+
+    // =======================================================================
+    // All validation passed; commit. Nothing from here on is a "reject".
+    // =======================================================================
+
+    m_pTimeScaleProperty->SetValue( newScale );
+
+    // rebuild stts with merged runs
+    m_pSttsSampleCountProperty->SetCount( 0 );
+    m_pSttsSampleDeltaProperty->SetCount( 0 );
+    for( size_t i = 0; i < newStts.size(); i++ ) {
+        m_pSttsSampleCountProperty->AddValue( newStts[i].sampleCount );
+        m_pSttsSampleDeltaProperty->AddValue( newStts[i].value );
+    }
+    RetimeSetEntryCount( m_pSttsCountProperty,
+                         (uint32_t)newStts.size() );
+
+    // rebuild ctts with merged runs
+    if( m_pCttsCountProperty != NULL
+        && m_pCttsSampleCountProperty != NULL
+        && m_pCttsSampleOffsetProperty != NULL ) {
+
+        m_pCttsSampleCountProperty->SetCount( 0 );
+        m_pCttsSampleOffsetProperty->SetCount( 0 );
+        for( size_t i = 0; i < newCtts.size(); i++ ) {
+            m_pCttsSampleCountProperty->AddValue( newCtts[i].sampleCount );
+            m_pCttsSampleOffsetProperty->AddValue( newCtts[i].value );
+        }
+        RetimeSetEntryCount( m_pCttsCountProperty,
+                             (uint32_t)newCtts.size() );
+    }
+
+    // mdhd.duration only; tkhd.duration stays in movie time units
+    m_pMediaDurationProperty->SetValue( newMediaDuration );
+
+    // convert non-empty edit media times; empty (-1) values were preserved
+    if( m_pElstCountProperty != NULL ) {
+        for( uint32_t i = 0; i < newEditMediaTime.size(); i++ ) {
+            m_pElstMediaTimeProperty->SetValue(
+                newEditMediaTime[i], i );
+        }
+    }
+
+    // in-memory writing state adopts the new time base
+    m_fixedSampleDuration = newFixedSampleDuration;
+    m_durationPerChunk = newDurationPerChunk;
+
+    // the unflushed chunk holds the most recently written samples;
+    // recompute its accumulated duration from the new stts deltas
+    if( m_chunkSamples > 0 && m_chunkSamples <= numSamples ) {
+        MP4Duration chunkDuration = 0;
+        const uint32_t firstBuffered = numSamples - m_chunkSamples;
+        for( uint32_t i = firstBuffered; i < numSamples; i++ ) {
+            chunkDuration += newDelta[i];
+        }
+        m_chunkDuration = chunkDuration;
+    }
+
+    // invalidate warm sequential time / ctts lookup caches
+    m_cachedSttsIndex = 0;
+    m_cachedSttsSid = MP4_INVALID_SAMPLE_ID;
+    m_cachedSttsElapsed = 0;
+
+    m_cachedCttsIndex = 0;
+    m_cachedCttsSid = MP4_INVALID_SAMPLE_ID;
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
