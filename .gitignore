@@ -1,3 +1,9 @@
 # Ignore content built with CMake
 build/
 
+# Task harness build output and local sandbox helpers
+.task-build/
+.task-bin/
+.task-tmp/
+isosurface_example.ppm
+out.ppm

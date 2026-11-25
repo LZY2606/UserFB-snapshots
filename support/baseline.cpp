@@ -1,6 +1,7 @@
-#define main upstream_demo_main
-#include "../tinyraytracer.cpp"
-#undef main
+// Unity build of the production sources so the legacy single-file check
+// keeps compiling on its own.
+#include "../renderer.cpp"
+#include "../isosurface.cpp"
 #include <cassert>
 #include <iostream>
 int main(){
