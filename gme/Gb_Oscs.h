@@ -12,9 +12,24 @@ struct Gb_Osc
 	enum { trigger = 0x80 };
 	enum { len_enabled_mask = 0x40 };
 
+	// One physical output contribution: a buffer and the NR50 field (0..7)
+	// whose (field + 1) / 8 master gain the associated gain synth applies.
+	struct out_t
+	{
+		Blip_Buffer* buf;
+		int gain;
+	};
+	enum { max_outs = 2 };
+
 	Blip_Buffer* outputs [4]; // NULL, right, left, center
 	Blip_Buffer* output;
 	int output_select;
+
+	// Active routed endpoints for the current register/gain configuration.
+	// A center endpoint is a single contribution shared by both sides when
+	// their gains are equal; otherwise left and right are separate.
+	out_t outs [max_outs];
+	int out_count;
 	uint8_t* regs; // osc's 5 registers
 
 	int delay;

@@ -24,14 +24,17 @@ static unsigned const status_reg = 0xFF26;
 using std::min;
 using std::max;
 
-Gb_Apu::Gb_Apu()
+	Gb_Apu::Gb_Apu()
 {
 	memset(regs, 0, sizeof(regs));
 
-	square1.synth = &square_synth;
-	square2.synth = &square_synth;
-	wave.synth  = &other_synth;
-	noise.synth = &other_synth;
+	square1.synth = square_synth;
+	square2.synth = square_synth;
+	wave.synth  = other_synth;
+	noise.synth = other_synth;
+
+	vol_gain_left = 0;
+	vol_gain_right = 0;
 
 	oscs [0] = &square1;
 	oscs [1] = &square2;
@@ -43,6 +46,7 @@ Gb_Apu::Gb_Apu()
 		Gb_Osc& osc = *oscs [i];
 		osc.regs = &regs [i * 5];
 		osc.output = 0;
+		osc.out_count = 0;
 		osc.outputs [0] = 0;
 		osc.outputs [1] = 0;
 		osc.outputs [2] = 0;
@@ -56,8 +60,11 @@ Gb_Apu::Gb_Apu()
 
 void Gb_Apu::treble_eq( const blip_eq_t& eq )
 {
-	square_synth.treble_eq( eq );
-	other_synth.treble_eq( eq );
+	for ( int g = 0; g < 8; g++ )
+	{
+		square_synth [g].treble_eq( eq );
+		other_synth [g].treble_eq( eq );
+	}
 }
 
 void Gb_Apu::osc_output( int index, Blip_Buffer* center, Blip_Buffer* left, Blip_Buffer* right )
@@ -68,7 +75,7 @@ void Gb_Apu::osc_output( int index, Blip_Buffer* center, Blip_Buffer* left, Blip
 	osc.outputs [1] = right;
 	osc.outputs [2] = left;
 	osc.outputs [3] = center;
-	osc.output = osc.outputs [osc.output_select];
+	build_outputs( index );
 }
 
 void Gb_Apu::output( Blip_Buffer* center, Blip_Buffer* left, Blip_Buffer* right )
@@ -79,12 +86,106 @@ void Gb_Apu::output( Blip_Buffer* center, Blip_Buffer* left, Blip_Buffer* right 
 
 void Gb_Apu::update_volume()
 {
-	// TODO: doesn't handle differing left/right global volume (support would
-	// require modification to all oscillator code)
+	// NR50: top three bits (6..4) left, low three bits (2..0) right.
+	// Each field gives (value + 1) / 8 gain; zero is minimum gain, not mute.
+	// The VIN bits (3 and 7) are ignored as before.
 	int data = regs [vol_reg - start_addr];
-	double vol = (max( data & 7, data >> 4 & 7 ) + 1) * volume_unit;
-	square_synth.volume( vol );
-	other_synth.volume( vol );
+	vol_gain_left  = data >> 4 & 7;
+	vol_gain_right = data & 7;
+
+	// Index g synth already includes the (g + 1) numerator; volume_unit
+	// contains the common /8 master range factor.
+	for ( int g = 0; g < 8; g++ )
+	{
+		double vol = (g + 1) * volume_unit;
+		square_synth [g].volume( vol );
+		other_synth [g].volume( vol );
+	}
+}
+
+void Gb_Apu::build_outputs( int index )
+{
+	require( (unsigned) index < osc_count );
+	Gb_Osc& osc = *oscs [index];
+	osc.out_count = 0;
+	osc.output = 0;
+
+	Blip_Buffer* right  = osc.outputs [1];
+	Blip_Buffer* left   = osc.outputs [2];
+	Blip_Buffer* center = osc.outputs [3];
+	if ( !center && !left && !right )
+		return; // oscillator fully silenced externally
+
+	bool powered = (regs [status_reg - start_addr] & 0x80) != 0;
+	int nr51 = regs [0xFF25 - start_addr];
+	int en_right = powered && (nr51 >> index & 1);        // low nibble
+	int en_left  = powered && (nr51 >> (index + 4) & 1);  // high nibble
+	if ( !en_left && !en_right )
+		return;
+
+	// Mono convenience output(buffer) assigns the same buffer to all three.
+	// Contribute once, at the greater of the gains of the routed sides; never
+	// add multiple times just because the pointers alias.
+	if ( center == left && left == right )
+	{
+		int gain = -1;
+		if ( en_left )
+			gain = vol_gain_left;
+		if ( en_right )
+			gain = max( gain, vol_gain_right );
+		osc.outs [0].buf = center;
+		osc.outs [0].gain = gain;
+		osc.out_count = 1;
+		osc.output = center;
+		return;
+	}
+
+	// Both sides at equal gain share the single center contribution, keeping
+	// the original symmetric output bit-for-bit.
+	if ( en_left && en_right && vol_gain_left == vol_gain_right )
+	{
+		osc.outs [0].buf = center;
+		osc.outs [0].gain = vol_gain_left;
+		osc.out_count = 1;
+		osc.output = center;
+		return;
+	}
+
+	int n = 0;
+	if ( en_left )
+	{
+		osc.outs [n].buf = left;
+		osc.outs [n].gain = vol_gain_left;
+		n++;
+	}
+	if ( en_right )
+	{
+		osc.outs [n].buf = right;
+		osc.outs [n].gain = vol_gain_right;
+		n++;
+	}
+	osc.out_count = n;
+	osc.output = osc.outs [0].buf;
+}
+
+void Gb_Apu::retract_outputs( int index, blip_time_t time )
+{
+	Gb_Osc& osc = *oscs [index];
+	int amp = osc.last_amp;
+	// The standing level is owned by the endpoints currently listed.
+	osc.last_amp = 0;
+	if ( !amp )
+		return;
+
+	for ( int e = 0; e < osc.out_count; e++ )
+	{
+		int gain = osc.outs [e].gain;
+		Blip_Buffer* buf = osc.outs [e].buf;
+		if ( index < 2 )
+			square_synth [gain].offset( time, -amp, buf );
+		else
+			other_synth [gain].offset( time, -amp, buf );
+	}
 }
 
 static unsigned char const powerup_regs [0x20] = {
@@ -222,48 +323,30 @@ void Gb_Apu::write_register( blip_time_t time, unsigned addr, int data )
 	}
 	else if ( addr == vol_reg && data != old_reg ) // global volume
 	{
-		// return all oscs to 0
+		// Retract every standing contribution from the old endpoints using
+		// the old gain synths before changing the gain fields.
 		for ( int i = 0; i < osc_count; i++ )
-		{
-			Gb_Osc& osc = *oscs [i];
-			int amp = osc.last_amp;
-			osc.last_amp = 0;
-			if ( amp && osc.enabled && osc.output )
-				other_synth.offset( time, -amp, osc.output );
-		}
-
-		if ( wave.outputs [3] )
-			other_synth.offset( time, 30, wave.outputs [3] );
+			retract_outputs( i, time );
 
 		update_volume();
 
-		if ( wave.outputs [3] )
-			other_synth.offset( time, -30, wave.outputs [3] );
-
-		// oscs will update with new amplitude when next run
+		// Endpoints stay on the same buffers but their gain indices change.
+		// last_amp is zero, so each oscillator's next run continues from the
+		// current waveform level through the new configuration at this time.
+		for ( int i = 0; i < osc_count; i++ )
+			build_outputs( i );
 	}
 	else if ( addr == 0xFF25 || addr == status_reg )
 	{
+		// Remove contributions from the previous route/gain endpoint set.
+		for ( int i = 0; i < osc_count; i++ )
+			retract_outputs( i, time );
+
 		int mask = (regs [status_reg - start_addr] & 0x80) ? ~0 : 0;
-		int flags = regs [0xFF25 - start_addr] & mask;
 
 		// left/right assignments
 		for ( int i = 0; i < osc_count; i++ )
-		{
-			Gb_Osc& osc = *oscs [i];
-			osc.enabled &= mask;
-			int bits = flags >> i;
-			Blip_Buffer* old_output = osc.output;
-			osc.output_select = (bits >> 3 & 2) | (bits & 1);
-			osc.output = osc.outputs [osc.output_select];
-			if ( osc.output != old_output )
-			{
-				int amp = osc.last_amp;
-				osc.last_amp = 0;
-				if ( amp && old_output )
-					other_synth.offset( time, -amp, old_output );
-			}
-		}
+			oscs [i]->enabled &= mask;
 
 		if ( addr == status_reg && data != old_reg )
 		{
@@ -280,6 +363,11 @@ void Gb_Apu::write_register( blip_time_t time, unsigned addr, int data )
 				//debug_printf( "APU powered on\n" );
 			}
 		}
+
+		// Apply NR51 routing and power state to the endpoints. Power-off
+		// register restores above have already rebuilt these once.
+		for ( int i = 0; i < osc_count; i++ )
+			build_outputs( i );
 	}
 	else if ( addr >= 0xFF30 )
 	{

@@ -69,12 +69,25 @@ private:
 	Gb_Wave     wave;
 	Gb_Noise    noise;
 	uint8_t regs [register_count];
-	Gb_Square::Synth square_synth; // used by squares
-	Gb_Wave::Synth   other_synth;  // used by wave and noise
+	// One synth per NR50 field value (0..7), already scaled by (value + 1).
+	// Squares use the good-quality synth, wave and noise the medium one.
+	Gb_Square::Synth square_synth [8]; // used by squares
+	Gb_Wave::Synth   other_synth [8];  // used by wave and noise
+	int         vol_gain_left;  // NR50 high field, 0..7
+	int         vol_gain_right; // NR50 low field, 0..7
 
 	void update_volume();
 	void run_until( blip_time_t );
 	void write_osc( int index, int reg, int data );
+
+	// Rebuild active output endpoints of one oscillator from NR51, NR50 and
+	// the output buffers currently assigned to it.
+	void build_outputs( int index );
+
+	// Remove an oscillator's standing amplitude from all endpoints it
+	// currently uses, through the same gain synths that added it, and clear
+	// last_amp so the next run re-establishes the level at the same time.
+	void retract_outputs( int index, blip_time_t );
 };
 
 inline void Gb_Apu::output( Blip_Buffer* b ) { output( b, b, b ); }

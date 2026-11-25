@@ -26,6 +26,10 @@ void Gb_Osc::reset()
 	length = 0;
 	output_select = 3;
 	output = outputs [output_select];
+	out_count = 0;
+	outs [0].buf = 0;
+	outs [0].gain = 7;
+	outs [1] = outs [0];
 }
 
 void Gb_Osc::clock_length()
@@ -134,7 +138,8 @@ void Gb_Square::run( blip_time_t time, blip_time_t end_time, int playing )
 		if ( delta )
 		{
 			last_amp = amp;
-			synth->offset( time, delta, output );
+			for ( int e = 0; e < out_count; ++e )
+				synth [outs [e].gain].offset( time, delta, outs [e].buf );
 		}
 	}
 
@@ -145,7 +150,6 @@ void Gb_Square::run( blip_time_t time, blip_time_t end_time, int playing )
 	if ( time < end_time )
 	{
 		int const period = (2048 - frequency) * 4;
-		Blip_Buffer* const output = this->output;
 		int phase = this->phase;
 		int delta = amp * 2;
 		do
@@ -154,7 +158,8 @@ void Gb_Square::run( blip_time_t time, blip_time_t end_time, int playing )
 			if ( phase == 0 || phase == duty )
 			{
 				delta = -delta;
-				synth->offset_inline( time, delta, output );
+				for ( int e = 0; e < out_count; ++e )
+					synth [outs [e].gain].offset_inline( time, delta, outs [e].buf );
 			}
 			time += period;
 		}
@@ -180,7 +185,8 @@ void Gb_Noise::run( blip_time_t time, blip_time_t end_time, int playing )
 		if ( delta )
 		{
 			last_amp = amp;
-			synth->offset( time, delta, output );
+			for ( int e = 0; e < out_count; ++e )
+				synth [outs [e].gain].offset( time, delta, outs [e].buf );
 		}
 	}
 
@@ -194,10 +200,13 @@ void Gb_Noise::run( blip_time_t time, blip_time_t end_time, int playing )
 		int period = table [regs [3] & 7] << (regs [3] >> 4);
 
 		// keep parallel resampled time to eliminate time conversion in the loop
-		Blip_Buffer* const output = this->output;
-		const blip_resampled_time_t resampled_period =
-				output->resampled_duration( period );
-		blip_resampled_time_t resampled_time = output->resampled_time( time );
+		blip_resampled_time_t resampled_period [max_outs];
+		blip_resampled_time_t resampled_time [max_outs];
+		for ( int e = 0; e < out_count; ++e )
+		{
+			resampled_period [e] = outs [e].buf->resampled_duration( period );
+			resampled_time [e] = outs [e].buf->resampled_time( time );
+		}
 		unsigned bits = this->bits;
 		int delta = amp * 2;
 
@@ -210,9 +219,12 @@ void Gb_Noise::run( blip_time_t time, blip_time_t end_time, int playing )
 			{
 				delta = -delta;
 				bits |= 1;
-				synth->offset_resampled( resampled_time, delta, output );
+				for ( int e = 0; e < out_count; ++e )
+					synth [outs [e].gain].offset_resampled(
+							resampled_time [e], delta, outs [e].buf );
 			}
-			resampled_time += resampled_period;
+			for ( int e = 0; e < out_count; ++e )
+				resampled_time [e] += resampled_period [e];
 		}
 		while ( time < end_time );
 
@@ -270,7 +282,8 @@ void Gb_Wave::run( blip_time_t time, blip_time_t end_time, int playing )
 		if ( delta )
 		{
 			last_amp = amp;
-			synth->offset( time, delta, output );
+			for ( int e = 0; e < out_count; ++e )
+				synth [outs [e].gain].offset( time, delta, outs [e].buf );
 		}
 	}
 
@@ -280,7 +293,6 @@ void Gb_Wave::run( blip_time_t time, blip_time_t end_time, int playing )
 
 	if ( time < end_time )
 	{
-		Blip_Buffer* const output = this->output;
 		int const period = (2048 - frequency) * 2;
 	 	int wave_pos = (this->wave_pos + 1) & (wave_size - 1);
 
@@ -292,7 +304,9 @@ void Gb_Wave::run( blip_time_t time, blip_time_t end_time, int playing )
 			if ( delta )
 			{
 				last_amp = amp;
-				synth->offset_inline( time, delta, output );
+				for ( int e = 0; e < out_count; ++e )
+					synth [outs [e].gain].offset_inline(
+							time, delta, outs [e].buf );
 			}
 			time += period;
 		}
