@@ -15,3 +15,17 @@
 # vendor/
 
 .idea/
+
+# taskcheck runtime completion records
+task_support/records/
+task_support/results/
+task_support/result/
+task_support/output/
+task_support/checks/
+task_support/.taskcheck/
+task_support/completion/
+task_support/taskcheck/records/
+task_support/taskcheck/TestEnhancedVideo*.json
+task_support/taskcheck/TestEnhancedVideo*.jsonl
+task_support/taskcheck/TestEnhancedVideo*.env
+task_support/TestEnhancedVideo*.json

@@ -127,6 +127,13 @@ func OPUSTagFromCodec(codec *opus.Codec) flvio.Tag {
 
 func WritePacket(pkt av.Packet, writeTag func(flvio.Tag) error, publishing bool) (err error) {
 	switch pkt.Type {
+	case av.HEVC, av.HEVCDecoderConfig, av.HEVCSequenceEnd:
+		tag, err := HEVCVideoTag(pkt)
+		if err != nil {
+			return err
+		}
+		return writeTag(tag)
+
 	case av.AAC:
 		tag := AACTagFromCodec(pkt.AAC)
 		tag.AACPacketType = flvio.AAC_RAW
@@ -204,6 +211,7 @@ type Demuxer struct {
 	r          io.Reader
 	b          []byte
 	gotfilehdr bool
+	decoder    *PacketDecoder
 	Malloc     func(int) ([]byte, error)
 
 	LogHeaderEvent func(flags uint8)
@@ -211,8 +219,9 @@ type Demuxer struct {
 
 func NewDemuxer(r io.Reader) *Demuxer {
 	d := &Demuxer{
-		r: r,
-		b: make([]byte, 256),
+		r:       r,
+		b:       make([]byte, 256),
+		decoder: NewPacketDecoder(),
 		Malloc: func(n int) ([]byte, error) {
 			return make([]byte, n), nil
 		},
@@ -252,77 +261,76 @@ func (r *Demuxer) ReadTag() (tag flvio.Tag, err error) {
 	return
 }
 
+// ReadPacket keeps the original stateless entry point for callers that supply
+// their own tag source. Multitrack queues and track configurations are owned by
+// PacketDecoder; Demuxer and rtmp.Conn each keep one decoder.
 func ReadPacket(readTag func() (flvio.Tag, error)) (pkt av.Packet, err error) {
-	for {
-		var tag flvio.Tag
-		if tag, err = readTag(); err != nil {
-			return
+	return NewPacketDecoder().ReadPacket(readTag)
+}
+
+func parseLegacyTag(tag flvio.Tag) ([]av.Packet, error) {
+	switch tag.Type {
+	case flvio.TAG_AMF0, flvio.TAG_AMF3:
+		data := convertToAMF0Metadata(tag.Data, tag.Type == flvio.TAG_AMF3)
+		if data != nil {
+			return []av.Packet{{
+				Type: av.Metadata,
+				Data: data,
+				Time: flvio.TsToTime(int64(tag.Time)),
+			}}, nil
 		}
 
-		switch tag.Type {
-		case flvio.TAG_AMF0, flvio.TAG_AMF3:
-			data := convertToAMF0Metadata(tag.Data, tag.Type == flvio.TAG_AMF3)
-			if data != nil {
-				pkt = av.Packet{
-					Type: av.Metadata,
-					Data: data,
-					Time: flvio.TsToTime(int64(tag.Time)),
-				}
-				return
+	case flvio.TAG_VIDEO:
+		switch tag.VideoFormat {
+		case flvio.VIDEO_H264:
+			switch tag.AVCPacketType {
+			case flvio.AVC_SEQHDR:
+				return []av.Packet{{
+					Type: av.H264DecoderConfig,
+					Data: tag.Data,
+				}}, nil
+			case flvio.AVC_NALU:
+				return []av.Packet{{
+					Type:       av.H264,
+					Data:       tag.Data,
+					Time:       flvio.TsToTime(int64(tag.Time)),
+					CTime:      flvio.TsToTime(int64(tag.CTime)),
+					IsKeyFrame: tag.FrameType == flvio.FRAME_KEY,
+				}}, nil
 			}
+		}
 
-		case flvio.TAG_VIDEO:
-			switch tag.VideoFormat {
-			case flvio.VIDEO_H264:
-				switch tag.AVCPacketType {
-				case flvio.AVC_SEQHDR:
-					pkt = av.Packet{
-						Type: av.H264DecoderConfig,
-						Data: tag.Data,
-					}
-					return
-				case flvio.AVC_NALU:
-					pkt = av.Packet{
-						Type:       av.H264,
-						Data:       tag.Data,
-						Time:       flvio.TsToTime(int64(tag.Time)),
-						CTime:      flvio.TsToTime(int64(tag.CTime)),
-						IsKeyFrame: tag.FrameType == flvio.FRAME_KEY,
-					}
-					return
-				}
-			}
-
-		case flvio.TAG_AUDIO:
-			switch tag.SoundFormat {
-			case flvio.SOUND_OPUS:
-				pkt = av.Packet{
-					Type: av.OPUS,
+	case flvio.TAG_AUDIO:
+		switch tag.SoundFormat {
+		case flvio.SOUND_OPUS:
+			return []av.Packet{{
+				Type: av.OPUS,
+				Data: tag.Data,
+				Time: flvio.TsToTime(int64(tag.Time)),
+			}}, nil
+		case flvio.SOUND_AAC:
+			switch tag.AACPacketType {
+			case flvio.AAC_SEQHDR:
+				return []av.Packet{{
+					Type: av.AACDecoderConfig,
+					Data: tag.Data,
+				}}, nil
+			case flvio.AAC_RAW:
+				return []av.Packet{{
+					Type: av.AAC,
 					Data: tag.Data,
 					Time: flvio.TsToTime(int64(tag.Time)),
-				}
-				return
-			case flvio.SOUND_AAC:
-				switch tag.AACPacketType {
-				case flvio.AAC_SEQHDR:
-					pkt = av.Packet{
-						Type: av.AACDecoderConfig,
-						Data: tag.Data,
-					}
-					return
-				case flvio.AAC_RAW:
-					pkt = av.Packet{
-						Type: av.AAC,
-						Data: tag.Data,
-						Time: flvio.TsToTime(int64(tag.Time)),
-					}
-					return
-				}
+				}}, nil
 			}
 		}
 	}
+
+	return nil, nil
 }
 
 func (r *Demuxer) ReadPacket() (pkt av.Packet, err error) {
-	return ReadPacket(r.ReadTag)
+	if r.decoder == nil {
+		r.decoder = NewPacketDecoder()
+	}
+	return r.decoder.ReadPacket(r.ReadTag)
 }

@@ -1,0 +1,291 @@
+{
+  "group": "TestEnhancedVideoTracks",
+  "name": "TestEnhancedVideoTracks",
+  "completed": true,
+  "status": "passed",
+  "case_count": 7,
+  "cases_count": 7,
+  "assertion_count": 53,
+  "check_count": 53,
+  "passed_count": 53,
+  "failed_count": 0,
+  "cases": [
+    {
+      "name": "two tracks use different NAL width state",
+      "checks": [
+        {
+          "name": "config track 0",
+          "passed": true
+        },
+        {
+          "name": "config track 5",
+          "passed": true
+        },
+        {
+          "name": "frame track 0",
+          "passed": true
+        },
+        {
+          "name": "frame track 5",
+          "passed": true
+        },
+        {
+          "name": "config tracks ordered",
+          "passed": true
+        },
+        {
+          "name": "independent widths 4 and 1",
+          "passed": true
+        },
+        {
+          "name": "frame order follows member order",
+          "passed": true
+        },
+        {
+          "name": "frame 0 uses width 4 snapshot",
+          "passed": true
+        },
+        {
+          "name": "frame 5 uses width 1 snapshot",
+          "passed": true
+        },
+        {
+          "name": "frame 0 bytes preserved",
+          "passed": true
+        },
+        {
+          "name": "frame 5 bytes preserved",
+          "passed": true
+        },
+        {
+          "name": "independent composition offsets",
+          "passed": true
+        }
+      ],
+      "assertion_count": 12,
+      "passed_count": 12,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "same track configuration switch is immediate",
+      "checks": [
+        {
+          "name": "old config read",
+          "passed": true
+        },
+        {
+          "name": "old width-4 frame read",
+          "passed": true
+        },
+        {
+          "name": "new config read",
+          "passed": true
+        },
+        {
+          "name": "new width-2 frame read",
+          "passed": true
+        },
+        {
+          "name": "packet order",
+          "passed": true
+        },
+        {
+          "name": "old snapshot width remains 4",
+          "passed": true
+        },
+        {
+          "name": "new config width is 2",
+          "passed": true
+        },
+        {
+          "name": "new frame uses width 2 immediately",
+          "passed": true
+        },
+        {
+          "name": "new frame bytes accepted",
+          "passed": true
+        }
+      ],
+      "assertion_count": 9,
+      "passed_count": 9,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "packet configuration and payload snapshots are independent",
+      "checks": [
+        {
+          "name": "snapshot frame read",
+          "passed": true
+        },
+        {
+          "name": "packet payload copied away from input buffer",
+          "passed": true
+        },
+        {
+          "name": "config snapshot raw copied",
+          "passed": true
+        },
+        {
+          "name": "HEVCConfig field is independent copy",
+          "passed": true
+        },
+        {
+          "name": "snapshot width unchanged after input mutation",
+          "passed": true
+        },
+        {
+          "name": "replacement config accepted",
+          "passed": true
+        },
+        {
+          "name": "delivered snapshot survives active config replacement",
+          "passed": true
+        }
+      ],
+      "assertion_count": 7,
+      "passed_count": 7,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "SequenceStart members apply in member order",
+      "checks": [
+        {
+          "name": "both ordered config packets returned",
+          "passed": true
+        },
+        {
+          "name": "first packet keeps first snapshot",
+          "passed": true
+        },
+        {
+          "name": "second packet keeps second snapshot",
+          "passed": true
+        },
+        {
+          "name": "last SequenceStart wins for active track",
+          "passed": true
+        },
+        {
+          "name": "ordered frame bytes preserved",
+          "passed": true
+        }
+      ],
+      "assertion_count": 5,
+      "passed_count": 5,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "SequenceEnd isolates tracks",
+      "checks": [
+        {
+          "name": "SequenceEnd tag is consumed and then EOF",
+          "passed": true,
+          "detail": "EOF"
+        },
+        {
+          "name": "other track still configured",
+          "passed": true
+        },
+        {
+          "name": "other track packet returned",
+          "passed": true
+        },
+        {
+          "name": "ended track requires new SequenceStart",
+          "passed": true
+        }
+      ],
+      "assertion_count": 4,
+      "passed_count": 4,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "corrupt final member neither delivers nor half-updates",
+      "checks": [
+        {
+          "name": "stable frame before corruption",
+          "passed": true
+        },
+        {
+          "name": "stable width is 4",
+          "passed": true
+        },
+        {
+          "name": "malformed final config makes whole message fail",
+          "passed": true
+        },
+        {
+          "name": "failed call returns no packet",
+          "passed": true
+        },
+        {
+          "name": "old width-4 config remains valid",
+          "passed": true
+        },
+        {
+          "name": "failed tentative width switch rolled back",
+          "passed": true
+        },
+        {
+          "name": "old frame data still validates and copies",
+          "passed": true
+        },
+        {
+          "name": "last unconfigured member rejects frame batch",
+          "passed": true
+        },
+        {
+          "name": "frame batch delivers no early packet",
+          "passed": true
+        },
+        {
+          "name": "configuration survives rejected frame batch",
+          "passed": true
+        }
+      ],
+      "assertion_count": 10,
+      "passed_count": 10,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "unknown codec and unsupported structures are explicit",
+      "checks": [
+        {
+          "name": "unknown FourCC rejected",
+          "passed": true
+        },
+        {
+          "name": "unsupported packet type rejected",
+          "passed": true
+        },
+        {
+          "name": "unsupported multitrack mode rejected",
+          "passed": true
+        },
+        {
+          "name": "unconfigured track rejected",
+          "passed": true
+        },
+        {
+          "name": "three-byte NAL length width rejected",
+          "passed": true
+        },
+        {
+          "name": "truncated NAL unit rejected",
+          "passed": true
+        }
+      ],
+      "assertion_count": 6,
+      "passed_count": 6,
+      "failed_count": 0,
+      "passed": true
+    }
+  ],
+  "finished_at": "2026-11-25T18:59:45.888032Z"
+}

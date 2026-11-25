@@ -603,8 +603,21 @@ func (c *Conn) TmpwbufData(n int) []byte {
 }
 
 func (c *Conn) setAndWriteChunkSize(size int) (err error) {
+	if size < 1 {
+		return fmt.Errorf("SetChunkSizeInvalid(%d)", size)
+	}
+	// The control message itself must be packetized with the old chunk size.
+	if err = c.WriteSetChunkSize(size, c.wrapRW.write); err != nil {
+		return err
+	}
 	c.writeMaxChunkSize = size
-	return c.WriteSetChunkSize(size, c.wrapRW.write)
+	return nil
+}
+
+// SetWriteChunkSize sends an RTMP Set Chunk Size message and then uses size for
+// subsequent outgoing chunks.
+func (c *Conn) SetWriteChunkSize(size int) error {
+	return c.setAndWriteChunkSize(size)
 }
 
 func (c *Conn) WriteSetChunkSize(size int, write func([]byte) error) (err error) {
@@ -685,57 +698,98 @@ func (c *Conn) writeMsg2(
 		fillheader = func(b []byte) int { return 0 }
 	}
 
-	b := c.tmpwbuf(chunkHeader0Length + fillheader(nil))
+	taghdrlen := fillheader(nil)
+	b := c.tmpwbuf(chunkHeader0Length + taghdrlen)
 	chdrlen := fillChunkHeader0(b, csid, msg.timenow, msg.msgtypeid, msg.msgsid, 0)
-	taghdrlen := fillheader(b[chdrlen:])
-	msg.msgdatalen = uint32(taghdrlen + len(msg.msgdata))
+	taghdrStart := chdrlen
+	taghdrlen = fillheader(b[taghdrStart:])
+	total := taghdrlen + len(msg.msgdata)
+
+	msg.msgdatalen = uint32(total)
 	msg.msgdataleft = msg.msgdatalen
-	fillChunkHeader0MsgDataLen(b, int(msg.msgdatalen))
-	wb := b[:chdrlen+taghdrlen]
-	if err = write(wb); err != nil {
-		return
+	fillChunkHeader0MsgDataLen(b, total)
+
+	chunkSize := c.writeMaxChunkSize
+	if chunkSize < 1 {
+		chunkSize = 128
 	}
 
-	chunkleft := c.writeMaxChunkSize - taghdrlen
-	if chunkleft < 0 {
-		panic(fmt.Sprintf("TagHdrTooLong(%d,%d)", c.writeMaxChunkSize, taghdrlen))
+	// Write exactly one RTMP chunk payload. The virtual payload is the
+	// FLV/RTMP message header produced by fillheader followed by msgdata.
+	// This remains correct when the enhanced-video header itself is larger
+	// than chunkSize.
+	writePayload := func(offset, length int) error {
+		if length == 0 {
+			return nil
+		}
+
+		if offset < taghdrlen {
+			n := length
+			if max := taghdrlen - offset; n > max {
+				n = max
+			}
+			if err := write(b[taghdrStart+offset : taghdrStart+offset+n]); err != nil {
+				return err
+			}
+			offset += n
+			length -= n
+		}
+
+		if length > 0 {
+			dataOffset := offset - taghdrlen
+			if err := write(msg.msgdata[dataOffset : dataOffset+length]); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	msg.msgdataleft -= uint32(taghdrlen)
 
-	i := 0
+	offset := 0
+	firstChunk := true
+	for {
+		chunkEnd := offset + chunkSize
+		if chunkEnd > total {
+			chunkEnd = total
+		}
+		chunkLen := chunkEnd - offset
 
-	for msg.msgdataleft > 0 {
-		if i > 0 {
+		if firstChunk {
+			// The RTMP chunk header and the first payload bytes can share one
+			// Write when the payload lies wholly in the tag header. If it
+			// crosses into msgdata, write the complete RTMP+tag header first.
+			if chunkLen <= taghdrlen-offset {
+				if err = write(b[:taghdrStart+chunkLen]); err != nil {
+					return
+				}
+			} else {
+				if err = write(b[:taghdrStart+taghdrlen]); err != nil {
+					return
+				}
+				if err = writePayload(taghdrlen, chunkLen-(taghdrlen-offset)); err != nil {
+					return
+				}
+			}
+			firstChunk = false
+		} else {
 			n := c.fillChunkHeader3(b, csid, msg.timenow)
 			if err = write(b[:n]); err != nil {
 				return
 			}
+			if err = writePayload(offset, chunkLen); err != nil {
+				return
+			}
 		}
 
-		n := int(msg.msgdataleft)
-		if n > chunkleft {
-			n = chunkleft
-		}
-
-		start := int(msg.msgdatalen-msg.msgdataleft) - taghdrlen
-		if err = write(msg.msgdata[start : start+n]); err != nil {
-			return
-		}
-		chunkleft -= n
-		msg.msgdataleft -= uint32(n)
-
-		if chunkleft == 0 {
-			chunkleft = c.writeMaxChunkSize
-		}
-
-		i++
-
+		offset = chunkEnd
+		msg.msgdataleft = uint32(total - offset)
 		if progress != nil {
 			progress(msg)
 		}
-	}
 
-	return nil
+		if offset == total {
+			return nil
+		}
+	}
 }
 
 func (c *Conn) writeMsg(csid uint32, msg message, fillheader func([]byte) int) (err error) {
@@ -870,7 +924,7 @@ func (c *Conn) handleEvent(msg *message) (handled bool, err error) {
 		if v, err = pio.ReadU32BE(msg.msgdata, &n); err != nil {
 			return
 		}
-		if int(v) < 0 {
+		if int(v) < 1 {
 			err = fmt.Errorf("SetChunkSizeInvalid(%x)", v)
 			return
 		}

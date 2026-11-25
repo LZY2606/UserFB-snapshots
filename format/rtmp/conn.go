@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/url"
 
+	"github.com/notedit/rtmp/format/flv"
 	"github.com/notedit/rtmp/format/flv/flvio"
 )
 
@@ -36,6 +37,7 @@ type Conn struct {
 	peekread chan *message
 
 	avmsgsid            uint32
+	packetDecoder       *flv.PacketDecoder
 	writebuf, writebuf2 []byte
 	readbuf, readbuf2   []byte
 	lastackn, ackn      uint32
@@ -60,6 +62,7 @@ func NewConn(rw ReadWriteFlusher) *Conn {
 	c.closeNotify = make(chan bool, 1)
 	c.wrapRW = newWrapReadWriter(c, rw)
 	c.readcsmap = make(map[uint32]*message)
+	c.packetDecoder = flv.NewPacketDecoder()
 	c.ReadMaxChunkSize = 128
 	c.writeMaxChunkSize = 128
 	c.writebuf = make([]byte, 256)

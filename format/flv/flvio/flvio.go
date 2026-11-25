@@ -86,6 +86,22 @@ const (
 	VIDEO_H265 = 12
 )
 
+// Enhanced RTMP v2 ExVideoPacketType values.
+const (
+	EX_PACKET_SEQUENCE_START = 0
+	EX_PACKET_CODED_FRAMES   = 1
+	EX_PACKET_SEQUENCE_END   = 2
+	EX_PACKET_CODED_FRAMES_X = 3
+	EX_PACKET_MULTITRACK     = 6
+
+	EX_MULTITRACK_ONE_TRACK   = 0
+	EX_MULTITRACK_MANY_TRACKS = 1
+)
+
+const (
+	ExFourCCHEVC = "hvc1"
+)
+
 type Tag struct {
 	Type uint8
 
@@ -173,6 +189,17 @@ type Tag struct {
 		2: AVC end of sequence (lower level NALU sequence ender is not required or supported)
 	*/
 	AVCPacketType uint8
+
+	// Enhanced RTMP v2 video header fields. Enhanced is deliberately not
+	// inferred by ParseHeader so the historical legacy parser behavior and
+	// its one-byte header result remain unchanged.
+	Enhanced      bool
+	ExPacketType  uint8
+	ExMultitrack  bool
+	ExManyTracks  bool
+	ExFourCC      string
+	ExTrackID     uint8
+	ExInnerPacket uint8
 
 	Time  uint32
 	CTime int32
@@ -283,12 +310,54 @@ func (t *Tag) parseVideoHeader(b []byte) (n int, err error) {
 }
 
 func (t Tag) fillVideoHeader(b []byte) (n int) {
+	if t.Enhanced {
+		return t.fillEnhancedVideoHeader(b)
+	}
+
 	pio.WriteU8(b, &n, t.FrameType<<4|t.VideoFormat)
 
 	switch t.VideoFormat {
 	case VIDEO_H264, VIDEO_H265:
 		pio.WriteU8(b, &n, t.AVCPacketType)
 		pio.WriteI24BE(b, &n, int32(t.CTime))
+	}
+	return
+}
+
+func (t Tag) fillEnhancedVideoHeader(b []byte) (n int) {
+	fourcc := t.ExFourCC
+	if fourcc == "" {
+		fourcc = ExFourCCHEVC
+	}
+
+	innerType := t.ExInnerPacket
+	if !t.ExMultitrack {
+		pio.WriteU8(b, &n, 0x80|(t.FrameType&0x07)<<4|(t.ExPacketType&0x0f))
+		pio.WriteString(b, &n, fourcc)
+		if t.ExPacketType == EX_PACKET_CODED_FRAMES {
+			pio.WriteI24BE(b, &n, t.CTime)
+		}
+		return
+	}
+
+	pio.WriteU8(b, &n, 0x80|(t.FrameType&0x07)<<4|EX_PACKET_MULTITRACK)
+	mode := uint8(EX_MULTITRACK_ONE_TRACK)
+	if t.ExManyTracks {
+		mode = EX_MULTITRACK_MANY_TRACKS
+	}
+	pio.WriteU8(b, &n, mode<<4|(innerType&0x0f))
+	pio.WriteString(b, &n, fourcc)
+
+	if t.ExManyTracks {
+		// Data contains [trackID, u24 length, track payload] items. Each
+		// CodedFrames item includes its own composition-time field.
+		return n
+	}
+
+	// OneTrack: one-byte track id followed by that track's content.
+	pio.WriteU8(b, &n, t.ExTrackID)
+	if innerType == EX_PACKET_CODED_FRAMES {
+		pio.WriteI24BE(b, &n, t.CTime)
 	}
 	return
 }

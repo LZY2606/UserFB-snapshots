@@ -1,0 +1,215 @@
+{
+  "group": "TestEnhancedVideoHeaders",
+  "name": "TestEnhancedVideoHeaders",
+  "completed": true,
+  "status": "passed",
+  "case_count": 5,
+  "cases_count": 5,
+  "assertion_count": 36,
+  "check_count": 36,
+  "passed_count": 36,
+  "failed_count": 0,
+  "cases": [
+    {
+      "name": "plain enhanced hvc1 header",
+      "checks": [
+        {
+          "name": "payload has full configuration",
+          "passed": true
+        },
+        {
+          "name": "enhanced key SequenceStart first byte",
+          "passed": true,
+          "detail": "144"
+        },
+        {
+          "name": "hvc1 FourCC",
+          "passed": true,
+          "detail": "hvc1"
+        },
+        {
+          "name": "HVCC record follows FourCC",
+          "passed": true
+        },
+        {
+          "name": "muxed config reads back",
+          "passed": true
+        },
+        {
+          "name": "read config type",
+          "passed": true,
+          "detail": "9"
+        },
+        {
+          "name": "default track is zero",
+          "passed": true,
+          "detail": "0"
+        }
+      ],
+      "assertion_count": 7,
+      "passed_count": 7,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "OneTrack header and negative composition time",
+      "checks": [
+        {
+          "name": "OneTrack outer byte",
+          "passed": true,
+          "detail": "[150 1 104 118 99 49 3 255 255 206 0 0 0 5 2 1 34 16 17 0 0 0 4 2 1 221 32]"
+        },
+        {
+          "name": "OneTrack mode with CodedFrames",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "name": "shared hvc1 FourCC",
+          "passed": true
+        },
+        {
+          "name": "one-byte track id",
+          "passed": true,
+          "detail": "3"
+        },
+        {
+          "name": "signed -50ms composition bytes",
+          "passed": true,
+          "detail": "[255 255 206]"
+        },
+        {
+          "name": "NAL payload follows composition time",
+          "passed": true
+        },
+        {
+          "name": "OneTrack packet reads back",
+          "passed": true
+        },
+        {
+          "name": "track 3 preserved",
+          "passed": true
+        },
+        {
+          "name": "negative CTime preserved",
+          "passed": true,
+          "detail": "-50ms"
+        },
+        {
+          "name": "DTS is not replaced by CTS",
+          "passed": true
+        }
+      ],
+      "assertion_count": 10,
+      "passed_count": 10,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "ManyTracks header layout",
+      "checks": [
+        {
+          "name": "ManyTracks outer byte",
+          "passed": true,
+          "detail": "150"
+        },
+        {
+          "name": "ManyTracks mode and SequenceStart",
+          "passed": true,
+          "detail": "16"
+        },
+        {
+          "name": "ManyTracks shared FourCC",
+          "passed": true
+        },
+        {
+          "name": "first item track",
+          "passed": true
+        },
+        {
+          "name": "first item 24-bit length",
+          "passed": true
+        },
+        {
+          "name": "second item track at declared boundary",
+          "passed": true
+        },
+        {
+          "name": "first ManyTracks config",
+          "passed": true
+        },
+        {
+          "name": "second ManyTracks config",
+          "passed": true
+        },
+        {
+          "name": "ManyTracks order/tracks",
+          "passed": true
+        },
+        {
+          "name": "ManyTracks config widths",
+          "passed": true
+        }
+      ],
+      "assertion_count": 10,
+      "passed_count": 10,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "negative composition time semantics",
+      "checks": [
+        {
+          "name": "negative CTime frame accepted",
+          "passed": true
+        },
+        {
+          "name": "CTime is -50ms",
+          "passed": true
+        },
+        {
+          "name": "outer timestamp remains DTS 100ms",
+          "passed": true
+        },
+        {
+          "name": "display time is DTS+CTS=50ms",
+          "passed": true
+        },
+        {
+          "name": "composition bytes are sign extended",
+          "passed": true
+        }
+      ],
+      "assertion_count": 5,
+      "passed_count": 5,
+      "failed_count": 0,
+      "passed": true
+    },
+    {
+      "name": "truncated enhanced messages are errors",
+      "checks": [
+        {
+          "name": "truncated FourCC rejected",
+          "passed": true
+        },
+        {
+          "name": "truncated HVCC rejected",
+          "passed": true
+        },
+        {
+          "name": "ManyTracks length overflow rejected",
+          "passed": true
+        },
+        {
+          "name": "truncated composition time rejected",
+          "passed": true
+        }
+      ],
+      "assertion_count": 4,
+      "passed_count": 4,
+      "failed_count": 0,
+      "passed": true
+    }
+  ],
+  "finished_at": "2026-11-25T18:59:45.886082Z"
+}
