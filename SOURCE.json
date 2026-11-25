@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/ccrma/chuck",
+  "commit": "401bbda10dc0b45ae5a16d408e8d34b8f0ed2e03",
+  "license": "MIT OR GPL-2.0-or-later; embedded third-party notices retained",
+  "scope": "all src/core plus licenses; device/web hosts not used"
+}
