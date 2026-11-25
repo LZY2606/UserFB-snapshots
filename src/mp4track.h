@@ -107,6 +107,12 @@ public:
 
     uint64_t    GetDuration();      // in track timeScale units
     uint32_t    GetTimeScale();
+
+    // convert the track to a new time scale, rewriting all time-based
+    // tables (stts/ctts/mdhd/elst) by absolute endpoint rescaling.
+    // returns false (leaving the track untouched) if the track layout
+    // or contents are not supported.
+    bool        RescaleTimeScale(uint32_t newTimeScale);
     uint32_t    GetNumberOfSamples();
     uint32_t    GetSampleSize(MP4SampleId sampleId);
     uint32_t    GetMaxSampleSize();

@@ -1505,6 +1505,296 @@ uint32_t MP4Track::GetTimeScale()
     return m_pTimeScaleProperty->GetValue();
 }
 
+namespace {
+
+// Compute floor(t * mul / div) exactly. Returns false if the mathematical
+// result does not fit in 64 bits. The intermediate product t * mul may
+// require up to 96 bits, so it is decomposed instead of computed directly.
+bool ScaleTimeEndpoint(uint64_t t, uint32_t mul, uint32_t div, uint64_t& result)
+{
+    const uint64_t q = t / div;
+    const uint64_t r = t % div;
+    if (q && (uint64_t)mul > ~(uint64_t)0 / q)
+        return false;
+    const uint64_t hi = q * mul;
+    // r < div <= 2^32-1 and mul <= 2^32-1, so r * mul always fits in 64 bits
+    const uint64_t lo = (r * mul) / div;
+    if (hi > ~(uint64_t)0 - lo)
+        return false;
+    result = hi + lo;
+    return true;
+}
+
+} // anonymous namespace
+
+// Convert the track to a new time scale. Every time-based quantity of the
+// track media (sample decoding times, durations, composition offsets, the
+// media duration and non-empty edit media times) is rescaled by absolute
+// endpoint: with Q(t) = floor(t * newTimeScale / oldTimeScale), a sample
+// with decoding time d, duration u and composition offset c gets decoding
+// time Q(d), duration Q(d+u)-Q(d) and offset Q(d+c)-Q(d). Sample bytes,
+// sample order, sync marks, chunk assignment and chunk offsets are not
+// touched, nor are the track/movie header durations or any other track.
+//
+// Only non-fragmented, self-contained tracks with a single avc1 or mp4a
+// sample description, non-negative composition offsets and edits that are
+// either rate=1 media segments or empty (media_time == -1) segments are
+// supported. Returns false, leaving the track and its pending write
+// buffers completely unchanged, if anything is unsupported or a converted
+// value would not fit its field.
+bool MP4Track::RescaleTimeScale(uint32_t newTimeScale)
+{
+    const uint32_t oldTimeScale = m_pTimeScaleProperty->GetValue();
+
+    if (newTimeScale == 0 || oldTimeScale == 0)
+        return false;
+
+    // the rescaled tables must be written back eventually
+    if (!m_File.IsWriteMode())
+        return false;
+
+    // fragmented files are out of scope
+    if (m_File.FindAtom("moov.mvex") || m_File.FindAtom("moof"))
+        return false;
+
+    // only a single avc1 or mp4a sample description is supported
+    MP4Atom* pStsdAtom = m_trakAtom.FindAtom("trak.mdia.minf.stbl.stsd");
+    if (!pStsdAtom || pStsdAtom->GetNumberOfChildAtoms() != 1)
+        return false;
+    const char* entryType = pStsdAtom->GetChildAtom(0)->GetType();
+    if (!strequal(entryType, "avc1") && !strequal(entryType, "mp4a"))
+        return false;
+
+    // only self-contained media data
+    MP4Atom* pUrlAtom = m_trakAtom.FindAtom("trak.mdia.minf.dinf.dref.url ");
+    if (pUrlAtom && !(pUrlAtom->GetFlags() & 1))
+        return false;
+
+    const uint32_t numSamples = GetNumberOfSamples();
+
+    // validate the stts table shape before touching anything
+    const uint32_t numStts = m_pSttsCountProperty->GetValue();
+    if (m_pSttsSampleCountProperty->GetCount() != numStts ||
+            m_pSttsSampleDeltaProperty->GetCount() != numStts)
+        return false;
+
+    // validate the ctts table shape, if present
+    const uint32_t numCtts =
+        m_pCttsCountProperty ? m_pCttsCountProperty->GetValue() : 0;
+    if (m_pCttsCountProperty) {
+        MP4Integer8Property* pCttsVersion = NULL;
+        MP4Atom* pCttsAtom = m_trakAtom.FindAtom("trak.mdia.minf.stbl.ctts");
+        if (pCttsAtom &&
+                pCttsAtom->FindProperty("ctts.version",
+                                        (MP4Property**)&pCttsVersion) &&
+                pCttsVersion->GetValue() != 0)
+            return false; // signed composition offsets are out of scope
+        if (m_pCttsSampleCountProperty->GetCount() != numCtts ||
+                m_pCttsSampleOffsetProperty->GetCount() != numCtts)
+            return false;
+        uint64_t cttsSamples = 0;
+        for (uint32_t i = 0; i < numCtts; i++) {
+            const uint64_t count = m_pCttsSampleCountProperty->GetValue(i);
+            if (count == 0)
+                return false;
+            cttsSamples += count;
+        }
+        if (cttsSamples != numSamples)
+            return false;
+    }
+
+    // walk the samples once, converting stts (and ctts) by absolute
+    // endpoint and merging adjacent identical values into new runs
+    vector<uint32_t> sttsCounts;
+    vector<uint32_t> sttsDeltas;
+    vector<uint32_t> cttsCounts;
+    vector<uint32_t> cttsOffsets;
+
+    uint32_t cttsIndex = 0;
+    uint64_t cttsRemaining = 0;
+    uint64_t cttsOffset = 0;
+    if (numCtts) {
+        cttsRemaining = m_pCttsSampleCountProperty->GetValue(0);
+        cttsOffset = m_pCttsSampleOffsetProperty->GetValue(0);
+    }
+
+    uint64_t dts = 0;    // absolute decoding time, old scale
+    uint64_t newDts = 0; // ScaleTimeEndpoint(dts), tracked exactly
+    uint64_t totalSamples = 0;
+
+    for (uint32_t i = 0; i < numStts; i++) {
+        const uint64_t sampleCount = m_pSttsSampleCountProperty->GetValue(i);
+        const uint64_t sampleDelta = m_pSttsSampleDeltaProperty->GetValue(i);
+        if (sampleCount == 0 || sampleDelta == 0)
+            return false; // corrupt table or zero-duration samples
+        totalSamples += sampleCount;
+        if (totalSamples > numSamples)
+            return false;
+
+        for (uint64_t k = 0; k < sampleCount; k++) {
+            if (dts > ~(uint64_t)0 - sampleDelta)
+                return false;
+            uint64_t end;
+            if (!ScaleTimeEndpoint(dts + sampleDelta,
+                                   newTimeScale, oldTimeScale, end))
+                return false;
+            const uint64_t newDelta = end - newDts;
+            if (newDelta == 0 || newDelta > 0xFFFFFFFFULL)
+                return false;
+            if (!sttsDeltas.empty() && sttsDeltas.back() == (uint32_t)newDelta) {
+                sttsCounts.back() += 1;
+            } else {
+                sttsCounts.push_back(1);
+                sttsDeltas.push_back((uint32_t)newDelta);
+            }
+
+            if (numCtts) {
+                if (dts > ~(uint64_t)0 - cttsOffset)
+                    return false;
+                uint64_t newCts;
+                if (!ScaleTimeEndpoint(dts + cttsOffset,
+                                       newTimeScale, oldTimeScale, newCts))
+                    return false;
+                const uint64_t newOffset = newCts - newDts;
+                if (newOffset > 0xFFFFFFFFULL)
+                    return false;
+                if (!cttsOffsets.empty() &&
+                        cttsOffsets.back() == (uint32_t)newOffset) {
+                    cttsCounts.back() += 1;
+                } else {
+                    cttsCounts.push_back(1);
+                    cttsOffsets.push_back((uint32_t)newOffset);
+                }
+                if (--cttsRemaining == 0 && cttsIndex + 1 < numCtts) {
+                    cttsIndex++;
+                    cttsRemaining = m_pCttsSampleCountProperty->GetValue(cttsIndex);
+                    cttsOffset = m_pCttsSampleOffsetProperty->GetValue(cttsIndex);
+                }
+            }
+
+            dts += sampleDelta;
+            newDts = end;
+        }
+    }
+    if (totalSamples != numSamples)
+        return false;
+
+    // media duration, in the width of its own field
+    uint64_t newMediaDuration;
+    if (!ScaleTimeEndpoint(m_pMediaDurationProperty->GetValue(),
+                           newTimeScale, oldTimeScale, newMediaDuration))
+        return false;
+    if (m_pMediaDurationProperty->GetType() != Integer64Property &&
+            newMediaDuration > 0xFFFFFFFFULL)
+        return false;
+
+    // edit list: convert media times of rate=1 media segments, preserve
+    // empty (media_time == -1) segments
+    const uint32_t numEdits =
+        m_pElstCountProperty ? m_pElstCountProperty->GetValue() : 0;
+    vector<uint64_t> elstMediaTimes;
+    if (numEdits) {
+        if (m_pElstMediaTimeProperty->GetCount() != numEdits ||
+                m_pElstDurationProperty->GetCount() != numEdits ||
+                m_pElstRateProperty->GetCount() != numEdits)
+            return false;
+        const bool wide =
+            m_pElstMediaTimeProperty->GetType() == Integer64Property;
+        const uint64_t emptyEdit = wide ? ~(uint64_t)0 : 0xFFFFFFFFULL;
+        for (uint32_t i = 0; i < numEdits; i++) {
+            const uint64_t mediaTime = m_pElstMediaTimeProperty->GetValue(i);
+            if (mediaTime == emptyEdit) {
+                elstMediaTimes.push_back(mediaTime);
+                continue;
+            }
+            if (m_pElstRateProperty->GetValue(i) != 1)
+                return false; // non-unit edit rate is out of scope
+            uint64_t newMediaTime;
+            if (!ScaleTimeEndpoint(mediaTime,
+                                   newTimeScale, oldTimeScale, newMediaTime))
+                return false;
+            if (!wide && newMediaTime > 0xFFFFFFFFULL)
+                return false;
+            elstMediaTimes.push_back(newMediaTime);
+        }
+    }
+
+    // a fixed sample duration that no written sample has consumed yet
+    // is expressed in the old scale and must be converted too
+    uint64_t newFixedSampleDuration = m_fixedSampleDuration;
+    if (numStts == 0 && m_fixedSampleDuration &&
+            m_fixedSampleDuration != MP4_INVALID_DURATION) {
+        if (!ScaleTimeEndpoint(m_fixedSampleDuration,
+                               newTimeScale, oldTimeScale,
+                               newFixedSampleDuration))
+            return false;
+        if (newFixedSampleDuration == 0 ||
+                newFixedSampleDuration > 0xFFFFFFFFULL)
+            return false;
+    }
+
+    // in-memory chunking controls: a duration-based threshold follows the
+    // new scale (never below 1 tick), a sample-count-based one is kept
+    uint64_t newDurationPerChunk = m_durationPerChunk;
+    uint64_t newChunkDuration = m_chunkDuration;
+    if (m_samplesPerChunk == 0) {
+        uint64_t threshold;
+        if (!ScaleTimeEndpoint(m_durationPerChunk,
+                               newTimeScale, oldTimeScale, threshold))
+            return false;
+        newDurationPerChunk = threshold ? threshold : 1;
+        if (!ScaleTimeEndpoint(m_chunkDuration,
+                               newTimeScale, oldTimeScale, newChunkDuration))
+            return false;
+    }
+
+    // everything validated; now rewrite the tables in place
+
+    m_pSttsSampleCountProperty->SetCount((uint32_t)sttsCounts.size());
+    m_pSttsSampleDeltaProperty->SetCount((uint32_t)sttsDeltas.size());
+    for (uint32_t i = 0; i < sttsCounts.size(); i++) {
+        m_pSttsSampleCountProperty->SetValue(sttsCounts[i], i);
+        m_pSttsSampleDeltaProperty->SetValue(sttsDeltas[i], i);
+    }
+    // table count properties are marked read-only (the table owns them);
+    // briefly lift that to install the rebuilt count
+    m_pSttsCountProperty->SetReadOnly(false);
+    m_pSttsCountProperty->SetValue((uint32_t)sttsCounts.size());
+    m_pSttsCountProperty->SetReadOnly(true);
+
+    if (m_pCttsCountProperty) {
+        m_pCttsSampleCountProperty->SetCount((uint32_t)cttsCounts.size());
+        m_pCttsSampleOffsetProperty->SetCount((uint32_t)cttsOffsets.size());
+        for (uint32_t i = 0; i < cttsCounts.size(); i++) {
+            m_pCttsSampleCountProperty->SetValue(cttsCounts[i], i);
+            m_pCttsSampleOffsetProperty->SetValue(cttsOffsets[i], i);
+        }
+        m_pCttsCountProperty->SetReadOnly(false);
+        m_pCttsCountProperty->SetValue((uint32_t)cttsCounts.size());
+        m_pCttsCountProperty->SetReadOnly(true);
+    }
+
+    m_pMediaDurationProperty->SetValue(newMediaDuration);
+
+    for (uint32_t i = 0; i < numEdits; i++)
+        m_pElstMediaTimeProperty->SetValue(elstMediaTimes[i], i);
+
+    m_pTimeScaleProperty->SetValue(newTimeScale);
+
+    // per-sample time queries must consult the new tables immediately
+    m_cachedSttsIndex = 0;
+    m_cachedSttsSid = MP4_INVALID_SAMPLE_ID;
+    m_cachedSttsElapsed = 0;
+    m_cachedCttsIndex = 0;
+    m_cachedCttsSid = MP4_INVALID_SAMPLE_ID;
+
+    m_durationPerChunk = newDurationPerChunk;
+    m_chunkDuration = newChunkDuration;
+    m_fixedSampleDuration = newFixedSampleDuration;
+
+    return true;
+}
+
 void MP4Track::UpdateDurations(MP4Duration duration)
 {
     // update media, track, and movie durations

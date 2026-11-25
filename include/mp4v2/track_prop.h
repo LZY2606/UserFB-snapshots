@@ -166,6 +166,53 @@ bool MP4SetTrackTimeScale(
     MP4TrackId    trackId,
     uint32_t      value );
 
+/** Rescale the time scale of a track, preserving playback positions.
+ *
+ *  MP4RescaleTrackTimeScale converts the specified track to a new time
+ *  scale while keeping the media at its original playback position. Unlike
+ *  MP4SetTrackTimeScale(), which only rewrites the time scale field, this
+ *  call rewrites every time-based quantity of the track media by absolute
+ *  endpoint rescaling: with Q(t) = floor(t * newTimeScale / oldTimeScale),
+ *  a sample with decoding time d, duration u and composition offset c gets
+ *  decoding time Q(d), duration Q(d+u) - Q(d) and composition offset
+ *  Q(d+c) - Q(d). The media duration (mdhd) becomes Q(old duration) and
+ *  non-empty edit media times are converted the same way, while empty
+ *  (media_time == -1) edits are preserved. Sample bytes, sample order,
+ *  sync marks, chunk assignment and chunk offsets are left untouched, as
+ *  are edit segment durations, the track (tkhd) and movie (mvhd) time
+ *  scales and durations, and all other tracks.
+ *
+ *  This call is intended for files being created and for ordinary
+ *  self-contained mp4 files opened with MP4Modify(). Only non-fragmented
+ *  tracks with a single avc1 or mp4a sample description, non-negative
+ *  composition offsets and edits that are either rate=1 media segments or
+ *  empty segments are supported.
+ *
+ *  The call fails (returning <b>false</b> and leaving the track and its
+ *  pending write buffers completely unchanged) when the new time scale is
+ *  zero, when samples with zero duration are present, when a converted
+ *  duration would become zero, when a converted value would not fit its
+ *  field, when a time table is corrupt, when an edit has a non-unit rate,
+ *  or when the track layout is otherwise unsupported. A call with the
+ *  current time scale still validates the track contents.
+ *
+ *  After a successful call, sample time queries, time-to-sample lookups
+ *  and edit queries immediately reflect the new tables, and writing may
+ *  be continued with MP4WriteSample() using durations and offsets
+ *  expressed in the new time scale.
+ *
+ *  @param hFile handle of file for operation.
+ *  @param trackId id of track for operation.
+ *  @param newTimeScale desired new time scale for the track.
+ *
+ *  @return <b>true</b> on success, <b>false</b> on failure.
+ */
+MP4V2_EXPORT
+bool MP4RescaleTrackTimeScale(
+    MP4FileHandle hFile,
+    MP4TrackId    trackId,
+    uint32_t      newTimeScale );
+
 /** Get ISO-639-2/T language code of a track.
  *  The language code is a 3-char alpha code consisting of lower-case letters.
  *

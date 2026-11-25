@@ -2412,6 +2412,24 @@ MP4FileHandle MP4ModifyCallbacks(const MP4IOCallbacks* callbacks,
         return false;
     }
 
+    bool MP4RescaleTrackTimeScale(
+        MP4FileHandle hFile, MP4TrackId trackId, uint32_t newTimeScale)
+    {
+        if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+            try {
+                return ((MP4File*)hFile)->RescaleTrackTimeScale(trackId, newTimeScale);
+            }
+            catch( Exception* x ) {
+                mp4v2::impl::log.errorf(*x);
+                delete x;
+            }
+            catch( ... ) {
+                mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+            }
+        }
+        return false;
+    }
+
     uint8_t MP4GetTrackAudioMpeg4Type(
         MP4FileHandle hFile, MP4TrackId trackId)
     {

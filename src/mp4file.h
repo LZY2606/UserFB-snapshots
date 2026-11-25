@@ -548,6 +548,7 @@ public:
 
     uint32_t GetTrackTimeScale(MP4TrackId trackId);
     void SetTrackTimeScale(MP4TrackId trackId, uint32_t value);
+    bool RescaleTrackTimeScale(MP4TrackId trackId, uint32_t newTimeScale);
 
     // replacement to GetTrackAudioType and GetTrackVideoType
     uint8_t GetTrackEsdsObjectTypeId(MP4TrackId trackId);

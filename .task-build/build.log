@@ -1,0 +1,1304 @@
+CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib
+[  2%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/io/FileSystem_posix.cpp.o
+[  2%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/number/random_posix.cpp.o
+[  3%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/io/File_posix.cpp.o
+[  4%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/time/time_posix.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/time/time_posix.cpp:1:
+In file included from In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/number/random_posix.cpp:1In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/io/FileSystem_posix.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/io/File_posix.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:In file included from 6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.hIn file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h::6/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+:/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h::24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+30   306:
+ | # /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:   30 | # 10:d ewarning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+deffi   30:10inne MP4Ve MP4 | # de: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+fineV2_USE_STATIC_LIB
+      |          ^
+    30 | # de<command line>2_M:P4V2_USE_STATIC_fiLIB
+      |          ^nUe SE_S
+TATIC_<command line>:11:9:M note: Lprevious definition is hereI:B
+
+      | P9: note: previous definition is here
+    4V2_USE_    1 | #deSTfine MP41 | #de         ^
+fine MP4<command line>V2_USE_STATIC_LV2_USE_STATIC_:1AIB L1:
+      |         ^T9: IB IC_L
+1
+      | note:         ^
+previous definition is here
+IB
+      |          ^
+    1 | <command line>:1:9: #dnote: previous definition is here
+ef    1 | #define MP4V2_Uine MP4V2_USE_STATIC_LIB 1
+SE_STATIC_LIB 1
+      |         ^
+      |         ^
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+[  5%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/io/FileSystem.cpp.o
+[  6%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/io/File.cpp.o
+[  7%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/prog/option.cpp.o
+[  8%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/sys/error.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/io/File.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/io/FileSystem.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/sys/error.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/prog/option.cpp:64:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+1 warning generated.
+[  9%] Building CXX object CMakeFiles/mp4v2.dir/libplatform/time/time.cpp.o
+1 warning generated.
+1 warning generated.
+[ 10%] Building CXX object CMakeFiles/mp4v2.dir/libutil/other.cpp.o
+[ 11%] Building CXX object CMakeFiles/mp4v2.dir/libutil/TrackModifier.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/time/time.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 12%] Building CXX object CMakeFiles/mp4v2.dir/libutil/Utility.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/other.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/util.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/TrackModifier.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/util.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/Utility.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libutil/util.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 13%] Building CXX object CMakeFiles/mp4v2.dir/src/bmff/typebmff.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/bmff/typebmff.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/bmff/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 14%] Building CXX object CMakeFiles/mp4v2.dir/src/itmf/CoverArtBox.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/CoverArtBox.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+1 warning generated.
+[ 15%] Building CXX object CMakeFiles/mp4v2.dir/src/itmf/generic.cpp.o
+[ 16%] Building CXX object CMakeFiles/mp4v2.dir/src/itmf/Tags.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/generic.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/Tags.cpp:27:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+1 warning generated.
+[ 17%] Building CXX object CMakeFiles/mp4v2.dir/src/itmf/type.cpp.o
+[ 18%] Building CXX object CMakeFiles/mp4v2.dir/src/qtff/coding.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/type.cpp:25:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/itmf/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/coding.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 19%] Building CXX object CMakeFiles/mp4v2.dir/src/qtff/ColorParameterBox.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/ColorParameterBox.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 20%] Building CXX object CMakeFiles/mp4v2.dir/src/qtff/PictureAspectRatioBox.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/PictureAspectRatioBox.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qtff/impl.h:29:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 21%] Building CXX object CMakeFiles/mp4v2.dir/src/3gp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/3gp.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 22%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_ac3.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_ac3.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 23%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_amr.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_amr.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 24%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_avc1.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_avc1.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 25%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_avcC.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_avcC.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 26%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_chpl.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_chpl.cpp:19:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 27%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_colr.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_colr.cpp:20:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 28%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_d263.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_d263.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 29%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_dac3.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_dac3.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 30%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_damr.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_damr.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 31%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_dref.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_dref.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 32%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_elst.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_elst.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 33%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_enca.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_enca.cpp:23:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 34%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_encv.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_encv.cpp:23:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 35%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_free.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_free.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 36%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_ftab.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_ftab.cpp:19:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 37%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_ftyp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_ftyp.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 38%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_gmin.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_gmin.cpp:20:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 39%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_hdlr.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_hdlr.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 40%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_hinf.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_hinf.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 41%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_hnti.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_hnti.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 42%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_href.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_href.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 43%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_mdat.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_mdat.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 44%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_mdhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_mdhd.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 45%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_meta.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_meta.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 46%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_mp4s.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_mp4s.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 47%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_mp4v.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_mp4v.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 48%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_mvhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_mvhd.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 50%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_nmhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_nmhd.cpp:19:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 51%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_ohdr.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_ohdr.cpp:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 52%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_pasp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_pasp.cpp:20:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 53%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_root.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_root.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 54%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_rtp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_rtp.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 55%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_s263.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_s263.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 56%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_sdp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_sdp.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 57%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_sdtp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_sdtp.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 58%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_smi.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_smi.cpp:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 59%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_sound.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_sound.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 60%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_standard.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_standard.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 61%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stbl.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stbl.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 62%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stdp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stdp.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 63%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stsc.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stsc.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 64%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stsd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stsd.cpp:30:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 65%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stsz.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stsz.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 66%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_stz2.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_stz2.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 67%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_text.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_text.cpp:18:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 68%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_tfhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_tfhd.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 69%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_tkhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_tkhd.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 70%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_treftype.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_treftype.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 71%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_trun.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_trun.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 72%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_tx3g.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_tx3g.cpp:19:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 73%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_udta.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_udta.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 74%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_url.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_url.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 75%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_urn.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_urn.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 76%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_uuid.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_uuid.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 77%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_video.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_video.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 78%] Building CXX object CMakeFiles/mp4v2.dir/src/atom_vmhd.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/atom_vmhd.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 79%] Building CXX object CMakeFiles/mp4v2.dir/src/cmeta.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/cmeta.cpp:27:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 80%] Building CXX object CMakeFiles/mp4v2.dir/src/descriptors.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/descriptors.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 81%] Building CXX object CMakeFiles/mp4v2.dir/src/exception.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/exception.cpp:26:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 82%] Building CXX object CMakeFiles/mp4v2.dir/src/isma.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/isma.cpp:30:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 83%] Building CXX object CMakeFiles/mp4v2.dir/src/log.cpp.o
+1 warning generated.
+[ 84%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4.cpp:39:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 85%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4atom.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4atom.cpp:34:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 86%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4container.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/log.cpp:26:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4container.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/log.cpp:421:9: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  421 |         sprintf(desc,"%*c",indent,' ');
+      |         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+2 warnings generated.
+[ 87%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4descriptor.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4descriptor.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 88%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4file.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4file.cpp:31:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 89%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4file_io.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4file_io.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 90%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4info.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4info.cpp:28:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 91%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4property.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4property.cpp:23:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 92%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4track.cpp.o
+1 warning generated.
+[ 93%] Building CXX object CMakeFiles/mp4v2.dir/src/mp4util.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4track.cpp:30:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4info.cpp:447:9: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  447 |         sprintf(sInfo,
+      |         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprIn file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4util.cpp:23:
+In file included from ecated_msg(_msg) __attribute__((__deprecated/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h__(_msg)))
+      |                                                       ^:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: 
+warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/mp4info.cpp<command line>:1::459:9: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+9: note: previous definition is here  459 | 
+        sprintf(sInfo,
+          1 | #define|         ^
+ MP/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+4V2  278 | __deprecat_USE_ed_msg("This fuSTATIC_LIB nction is provided for compatibility reasons only.  Due to security con1
+      |         ^
+cerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+3 warnings generated.
+[ 94%] Building CXX object CMakeFiles/mp4v2.dir/src/ocidescriptors.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/ocidescriptors.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 95%] Building CXX object CMakeFiles/mp4v2.dir/src/odcommands.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/odcommands.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 96%] Building CXX object CMakeFiles/mp4v2.dir/src/qosqualifiers.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/qosqualifiers.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+[ 97%] Building CXX object CMakeFiles/mp4v2.dir/src/rtphint.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/rtphint.cpp:22:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+[ 98%] Building CXX object CMakeFiles/mp4v2.dir/src/text.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/text.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/impl.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/src/src.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform.h:24:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/libplatform/platform_posix.h:6:
+/Users/lzy/pro/UserFB/workspace/Z02181/attempts/20261125T000727176197Z/repo/.task-build/lib/libplatform/config.h:30:10: warning: 'MP4V2_USE_STATIC_LIB' macro redefined [-Wmacro-redefined]
+   30 | # define MP4V2_USE_STATIC_LIB
+      |          ^
+<command line>:1:9: note: previous definition is here
+    1 | #define MP4V2_USE_STATIC_LIB 1
+      |         ^
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+[100%] Linking CXX static library libmp4v2.a
+[100%] Built target mp4v2
