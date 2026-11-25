@@ -53,6 +53,7 @@
     <ClCompile Include="..\..\..\libsrc\overlap.cc" />
     <ClCompile Include="..\..\..\libsrc\remove.cc" />
     <ClCompile Include="..\..\..\libsrc\reorder_verts.cc" />
+    <ClCompile Include="..\..\..\libsrc\seam_stitch.cc" />
     <ClCompile Include="..\..\..\libsrc\subdiv.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_bounding.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_connectivity.cc" />

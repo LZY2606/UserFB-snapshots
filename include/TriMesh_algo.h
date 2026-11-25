@@ -212,6 +212,74 @@ extern void shared(TriMesh *mesh, float tol);
 // If tol < 0, don't share vertices.
 extern TriMesh *join(const ::std::vector<TriMesh *> &meshes, float tol = -1.0f);
 
+// Result of stitch_boundary_loops():
+//  old_to_new has one entry per input vertex and gives the compact index
+//  of that vertex in the stitched mesh.  Coincident seam vertices from the
+//  two loops share one output vertex; all other vertices keep their own.
+//  face_source has one entry per output face and gives the index of the
+//  original face that each (sub-)triangle came from.
+struct SeamStitchResult {
+	::std::vector<int> old_to_new;
+	::std::vector<int> face_source;
+};
+
+// Stitch two complete boundary loops of the same mesh that trace the same
+// closed spatial polyline in opposite directions, building a common
+// subdivision so that every seam segment becomes one real indexed edge
+// shared by exactly two oppositely-oriented faces.  Unlike join()/shared(),
+// long edges are split at the other side's sample points rather than only
+// welding coincident corners.
+//
+// Geometry scope:
+//  - first and second hold vertex indices of two complete boundary loops,
+//    with no repeated first point, at least 3 points each, no index shared
+//    between the loops, and each ordered along the boundary direction
+//    induced by its incident faces (so the two loops run in opposite
+//    directions in space); their start points may differ.
+//  - The valid geometry is one closed, non-self-intersecting,
+//    non-backtracking piecewise-linear loop.  Either side may insert extra
+//    samples anywhere along a segment; every turn has a vertex on both
+//    sides.  No curve fitting or approximate registration is performed.
+//  - Coordinates are finite.  L is the bounding-box diagonal; coincidence
+//    and collinearity use a distance tolerance of 1e-6*L.  Distinct events
+//    and non-adjacent segments are separated by at least 1e-3*L.
+//
+// Mapping rules:
+//  - Only the two designated loops are welded; coincident vertices outside
+//    of them are left alone, and connectivity away from the seam is
+//    unchanged.  No new interior points are introduced: only original
+//    vertices and sample positions already on the seam are used.
+//  - A coincident seam point takes the position of the lowest-numbered
+//    contributing original vertex; all other vertex positions are
+//    unchanged.  Output vertices are compacted, ordered by each one's
+//    lowest contributing source index.
+//  - Triangles whose edges are split are re-tessellated into sub-triangles
+//    that cover the original triangle exactly without overlap, inherit its
+//    winding, and have nonzero area; unaffected faces are retained once.
+//
+// Attribute rules (colors, confidences, flags each stay empty or keep the
+// length of the vertex set):
+//  - Continuous attributes at a seam point are linearly interpolated along
+//    each side's original edge by edge length (an exact vertex hit on a
+//    side takes that vertex's value directly), then the two side values
+//    are averaged with equal weight.
+//  - flags combine by bitwise OR of the contributing original endpoints:
+//    a side that hits an original vertex contributes only that vertex's
+//    flags; an interior hit contributes the OR of its edge endpoints.
+//  - Non-seam vertices keep their attributes through the remap.
+//
+// On success the derived caches (normals, curvatures, third-order fields,
+// point areas, adjacency, triangle strips, grid, bounding box and sphere)
+// are invalidated, while flag_curr and user attributes are retained.
+// Returns false (leaving mesh and result untouched, without filling any
+// lazy cache) on NULL mesh, out-of-range or duplicated loop points, loops
+// that are not complete boundary loops, same-direction loops, geometry
+// that does not coincide, illegal attribute lengths, or a result that
+// would contain duplicate or non-manifold faces.
+extern bool stitch_boundary_loops(TriMesh *mesh,
+	const ::std::vector<int> &first, const ::std::vector<int> &second,
+	SeamStitchResult &result);
+
 // Tessellated square (-1..1, -1..1, 0)
 extern TriMesh *make_plane(int tess_x, int tess_y = -1);
 

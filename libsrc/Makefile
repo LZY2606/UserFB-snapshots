@@ -26,6 +26,7 @@ CCFILES =	TriMesh_bounding.cc \
 		overlap.cc \
 		remove.cc \
 		reorder_verts.cc \
+		seam_stitch.cc \
 		subdiv.cc \
 		umbrella.cc
 
