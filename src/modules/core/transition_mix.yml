@@ -39,12 +39,33 @@ parameters:
     default: 0
     widget: checkbox
 
+  - identifier: sample_curve
+    title: Per-sample mix curve
+    type: string
+    mutable: yes
+    description: >
+      A keyframe string using the usual MLT animation syntax (for example
+      "0=0;25=1", "0~=0;25~=1" for smooth, or "0=0;12|=1;25=0" for discrete).
+      When set, the B-frame mix weight of every individual audio sample is
+      evaluated directly on this curve at its fractional frame position
+      instead of linearly ramping the mix values of the frame endpoints.
+      The curve time zero is the transition in point. For video frame rate
+      num/den and audio sample rate R, the first absolute sample index of
+      frame f is floor(f * R * den / num), and sample j of the frame is
+      evaluated at (first_sample + j) * num / (R * den) - in. The mix is
+      (1 - w) * A + w * B; reverse is applied to w after curve evaluation
+      and w is clamped to [0, 1]. All channels of a sample share one weight.
+      This mode only accepts f32le audio with identical sample rate, channel
+      count and sample count on both inputs; otherwise getting audio fails.
+      It cannot be combined with sum or combine. When this property is not
+      set, the traditional start/end, sum and combine behaviour is used.
+
   - identifier: combine
     title: Use an alternative mixing algorithm
     description: >
       Mix using a low pass filter to prevent affecting audio levels. However,
       this may introduce slight artifacts.
-      This is incompatible with start < 0.
+      This is incompatible with start < 0 and with sample_curve.
     type: boolean
     default: 0
     mutable: yes
@@ -59,7 +80,8 @@ parameters:
       rarely correlated and thus often will not clip. Also, one can reduce the
       gain and add a limiter on the mixed output prior to integer quantization
       to prevent clipping.
-      This mode is incompatible with start < 0.
+      This mode is incompatible with start < 0 and with sample_curve.
+      Setting sample_curve together with sum or combine is an error.
     type: boolean
     default: 0
     mutable: yes

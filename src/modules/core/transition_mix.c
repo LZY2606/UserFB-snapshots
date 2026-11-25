@@ -19,6 +19,7 @@
 
 #include <framework/mlt_transition.h>
 #include <framework/mlt_frame.h>
+#include <framework/mlt_profile.h>
 #include <framework/mlt_log.h>
 
 #include <stdio.h>
@@ -30,6 +31,17 @@
 #define MAX_SAMPLES  (192000)
 #define SAMPLE_BYTES(samples, channels) ((samples) * (channels) * sizeof(float))
 #define MAX_BYTES    SAMPLE_BYTES( MAX_SAMPLES, MAX_CHANNELS )
+
+// Keys of the sample_curve configuration snapshot taken at process() time
+// and attached to the output frame. Frames whose audio is fetched later then
+// keep using the settings they were processed with.
+#define MIX_CURVE_PROPERTY   "_mix_sample_curve"
+#define MIX_CURVE_IN         "_mix_curve_in"
+#define MIX_CURVE_FPS_NUM    "_mix_curve_fps_num"
+#define MIX_CURVE_FPS_DEN    "_mix_curve_fps_den"
+#define MIX_CURVE_LENGTH     "_mix_curve_length"
+#define MIX_CURVE_REVERSE    "_mix_curve_reverse"
+#define MIX_CURVE_BAD_CONFIG "_mix_curve_bad_config"
 
 typedef struct transition_mix_s
 {
@@ -113,6 +125,111 @@ static void combine_audio( double weight, float *buffer_a, float *buffer_b,
 	}
 }
 
+/** Mix frame audio sample by sample using the sample_curve keyframe string.
+ *
+ * The curve zero is the transition in point. If the video frame rate is
+ * num/den and the audio sample rate is R, the first absolute sample index of
+ * frame f is floor(f * R * den / num), and sample j of this frame is evaluated
+ * on the curve at:
+ *   ( first_sample + j ) * num / ( R * den ) - transition_in
+ * The mix is (1 - w) * A + w * B. Reverse is applied after curve evaluation
+ * and then w is clamped to [0, 1]. All channels of a sample share one weight.
+ *
+ * This path only supports f32le inputs with identical sample rate, channel
+ * count and sample count on both sides; anything else is an error.
+ */
+
+static int mix_with_sample_curve( mlt_frame frame_a, mlt_transition transition,
+	float *buffer_a, float *buffer_b,
+	mlt_audio_format format_a, mlt_audio_format format_b,
+	int frequency_a, int frequency_b,
+	int channels_a, int channels_b,
+	int samples_a, int samples_b,
+	void **buffer, mlt_audio_format *format, int *frequency, int *channels, int *samples )
+{
+	mlt_properties frame_props = MLT_FRAME_PROPERTIES( frame_a );
+
+	if ( mlt_properties_get_int( frame_props, MIX_CURVE_BAD_CONFIG ) )
+	{
+		mlt_log_error( MLT_TRANSITION_SERVICE(transition),
+			"mix: sample_curve cannot be combined with sum or combine\n" );
+		*buffer = NULL;
+		return 1;
+	}
+
+	if ( format_a != mlt_audio_f32le || format_b != mlt_audio_f32le
+	     || frequency_a <= 0 || frequency_a != frequency_b
+	     || channels_a <= 0 || channels_a != channels_b
+	     || samples_a <= 0 || samples_a != samples_b
+	     || buffer_a == NULL || buffer_b == NULL )
+	{
+		mlt_log_error( MLT_TRANSITION_SERVICE(transition),
+			"mix: sample_curve requires matching f32le audio on both inputs "
+			"(format %d/%d rate %d/%d channels %d/%d samples %d/%d)\n",
+			format_a, format_b, frequency_a, frequency_b,
+			channels_a, channels_b, samples_a, samples_b );
+		*buffer = NULL;
+		return 1;
+	}
+
+	int num = mlt_properties_get_int( frame_props, MIX_CURVE_FPS_NUM );
+	int den = mlt_properties_get_int( frame_props, MIX_CURVE_FPS_DEN );
+	if ( num <= 0 )
+		num = 25;
+	if ( den <= 0 )
+		den = 1;
+
+	mlt_position in = mlt_properties_get_position( frame_props, MIX_CURVE_IN );
+	int length = mlt_properties_get_int( frame_props, MIX_CURVE_LENGTH );
+	int reverse = mlt_properties_get_int( frame_props, MIX_CURVE_REVERSE );
+	int rate = frequency_a;
+	int out_channels = channels_a;
+	int out_samples = samples_a;
+	mlt_position position = mlt_frame_get_position( frame_a );
+
+	// floor(position * rate * den / num); position is non-negative here
+	// because mlt_frame_get_position() clamps negative positions to zero.
+	int64_t first_sample = (int64_t) position * rate * den / num;
+
+	size_t bytes = SAMPLE_BYTES( out_samples, out_channels );
+	float *output = malloc( bytes );
+	if ( output == NULL )
+	{
+		*buffer = NULL;
+		return 1;
+	}
+
+	int i, j;
+	for ( i = 0; i < out_samples; i++ )
+	{
+		double curve_position =
+			( (double) ( first_sample + i ) * (double) num )
+			/ ( (double) rate * (double) den )
+			- (double) in;
+		double weight = mlt_properties_anim_get_double_at( frame_props,
+			MIX_CURVE_PROPERTY, curve_position, length );
+		if ( reverse )
+			weight = 1.0 - weight;
+		weight = CLAMP( weight, 0.0, 1.0 );
+
+		for ( j = 0; j < out_channels; j++ )
+		{
+			double a = (double) buffer_a[ i * channels_a + j ];
+			double b = (double) buffer_b[ i * channels_b + j ];
+			output[ i * out_channels + j ] = (float) ( ( 1.0 - weight ) * a + weight * b );
+		}
+	}
+
+	*buffer = output;
+	*format = mlt_audio_f32le;
+	*frequency = rate;
+	*channels = out_channels;
+	*samples = out_samples;
+	mlt_frame_set_audio( frame_a, output, mlt_audio_f32le, bytes, free );
+
+	return 0;
+}
+
 /** Get the audio.
 */
 
@@ -131,19 +248,26 @@ static int transition_get_audio( mlt_frame frame_a, void **buffer, mlt_audio_for
 
 	transition_mix self = transition->child;
 	float *buffer_b, *buffer_a;
+	mlt_audio_format format_b;
 	int frequency_b = *frequency, frequency_a = *frequency;
 	int channels_b = *channels, channels_a = *channels;
 	int samples_b = *samples, samples_a = *samples;
 
 	// We can only mix interleaved 32-bit float.
 	*format = mlt_audio_f32le;
-	// Get the audio from our producers
-	mlt_frame_get_audio( frame_b, (void**) &buffer_b, format, &frequency_b, &channels_b, &samples_b );
+	// Get the audio from our producers. Keep the original shared format
+	// pointer behaviour for the legacy path.
+	format_b = *format;
+	mlt_frame_get_audio( frame_b, (void**) &buffer_b, &format_b, &frequency_b, &channels_b, &samples_b );
+	*format = format_b;
 	mlt_frame_get_audio( frame_a, (void**) &buffer_a, format, &frequency_a, &channels_a, &samples_a );
 
 	// Prevent dividing by zero.
 	if ( !channels_a || !channels_b || !buffer_a || !buffer_b )
+	{
+		*buffer = NULL;
 		return 1;
+	}
 
 	if ( buffer_b == buffer_a )
 	{
@@ -163,6 +287,17 @@ static int transition_get_audio( mlt_frame frame_a, void **buffer, mlt_audio_for
 	mlt_properties_set_int( b_props, "silent_audio", 0 );
 	if ( silent )
 		memset( buffer_b, 0, samples_b * channels_b * sizeof( float ) );
+
+	// The sample_curve path evaluates a keyframe curve per sample. It is
+	// stateless and only accepts matching f32le inputs on both frames.
+	if ( mlt_properties_get( MLT_FRAME_PROPERTIES( frame_a ), MIX_CURVE_PROPERTY ) )
+	{
+		mlt_audio_format format_a = *format;
+		return mix_with_sample_curve( frame_a, transition,
+			buffer_a, buffer_b, format_a, format_b,
+			frequency_a, frequency_b, channels_a, channels_b,
+			samples_a, samples_b, buffer, format, frequency, channels, samples );
+	}
 
 	// At this point we have two frames of audio with possibly differing sample
 	// counts. How to reconcile this?
@@ -325,6 +460,59 @@ static mlt_frame transition_process( mlt_transition transition, mlt_frame a_fram
 	mlt_properties properties = MLT_TRANSITION_PROPERTIES( transition );
 	mlt_properties b_props = MLT_FRAME_PROPERTIES( b_frame );
 
+	// Snapshot the sample_curve configuration onto the output frame. Audio is
+	// often fetched lazily, and the frame must keep using the settings from
+	// this process() call even if the transition properties change later.
+	const char *sample_curve = mlt_properties_get( properties, "sample_curve" );
+	if ( sample_curve )
+	{
+		mlt_properties a_props = MLT_FRAME_PROPERTIES( a_frame );
+		mlt_profile profile = mlt_service_profile( MLT_TRANSITION_SERVICE( transition ) );
+		int fps_num = profile ? profile->frame_rate_num
+			: mlt_properties_get_int( properties, "frame_rate_num" );
+		int fps_den = profile ? profile->frame_rate_den
+			: mlt_properties_get_int( properties, "frame_rate_den" );
+		if ( fps_num <= 0 )
+			fps_num = 25;
+		if ( fps_den <= 0 )
+			fps_den = 1;
+
+		// The curve zero is the transition in point. Some direct callers
+		// convey the in point through the b frame's "_producer" properties
+		// (same convention as the start/end block below); use that only when
+		// the transition itself was not given a non-zero in point.
+		mlt_position curve_in = mlt_transition_get_in( transition );
+		if ( curve_in == 0 )
+		{
+			mlt_properties producer_props =
+				mlt_properties_get_data( b_props, "_producer", NULL );
+			if ( producer_props && mlt_properties_get( producer_props, "in" ) )
+				curve_in = mlt_properties_get_position( producer_props, "in" );
+		}
+
+		int curve_length = mlt_properties_get_int( properties, "length" );
+		if ( curve_length <= 0 )
+			curve_length = (int) mlt_transition_get_length( transition );
+
+		// Reverse may be given on the transition or, following the existing
+		// mix branches' convention, as "audio.reverse" on the b frame.
+		int curve_reverse = mlt_properties_get_int( properties, "reverse" )
+			|| mlt_properties_get_int( b_props, "audio.reverse" );
+
+		mlt_properties_set( a_props, MIX_CURVE_PROPERTY, sample_curve );
+		mlt_properties_set_position( a_props, MIX_CURVE_IN, curve_in );
+		mlt_properties_set_int( a_props, MIX_CURVE_FPS_NUM, fps_num );
+		mlt_properties_set_int( a_props, MIX_CURVE_FPS_DEN, fps_den );
+		mlt_properties_set_int( a_props, MIX_CURVE_LENGTH, curve_length );
+		mlt_properties_set_int( a_props, MIX_CURVE_REVERSE, curve_reverse );
+		mlt_properties_set_int( a_props, MIX_CURVE_BAD_CONFIG,
+			mlt_properties_get_int( properties, "sum" )
+			|| mlt_properties_get_int( properties, "combine" ) );
+		// Let anim_get_double_at() resolve frame rate dependent keyframe strings.
+		if ( profile )
+			mlt_properties_set_data( a_props, "_profile", profile, 0, NULL, NULL );
+	}
+
 	// Only if mix is specified, otherwise a producer may set the mix
 	if ( mlt_properties_get( properties, "start" ) )
 	{
@@ -429,6 +617,10 @@ mlt_transition transition_mix_init( mlt_profile profile, mlt_service_type type, 
 		mix->parent = transition;
 		transition->close = transition_close;
 		transition->process = transition_process;
+		// Direct users of the constructor (and the unit tests) pass the
+		// profile here; factory-created transitions already carry "_profile".
+		if ( profile )
+			mlt_service_set_profile( MLT_TRANSITION_SERVICE( transition ), profile );
 		if ( arg )
 		{
 			mlt_properties_set_double( MLT_TRANSITION_PROPERTIES( transition ), "start", atof( arg ) );

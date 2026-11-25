@@ -1,0 +1,233 @@
+[  5%] Building C object framework/CMakeFiles/mlt.dir/mlt_animation.c.o
+[  5%] Building C object framework/CMakeFiles/mlt.dir/mlt_frame.c.o
+[  8%] Building C object framework/CMakeFiles/mlt.dir/mlt_property.c.o
+[ 11%] Building C object framework/CMakeFiles/mlt.dir/mlt_properties.c.o
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_frame.c:428:11: warning: enumeration value 'mlt_image_invalid' not handled in switch [-Wswitch]
+  428 |                 switch( *format )
+      |                         ^~~~~~~
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_frame.c:428:11: note: add missing switch cases
+  428 |                 switch( *format )
+      |                         ^
+  429 |                 {
+  430 |                         case mlt_image_rgb:
+  431 |                         case mlt_image_rgba:
+  432 |                         case mlt_image_yuv422:
+  433 |                         case mlt_image_yuv422p16:
+  434 |                         case mlt_image_yuv420p:
+  435 | /Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_animation.c                                break;
+:816:6:   436 |                         warning: case mlt_im'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  816 |                                         sprintf( ret + used, "%s%sage_=", time, s );
+      |                                         ^
+none:
+  437 |         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+                case ml  278 | t__deprecated__image_movit:
+  438 |                         cmsg("This funcase mtion islt_image_opengl_t provi/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:724:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+de  724extu | re:
+                  439 |                 d fo                r compatibility reason        *formsprs ointfnat ( selly= m.  Due to securilt_imtf->prop_sy age_yuvconcerns inhetr4rent in the design of2 sprint2f(3;), it is highly reco
+mmended /Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_properties.c:315:4tha:ing warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+t you u,   440 | se sn  315 |                 prin"%d", self->protf(        sprintf3) instead.")
+      | p_int );                                break;( p
+
+  441 | ^
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48:at      |                         ^
+ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+h, "        %s/}%  278 | _
+_deprecatesd_msg("This function is provided fornote: expanded from macro '__deprecated_msg'
+ /%s/%s/%s", data, compatibility reasonts only.  Due to security concerns   227 | ype, service, profile, naminhe        #defe );
+      |                         ^
+inerent /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here __dein the dprecated_msgesign of sprintf(3), it (_msg) __atistribute__((__deprecated__ highl
+  278(y | __dep recomrecatemended_msd that you use snp_msg)))
+      |                                                       ^
+g("Thrintfis functi(3) ins/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_animation.c:818:on is 6: provitead.")
+      | ^
+warning: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:d'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  e818 |                                         227sd:48: note: expanded from macro '__deprecated_msg' for compatibility reasons printf( ret + used, "%only.  Due d%s=", item.fr
+ato   227 |         #defisecurime - in, s );
+      | tne __deprecated_ym                                        ^ concerns inhes
+g(_msg/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: rent in the desi)'sprintf' has been explicitly marked deprecated here
+ gn   278__a | tof_t sprinrtf(3), it is/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_frame.c:789:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  789 |                 s_ hipderipntf( fileribute__(nam(ecate__, "fred_msdeggh(pr"This fecuanction imle-%0ya5tdse. rep cpmommended__(_mp", (d that int)mlt_frame_get_rovided for compatibiposlity you use snprintf(3)sg)))
+       instea|                                                       ^
+d.")
+      ition( f| ^
+rame )/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.hreas );
+      |                 ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:730:4: warning: o:227/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:48: note: expanded from macro '__deprecated_msg'
+:  227'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+278:1: note: 'sprintf' has been explicitly marked deprecated here
+ |         #define __dep  n  730 |                         sprintf( self-s>278 | _prreca op_stted__depremring,sg(_omnly.   "%sDue tcg)g"ao securitted_msg,("This function _ is pr self-ovid_y co>prop_double );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:ed fonattribute__278:1:r compcern note: 'sprintf' has been explicitly marked deprecated here
+s  278 | __deprecated_( i(__deprmsg("Thise funnhectionc is provided aatibility rerent in the designasofons of sprintf(3) only.  Dted__(ue ,tr_ o security con mcersg)))
+      comit| pnsat inherent  ibili                                                      ^is 
+ty reasons only.  Din the designue  of sprinthi/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_properties.c:to segfchly 318:u(3), 5riert is hi:commended tha ighly retwarning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ty  you use snprintf(3) icommended thatnst  318 |                  yecad.")
+o      o        ncerns         sprinu use sitf( path,nherent | i^
+n the dnpri "%s//Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.hesign of sprin:227:48: note: expanded from macro '__deprecated_msg'
+nt  227 | tf(3), it is highly        #define _%s/%s/%s", dafta_, deprecated_msg(_msg) __a re(3)commended thattttribute__(y ( _pe_,y serou use snpinsteadvi.rce, namdepi")
+      ne );
+      |                                 ^
+tf(3) instead.r"e/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.hcat| )
+^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48:       e:278:1: note: 'sprintf' has been explicitly marked deprecated herenote: 
+|   278 | expanded from macro '__deprecated_msg'd^
+_
+  227 |         #define _____depre/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.hd:227(ep:r48:_msgec) ))note: a
+catedtexpanded from macro '__deprecated_msg'
+  227ed_msg(_msg) __ | _attribu      |                                                       ^        #msg(t
+de"This function is pfine __deprecr/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_animation.ce__((__dep:aovided f827:7: owarning: r'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+rted_ms  g(_msg) 827_ecat | e compati_bd__(_msg)))ility r        
+ae      t                a        | t                                                      ^
+ribute__((__depre        socated__(_        msg)))
+ns os      | nly                                                      ^
+p. rintf( ret + u D/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:736used, "\"%s:4\"",e : warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ value );  736 |                 
+      | to sec        sprintf( self->prourity concerns inp_string, "%d", (int)self->h                                                ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:prop_p1: note: 'sprintf' has been explicitly marked deprecated here
+erent in   278 | __deprecated_msg("the dosition );
+      |                         ^
+The/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1is functsion is ign of sprintf(3pr), it is highly: note:  re'sprintf' has been explicitly marked deprecated here
+c  278 | _ommended thao_t youdeprecated_msg("T vihusede sd fisnpri function is proviontf(3) instead.r compd"edatibility reasons only.  Due to securi)
+      | ^
+ty concerns /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227: finherenor compa48: note: expanded from macro '__deprecated_msg'
+tib  227 |         #define __ideprecated_mt insg lithe dety reason(_msg) __ats only.  Duesign o to setribuf sprintf(tcuri3e__((__deprecated__(_msg))), it is hty concerns iig)
+      |                                                       ^
+nhehly rrent in thecommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+e   227 |         #define __deprecated_msg(_msg) _design of sprintf(3), it is highly r_attribute__((__deprecated__(_msg)))
+      | ecommend                                                      ^
+ed that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:742:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  742 |                         sprintf( self->prop_string, "%"PRId64, self->prop_int64 );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:828:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  828 |                         sprintf( self->prop_string, "%d", self->prop_int );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:834:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  834 |                         sprintf( self->prop_string, "%g", self->prop_double );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:840:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  840 |                         sprintf( self->prop_string, "%d", (int)self->prop_position );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:846:4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  846 |                         sprintf( self->prop_string, "%"PRId64, self->prop_int64 );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48:/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_properties.c:1492: note: expanded from macro '__deprecated_msg'
+4: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  227 1492 |  |         #                        spdefine __deprecated_msg(_mrintf( key, "%d", mlt_propesg) __attribute_rties__((__deprecated__(_msg)))
+      |                                                       ^
+count( self ) );
+      |                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1024:2: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1024 |         sprintf( s, "%02d:%02d:%02d%c%0*d", hours, mins, secs, frame_sep,
+      |         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1047:2: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1047 |         sprintf( s, "%02d:%02d:%06.3f", hours, mins, secs );
+      |         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1667:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1667 |                 sprintf( result + strlen( result ), "%g", rect->x );
+      |                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1669:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1669 |                 sprintf( result + strlen( result ), " %g", rect->y );
+      |                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1671:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1671 |                 sprintf( result + strlen( result ), " %g", rect->w );
+      |                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1673:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1673 |                 sprintf( result + strlen( result ), " %g", rect->h );
+      |                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_property.c:1675:3: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+ 1675 |                 sprintf( result + strlen( result ), " %g", rect->o );
+      |                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+2 warnings generated.
+3 warnings generated.
+15 warnings generated.
+3 warnings generated.
+[ 13%] Linking C shared library libmlt-7.dylib
+[ 86%] Built target mlt
+[ 88%] Building C object CMakeFiles/check_mix.dir/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/modules/core/transition_mix.c.o
+[ 91%] Linking C static library libcheck_mix.a
+[ 91%] Built target check_mix
+[ 94%] Building C object CMakeFiles/target_tests.dir/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/tests/sample_curve.c.o
+[ 97%] Linking C executable target_tests
+[100%] Built target target_tests

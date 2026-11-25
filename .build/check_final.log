@@ -1,0 +1,73 @@
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/.build
+[  5%] Building C object framework/CMakeFiles/mlt.dir/mlt_animation.c.o
+[  5%] Building C object framework/CMakeFiles/mlt.dir/mlt_audio.c.o
+[  8%] Building C object framework/CMakeFiles/mlt.dir/mlt_chain.c.o
+[ 11%] Building C object framework/CMakeFiles/mlt.dir/mlt_cache.c.o
+[ 13%] Building C object framework/CMakeFiles/mlt.dir/mlt_consumer.c.o
+[ 19%] Building C object framework/CMakeFiles/mlt.dir/mlt_deque.c.o
+[ 19%] Building C object framework/CMakeFiles/mlt.dir/mlt_events.c.o
+[ 22%] Building C object framework/CMakeFiles/mlt.dir/mlt_factory.c.o
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_consumer.c:1695:18: warning: passing arguments to a function without a prototype is deprecated in all versions of C and is not supported in C23 [-Wdeprecated-non-prototype]
+ 1695 |                         consumer_close( self );
+      |                                       ^
+[ 25%] Building C object framework/CMakeFiles/mlt.dir/mlt_field.c.o
+[ 27%] Building C object framework/CMakeFiles/mlt.dir/mlt_filter.c.o
+[ 30%] Building C object framework/CMakeFiles/mlt.dir/mlt_frame.c.o
+1 warning generated.
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_frame.c:428:11: warning: enumeration value 'mlt_image_invalid' not handled in switch [-Wswitch]
+  428 |                 switch( *format )
+      |                         ^~~~~~~
+/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/framework/mlt_frame.c:428:11: note: add missing switch cases
+  428 |                 switch( *format )
+      |                         ^
+  429 |                 {
+  430 |                         case mlt_image_rgb:
+  431 |                         case mlt_image_rgba:
+  432 |                         case mlt_image_yuv422:
+  433 |                         case mlt_image_yuv422p16:
+  434 |                         case mlt_image_yuv420p:
+  435 |                                 break;
+  436 |                         case mlt_image_none:
+  437 |                         case mlt_image_movit:
+  438 |                         case mlt_image_opengl_texture:
+  439 |                                 *format = mlt_image_yuv422;
+  440 |                                 break;
+  441 |                 }
+[ 33%] Building C object framework/CMakeFiles/mlt.dir/mlt_image.c.o
+[ 36%] Building C object framework/CMakeFiles/mlt.dir/mlt_link.c.o
+[ 38%] Building C object framework/CMakeFiles/mlt.dir/mlt_log.c.o
+1 warning generated.
+[ 41%] Building C object framework/CMakeFiles/mlt.dir/mlt_luma_map.c.o
+[ 44%] Building C object framework/CMakeFiles/mlt.dir/mlt_multitrack.c.o
+[ 47%] Building C object framework/CMakeFiles/mlt.dir/mlt_parser.c.o
+[ 50%] Building C object framework/CMakeFiles/mlt.dir/mlt_playlist.c.o
+[ 52%] Building C object framework/CMakeFiles/mlt.dir/mlt_pool.c.o
+[ 55%] Building C object framework/CMakeFiles/mlt.dir/mlt_producer.c.o
+[ 58%] Building C object framework/CMakeFiles/mlt.dir/mlt_profile.c.o
+[ 61%] Building C object framework/CMakeFiles/mlt.dir/mlt_properties.c.o
+[ 63%] Building C object framework/CMakeFiles/mlt.dir/mlt_property.c.o
+[ 66%] Building C object framework/CMakeFiles/mlt.dir/mlt_repository.c.o
+[ 69%] Building C object framework/CMakeFiles/mlt.dir/mlt_service.c.o
+[ 72%] Building C object framework/CMakeFiles/mlt.dir/mlt_slices.c.o
+[ 75%] Building C object framework/CMakeFiles/mlt.dir/mlt_tokeniser.c.o
+[ 77%] Building C object framework/CMakeFiles/mlt.dir/mlt_tractor.c.o
+[ 80%] Building C object framework/CMakeFiles/mlt.dir/mlt_transition.c.o
+[ 83%] Building C object framework/CMakeFiles/mlt.dir/mlt_version.c.o
+[ 86%] Linking C shared library libmlt-7.dylib
+[ 86%] Built target mlt
+[ 88%] Building C object CMakeFiles/check_mix.dir/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/modules/core/transition_mix.c.o
+[ 91%] Linking C static library libcheck_mix.a
+[ 91%] Built target check_mix
+[ 97%] Building C object CMakeFiles/target_tests.dir/test_main.c.o
+[ 97%] Building C object CMakeFiles/target_tests.dir/Users/lzy/pro/UserFB/workspace/RE20261125Y1103/attempts/20261125T164818453495Z/repo/src/tests/sample_curve.c.o
+[100%] Linking C executable target_tests
+[100%] Built target target_tests
+[transition 0x101227110] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/44100 channels 1/1 samples 16/16)
+[transition 0x101227110] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/48000 channels 1/2 samples 16/16)
+[transition 0x101227110] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/48000 channels 1/1 samples 16/17)
+[transition 0x101227110] mix: sample_curve requires matching f32le audio on both inputs (format 5/1 rate 48000/48000 channels 1/1 samples 16/16)
+[transition 0x77a889c000] mix: sample_curve cannot be combined with sum or combine
+[transition 0x77a889c000] mix: sample_curve cannot be combined with sum or combine
+sample-curve assertions=46342

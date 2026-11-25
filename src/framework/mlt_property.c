@@ -1403,6 +1403,46 @@ double mlt_property_anim_get_double( mlt_property self, double fps, locale_t loc
 	return result;
 }
 
+/** Get the real number at a possibly fractional frame position.
+ *
+ * The keyframe interpolation is evaluated directly at the fractional
+ * position rather than linearly interpolating between the values at the
+ * adjacent integer frames.
+ *
+ * \public \memberof mlt_property_s
+ * \param self a property
+ * \param fps the frame rate, which may be needed for converting a time string to frame units
+ * \param locale the locale, which may be needed for converting a string to a real number
+ * \param position the frame number, fractions allowed
+ * \param length the maximum number of frames when interpreting negative keyframe times,
+ *  <=0 if you don't care or need that
+ * \return the real number
+ */
+
+double mlt_property_anim_get_double_at( mlt_property self, double fps, locale_t locale, double position, int length )
+{
+	double result;
+	pthread_mutex_lock( &self->mutex );
+	if (mlt_property_is_anim(self))
+	{
+		struct mlt_animation_item_s item;
+		item.property = mlt_property_init();
+
+		refresh_animation( self, fps, locale, length );
+		mlt_animation_get_item_at( self->animation, &item, position );
+		pthread_mutex_unlock( &self->mutex );
+		result = mlt_property_get_double( item.property, fps, locale );
+
+		mlt_property_close( item.property );
+	}
+	else
+	{
+		pthread_mutex_unlock( &self->mutex );
+		result = mlt_property_get_double( self, fps, locale );
+	}
+	return result;
+}
+
 /** Get the property as an integer number at a frame position.
  *
  * \public \memberof mlt_property_s

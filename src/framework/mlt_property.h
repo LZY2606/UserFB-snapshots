@@ -65,6 +65,7 @@ extern char *mlt_property_get_time( mlt_property self, mlt_time_format, double f
 
 extern int mlt_property_interpolate( mlt_property self, mlt_property points[], double progress, double fps, locale_t locale, mlt_keyframe_type interp );
 extern double mlt_property_anim_get_double( mlt_property self, double fps, locale_t locale, int position, int length );
+extern double mlt_property_anim_get_double_at( mlt_property self, double fps, locale_t locale, double position, int length );
 extern int mlt_property_anim_get_int( mlt_property self, double fps, locale_t locale, int position, int length );
 extern char* mlt_property_anim_get_string( mlt_property self, double fps, locale_t locale, int position, int length );
 extern int mlt_property_anim_set_double( mlt_property self, double value, double fps, locale_t locale, int position, int length, mlt_keyframe_type keyframe_type );

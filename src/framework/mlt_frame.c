@@ -569,7 +569,9 @@ int mlt_frame_get_audio( mlt_frame self, void **buffer, mlt_audio_format *format
 
 	if ( hide == 0 && get_audio != NULL )
 	{
-		get_audio( self, buffer, format, frequency, channels, samples );
+		int error = get_audio( self, buffer, format, frequency, channels, samples );
+		if ( error )
+			return error;
 		mlt_properties_set_int( properties, "audio_frequency", *frequency );
 		mlt_properties_set_int( properties, "audio_channels", *channels );
 		mlt_properties_set_int( properties, "audio_samples", *samples );

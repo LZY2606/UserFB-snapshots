@@ -1,0 +1,7 @@
+[transition 0x610000000640] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/44100 channels 1/1 samples 16/16)
+[transition 0x610000000740] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/48000 channels 1/2 samples 16/16)
+[transition 0x610000000840] mix: sample_curve requires matching f32le audio on both inputs (format 5/5 rate 48000/48000 channels 1/1 samples 16/17)
+[transition 0x610000000940] mix: sample_curve requires matching f32le audio on both inputs (format 5/1 rate 48000/48000 channels 1/1 samples 16/16)
+[transition 0x610000000a40] mix: sample_curve cannot be combined with sum or combine
+[transition 0x610000000b40] mix: sample_curve cannot be combined with sum or combine
+sample-curve assertions=48269
