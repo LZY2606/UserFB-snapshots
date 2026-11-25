@@ -96,6 +96,9 @@ void mpeg2_header_state_init (mpeg2dec_t * mpeg2dec)
 	if (mpeg2dec->decoder.convert_id)
 	    mpeg2_free (mpeg2dec->decoder.convert_id);
     }
+    /* the old sequence is gone: drop its coverage maps and bookkeeping */
+    mpeg2_conceal_free (mpeg2dec);
+    mpeg2_conceal_reset (mpeg2dec);
     mpeg2dec->decoder.coding_type = I_TYPE;
     mpeg2dec->decoder.convert = NULL;
     mpeg2dec->decoder.convert_id = NULL;
@@ -495,6 +498,7 @@ void mpeg2_header_sequence_finalize (mpeg2dec_t * mpeg2dec)
     mpeg2dec->info.sequence = &(mpeg2dec->sequence);
     mpeg2dec->info.gop = NULL;
     info_user_data (mpeg2dec);
+    mpeg2_conceal_sequence (mpeg2dec);
 }
 
 int mpeg2_header_gop (mpeg2dec_t * mpeg2dec)
@@ -925,6 +929,8 @@ mpeg2_state_t mpeg2_header_slice_start (mpeg2dec_t * mpeg2dec)
 			 mpeg2dec->fbuf[b_type + 1]->buf,
 			 mpeg2dec->fbuf[b_type]->buf);
     }
+    /* current fbuf slot and working planes are now known */
+    mpeg2_conceal_picture_start (mpeg2dec);
     mpeg2dec->action = NULL;
     return STATE_INTERNAL_NORETURN;
 }
@@ -959,6 +965,7 @@ mpeg2_state_t mpeg2_header_end (mpeg2dec_t * mpeg2dec)
 	    mpeg2dec->info.discard_fbuf = mpeg2dec->fbuf[b_type + 1];
     } else if (!mpeg2dec->convert)
 	mpeg2dec->info.discard_fbuf = mpeg2dec->fbuf[b_type];
+    mpeg2_conceal_publish (mpeg2dec);
     mpeg2dec->action = seek_sequence;
     return STATE_END;
 }

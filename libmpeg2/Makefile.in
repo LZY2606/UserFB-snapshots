@@ -100,7 +100,7 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES) $(noinst_LTLIBRARIES)
 libmpeg2_la_DEPENDENCIES = libmpeg2arch.la
 am_libmpeg2_la_OBJECTS = alloc.lo header.lo decode.lo slice.lo \
-	motion_comp.lo idct.lo
+	motion_comp.lo idct.lo conceal.lo
 libmpeg2_la_OBJECTS = $(am_libmpeg2_la_OBJECTS)
 libmpeg2_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
@@ -327,7 +327,7 @@ top_srcdir = @top_srcdir@
 SUBDIRS = convert
 AM_CFLAGS = $(OPT_CFLAGS) $(LIBMPEG2_CFLAGS)
 lib_LTLIBRARIES = libmpeg2.la
-libmpeg2_la_SOURCES = alloc.c header.c decode.c slice.c motion_comp.c idct.c
+libmpeg2_la_SOURCES = alloc.c header.c decode.c slice.c motion_comp.c idct.c conceal.c
 libmpeg2_la_LIBADD = libmpeg2arch.la
 libmpeg2_la_LDFLAGS = -no-undefined -version-info 1:0:1
 noinst_LTLIBRARIES = libmpeg2arch.la

@@ -255,6 +255,63 @@ void mpeg2_close(mpeg2dec_t * handle)
         - does not check for NULL frees! (via mpeg2_free)
 
 
+Whole-slice loss concealment
+----------------------------
+
+mpeg2_slice_concealment (mpeg2dec, enabled) turns on (enabled == 1) or
+off (enabled == 0) a mode that keeps delivering a deterministic picture
+when one or more whole slices are missing from the transport. The
+function returns 0 on success and -1 if the value is not 0 or 1, or if
+it is called at the wrong time. The default is off.
+
+The mode can only be configured right after mpeg2_init (), or right
+after mpeg2_reset () and before the next mpeg2_buffer (). A failed call
+leaves the decoder state unchanged. mpeg2_reset () keeps the switch
+setting but drops every coverage record. It is mutually exclusive with
+the mpeg2_convert () color conversion interface: whichever of the two
+is configured second fails, and the mode must not be combined with
+mpeg2_skip () or mpeg2_slice_region ().
+
+Scope (streams outside this scope are simply decoded normally):
+ - scalar C implementation, fixed sequence parameters
+ - progressive MPEG-2 I/P/B frame pictures, 4:2:0 chroma
+ - coded width and height are multiples of 16, the sequence starts
+   with an I picture; field pictures are not handled
+ - only whole missing slices, with at least one complete slice left in
+   every picture. Half slices, corrupt VLC data and entirely missing
+   pictures are not handled.
+Custom caller frame buffers (mpeg2_custom_fbuf / mpeg2_set_buf) keep
+working, including padded strides.
+
+Macroblocks rebuilt by a real slice - including the macroblocks that a
+normal macroblock_address_increment skip run walks over - count as
+recovered. At picture completion, every still-uncovered macroblock is
+filled in before the picture is displayed or reused as a reference:
+ - I pictures: Y = 16, Cb = Cr = 128
+ - P pictures: same-coordinate copy from the forward reference
+ - B pictures: per-byte (a + b + 1) / 2 of the forward and backward
+   references; if only one reference is available it is copied, and
+   with neither reference the neutral I values are used.
+Copied pixels always come from a reference picture that was itself fully
+rebuilt and concealed; motion vectors of lost macroblocks are not
+guessed. Only the valid macroblock area of the three planes is written;
+already-decoded macroblocks and any stride padding/guard area are left
+alone, and no extra full-image working copy is allocated per frame.
+
+On a STATE_SLICE or STATE_END event that carries display_fbuf, the
+mpeg2_info_t fields display_concealment and display_concealed_mbs
+describe the same picture as display_picture/display_fbuf.
+display_concealment points to a byte map laid out row by row over the
+coded-size macroblock grid: 0 for a normally rebuilt macroblock (skips
+included), 1 for a concealed one; display_concealed_mbs is the number
+of 1 entries. On every other event both are reset to NULL and 0 so a
+stale map cannot be processed twice. The map is borrowed and stays valid
+only until the next mpeg2_parse () call or mpeg2_close (); it does not
+change within the event that produced it. The storage grows only with
+the number of frame buffer slots and the macroblock grid, not with the
+number of pictures decoded.
+
+
 Advanced Function Reference
 ---------------------------
 
@@ -263,4 +320,5 @@ mpeg2_set_buf
 mpeg2_custom_fbuf
 mpeg2_init_fbuf
 mpeg2_slice
+mpeg2_slice_concealment
 

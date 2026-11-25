@@ -112,6 +112,7 @@ void mpeg2_buffer (mpeg2dec_t * mpeg2dec, uint8_t * start, uint8_t * end)
 {
     mpeg2dec->buf_start = start;
     mpeg2dec->buf_end = end;
+    mpeg2dec->conceal_config_open = 0;
 }
 
 int mpeg2_getpos (mpeg2dec_t * mpeg2dec)
@@ -152,6 +153,14 @@ mpeg2_state_t mpeg2_seek_header (mpeg2dec_t * mpeg2dec)
 mpeg2_state_t mpeg2_parse (mpeg2dec_t * mpeg2dec)
 {
     int size_buffer, size_chunk, copied;
+
+    /*
+     * The concealment map is only valid alongside display_fbuf on a
+     * STATE_SLICE/STATE_END event. Any other event reports no map so a
+     * caller cannot process a stale one.
+     */
+    mpeg2dec->info.display_concealment = NULL;
+    mpeg2dec->info.display_concealed_mbs = 0;
 
     if (mpeg2dec->action) {
 	mpeg2_state_t state;
@@ -196,13 +205,17 @@ mpeg2_state_t mpeg2_parse (mpeg2dec_t * mpeg2dec)
 	    return STATE_BUFFER;
     }
 
+    mpeg2_conceal_finish (mpeg2dec);
+
     mpeg2dec->action = mpeg2_seek_header;
     switch (mpeg2dec->code) {
     case 0x00:
+	mpeg2_conceal_publish (mpeg2dec);
 	return mpeg2dec->state;
     case 0xb3:
     case 0xb7:
     case 0xb8:
+	mpeg2_conceal_publish (mpeg2dec);
 	return (mpeg2dec->state == STATE_SLICE) ? STATE_SLICE : STATE_INVALID;
     default:
 	mpeg2dec->action = seek_chunk;
@@ -221,6 +234,8 @@ mpeg2_state_t mpeg2_parse_header (mpeg2dec_t * mpeg2dec)
     mpeg2dec->action = mpeg2_parse_header;
     mpeg2dec->info.user_data = NULL;	mpeg2dec->info.user_data_len = 0;
     while (1) {
+	int concealed_first_slice;
+
 	size_buffer = mpeg2dec->buf_end - mpeg2dec->buf_start;
 	size_chunk = (mpeg2dec->chunk_buffer + BUFFER_SIZE -
 		      mpeg2dec->chunk_ptr);
@@ -250,6 +265,24 @@ mpeg2_state_t mpeg2_parse_header (mpeg2dec_t * mpeg2dec)
 	}
 
 	mpeg2dec->code = mpeg2dec->buf_start[-1];
+
+	/*
+	 * Slice concealment: the first slice (0x01) of a picture may be
+	 * missing, so any slice code (0x02..0xaf; 0x01 is handled below)
+	 * can legally follow the picture header in this mode.
+	 */
+	concealed_first_slice = (mpeg2dec->conceal_enabled &&
+				 mpeg2dec->state == STATE_PICTURE &&
+				 (unsigned) mpeg2dec->code - 2 < 0xae);
+	if (concealed_first_slice) {
+	    mpeg2_header_picture_finalize (mpeg2dec, mpeg2_accels);
+	    mpeg2dec->action = mpeg2_header_slice_start;
+	    mpeg2dec->chunk_start = mpeg2dec->chunk_ptr =
+		mpeg2dec->chunk_buffer;
+	    mpeg2dec->user_data_len = 0;
+	    return mpeg2dec->state;
+	}
+
 	switch (RECEIVED (mpeg2dec->code, mpeg2dec->state)) {
 
 	/* state transition after a sequence header */
@@ -295,6 +328,10 @@ int mpeg2_convert (mpeg2dec_t * mpeg2dec, mpeg2_convert_t convert, void * arg)
     mpeg2_convert_init_t convert_init;
     int error;
 
+    /* concealment mode and output conversion are mutually exclusive */
+    if (mpeg2dec->conceal_enabled)
+	return -1;
+
     error = convert (MPEG2_CONVERT_SET, NULL, &(mpeg2dec->sequence), 0,
 		     mpeg2_accels, arg, &convert_init);
     if (!error) {
@@ -304,6 +341,23 @@ int mpeg2_convert (mpeg2dec_t * mpeg2dec, mpeg2_convert_t convert, void * arg)
 	mpeg2dec->convert_stride = 0;
     }
     return error;
+}
+
+int mpeg2_slice_concealment (mpeg2dec_t * mpeg2dec, int enabled)
+{
+    if (enabled != 0 && enabled != 1)
+	return -1;
+
+    /* only configurable right after init/reset, before the next buffer */
+    if (!mpeg2dec->conceal_config_open)
+	return -1;
+
+    /* cannot enable while an output conversion interface is installed */
+    if (enabled && mpeg2dec->convert)
+	return -1;
+
+    mpeg2dec->conceal_enabled = enabled;
+    return 0;
 }
 
 int mpeg2_stride (mpeg2dec_t * mpeg2dec, int stride)
@@ -397,6 +451,10 @@ void mpeg2_reset (mpeg2dec_t * mpeg2dec, int full_reset)
     mpeg2dec->state = STATE_INVALID;
     mpeg2dec->first = 1;
 
+    /* the concealment switch is preserved; all coverage state is dropped */
+    mpeg2_conceal_reset (mpeg2dec);
+    mpeg2dec->conceal_config_open = 1;
+
     mpeg2_reset_info(&(mpeg2dec->info));
     mpeg2dec->info.gop = NULL;
     mpeg2dec->info.user_data = NULL;
@@ -422,6 +480,19 @@ mpeg2dec_t * mpeg2_init (void)
     memset (mpeg2dec->decoder.DCTblock, 0, 64 * sizeof (int16_t));
     memset (mpeg2dec->quantizer_matrix, 0, 4 * 64 * sizeof (uint8_t));
 
+    mpeg2dec->conceal_enabled = 0;
+    mpeg2dec->conceal_config_open = 1;
+    mpeg2dec->conceal_armed = 0;
+    mpeg2dec->conceal_mbw = mpeg2dec->conceal_mbh = 0;
+    mpeg2dec->conceal_mbs = 0;
+    mpeg2dec->conceal_mem = NULL;
+    mpeg2dec->conceal_map[0] = mpeg2dec->conceal_map[1] =
+	mpeg2dec->conceal_map[2] = NULL;
+    mpeg2dec->conceal_current = NULL;
+    mpeg2dec->decoder.conceal_owner = NULL;
+    mpeg2dec->info.display_concealment = NULL;
+    mpeg2dec->info.display_concealed_mbs = 0;
+
     mpeg2dec->chunk_buffer = (uint8_t *) mpeg2_malloc (BUFFER_SIZE + 4,
 						       MPEG2_ALLOC_CHUNK);
 
@@ -434,6 +505,7 @@ mpeg2dec_t * mpeg2_init (void)
 void mpeg2_close (mpeg2dec_t * mpeg2dec)
 {
     mpeg2_header_state_init (mpeg2dec);
+    mpeg2_conceal_free (mpeg2dec);
     mpeg2_free (mpeg2dec->chunk_buffer);
     mpeg2_free (mpeg2dec);
 }

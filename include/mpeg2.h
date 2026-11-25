@@ -112,6 +112,10 @@ typedef struct mpeg2_info_s {
     const mpeg2_fbuf_t * discard_fbuf;
     const uint8_t * user_data;
     unsigned int user_data_len;
+    /* slice loss concealment: mb grid map (0 rebuilt, 1 concealed) */
+    /* and the number of concealed macroblocks in the displayed picture */
+    const uint8_t * display_concealment;
+    unsigned int display_concealed_mbs;
 } mpeg2_info_t;
 
 typedef struct mpeg2dec_s mpeg2dec_t;
@@ -178,6 +182,17 @@ mpeg2_state_t mpeg2_parse (mpeg2dec_t * mpeg2dec);
 void mpeg2_reset (mpeg2dec_t * mpeg2dec, int full_reset);
 void mpeg2_skip (mpeg2dec_t * mpeg2dec, int skip);
 void mpeg2_slice_region (mpeg2dec_t * mpeg2dec, int start, int end);
+
+/*
+ * Enable or disable whole-slice loss concealment. enabled must be 0 or 1.
+ * The mode can only be configured right after mpeg2_init (), or right after
+ * mpeg2_reset () and before the next mpeg2_buffer (). It is mutually
+ * exclusive with the mpeg2_convert () output conversion interface.
+ * Returns 0 on success, -1 if the value is invalid or the timing/interface
+ * requirements are not met; in case of failure the decoder state is left
+ * unchanged.
+ */
+int mpeg2_slice_concealment (mpeg2dec_t * mpeg2dec, int enabled);
 
 void mpeg2_tag_picture (mpeg2dec_t * mpeg2dec, uint32_t tag, uint32_t tag2);
 

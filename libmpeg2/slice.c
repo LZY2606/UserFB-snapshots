@@ -1564,6 +1564,7 @@ do {								\
 
 #define NEXT_MACROBLOCK							\
 do {									\
+    mpeg2_conceal_mb_done (decoder);					\
     decoder->offset += 16;						\
     if (decoder->offset == decoder->width) {				\
 	do { /* just so we can use the break statement */		\
@@ -1883,7 +1884,7 @@ void mpeg2_slice (mpeg2_decoder_t * const decoder, const int code,
 
 	    if (   ((macroblock_modes >> MOTION_TYPE_SHIFT) < 0)
                 || ((macroblock_modes >> MOTION_TYPE_SHIFT) >=
-                    (int)(sizeof(decoder->motion_parser) 
+                    (int)(sizeof(decoder->motion_parser)
                           / sizeof(decoder->motion_parser[0])))
 	       ) {
 		break; // Illegal !

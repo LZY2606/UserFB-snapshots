@@ -152,6 +152,9 @@ struct mpeg2_decoder_s {
 
     /* XXX: stuff due to xine shit */
     int8_t q_scale_type;
+
+    /* backpointer used by the slice loss concealment hooks */
+    struct mpeg2dec_s * conceal_owner;
 };
 
 typedef struct {
@@ -223,6 +226,19 @@ struct mpeg2dec_s {
     //int8_t q_scale_type, scaled[4];
     uint8_t quantizer_matrix[4][64];
     uint8_t new_quantizer_matrix[4][64];
+
+    /* whole-slice loss concealment state */
+    int conceal_enabled;	/* user switch, kept across mpeg2_reset */
+    int conceal_config_open;	/* set after init/reset, cleared by mpeg2_buffer */
+    int conceal_armed;		/* eligible sequence, concealment active */
+    unsigned int conceal_mbw;	/* macroblock grid width */
+    unsigned int conceal_mbh;	/* macroblock grid height */
+    unsigned int conceal_mbs;	/* total macroblocks in the grid */
+    uint8_t * conceal_mem;	/* backing storage for the three slot maps */
+    uint8_t * conceal_map[3];	/* per fbuf slot: 0 rebuilt, 1 concealed */
+    uint8_t * conceal_current;	/* map of the picture currently being decoded */
+    unsigned int conceal_count[3]; /* concealed mb count per slot */
+    uint8_t conceal_complete[3];   /* slot holds a fully rebuilt picture */
 };
 
 typedef struct {
@@ -257,6 +273,17 @@ void mpeg2_header_picture_finalize (mpeg2dec_t * mpeg2dec, uint32_t accels);
 mpeg2_state_t mpeg2_header_slice_start (mpeg2dec_t * mpeg2dec);
 mpeg2_state_t mpeg2_header_end (mpeg2dec_t * mpeg2dec);
 void mpeg2_set_fbuf (mpeg2dec_t * mpeg2dec, int b_type);
+
+/* conceal.c - whole-slice loss concealment */
+void mpeg2_conceal_reset (mpeg2dec_t * mpeg2dec);
+void mpeg2_conceal_free (mpeg2dec_t * mpeg2dec);
+void mpeg2_conceal_sequence (mpeg2dec_t * mpeg2dec);
+void mpeg2_conceal_picture_start (mpeg2dec_t * mpeg2dec);
+void mpeg2_conceal_mb_done (mpeg2_decoder_t * decoder);
+void mpeg2_conceal_mb_range (mpeg2_decoder_t * decoder,
+			     unsigned int first_mb, unsigned int count);
+void mpeg2_conceal_finish (mpeg2dec_t * mpeg2dec);
+void mpeg2_conceal_publish (mpeg2dec_t * mpeg2dec);
 
 /* idct.c */
 extern void mpeg2_idct_init (uint32_t accel);
