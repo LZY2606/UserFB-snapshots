@@ -7,13 +7,121 @@ func moov_Movie() {
 	_unknowns()
 }
 
+// Versioned header fields used by mvhd/tkhd/mdhd.
+//
+// ISO BMFF version 0 stores CreateTime/ModifyTime and Duration in 32 bits,
+// version 1 in 64 bits. The generator DSL cannot express a single field whose
+// width depends on Version, so every version-dependent field carries an
+// explicit marshal/len/unmarshal _code block. Keeping the logic here means a
+// later regeneration of atoms.go preserves version 0/1 support.
+//
+// The shared unmarshal prologue rejects unknown versions instead of guessing
+// a field layout. Truncated input is reported through parseErr.
 func mvhd_MovieHeader() {
 	uint8(Version)
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if self.Version > 1 {
+			err = parseErr("Version", n+offset, err)
+			return
+		}
+	})
+	time64(CreateTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
 	int32(TimeScale)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 0 {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		} else {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		}
+	}))
 	fixed32(PreferredRate)
 	fixed16(PreferredVolume)
 	_skip(10)
@@ -36,11 +144,109 @@ func trak_Track() {
 func tkhd_TrackHeader() {
 	uint8(Version)
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if self.Version > 1 {
+			err = parseErr("Version", n+offset, err)
+			return
+		}
+	})
+	time64(CreateTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
 	int32(TrackId)
 	_skip(4)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 0 {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		} else {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		}
+	}))
 	_skip(8)
 	int16(Layer)
 	int16(AlternateGroup)
@@ -69,10 +275,108 @@ func mdia_Media() {
 func mdhd_MediaHeader() {
 	uint8(Version)
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if self.Version > 1 {
+			err = parseErr("Version", n+offset, err)
+			return
+		}
+	})
+	time64(CreateTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("CreateTime", n+offset, err)
+				return
+			}
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 0 {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		} else {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("ModifyTime", n+offset, err)
+				return
+			}
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		}
+	}))
 	int32(TimeScale)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 0 {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		} else {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			n += 4
+		} else {
+			n += 8
+		}
+	}, func() {
+		if self.Version == 0 {
+			if len(b) < n+4 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		} else {
+			if len(b) < n+8 {
+				err = parseErr("Duration", n+offset, err)
+				return
+			}
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		}
+	}))
 	int16(Language)
 	int16(Quality)
 }

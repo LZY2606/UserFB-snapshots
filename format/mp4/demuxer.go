@@ -147,12 +147,12 @@ func (self *Stream) setSampleIndex(index int) (err error) {
 		n := int(entry.Count)
 		if index >= start && index < start+n {
 			self.sampleIndexInSttsEntry = index - start
-			self.dts += int64(index-start) * int64(entry.Duration)
+			self.dts += int64(uint64(index-start) * uint64(entry.Duration))
 			found = true
 			break
 		}
 		start += n
-		self.dts += int64(n) * int64(entry.Duration)
+		self.dts += int64(uint64(n) * uint64(entry.Duration))
 		self.sttsEntryIndex++
 	}
 	if !found {
@@ -415,7 +415,7 @@ func (self *Stream) timeToSampleIndex(tm time.Duration) int {
 	endIndex := 0
 	found := false
 	for _, entry := range self.sample.TimeToSample.Entries {
-		endTs = startTs + int64(entry.Count*entry.Duration)
+		endTs = startTs + int64(uint64(entry.Count)*uint64(entry.Duration))
 		endIndex = startIndex + int(entry.Count)
 		if targetTs >= startTs && targetTs < endTs {
 			targetIndex = startIndex + int((targetTs-startTs)/int64(entry.Duration))

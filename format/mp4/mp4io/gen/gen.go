@@ -1,4 +1,17 @@
 
+// Command gen generates ../../atoms.go from the box layout DSL in pattern.go.
+//
+// Regenerate after editing pattern.go:
+//
+//	go run ./format/mp4/mp4io/gen gen format/mp4/mp4io/gen/pattern.go format/mp4/mp4io/atoms.go
+//
+// Boxes whose layout depends on their Version field (mvhd, tkhd, mdhd) express
+// the version-dependent CreateTime/ModifyTime/Duration fields with explicit
+// _code marshal/len/unmarshal blocks in pattern.go. Keep those blocks in sync
+// with the version 0 (32-bit) / version 1 (64-bit) layouts: decompiling the
+// generated atoms.go alone loses that intent, and a later change to the DSL
+// would silently drop version 1 support.
+
 package main
 
 import (
