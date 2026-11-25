@@ -40,6 +40,10 @@
 #include "chuck_dl.h"
 #include "util_math.h"
 
+#ifdef CHUCK_BEAT_FEATURE
+#include "chuck_beat.h"
+#endif
+
 #include <algorithm>
 #include <iostream>
 using namespace std;
@@ -3231,6 +3235,26 @@ void Chuck_ArrayVec4::sort()
 t_CKUINT Chuck_Event::our_can_wait = 0;
 t_CKUINT Chuck_Event::our_waiting_on = 0;
 
+Chuck_Event::~Chuck_Event()
+{
+#ifdef CHUCK_BEAT_FEATURE
+    chuck_beat_on_event_destroy( this );
+#endif
+}
+
+t_CKUINT Chuck_Event::waiter_count()
+{
+    t_CKUINT count = 0;
+    #ifndef __DISABLE_THREADS__
+    m_queue_lock.acquire();
+    #endif
+    count = (t_CKUINT) m_queue.size();
+    #ifndef __DISABLE_THREADS__
+    m_queue_lock.release();
+    #endif
+    return count;
+}
+
 //-----------------------------------------------------------------------------
 // name: signal_local()
 // desc: signal a event/condition variable, shreduling the next waiting shred
@@ -3320,6 +3344,10 @@ t_CKBOOL Chuck_Event::remove( Chuck_VM_Shred * shred )
     #ifndef __DISABLE_THREADS__
     m_queue_lock.release();
     #endif
+
+#ifdef CHUCK_BEAT_FEATURE
+    if( removed ) chuck_beat_on_event_remove( this, shred );
+#endif
 
     return removed;
 }
@@ -3753,6 +3781,12 @@ void Chuck_Event::wait( Chuck_VM_Shred * shred, Chuck_VM * vm )
         // needed to wait on an Event, and can be notified/broadcasted from
         // a different thread
         ck_invoke_mfun_immediate_mode( this, our_waiting_on, vm, shred, NULL, 0 );
+
+#ifdef CHUCK_BEAT_FEATURE
+        // BeatClock uses this single actual-wait point to assign broadcast
+        // order and to latch already-reached beat Events.
+        chuck_beat_on_wait( this, shred, vm );
+#endif
     }
     else // can't wait
     {

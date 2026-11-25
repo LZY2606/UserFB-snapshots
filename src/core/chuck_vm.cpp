@@ -38,6 +38,11 @@
 #include "chuck_globals.h" // added 1.4.1.0 (jack)
 #include "chuck_errmsg.h"
 #include "chuck.h"
+
+#ifdef CHUCK_BEAT_FEATURE
+#include "chuck_beat.h"
+#endif
+
 #include "ugen_xxx.h"
 #include "util_buffers.h"
 #include "util_platforms.h"
@@ -412,6 +417,11 @@ t_CKBOOL Chuck_VM::shutdown()
     EM_log( CK_LOG_SYSTEM, "shutting down virtual machine..." );
     // push indent
     EM_pushlog();
+
+#ifdef CHUCK_BEAT_FEATURE
+    // Detach beat records from this VM before shreds/events are torn down.
+    chuck_beat_on_vm_shutdown( this );
+#endif
 
     // unlockdown
     // REFACTOR-2017: TODO: don't unlock all objects for all VMs? see relockdown below
@@ -2777,6 +2787,10 @@ t_CKBOOL Chuck_VM_Shreduler::shredule( Chuck_VM_Shred * shred,
     if( diff < 0 ) diff = 0;
     // if( diff < m_samps_until_next )
     m_samps_until_next = diff;
+#ifdef CHUCK_BEAT_FEATURE
+    // Beat deadlines are blocked on Events rather than present in shred_list.
+    chuck_beat_refresh_deadline( vm_ref );
+#endif
 
     return TRUE;
 }
@@ -2813,6 +2827,20 @@ void Chuck_VM_Shreduler::advance_v( t_CKINT & numLeft, t_CKINT & offset )
         if( numFrames == 0 ) numFrames = 1;
         this->m_samps_until_next -= numFrames;
     }
+#ifdef CHUCK_BEAT_FEATURE
+    // Adaptive rendering must stop exactly at a beat deadline and return to
+    // compute() before the deadline frame is synthesized.
+    t_CKDUR beat_until_next = chuck_beat_next_delta( vm_ref, this->now_system );
+    if( beat_until_next >= 0 && beat_until_next < (t_CKDUR) numFrames )
+    {
+        // Deadlines are integer frames.  A zero delta is normally dispatched
+        // by get() before advance_v(); keep this >=1 to preserve advance_v's
+        // existing one-frame invariant.
+        t_CKINT beat_frames = beat_until_next > 0.0
+            ? (t_CKINT) beat_until_next : 1;
+        numFrames = ck_min( numFrames, beat_frames );
+    }
+#endif
     numLeft -= numFrames;
     offset += numFrames;
 
@@ -2976,14 +3004,23 @@ void Chuck_VM_Shreduler::advance( t_CKINT N )
 //-----------------------------------------------------------------------------
 Chuck_VM_Shred * Chuck_VM_Shreduler::get( )
 {
+#ifdef CHUCK_BEAT_FEATURE
+    // Broadcast all beat Events due at now before selecting the ordinary
+    // ready list.  Their waiters are appended to equal-wake-time list slots.
+    chuck_beat_process_due( vm_ref, now_system );
+#endif
+
     // shreduler's wait to run list
     Chuck_VM_Shred * shred = shred_list;
 
     // check if list empty
     if( !shred )
     {
-        // if empty we are done
         m_samps_until_next = -1;
+#ifdef CHUCK_BEAT_FEATURE
+        chuck_beat_refresh_deadline( vm_ref );
+#endif
+        // if empty we are done
         return NULL;
     }
 
@@ -3007,12 +3044,19 @@ Chuck_VM_Shred * Chuck_VM_Shreduler::get( )
             // clamp to 0
             if( m_samps_until_next < 0 ) m_samps_until_next = 0;
         }
+#ifdef CHUCK_BEAT_FEATURE
+        // Include blocked beat Events in the VM's next deadline.
+        chuck_beat_refresh_deadline( vm_ref );
+#endif
 
         // return
         return shred;
     }
 
     // nothing is ready to run 'now'
+#ifdef CHUCK_BEAT_FEATURE
+    chuck_beat_refresh_deadline( vm_ref );
+#endif
     return NULL;
 }
 

@@ -758,11 +758,15 @@ struct Chuck_Global_Event_Listener
 struct Chuck_Event : public Chuck_Object
 {
 public:
+    virtual ~Chuck_Event();
+
     // signal/broadcast "local" -- signal ChucK Events
     void signal_local();
     void broadcast_local();
     void wait( Chuck_VM_Shred * shred, Chuck_VM * vm );
     t_CKBOOL remove( Chuck_VM_Shred * shred );
+    // number of shreds currently queued on this Event
+    t_CKUINT waiter_count();
 
 public:
     // 1.4.0.0 (jack): global events -- signal/broadcast code running

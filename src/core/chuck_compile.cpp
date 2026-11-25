@@ -36,6 +36,10 @@
 #include "chuck.h"
 #include "chuck_io.h"
 
+#ifdef CHUCK_BEAT_FEATURE
+#include "chuck_beat.h"
+#endif
+
 #ifndef  __DISABLE_OTF_SERVER__
 #include "chuck_otf.h"
 #endif
@@ -1315,6 +1319,11 @@ t_CKBOOL load_internal_modules( Chuck_Compiler * compiler )
     load_module( compiler, env, xxx_query, "xxx", "global" );
     EM_log( CK_LOG_HERALD, "module 'std'" );
     if( !load_module( compiler, env, libstd_query, "std", "global" ) ) goto error;
+
+#ifdef CHUCK_BEAT_FEATURE
+    EM_log( CK_LOG_HERALD, "module 'beatclock'" );
+    if( !load_module( compiler, env, beatclock_query, "beatclock", "global" ) ) goto error;
+#endif
 
     // load
     EM_log( CK_LOG_HERALD, "module 'machine'" );

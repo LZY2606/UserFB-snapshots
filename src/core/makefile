@@ -17,6 +17,7 @@ CXX=g++
 LD=g++
 
 CFLAGS+=-I. -Ilo
+CFLAGS+=-DCHUCK_BEAT_FEATURE=1
 
 ifneq ($(COVERAGE_REPORT),)
 CFLAGS+=-fprofile-arcs
@@ -98,7 +99,7 @@ CXXSRCS_CORE+= chuck_absyn.cpp chuck_parse.cpp chuck_errmsg.cpp \
 	chuck_emit.cpp chuck_compile.cpp chuck_dl.cpp chuck_oo.cpp \
 	chuck_lang.cpp chuck_ugen.cpp chuck_otf.cpp chuck_stats.cpp \
 	chuck_shell.cpp chuck_io.cpp chuck.cpp chuck_carrier.cpp \
-	chuck_globals.cpp midiio_rtmidi.cpp rtmidi.cpp hidio_sdl.cpp \
+	chuck_globals.cpp chuck_beat.cpp midiio_rtmidi.cpp rtmidi.cpp hidio_sdl.cpp \
 	ugen_osc.cpp ugen_filter.cpp ugen_stk.cpp ugen_xxx.cpp \
 	ulib_ai.cpp ulib_doc.cpp ulib_machine.cpp ulib_math.cpp \
 	ulib_std.cpp ulib_opsc.cpp util_buffers.cpp util_console.cpp \

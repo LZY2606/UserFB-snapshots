@@ -2,6 +2,13 @@
 set -euo pipefail
 mode=$1
 mkdir -p .task-build
+mode_stamp=.task-build/build-mode
+if [[ -f "$mode_stamp" && "$(<"$mode_stamp")" != "$mode" ]]; then
+  # The support makefile stores both flavors in the same object directory.
+  rm -rf .task-build
+  mkdir -p .task-build
+fi
+printf '%s\n' "$mode" > "$mode_stamp"
 if [[ $mode == target ]]; then
  test -s src/core/chuck_beat.h
  test -s src/core/chuck_beat.cpp
