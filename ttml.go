@@ -743,6 +743,11 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 		ttml.Styles = append(ttml.Styles, ttmlStyle)
 	}
 
+	// Resolve the supported WebVTT cue-style subset once per export. Parsing
+	// the current StyleAttributes.WebVTTStyles on every write ensures edits to
+	// STYLE lines are reflected without caching or mutating the input.
+	cueStyles := s.webVTTCueStylesheet()
+
 	// Add items
 	for _, item := range s.Items {
 		// Init subtitle
@@ -766,10 +771,17 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 		for _, line := range item.Lines {
 			// Loop through line items
 			for _, lineItem := range line.Items {
+				// Cue cascade mode uses a per-run copy. This keeps computed
+				// TTML values out of shared LineItem InlineStyle pointers.
+				lineItemStyle := lineItem.InlineStyle
+				if cueStyles.active {
+					lineItemStyle = cueStyles.effectiveStyleAttributes(lineItem.InlineStyle)
+				}
+
 				// Init ttml item
 				var ttmlItem = TTMLOutItem{
 					Text:                   lineItem.Text,
-					TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(lineItem.InlineStyle),
+					TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(lineItemStyle),
 					XMLName:                xml.Name{Local: "span"},
 				}
 

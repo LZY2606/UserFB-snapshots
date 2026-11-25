@@ -439,6 +439,18 @@ func (t WebVTTTag) endTag() string {
 	return "</" + t.Name + ">"
 }
 
+func (t WebVTTTag) equal(other WebVTTTag) bool {
+	if t.Name != other.Name || t.Annotation != other.Annotation || len(t.Classes) != len(other.Classes) {
+		return false
+	}
+	for i := range t.Classes {
+		if t.Classes[i] != other.Classes[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (sa *StyleAttributes) propagateSRTAttributes() {
 	// copy relevant attrs to WebVTT ones
 	if sa.SRTColor != nil {

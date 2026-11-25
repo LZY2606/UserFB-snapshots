@@ -210,12 +210,11 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 				currentRegion = nil
 			}
 
-			// Reset block name, if we are not in the middle of CSS.
-			// If we are in STYLE block and the CSS is empty or we meet the right brace at the end of last line,
-			// then we are not in CSS and can switch to parse next WebVTT block.
+			// Reset block name, if we are not in the middle of CSS. A
+			// closing brace followed by a CSS comment still ends a rule.
 			if blockName != webvttBlockNameStyle || sa == nil ||
 				len(sa.WebVTTStyles) == 0 ||
-				strings.HasSuffix(sa.WebVTTStyles[len(sa.WebVTTStyles)-1], "}") {
+				webVTTStyleBlockComplete(sa.WebVTTStyles) {
 				blockName = ""
 			}
 
@@ -565,12 +564,7 @@ func (s Subtitles) WriteToWebVTT(o io.Writer) (err error) {
 	}
 	c = append(c, []byte("\n\n")...)
 
-	var style []string
-	for _, s := range s.Styles {
-		if s.InlineStyle != nil {
-			style = append(style, s.InlineStyle.WebVTTStyles...)
-		}
-	}
+	style := s.webVTTStyleLines()
 
 	if len(style) > 0 {
 		c = append(c, []byte(fmt.Sprintf("STYLE\n%s\n\n", strings.Join(style, "\n")))...)
@@ -633,6 +627,11 @@ func (s Subtitles) WriteToWebVTT(o io.Writer) (err error) {
 		// Add blank line after each REGION block
 		c = append(c, bytesLineSeparator...)
 	}
+
+	// Cascade mode treats current WebVTTTags and STYLE lines as the source of
+	// truth when saving WebVTT too; stale parsed TTMLColor values must not add
+	// back a color class after a tag edit.
+	cueCascadeActive := s.webVTTCueStylesheet().active
 
 	// Loop through subtitles
 	for index, item := range s.Items {
@@ -701,7 +700,7 @@ func (s Subtitles) WriteToWebVTT(o io.Writer) (err error) {
 
 		// Loop through lines
 		for _, l := range item.Lines {
-			c = append(c, l.webVTTBytes()...)
+			c = append(c, l.webVTTBytes(cueCascadeActive)...)
 		}
 
 		// Add new line
@@ -719,7 +718,8 @@ func (s Subtitles) WriteToWebVTT(o io.Writer) (err error) {
 	return
 }
 
-func (l Line) webVTTBytes() (c []byte) {
+func (l Line) webVTTBytes(cueCascadeActive ...bool) (c []byte) {
+	cascadeActive := len(cueCascadeActive) > 0 && cueCascadeActive[0]
 	if l.VoiceName != "" {
 		c = append(c, []byte("<v "+l.VoiceName+">")...)
 	}
@@ -731,18 +731,13 @@ func (l Line) webVTTBytes() (c []byte) {
 		if idx < len(l.Items)-1 {
 			next = &l.Items[idx+1]
 		}
-		c = append(c, l.Items[idx].webVTTBytes(previous, next)...)
+		c = append(c, l.Items[idx].webVTTBytes(previous, next, cascadeActive)...)
 	}
 	c = append(c, bytesLineSeparator...)
 	return
 }
 
-func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
-	// Add timestamp
-	if li.StartAt > 0 {
-		c = append(c, []byte("<"+formatDurationWebVTT(li.StartAt)+">")...)
-	}
-
+func (li LineItem) webVTTBytes(previous, next *LineItem, cueCascadeActive bool) (c []byte) {
 	// Get color - only add TTMLColor-based tag if there are no WebVTT color tags
 	var color string
 	var hasColorTags bool
@@ -754,8 +749,9 @@ func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
 				break
 			}
 		}
-		// Only use TTMLColor if we don't have WebVTT color tags
-		if !hasColorTags && li.InlineStyle.TTMLColor != nil {
+		// Only use TTMLColor if we don't have WebVTT color tags. In cascade
+		// mode stale parsed colors must not override edited tags.
+		if !cueCascadeActive && !hasColorTags && li.InlineStyle.TTMLColor != nil {
 			color = li.InlineStyle.TTMLColor.WebVTTString()
 		}
 	}
@@ -766,17 +762,23 @@ func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
 	}
 	if li.InlineStyle != nil {
 		for idx, tag := range li.InlineStyle.WebVTTTags {
-			if previous != nil && previous.InlineStyle != nil && len(previous.InlineStyle.WebVTTTags) > idx && tag.Name == previous.InlineStyle.WebVTTTags[idx].Name {
+			if previous != nil && previous.InlineStyle != nil && len(previous.InlineStyle.WebVTTTags) > idx && tag.equal(previous.InlineStyle.WebVTTTags[idx]) {
 				continue
 			}
 			c = append(c, []byte(tag.startTag())...)
 		}
 	}
+	// Put the word timestamp after opening tags. A timestamp immediately
+	// followed by another tag can be tokenized separately on re-read, which
+	// would detach the word start from its styled text.
+	if li.StartAt > 0 {
+		c = append(c, []byte("<"+formatDurationWebVTT(li.StartAt)+">")...)
+	}
 	c = append(c, []byte(escapeHTML(li.Text))...)
 	if li.InlineStyle != nil {
 		for i := len(li.InlineStyle.WebVTTTags) - 1; i >= 0; i-- {
 			tag := li.InlineStyle.WebVTTTags[i]
-			if next != nil && next.InlineStyle != nil && len(next.InlineStyle.WebVTTTags) > i && tag.Name == next.InlineStyle.WebVTTTags[i].Name {
+			if next != nil && next.InlineStyle != nil && len(next.InlineStyle.WebVTTTags) > i && tag.equal(next.InlineStyle.WebVTTTags[i]) {
 				continue
 			}
 			c = append(c, []byte(tag.endTag())...)

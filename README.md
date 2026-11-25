@@ -52,6 +52,58 @@ var buf = &bytes.Buffer{}
 s2.WriteToTTML(buf)
 ```
 
+## WebVTT cue styles in TTML
+
+`WriteToTTML` resolves the supported WebVTT `STYLE` subset from the current
+`StyleAttributes.WebVTTStyles` each time it is called. Edits to STYLE lines or
+to a run's `InlineStyle.WebVTTTags` are therefore reflected in the next export
+without mutating the subtitles value.
+
+```go
+src := strings.NewReader(`WEBVTT
+
+STYLE
+::cue(.speaker) {
+  color: #123456;
+  background-color: white;
+  font-weight: bold;
+}
+::cue(b) { font-style: italic; }
+
+00:00:01.000 --> 00:00:03.000
+<c.speaker>A <b>bold</b> cue</c>
+`)
+s, _ := astisub.ReadFromWebVTT(src)
+
+// Edit the current STYLE slice in place or replace it.
+style := s.Styles["astisub-webvtt-default-style-id"].InlineStyle
+style.WebVTTStyles = []string{
+    "::cue(.narrator) { color: #654321; font-weight: bold; }",
+    "::cue(b) { font-style: italic; }",
+}
+
+// Or edit the complete tag stack carried by one run.
+run := &s.Items[0].Lines[0].Items[0]
+run.InlineStyle.WebVTTTags[0].Classes[0] = "narrator"
+
+var ttml bytes.Buffer
+_ = s.WriteToTTML(&ttml)
+
+// The TTML can be read back span-by-span and/or saved as WebVTT again.
+reread, _ := astisub.ReadFromTTML(bytes.NewReader(ttml.Bytes()))
+var vtt bytes.Buffer
+_ = reread.WriteToWebVTT(&vtt)
+```
+
+The supported subset is `::cue`, `::cue(c|b|i|u)`, `::cue(.class)`, and
+compounds such as `::cue(c.a.b)`, comma grouping, whitespace, and `/* comments */`.
+Supported properties are `color`, `background-color` (the eight WebVTT named
+colors and `#RRGGBB`), `font-weight`, `font-style`, `text-decoration`, including
+`inherit`, `initial`, ASCII case-insensitive keywords, and `!important`.
+Unknown selectors/properties/values are ignored with CSS rule/declaration
+recovery; inputs without a valid supported declaration keep the previous
+conversion path.
+
 # Using the CLI
 
 If **astisub** has been installed properly you can:
