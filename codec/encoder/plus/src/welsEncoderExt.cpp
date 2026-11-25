@@ -40,6 +40,7 @@
 #include "version.h"
 #include "crt_util_safe_x.h" // Safe CRT routines like util for cross platforms
 #include "ref_list_mgr_svc.h"
+#include "svc_encode_pcm.h"
 #include "codec_ver.h"
 
 #include <time.h>
@@ -64,6 +65,7 @@ CWelsH264SVCEncoder::CWelsH264SVCEncoder()
     m_pWelsTrace (NULL),
     m_iMaxPicWidth (0),
     m_iMaxPicHeight (0),
+    m_pPcmMbMap (NULL),
     m_iCspInternal (0),
     m_bInitialFlag (false) {
 #ifdef REC_FRAME_COUNT
@@ -352,6 +354,7 @@ int CWelsH264SVCEncoder::InitializeInternal (SWelsSvcCodingParam* pCfg) {
  */
 int32_t CWelsH264SVCEncoder::Uninitialize() {
   if (!m_bInitialFlag) {
+    ReleasePcmMbMap();
     return 0;
   }
 
@@ -363,9 +366,114 @@ int32_t CWelsH264SVCEncoder::Uninitialize() {
     m_pEncContext = NULL;
   }
 
+  ReleasePcmMbMap();
   m_bInitialFlag = false;
 
   return 0;
+}
+
+void CWelsH264SVCEncoder::ReleasePcmMbMap() {
+  // The context (and its pPcmMbMap alias) is already gone when this is called
+  // from Uninitialize; only free the owned compact grid here.
+  delete[] m_pPcmMbMap;
+  m_pPcmMbMap = NULL;
+}
+
+int CWelsH264SVCEncoder::SetPcmMbMapOption (const SPcmMbMap* pPcmMap) {
+  if (NULL == pPcmMap) {
+    return cmInitParaError;
+  }
+
+  // A NULL pMap clears the active grid without inspecting the other fields.
+  if (NULL == pPcmMap->pMap) {
+    delete[] m_pPcmMbMap;
+    m_pPcmMbMap = NULL;
+    if (NULL != m_pEncContext) {
+      m_pEncContext->pPcmMbMap       = NULL;
+      m_pEncContext->iPcmMbMapStride = 0;
+    }
+    return cmResultSuccess;
+  }
+
+  // The configured MB grid can only be checked against an initialized encoder.
+  if (!m_bInitialFlag || NULL == m_pEncContext || NULL == m_pEncContext->pSvcParam) {
+    WelsLog (&m_pWelsTrace->m_sLogCtx, WELS_LOG_ERROR,
+             "SetOption(ENCODER_OPTION_PCM_MB_MAP): encoder is not initialized, rejected.");
+    return cmInitParaError;
+  }
+
+  const int32_t kiPicWidth  = m_iMaxPicWidth;
+  const int32_t kiPicHeight = m_iMaxPicHeight;
+  if (kiPicWidth <= 0 || kiPicHeight <= 0 || (kiPicWidth & 15) || (kiPicHeight & 15)) {
+    WelsLog (&m_pWelsTrace->m_sLogCtx, WELS_LOG_ERROR,
+             "SetOption(ENCODER_OPTION_PCM_MB_MAP): picture %dx%d is not 16-aligned, rejected.",
+             kiPicWidth, kiPicHeight);
+    return cmInitParaError;
+  }
+
+  const int32_t kiMbWidth  = kiPicWidth >> 4;
+  const int32_t kiMbHeight = kiPicHeight >> 4;
+
+  // Grid geometry must exactly match the configured macroblock grid; stride is
+  // in bytes and must cover a full row of grid entries.
+  if (pPcmMap->iMbWidth != kiMbWidth || pPcmMap->iMbHeight != kiMbHeight ||
+      pPcmMap->iMbWidth <= 0 || pPcmMap->iMbHeight <= 0 ||
+      pPcmMap->iStride < pPcmMap->iMbWidth) {
+    WelsLog (&m_pWelsTrace->m_sLogCtx, WELS_LOG_ERROR,
+             "SetOption(ENCODER_OPTION_PCM_MB_MAP): bad grid %dx%d stride=%d, expected %dx%d, rejected.",
+             pPcmMap->iMbWidth, pPcmMap->iMbHeight, pPcmMap->iStride, kiMbWidth, kiMbHeight);
+    return cmInitParaError;
+  }
+
+  // Supported configuration envelope: single spatial layer, RC off, no
+  // denoise/frame-skip, deterministic slice layouts. Dynamic byte-limited
+  // slicing and SVC layers are explicitly not extended by this feature.
+  SWelsSvcCodingParam* pParam = m_pEncContext->pSvcParam;
+  const SliceModeEnum keSliceMode =
+    pParam->sSpatialLayers[0].sSliceArgument.uiSliceMode;
+  if (pParam->iSpatialLayerNum != 1
+      || pParam->iRCMode != RC_OFF_MODE
+      || pParam->bEnableDenoise
+      || pParam->bEnableFrameSkip
+      || (keSliceMode != SM_SINGLE_SLICE
+          && keSliceMode != SM_FIXEDSLCNUM_SLICE
+          && keSliceMode != SM_RASTER_SLICE)) {
+    WelsLog (&m_pWelsTrace->m_sLogCtx, WELS_LOG_ERROR,
+             "SetOption(ENCODER_OPTION_PCM_MB_MAP): unsupported configuration "
+             "(layers=%d rc=%d denoise=%d skip=%d sliceMode=%d), rejected.",
+             pParam->iSpatialLayerNum, static_cast<int> (pParam->iRCMode),
+             pParam->bEnableDenoise ? 1 : 0, pParam->bEnableFrameSkip ? 1 : 0,
+             static_cast<int> (keSliceMode));
+    return cmInitParaError;
+  }
+
+  // Build the replacement before touching the active map so that any failure
+  // leaves the currently active grid in place. The grid is copied compactly
+  // (stride == iMbWidth); the caller-owned source may change right after.
+  unsigned char* pNewMap = new unsigned char[kiMbWidth * kiMbHeight];
+  if (NULL == pNewMap) {
+    return cmMallocMemeError;
+  }
+  for (int32_t iMbY = 0; iMbY < kiMbHeight; ++iMbY) {
+    memcpy (pNewMap + iMbY * kiMbWidth,
+            pPcmMap->pMap + iMbY * pPcmMap->iStride,
+            kiMbWidth);
+  }
+
+  // Dense I_PCM grids need extra bitstream/NAL destination headroom; grow the
+  // core output buffers before committing the new active map.
+  if (WelsPcmEnsureOutputBuffers (m_pEncContext) != ENC_RETURN_SUCCESS) {
+    delete[] pNewMap;
+    return cmMallocMemeError;
+  }
+
+  delete[] m_pPcmMbMap;
+  m_pPcmMbMap = pNewMap;
+
+  m_pEncContext->pPcmMbMap       = m_pPcmMbMap;
+  m_pEncContext->iPcmMbMapStride = kiMbWidth;
+
+  return cmResultSuccess;
 }
 
 
@@ -1189,6 +1297,11 @@ int CWelsH264SVCEncoder::SetOption (ENCODER_OPTION eOptionId, void* pOption) {
              "CWelsH264SVCEncoder::SetOption():ENCODER_OPTION_BITS_VARY_PERCENTAGE,iBitsVaryPercentage = %d", iValue);
   }
   break;
+
+  case ENCODER_OPTION_PCM_MB_MAP: {
+    // All validation, copying and active-map replacement happen inside.
+    return SetPcmMbMapOption (static_cast<const SPcmMbMap*> (pOption));
+  }
 
   default:
     return cmInitParaError;

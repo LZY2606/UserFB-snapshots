@@ -1,0 +1,6 @@
+#!/bin/bash
+d="${TMPDIR:-$PWD/.task-build/tmp}"
+mkdir -p "$d"
+f="$d/mt.$$.$RANDOM"
+: > "$f"
+echo "$f"

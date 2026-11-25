@@ -21,6 +21,7 @@ cpp_sources = [
   'core/src/svc_base_layer_md.cpp',
   'core/src/svc_enc_slice_segment.cpp',
   'core/src/svc_encode_mb.cpp',
+  'core/src/svc_encode_pcm.cpp',
   'core/src/svc_encode_slice.cpp',
   'core/src/svc_mode_decision.cpp',
   'core/src/svc_motion_estimate.cpp',

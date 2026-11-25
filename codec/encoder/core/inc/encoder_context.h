@@ -235,6 +235,11 @@ typedef struct TagWelsEncCtx {
 #endif
   int64_t            uiLastTimestamp;
   uint8_t*           pDynamicBsBuffer[MAX_THREADS_NUM];
+
+  // Optional per-macroblock I_PCM map (ENCODER_OPTION_PCM_MB_MAP). The sample
+  // grid itself is owned by the ISVCEncoder wrapper; NULL disables I_PCM MBs.
+  const uint8_t*     pPcmMbMap;       ///< row-major MB flags, zero = normal MB
+  int32_t            iPcmMbMapStride; ///< pPcmMbMap line stride in bytes
 } sWelsEncCtx/*, *PWelsEncCtx*/;
 }
 #endif//sWelsEncCtx_H__

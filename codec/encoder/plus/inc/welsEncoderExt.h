@@ -98,6 +98,8 @@ class CWelsH264SVCEncoder : public ISVCEncoder {
 
  private:
   int InitializeInternal (SWelsSvcCodingParam* argv);
+  int SetPcmMbMapOption (const SPcmMbMap* pPcmMbMap);
+  void ReleasePcmMbMap();
   void TraceParamInfo(SEncParamExt *pParam);
   void LogStatistics (const int64_t kiCurrentFrameTs,int32_t iMaxDid);
   void UpdateStatistics(SFrameBSInfo* pBsInfo, const int64_t kiCurrentFrameMs);
@@ -107,6 +109,10 @@ class CWelsH264SVCEncoder : public ISVCEncoder {
   welsCodecTrace*   m_pWelsTrace;
   int32_t           m_iMaxPicWidth;
   int32_t           m_iMaxPicHeight;
+
+  // Owned compact copy of the active ENCODER_OPTION_PCM_MB_MAP grid;
+  // NULL means no per-MB I_PCM map. Released on Uninitialize().
+  unsigned char*    m_pPcmMbMap;
 
   int32_t           m_iCspInternal;
   bool              m_bInitialFlag;

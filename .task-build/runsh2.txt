@@ -1,0 +1,20 @@
+CASE syntax cavlc_single checks=24
+CASE syntax cabac_single checks=24
+CASE syntax cavlc_fixed4slice checks=24
+CASE syntax cabac_fixed4slice checks=24
+GROUP syntax cases=4 checks=96 COMPLETE
+CASE reference cavlc_static_drift checks=25
+CASE reference cabac_static_drift checks=25
+CASE reference cavlc_changing_map checks=20
+CASE reference cabac_changing_map checks=20
+GROUP reference cases=4 checks=90 COMPLETE
+CASE ownership copy_and_stride checks=8
+CASE ownership bad_args_keep_map checks=13
+CASE ownership two_encoders checks=16
+CASE ownership reinit_clears checks=8
+CASE ownership unsupported_config checks=8
+CASE ownership bad_geometry checks=5
+GROUP ownership cases=6 checks=58 COMPLETE
+TARGET_COMPLETE cases=14
+ENCODE_DECODE_OK entropy=0 frames=3 bytes=6968 differing_pixels=13199 hash=7139c6183904cada
+ENCODE_DECODE_OK entropy=1 frames=3 bytes=6476 differing_pixels=13199 hash=82e7b12e72e5f4fc

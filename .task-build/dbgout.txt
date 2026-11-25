@@ -1,0 +1,22 @@
+[OpenH264] this = 0x0x10335cbf0, Info:CWelsH264SVCEncoder::InitEncoder(), openh264 codec version = 2104157+M
+[OpenH264] this = 0x0x10335cbf0, Info:iUsageType = 0,iPicWidth= 64;iPicHeight= 64;iTargetBitrate= 200000;iMaxBitrate= 0;iRCMode= -1;iPaddingFlag= 0;iTemporalLayerNum= 1;iSpatialLayerNum= 1;fFrameRate= 25.000000f;uiIntraPeriod= 0;eSpsPpsIdStrategy = 1;bPrefixNalAddingCtrl = 0;bSimulcastAVC=0;bEnableDenoise= 0;bEnableBackgroundDetection= 0;bEnableSceneChangeDetect = 0;bEnableAdaptiveQuant= 0;bEnableFrameSkip= 0;bEnableLongTermReference= 0;iLtrMarkPeriod= 30, bIsLosslessLink=0;iComplexityMode = 0;iNumRefFrame = 1;iEntropyCodingModeFlag = 1;uiMaxNalSize = 0;iLTRRefNum = 0;iMultipleThreadIdc = 1;iLoopFilterDisableIdc = 1 (offset(alpha/beta): 0,0;iComplexityMode = 0,iMaxQp = 51;iMinQp = 0)
+[OpenH264] this = 0x0x10335cbf0, Info:sSpatialLayers[0]: .iVideoWidth= 64; .iVideoHeight= 64; .fFrameRate= 25.000000f; .iSpatialBitrate= 200000; .iMaxSpatialBitrate= 0; .sSliceArgument.uiSliceMode= 0; .sSliceArgument.iSliceNum= 0; .sSliceArgument.uiSliceSizeConstraint= 1500;uiProfileIdc = 77;uiLevelIdc = 0;iDLayerQp = 28
+[OpenH264] this = 0x0x10335cbf0, Info:WelsInitEncoderExt() exit, overall memory usage: 365496 bytes
+[OpenH264] this = 0x0x10335cbf0, Info:WelsInitEncoderExt(), pCtx= 0x0x75ca800000.
+[OpenH264] this = 0x0x10335cbf0, Debug:encoding videoFrameTypeIDR due to ( bIdrPeriodFlag 0, bSceneChangeFlag 0, bEncCurFrmAsIdrFlag 1 )
+[OpenH264] this = 0x0x10335cbf0, Warning:WelsEncoderEncodeExt(), WelsBuildRefList failed for P frames, pCtx->iNumRef0= 0. ForceCodingIDR!
+[OpenH264] this = 0x0x10335cbf0, Info:ForceCodingIDR(iDid 0-0)at InputFrameCount=1
+
+[OpenH264] this = 0x0x10335cbf0, Error:WelsEncoderEncodeExt(), Logic Error Found in temporal level. ForceCodingIDR!
+[OpenH264] this = 0x0x10335cbf0, Error:unexpected return(8) from EncodeFrameInternal()!
+[OpenH264] this = 0x0x10335cbf0, Error:CWelsH264SVCEncoder::EncodeFrame(), kiEncoderReturn 2
+[OpenH264] this = 0x0x10335cbf0, Debug:encoding videoFrameTypeIDR due to ( bIdrPeriodFlag 0, bSceneChangeFlag 0, bEncCurFrmAsIdrFlag 1 )
+[OpenH264] this = 0x0x10335cbf0, Info:CWelsH264SVCEncoder::Uninitialize(), openh264 codec version = 2104157+M.
+[OpenH264] this = 0x0x10335cbf0, Info:WelsUninitEncoderExt(), pCtx= 0x75ca800000, iMultipleThreadIdc= 1.
+[OpenH264] this = 0x0x10335cbf0, Info:FreeMemorySvc(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x10335cbf0, Info:CWelsH264SVCEncoder::~CWelsH264SVCEncoder()
+init=0
+setopt=0
+f=0 ret=0 layers=0 bytes=0 frametype=4
+f=1 ret=2 layers=0 bytes=0 frametype=1
+f=2 ret=0 layers=0 bytes=0 frametype=4

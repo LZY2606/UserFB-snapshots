@@ -1,0 +1,89 @@
+[OpenH264] this = 0x0x100a38bf0, Info:CWelsH264SVCEncoder::InitEncoder(), openh264 codec version = 2104157+M
+[OpenH264] this = 0x0x100a38bf0, Info:iUsageType = 0,iPicWidth= 64;iPicHeight= 48;iTargetBitrate= 400000;iMaxBitrate= 0;iRCMode= -1;iPaddingFlag= 0;iTemporalLayerNum= 1;iSpatialLayerNum= 1;fFrameRate= 25.000000f;uiIntraPeriod= 0;eSpsPpsIdStrategy = 1;bPrefixNalAddingCtrl = 0;bSimulcastAVC=0;bEnableDenoise= 0;bEnableBackgroundDetection= 0;bEnableSceneChangeDetect = 0;bEnableAdaptiveQuant= 0;bEnableFrameSkip= 0;bEnableLongTermReference= 0;iLtrMarkPeriod= 30, bIsLosslessLink=0;iComplexityMode = 0;iNumRefFrame = 1;iEntropyCodingModeFlag = 0;uiMaxNalSize = 0;iLTRRefNum = 0;iMultipleThreadIdc = 1;iLoopFilterDisableIdc = 1 (offset(alpha/beta): 0,0;iComplexityMode = 0,iMaxQp = 51;iMinQp = 0)
+[OpenH264] this = 0x0x100a38bf0, Info:sSpatialLayers[0]: .iVideoWidth= 64; .iVideoHeight= 48; .fFrameRate= 25.000000f; .iSpatialBitrate= 400000; .iMaxSpatialBitrate= 0; .sSliceArgument.uiSliceMode= 0; .sSliceArgument.iSliceNum= 0; .sSliceArgument.uiSliceSizeConstraint= 1500;uiProfileIdc = 66;uiLevelIdc = 0;iDLayerQp = 28
+[OpenH264] this = 0x0x100a38bf0, Info:WelsInitEncoderExt() exit, overall memory usage: 345504 bytes
+[OpenH264] this = 0x0x100a38bf0, Info:WelsInitEncoderExt(), pCtx= 0x0x7734800000.
+[OpenH264] this = 0x0x100a42b00, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x100a42b00, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x100a42b00, Info:eVideoType: 0
+[OpenH264] this = 0x0x100a38bf0, Debug:encoding videoFrameTypeIDR due to ( bIdrPeriodFlag 0, bSceneChangeFlag 0, bEncCurFrmAsIdrFlag 1 )
+[OpenH264] this = 0x0x100a38bf0, Debug:[Rc]Layer 0: Frame timestamp = 0, Frame type = 2, encoding_qp = 28, average qp = 28, max qp = 0, min qp = 0, index = 0, iTid = 0, used = 28344, bitsperframe = 0, target = 0, remainingbits = 0, skipbuffersize = 0
+[OpenH264] this = 0x0x100a38bf0, Warning:WelsEncoderEncodeExt()MinCr Checking,codec bitstream size is larger than Level limitation
+[OpenH264] this = 0x0x100a38bf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerNum = 2,iFrameSize = 3543
+[OpenH264] this = 0x0x100a38bf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 0,iNalType = 0,iNalCount = 2, first Nal Length=16,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 0
+[OpenH264] this = 0x0x100a38bf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 1,iNalType = 1,iNalCount = 1, first Nal Length=3519,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 0
+[OpenH264] this = 0x0x100a42b00, Info:WelsRequestMem(): memory alloc size = 64 * 48, ref list size = 3
+[OpenH264] this = 0x0x100a42b00, Info:SyncPictureResolutionExt(), overall memory usage: 3977674 bytes
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x100a42b00, Info:DecodeFrameConstruction(): will output first frame of new sequence, 64 x 48, crop_left:0, crop_right:0, crop_top:0, crop_bottom:0, ignored error packet:0.
+[OpenH264] this = 0x0x100a38bf0, Debug:[Rc]Layer 0: Frame timestamp = 40, Frame type = 0, encoding_qp = 28, average qp = 28, max qp = 0, min qp = 0, index = 1, iTid = 0, used = 26424, bitsperframe = 0, target = 0, remainingbits = 0, skipbuffersize = 0
+[OpenH264] this = 0x0x100a38bf0, Warning:WelsEncoderEncodeExt()MinCr Checking,codec bitstream size is larger than Level limitation
+[OpenH264] this = 0x0x100a38bf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerNum = 1,iFrameSize = 3303
+[OpenH264] this = 0x0x100a38bf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 0,iNalType = 1,iNalCount = 1, first Nal Length=3303,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 3
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x100a42b00, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x100a38bf0, Info:CWelsH264SVCEncoder::Uninitialize(), openh264 codec version = 2104157+M.
+[OpenH264] this = 0x0x100a38bf0, Info:WelsUninitEncoderExt(), pCtx= 0x7734800000, iMultipleThreadIdc= 1.
+[OpenH264] this = 0x0x100a38bf0, Info:FreeMemorySvc(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x100a38bf0, Info:CWelsH264SVCEncoder::~CWelsH264SVCEncoder()
+[OpenH264] this = 0x0x100a42b00, Info:CWelsDecoder::UninitDecoderCtx(), openh264 codec version = 2104157+M.
+[OpenH264] this = 0x0x100a42b00, Info:CWelsDecoder::UninitDecoder(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x100a42b00, Info:CWelsDecoder::~CWelsDecoder()
+[OpenH264] this = 0x0x100a38cf0, Info:CWelsH264SVCEncoder::InitEncoder(), openh264 codec version = 2104157+M
+[OpenH264] this = 0x0x100a38cf0, Info:iUsageType = 0,iPicWidth= 64;iPicHeight= 48;iTargetBitrate= 400000;iMaxBitrate= 0;iRCMode= -1;iPaddingFlag= 0;iTemporalLayerNum= 1;iSpatialLayerNum= 1;fFrameRate= 25.000000f;uiIntraPeriod= 0;eSpsPpsIdStrategy = 1;bPrefixNalAddingCtrl = 0;bSimulcastAVC=0;bEnableDenoise= 0;bEnableBackgroundDetection= 0;bEnableSceneChangeDetect = 0;bEnableAdaptiveQuant= 0;bEnableFrameSkip= 0;bEnableLongTermReference= 0;iLtrMarkPeriod= 30, bIsLosslessLink=0;iComplexityMode = 0;iNumRefFrame = 1;iEntropyCodingModeFlag = 0;uiMaxNalSize = 0;iLTRRefNum = 0;iMultipleThreadIdc = 1;iLoopFilterDisableIdc = 1 (offset(alpha/beta): 0,0;iComplexityMode = 0,iMaxQp = 51;iMinQp = 0)
+[OpenH264] this = 0x0x100a38cf0, Info:sSpatialLayers[0]: .iVideoWidth= 64; .iVideoHeight= 48; .fFrameRate= 25.000000f; .iSpatialBitrate= 400000; .iMaxSpatialBitrate= 0; .sSliceArgument.uiSliceMode= 1; .sSliceArgument.iSliceNum= 4; .sSliceArgument.uiSliceSizeConstraint= 1500;uiProfileIdc = 66;uiLevelIdc = 0;iDLayerQp = 28
+[OpenH264] this = 0x0x100a38cf0, Info:SliceArgumentValidationFixedSliceMode(), uiSliceNum(4) you set for SM_FIXEDSLCNUM_SLICE, now turn to SM_SINGLE_SLICE type as CountMbNum less than MIN_NUM_MB_PER_SLICE!
+[OpenH264] this = 0x0x100a38cf0, Info:WelsInitEncoderExt() exit, overall memory usage: 345504 bytes
+[OpenH264] this = 0x0x100a38cf0, Info:WelsInitEncoderExt(), pCtx= 0x0x7734800000.
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x7735038000, Info:eVideoType: 0
+[OpenH264] this = 0x0x100a38cf0, Debug:encoding videoFrameTypeIDR due to ( bIdrPeriodFlag 0, bSceneChangeFlag 0, bEncCurFrmAsIdrFlag 1 )
+[OpenH264] this = 0x0x100a38cf0, Debug:[Rc]Layer 0: Frame timestamp = 0, Frame type = 2, encoding_qp = 28, average qp = 28, max qp = 0, min qp = 0, index = 0, iTid = 0, used = 28344, bitsperframe = 0, target = 0, remainingbits = 0, skipbuffersize = 0
+[OpenH264] this = 0x0x100a38cf0, Warning:WelsEncoderEncodeExt()MinCr Checking,codec bitstream size is larger than Level limitation
+[OpenH264] this = 0x0x100a38cf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerNum = 2,iFrameSize = 3543
+[OpenH264] this = 0x0x100a38cf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 0,iNalType = 0,iNalCount = 2, first Nal Length=16,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 0
+[OpenH264] this = 0x0x100a38cf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 1,iNalType = 1,iNalCount = 1, first Nal Length=3519,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 0
+[OpenH264] this = 0x0x7735038000, Info:WelsRequestMem(): memory alloc size = 64 * 48, ref list size = 3
+[OpenH264] this = 0x0x7735038000, Info:SyncPictureResolutionExt(), overall memory usage: 3977674 bytes
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in I slice!
+[OpenH264] this = 0x0x7735038000, Info:DecodeFrameConstruction(): will output first frame of new sequence, 64 x 48, crop_left:0, crop_right:0, crop_top:0, crop_bottom:0, ignored error packet:0.
+[OpenH264] this = 0x0x100a38cf0, Debug:[Rc]Layer 0: Frame timestamp = 40, Frame type = 0, encoding_qp = 28, average qp = 28, max qp = 0, min qp = 0, index = 1, iTid = 0, used = 26424, bitsperframe = 0, target = 0, remainingbits = 0, skipbuffersize = 0
+[OpenH264] this = 0x0x100a38cf0, Warning:WelsEncoderEncodeExt()MinCr Checking,codec bitstream size is larger than Level limitation
+[OpenH264] this = 0x0x100a38cf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerNum = 1,iFrameSize = 3303
+[OpenH264] this = 0x0x100a38cf0, Debug:WelsEncoderEncodeExt() OutputInfo iLayerId = 0,iNalType = 1,iNalCount = 1, first Nal Length=3303,uiSpatialId = 0,uiTemporalId = 0,iSubSeqId = 3
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x7735038000, Debug:I_PCM mode exists in P slice!
+[OpenH264] this = 0x0x100a38cf0, Info:CWelsH264SVCEncoder::Uninitialize(), openh264 codec version = 2104157+M.
+[OpenH264] this = 0x0x100a38cf0, Info:WelsUninitEncoderExt(), pCtx= 0x7734800000, iMultipleThreadIdc= 1.
+[OpenH264] this = 0x0x100a38cf0, Info:FreeMemorySvc(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x100a38cf0, Info:CWelsH264SVCEncoder::~CWelsH264SVCEncoder()
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::UninitDecoderCtx(), openh264 codec version = 2104157+M.
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::UninitDecoder(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::~CWelsDecoder()
+[OpenH264] this = 0x0x100a38bf0, Info:CWelsH264SVCEncoder::InitEncoder(), openh264 codec version = 2104157+M
+[OpenH264] this = 0x0x100a38bf0, Info:iUsageType = 0,iPicWidth= 64;iPicHeight= 48;iTargetBitrate= 400000;iMaxBitrate= 0;iRCMode= -1;iPaddingFlag= 0;iTemporalLayerNum= 1;iSpatialLayerNum= 1;fFrameRate= 25.000000f;uiIntraPeriod= 0;eSpsPpsIdStrategy = 1;bPrefixNalAddingCtrl = 0;bSimulcastAVC=0;bEnableDenoise= 0;bEnableBackgroundDetection= 0;bEnableSceneChangeDetect = 0;bEnableAdaptiveQuant= 0;bEnableFrameSkip= 0;bEnableLongTermReference= 0;iLtrMarkPeriod= 30, bIsLosslessLink=0;iComplexityMode = 0;iNumRefFrame = 1;iEntropyCodingModeFlag = 0;uiMaxNalSize = 0;iLTRRefNum = 0;iMultipleThreadIdc = 1;iLoopFilterDisableIdc = 1 (offset(alpha/beta): 0,0;iComplexityMode = 0,iMaxQp = 51;iMinQp = 0)
+[OpenH264] this = 0x0x100a38bf0, Info:sSpatialLayers[0]: .iVideoWidth= 64; .iVideoHeight= 48; .fFrameRate= 25.000000f; .iSpatialBitrate= 400000; .iMaxSpatialBitrate= 0; .sSliceArgument.uiSliceMode= 0; .sSliceArgument.iSliceNum= 0; .sSliceArgument.uiSliceSizeConstraint= 1500;uiProfileIdc = 66;uiLevelIdc = 0;iDLayerQp = 28
+[OpenH264] this = 0x0x100a38bf0, Info:WelsInitEncoderExt() exit, overall memory usage: 345504 bytes
+[OpenH264] this = 0x0x100a38bf0, Info:WelsInitEncoderExt(), pCtx= 0x0x7734800000.
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x7735038000, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+[OpenH264] this = 0x0x7735038000, Info:eVideoType: 0
+[OpenH264] this = 0x0x100a38bf0, Debug:encoding videoFrameTypeIDR due to ( bIdrPeriodFlag 0, bSceneChangeFlag 0, bEncCurFrmAsIdrFlag 1 )
+[OpenH264] this = 0x0x100a38bf0, Debug:CWelsH264SVCEncoder::EncodeFrame() not succeed, err=1
+[OpenH264] this = 0x0x100a38bf0, Info:WelsUninitEncoderExt(), pCtx= 0x7734800000, iMultipleThreadIdc= 1.
+[OpenH264] this = 0x0x100a38bf0, Info:FreeMemorySvc(), verify memory usage (0 bytes) after free..
+[OpenH264] this = 0x0x100a38bf0, Error:CWelsH264SVCEncoder::EncodeFrame(), kiEncoderReturn 3
+ok 64x48 ent=0 sl=1 all=0
+ok 64x48 ent=0 sl=4 all=0
+  ENCFAIL 64x48 ent=0 sl=1 all=1 f=0 r=3

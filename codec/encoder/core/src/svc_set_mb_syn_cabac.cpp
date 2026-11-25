@@ -38,6 +38,7 @@
  *************************************************************************************
  */
 #include "svc_set_mb_syn.h"
+#include "svc_encode_pcm.h"
 #include "set_mb_syn_cabac.h"
 #include "svc_enc_golomb.h"
 
@@ -657,6 +658,17 @@ int32_t WelsSpatialWriteMbSynCabac (sWelsEncCtx* pEncCtx, SSlice* pSlice, SMB* p
     //skip flag
     if (pEncCtx->eSliceType != I_SLICE)
       WelsMbSkipCabac (&pSlice->sCabacCtx, pCurMb, iMbWidth, pEncCtx->eSliceType, 0);
+
+    // I_PCM: special terminate/alignment/raw sample handling, then the
+    // CABAC engine is restarted inside WelsWritePcmMbSynCabac.
+    if (MB_TYPE_INTRA_PCM == uiMbType) {
+      iRet = WelsWritePcmMbSynCabac (pEncCtx, pSlice, pCurMb);
+      if (ENC_RETURN_SUCCESS != iRet)
+        return iRet;
+      if (!IS_INTRA (pCurMb->uiMbType))
+        pCurMb->uiChromPredMode = 0;
+      return iRet;
+    }
 
     //write mb type
     WelsCabacMbType (pCabacCtx, pCurMb, pMbCache, iMbWidth, pEncCtx->eSliceType);

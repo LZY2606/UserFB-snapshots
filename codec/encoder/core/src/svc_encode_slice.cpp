@@ -44,6 +44,7 @@
 #include "svc_base_layer_md.h"
 #include "svc_encode_mb.h"
 #include "svc_set_mb_syn.h"
+#include "svc_encode_pcm.h"
 #include "decode_mb_aux.h"
 #include "svc_mode_decision.h"
 
@@ -561,9 +562,15 @@ int32_t WelsISliceMdEnc (sWelsEncCtx* pEncCtx, SSlice* pSlice) { //pMd + encodin
     pEncCtx->pFuncList->pfRc.pfWelsRcMbInit (pEncCtx, pCurMb, pSlice);
     WelsMdIntraInit (pEncCtx, pCurMb, pMbCache, kiSliceFirstMbXY);
 
+    const bool kbPcmMb = WelsPcmMbSelected (pEncCtx, pCurMb->iMbX, pCurMb->iMbY);
+
 TRY_REENCODING:
     sMd.iLambda = g_kiQpCostTable[pCurMb->uiLumaQp];
-    WelsMdIntraMb (pEncCtx, &sMd, pCurMb, pMbCache);
+    if (kbPcmMb) {
+      WelsPcmMbPrepare (pEncCtx, pSlice, pCurMb);
+    } else {
+      WelsMdIntraMb (pEncCtx, &sMd, pCurMb, pMbCache);
+    }
     UpdateNonZeroCountCache (pCurMb, pMbCache);
 
 
@@ -1846,9 +1853,15 @@ int32_t WelsMdInterMbLoop (sWelsEncCtx* pEncCtx, SSlice* pSlice, void* pWelsMd, 
     WelsMdIntraInit (pEncCtx, pCurMb, pMbCache, kiSliceFirstMbXY);
     WelsMdInterInit (pEncCtx, pSlice, pCurMb, kiSliceFirstMbXY);
 
+    const bool kbPcmMb = WelsPcmMbSelected (pEncCtx, pCurMb->iMbX, pCurMb->iMbY);
+
 TRY_REENCODING:
     WelsInitInterMDStruc (pCurMb, pMvdCostTable, kiMvdInterTableStride, pMd);
-    pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
+    if (kbPcmMb) {
+      WelsPcmMbPrepare (pEncCtx, pSlice, pCurMb);
+    } else {
+      pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
+    }
     //mb_qp
 
     //step (4): save from the MD process from future use
@@ -1955,9 +1968,15 @@ int32_t WelsMdInterMbLoopOverDynamicSlice (sWelsEncCtx* pEncCtx, SSlice* pSlice,
     WelsMdIntraInit (pEncCtx, pCurMb, pMbCache, kiSliceFirstMbXY);
     WelsMdInterInit (pEncCtx, pSlice, pCurMb, kiSliceFirstMbXY);
 
+    const bool kbPcmMb = WelsPcmMbSelected (pEncCtx, pCurMb->iMbX, pCurMb->iMbY);
+
 TRY_REENCODING:
     WelsInitInterMDStruc (pCurMb, pMvdCostTable, kiMvdInterTableStride, pMd);
-    pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
+    if (kbPcmMb) {
+      WelsPcmMbPrepare (pEncCtx, pSlice, pCurMb);
+    } else {
+      pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
+    }
     //mb_qp
 
     //step (4): save from the MD process from future use

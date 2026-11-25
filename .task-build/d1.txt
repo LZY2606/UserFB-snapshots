@@ -1,0 +1,29 @@
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::SetOption():DECODER_OPTION_TRACE_CALLBACK callback = 0x102a94f7c.
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+LOG: [OpenH264] this = 0x0x10322af20, Info:eVideoType: 0
+ENCPCM cabacOff=2 bsOff=21 pre=fef8 row0=50570d26
+ENCPCM cabacOff=960 bsOff=1365 pre=035e row0=84cc8c5c
+ENCPCM cabacOff=2026 bsOff=3775 pre=3760 row0=f9986625
+LOG: [OpenH264] this = 0x0x10322af20, Info:WelsRequestMem(): memory alloc size = 64 * 64, ref list size = 3
+LOG: [OpenH264] this = 0x0x10322af20, Info:SyncPictureResolutionExt(), overall memory usage: 3984382 bytes
+LOG: [OpenH264] this = 0x0x10322af20, Debug:I_PCM mode exists in I slice!
+DERPCM offInBs=7 pre=fef8 row0=50570d26 left=4140
+DBG Islice ParseIPCM ret=0
+DBG Islice eos ret=0 flag=0
+LOG: [OpenH264] this = 0x0x10322af20, Warning:DecodeCurrentAccessUnit() failed (459805) in frame: 0 uiDId: 0 uiQId: 0
+LOG: [OpenH264] this = 0x0x10322af20, Debug:returned error from decoding:[0x7041d]
+LOG: [OpenH264] this = 0x0x10322af20, Info:decode failed, failure type:4 
+
+ENCPCM cabacOff=2 bsOff=7 pre=fdff row0=3f063df7
+ENCPCM cabacOff=907 bsOff=1298 pre=97a4 row0=abfddf2d
+ENCPCM cabacOff=1752 bsOff=3434 pre=60b6 row0=96e93214
+ENCPCM cabacOff=2 bsOff=7 pre=fdff row0=0e346c88
+ENCPCM cabacOff=889 bsOff=1280 pre=97c0 row0=7a2e2ef1
+ENCPCM cabacOff=1761 bsOff=3425 pre=0080 row0=473a034b
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::UninitDecoderCtx(), openh264 codec version = 2104157+M.
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::UninitDecoder(), verify memory usage (0 bytes) after free..
+LOG: [OpenH264] this = 0x0x10322af20, Info:CWelsDecoder::~CWelsDecoder()
+fr=0 enc=0 bs=4176 ds=4 bufstat=0 pcm=1
+fr=1 enc=0 bs=3825 ds=18 bufstat=0 pcm=1
+fr=2 enc=0 bs=3816 ds=18 bufstat=0 pcm=1

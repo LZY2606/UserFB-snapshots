@@ -41,6 +41,7 @@
 #include "vlc_encoder.h"
 #include "ls_defines.h"
 #include "svc_set_mb_syn.h"
+#include "svc_encode_pcm.h"
 
 namespace WelsEnc {
 const uint32_t g_kuiIntra4x4CbpMap[48] = {
@@ -273,6 +274,15 @@ int32_t WelsSpatialWriteMbSyn (sWelsEncCtx* pEncCtx, SSlice* pSlice, SMB* pCurMb
       BsWriteUE (pBs, pSlice->iMbSkipRun);
       pSlice->iMbSkipRun = 0;
     }
+
+    /* I_PCM macroblock: mb_type + byte alignment + raw samples only. */
+    if (MB_TYPE_INTRA_PCM == pCurMb->uiMbType) {
+      int32_t iPcmReturn = WelsWritePcmMbSynCavlc (pEncCtx, pSlice, pCurMb);
+      if (ENC_RETURN_SUCCESS != iPcmReturn)
+        return iPcmReturn;
+      return CheckBitstreamBuffer (pSlice->iSliceIdx, pEncCtx, pBs);
+    }
+
     /* Step 1: write mb type and pred */
     if (IS_Inter_8x8 (pCurMb->uiMbType)) {
       WelsSpatialWriteSubMbPred (pEncCtx, pSlice, pCurMb);

@@ -25,6 +25,7 @@ ENCODER_CPP_SRCS=\
 	$(ENCODER_SRCDIR)/core/src/svc_base_layer_md.cpp\
 	$(ENCODER_SRCDIR)/core/src/svc_enc_slice_segment.cpp\
 	$(ENCODER_SRCDIR)/core/src/svc_encode_mb.cpp\
+	$(ENCODER_SRCDIR)/core/src/svc_encode_pcm.cpp\
 	$(ENCODER_SRCDIR)/core/src/svc_encode_slice.cpp\
 	$(ENCODER_SRCDIR)/core/src/svc_mode_decision.cpp\
 	$(ENCODER_SRCDIR)/core/src/svc_motion_estimate.cpp\

@@ -142,8 +142,33 @@ typedef enum {
 
   ENCODER_OPTION_IS_LOSSLESS_LINK,            ///< advanced algorithmetic settings
 
-  ENCODER_OPTION_BITS_VARY_PERCENTAGE        ///< bit vary percentage
+  ENCODER_OPTION_BITS_VARY_PERCENTAGE,        ///< bit vary percentage
+  ENCODER_OPTION_PCM_MB_MAP                   ///< SPcmMbMap: per macroblock I_PCM map, set only (see SPcmMbMap)
 } ENCODER_OPTION;
+
+/**
+* @brief Per-macroblock I_PCM map used with ENCODER_OPTION_PCM_MB_MAP.
+*
+* The grid covers the whole configured picture in macroblock units:
+* iMbWidth must equal (configured width + 15) / 16 and iMbHeight the
+* corresponding height. iStride is the line stride of pMap in bytes and
+* must be at least iMbWidth. A zero entry selects normal compression for
+* that macroblock; a non-zero entry forces the macroblock to be coded as
+* I_PCM (in both I and P slices), preserving the original YUV samples in
+* the reconstructed picture.
+*
+* SetOption() copies a valid grid synchronously, so the memory backing
+* pMap can be reused immediately after the call. The active map applies to
+* every following frame until replaced by another grid. Passing pMap = NULL
+* clears the active map; the other three fields are then ignored.
+* A complete C++ call example is in examples/pcm_mb_map_example.cpp.
+*/
+typedef struct TagPcmMbMap {
+  const unsigned char* pMap;     ///< grid of per-MB flags, top-left MB first
+  int                  iMbWidth; ///< macroblock grid width, must match configuration
+  int                  iMbHeight;///< macroblock grid height, must match configuration
+  int                  iStride;  ///< pMap line stride in bytes, >= iMbWidth
+} SPcmMbMap;
 
 /**
 * @brief Option types introduced in decoder application

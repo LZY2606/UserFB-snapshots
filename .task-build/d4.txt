@@ -1,0 +1,316 @@
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::SetOption():DECODER_OPTION_TRACE_CALLBACK callback = 0x100b41044.
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::init_decoder(), openh264 codec version = 2104157+M, ParseOnly = 0
+LOG: [OpenH264] this = 0x0x10152af20, Info:eVideoType: 0
+ENCPCM cabacOff=2 bsOff=21 pre=fef8 row0=50570d26
+ENCMB idx=1 type=0x1 cbp=47 i16mode=4 chroma=4
+ENCCTX mb1 iCtx=4 state=0c range=508 lowcnt=9 bufpos=0
+ENC4x4 i=0 flag=1 rem=0
+ENC4x4 i=1 flag=1 rem=0
+ENC4x4 i=2 flag=0 rem=4
+ENC4x4 i=3 flag=0 rem=0
+ENC4x4 i=4 flag=1 rem=0
+ENC4x4 i=5 flag=0 rem=7
+ENC4x4 i=6 flag=0 rem=3
+ENC4x4 i=7 flag=0 rem=0
+ENC4x4 i=8 flag=0 rem=4
+ENC4x4 i=9 flag=0 rem=1
+ENC4x4 i=10 flag=0 rem=4
+ENC4x4 i=11 flag=0 rem=4
+ENC4x4 i=12 flag=0 rem=3
+ENC4x4 i=13 flag=1 rem=0
+ENC4x4 i=14 flag=0 rem=4
+ENC4x4 i=15 flag=0 rem=1
+ENCMB idx=2 type=0x1 cbp=47 i16mode=4 chroma=4
+ENC4x4 i=0 flag=1 rem=0
+ENC4x4 i=1 flag=1 rem=0
+ENC4x4 i=2 flag=0 rem=4
+ENC4x4 i=3 flag=0 rem=3
+ENC4x4 i=4 flag=0 rem=1
+ENC4x4 i=5 flag=1 rem=7
+ENC4x4 i=6 flag=0 rem=4
+ENC4x4 i=7 flag=0 rem=4
+ENC4x4 i=8 flag=0 rem=1
+ENC4x4 i=9 flag=0 rem=6
+ENC4x4 i=10 flag=0 rem=5
+ENC4x4 i=11 flag=0 rem=5
+ENC4x4 i=12 flag=0 rem=6
+ENC4x4 i=13 flag=0 rem=0
+ENC4x4 i=14 flag=1 rem=4
+ENC4x4 i=15 flag=0 rem=4
+ENCMB idx=3 type=0x1 cbp=47 i16mode=4 chroma=4
+ENC4x4 i=0 flag=1 rem=0
+ENC4x4 i=1 flag=1 rem=0
+ENC4x4 i=2 flag=0 rem=6
+ENC4x4 i=3 flag=0 rem=4
+ENC4x4 i=4 flag=1 rem=1
+ENC4x4 i=5 flag=1 rem=7
+ENC4x4 i=6 flag=1 rem=4
+ENC4x4 i=7 flag=1 rem=4
+ENC4x4 i=8 flag=0 rem=1
+ENC4x4 i=9 flag=0 rem=0
+ENC4x4 i=10 flag=1 rem=5
+ENC4x4 i=11 flag=0 rem=4
+ENC4x4 i=12 flag=1 rem=6
+ENC4x4 i=13 flag=0 rem=1
+ENC4x4 i=14 flag=1 rem=4
+ENC4x4 i=15 flag=0 rem=4
+ENCMB idx=4 type=0x1 cbp=47 i16mode=5 chroma=5
+ENC4x4 i=0 flag=1 rem=0
+ENC4x4 i=1 flag=0 rem=4
+ENC4x4 i=2 flag=0 rem=6
+ENC4x4 i=3 flag=0 rem=2
+ENC4x4 i=4 flag=0 rem=3
+ENC4x4 i=5 flag=0 rem=4
+ENC4x4 i=6 flag=0 rem=2
+ENC4x4 i=7 flag=0 rem=5
+ENC4x4 i=8 flag=0 rem=0
+ENC4x4 i=9 flag=0 rem=1
+ENC4x4 i=10 flag=0 rem=0
+ENC4x4 i=11 flag=0 rem=3
+ENC4x4 i=12 flag=0 rem=4
+ENC4x4 i=13 flag=0 rem=5
+ENC4x4 i=14 flag=0 rem=0
+ENC4x4 i=15 flag=0 rem=1
+ENCMB idx=5 type=0x1 cbp=47 i16mode=2 chroma=2
+ENC4x4 i=0 flag=0 rem=4
+ENC4x4 i=1 flag=0 rem=0
+ENC4x4 i=2 flag=1 rem=6
+ENC4x4 i=3 flag=0 rem=1
+ENC4x4 i=4 flag=0 rem=4
+ENC4x4 i=5 flag=0 rem=0
+ENC4x4 i=6 flag=0 rem=3
+ENC4x4 i=7 flag=0 rem=1
+ENC4x4 i=8 flag=0 rem=4
+ENC4x4 i=9 flag=0 rem=4
+ENC4x4 i=10 flag=1 rem=0
+ENC4x4 i=11 flag=0 rem=0
+ENC4x4 i=12 flag=0 rem=4
+ENC4x4 i=13 flag=1 rem=5
+ENC4x4 i=14 flag=0 rem=4
+ENC4x4 i=15 flag=1 rem=1
+ENCMB idx=6 type=0x1 cbp=47 i16mode=3 chroma=0
+ENC4x4 i=0 flag=0 rem=4
+ENC4x4 i=1 flag=0 rem=5
+ENC4x4 i=2 flag=1 rem=6
+ENC4x4 i=3 flag=1 rem=1
+ENC4x4 i=4 flag=0 rem=2
+ENC4x4 i=5 flag=1 rem=0
+ENC4x4 i=6 flag=0 rem=1
+ENC4x4 i=7 flag=0 rem=3
+ENC4x4 i=8 flag=0 rem=0
+ENC4x4 i=9 flag=0 rem=4
+ENC4x4 i=10 flag=0 rem=3
+ENC4x4 i=11 flag=0 rem=1
+ENC4x4 i=12 flag=0 rem=3
+ENC4x4 i=13 flag=0 rem=4
+ENC4x4 i=14 flag=0 rem=6
+ENC4x4 i=15 flag=1 rem=1
+ENCMB idx=7 type=0x1 cbp=47 i16mode=2 chroma=2
+ENC4x4 i=0 flag=0 rem=6
+ENC4x4 i=1 flag=0 rem=7
+ENC4x4 i=2 flag=1 rem=6
+ENC4x4 i=3 flag=0 rem=2
+ENC4x4 i=4 flag=0 rem=4
+ENC4x4 i=5 flag=0 rem=0
+ENC4x4 i=6 flag=0 rem=7
+ENC4x4 i=7 flag=0 rem=1
+ENC4x4 i=8 flag=0 rem=0
+ENC4x4 i=9 flag=0 rem=4
+ENC4x4 i=10 flag=0 rem=6
+ENC4x4 i=11 flag=0 rem=0
+ENC4x4 i=12 flag=0 rem=2
+ENC4x4 i=13 flag=0 rem=4
+ENC4x4 i=14 flag=0 rem=0
+ENC4x4 i=15 flag=0 rem=0
+ENCMB idx=8 type=0x1 cbp=47 i16mode=5 chroma=5
+ENC4x4 i=0 flag=0 rem=0
+ENC4x4 i=1 flag=0 rem=6
+ENC4x4 i=2 flag=0 rem=0
+ENC4x4 i=3 flag=0 rem=3
+ENC4x4 i=4 flag=1 rem=4
+ENC4x4 i=5 flag=1 rem=0
+ENC4x4 i=6 flag=1 rem=7
+ENC4x4 i=7 flag=0 rem=4
+ENC4x4 i=8 flag=0 rem=6
+ENC4x4 i=9 flag=0 rem=2
+ENC4x4 i=10 flag=1 rem=6
+ENC4x4 i=11 flag=1 rem=0
+ENC4x4 i=12 flag=0 rem=6
+ENC4x4 i=13 flag=0 rem=4
+ENC4x4 i=14 flag=0 rem=0
+ENC4x4 i=15 flag=0 rem=4
+ENCMB idx=9 type=0x1 cbp=47 i16mode=2 chroma=2
+ENC4x4 i=0 flag=0 rem=4
+ENC4x4 i=1 flag=0 rem=4
+ENC4x4 i=2 flag=0 rem=5
+ENC4x4 i=3 flag=0 rem=2
+ENC4x4 i=4 flag=1 rem=4
+ENC4x4 i=5 flag=0 rem=4
+ENC4x4 i=6 flag=0 rem=3
+ENC4x4 i=7 flag=0 rem=2
+ENC4x4 i=8 flag=0 rem=3
+ENC4x4 i=9 flag=0 rem=2
+ENC4x4 i=10 flag=0 rem=3
+ENC4x4 i=11 flag=0 rem=0
+ENC4x4 i=12 flag=0 rem=2
+ENC4x4 i=13 flag=0 rem=3
+ENC4x4 i=14 flag=0 rem=4
+ENC4x4 i=15 flag=0 rem=2
+ENCMB idx=10 type=0x1 cbp=47 i16mode=2 chroma=2
+ENC4x4 i=0 flag=0 rem=7
+ENC4x4 i=1 flag=0 rem=4
+ENC4x4 i=2 flag=0 rem=4
+ENC4x4 i=3 flag=0 rem=1
+ENC4x4 i=4 flag=0 rem=1
+ENC4x4 i=5 flag=0 rem=3
+ENC4x4 i=6 flag=0 rem=1
+ENC4x4 i=7 flag=1 rem=2
+ENC4x4 i=8 flag=1 rem=3
+ENC4x4 i=9 flag=0 rem=5
+ENC4x4 i=10 flag=0 rem=4
+ENC4x4 i=11 flag=0 rem=2
+ENC4x4 i=12 flag=1 rem=2
+ENC4x4 i=13 flag=0 rem=3
+ENC4x4 i=14 flag=1 rem=4
+ENC4x4 i=15 flag=0 rem=7
+ENCMB idx=11 type=0x1 cbp=47 i16mode=2 chroma=2
+ENC4x4 i=0 flag=0 rem=0
+ENC4x4 i=1 flag=0 rem=1
+ENC4x4 i=2 flag=0 rem=1
+ENC4x4 i=3 flag=0 rem=4
+ENC4x4 i=4 flag=0 rem=1
+ENC4x4 i=5 flag=1 rem=3
+ENC4x4 i=6 flag=1 rem=1
+ENC4x4 i=7 flag=0 rem=4
+ENC4x4 i=8 flag=0 rem=2
+ENC4x4 i=9 flag=0 rem=0
+ENC4x4 i=10 flag=0 rem=0
+ENC4x4 i=11 flag=0 rem=4
+ENC4x4 i=12 flag=0 rem=3
+ENC4x4 i=13 flag=1 rem=3
+ENC4x4 i=14 flag=1 rem=4
+ENC4x4 i=15 flag=0 rem=5
+ENCMB idx=12 type=0x1 cbp=47 i16mode=5 chroma=5
+ENC4x4 i=0 flag=1 rem=0
+ENC4x4 i=1 flag=0 rem=3
+ENC4x4 i=2 flag=1 rem=1
+ENC4x4 i=3 flag=0 rem=4
+ENC4x4 i=4 flag=0 rem=6
+ENC4x4 i=5 flag=0 rem=5
+ENC4x4 i=6 flag=0 rem=6
+ENC4x4 i=7 flag=0 rem=5
+ENC4x4 i=8 flag=1 rem=2
+ENC4x4 i=9 flag=1 rem=0
+ENC4x4 i=10 flag=1 rem=0
+ENC4x4 i=11 flag=0 rem=3
+ENC4x4 i=12 flag=0 rem=0
+ENC4x4 i=13 flag=0 rem=4
+ENC4x4 i=14 flag=0 rem=2
+ENC4x4 i=15 flag=0 rem=5
+ENCMB idx=13 type=0x1 cbp=47 i16mode=2 chroma=0
+ENC4x4 i=0 flag=0 rem=3
+ENC4x4 i=1 flag=1 rem=3
+ENC4x4 i=2 flag=0 rem=4
+ENC4x4 i=3 flag=1 rem=4
+ENC4x4 i=4 flag=1 rem=6
+ENC4x4 i=5 flag=0 rem=6
+ENC4x4 i=6 flag=1 rem=6
+ENC4x4 i=7 flag=0 rem=4
+ENC4x4 i=8 flag=0 rem=4
+ENC4x4 i=9 flag=0 rem=1
+ENC4x4 i=10 flag=0 rem=3
+ENC4x4 i=11 flag=0 rem=7
+ENC4x4 i=12 flag=0 rem=3
+ENC4x4 i=13 flag=0 rem=2
+ENC4x4 i=14 flag=0 rem=2
+ENC4x4 i=15 flag=0 rem=4
+ENCMB idx=14 type=0x2 cbp=47 i16mode=0 chroma=2
+ENCMB idx=15 type=0x1 cbp=47 i16mode=2 chroma=0
+ENC4x4 i=0 flag=0 rem=1
+ENC4x4 i=1 flag=1 rem=6
+ENC4x4 i=2 flag=0 rem=0
+ENC4x4 i=3 flag=0 rem=3
+ENC4x4 i=4 flag=1 rem=6
+ENC4x4 i=5 flag=0 rem=0
+ENC4x4 i=6 flag=1 rem=1
+ENC4x4 i=7 flag=1 rem=3
+ENC4x4 i=8 flag=1 rem=0
+ENC4x4 i=9 flag=0 rem=4
+ENC4x4 i=10 flag=0 rem=2
+ENC4x4 i=11 flag=0 rem=2
+ENC4x4 i=12 flag=0 rem=3
+ENC4x4 i=13 flag=0 rem=1
+ENC4x4 i=14 flag=1 rem=2
+ENC4x4 i=15 flag=1 rem=5
+LOG: [OpenH264] this = 0x0x10152af20, Info:WelsRequestMem(): memory alloc size = 64 * 64, ref list size = 3
+LOG: [OpenH264] this = 0x0x10152af20, Info:SyncPictureResolutionExt(), overall memory usage: 3984382 bytes
+DECMB idx=0 mbtype=25
+LOG: [OpenH264] this = 0x0x10152af20, Debug:I_PCM mode exists in I slice!
+DERPCM offInBs=7 pre=fef8 row0=50570d26 left=3802
+DBG Islice ParseIPCM ret=0
+DBG Islice eos ret=0 flag=0
+DBG mb idx=0 ret=0 eos=0
+DECCTX mb1 iCtxInc=1 state=06 range=508 bitsleft=31
+DECMB idx=1 mbtype=0
+DEC4x4 i=0 prev=-1 pred=2
+DEC4x4 i=1 prev=-1 pred=2
+DEC4x4 i=2 prev=4 pred=2
+DEC4x4 i=3 prev=0 pred=2
+DEC4x4 i=4 prev=-1 pred=2
+DEC4x4 i=5 prev=7 pred=2
+DEC4x4 i=6 prev=3 pred=0
+DEC4x4 i=7 prev=0 pred=4
+DEC4x4 i=8 prev=4 pred=2
+DEC4x4 i=9 prev=1 pred=0
+DEC4x4 i=10 prev=4 pred=2
+DEC4x4 i=11 prev=4 pred=2
+DEC4x4 i=12 prev=3 pred=2
+DEC4x4 i=13 prev=-1 pred=0
+DEC4x4 i=14 prev=4 pred=4
+DEC4x4 i=15 prev=1 pred=0
+DBG mb idx=1 ret=0 eos=0
+DECMB idx=2 mbtype=0
+DBG mb idx=2 ret=459805 eos=0
+LOG: [OpenH264] this = 0x0x10152af20, Warning:DecodeCurrentAccessUnit() failed (459805) in frame: 0 uiDId: 0 uiQId: 0
+LOG: [OpenH264] this = 0x0x10152af20, Debug:returned error from decoding:[0x7041d]
+LOG: [OpenH264] this = 0x0x10152af20, Info:decode failed, failure type:4 
+
+ENCPCM cabacOff=2 bsOff=7 pre=fdff row0=3f063df7
+ENCMB idx=1 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=2 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=3 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=4 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=5 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=6 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCMB idx=7 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=8 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=9 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCMB idx=10 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCMB idx=11 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCMB idx=12 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=13 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=14 type=0x8 cbp=47 i16mode=0 chroma=0
+ENCMB idx=15 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCPCM cabacOff=2 bsOff=7 pre=fdff row0=0e346c88
+ENCMB idx=1 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=2 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=3 type=0x8 cbp=47 i16mode=4 chroma=0
+ENCMB idx=4 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=5 type=0x8 cbp=47 i16mode=3 chroma=0
+ENCMB idx=6 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=7 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=8 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=9 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=10 type=0x8 cbp=47 i16mode=0 chroma=0
+ENCMB idx=11 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=12 type=0x8 cbp=47 i16mode=5 chroma=0
+ENCMB idx=13 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=14 type=0x8 cbp=47 i16mode=2 chroma=0
+ENCMB idx=15 type=0x8 cbp=47 i16mode=2 chroma=0
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::UninitDecoderCtx(), openh264 codec version = 2104157+M.
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::UninitDecoder(), verify memory usage (0 bytes) after free..
+LOG: [OpenH264] this = 0x0x10152af20, Info:CWelsDecoder::~CWelsDecoder()
+fr=0 enc=0 bs=3838 ds=4 bufstat=0 pcm=1
+fr=1 enc=0 bs=3444 ds=18 bufstat=0 pcm=1
+fr=2 enc=0 bs=3439 ds=18 bufstat=0 pcm=1
