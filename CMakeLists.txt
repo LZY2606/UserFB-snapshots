@@ -195,6 +195,7 @@ set(SOURCE_FILES
         src/mp4descriptor.cpp
         src/mp4file.cpp
         src/mp4file_io.cpp
+        src/mp4_hinted_edits.cpp
         src/mp4info.cpp
         src/mp4property.cpp
         src/mp4track.cpp

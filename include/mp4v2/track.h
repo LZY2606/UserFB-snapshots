@@ -388,6 +388,47 @@ MP4TrackId MP4CopyTrack(
     bool          applyEdits DEFAULT(false),
     MP4TrackId    dstHintTrackReferenceTrack DEFAULT(MP4_INVALID_TRACK_ID) );
 
+/** Copy a hinted video track, rebasing hint references along edit segments.
+ *
+ *  MP4CopyHintedTrack copies the unique media track referenced by
+ *  @p srcHintTrackId and the hint track itself into @p dstFile.  The media
+ *  track edit list is applied as a sequence of segment occurrences: every
+ *  non-empty segment occurrence copies its media samples (and corresponding
+ *  hint samples) independently, in edit-list order, while empty edits become
+ *  empty media edits and zero-packet hint samples of the same duration.
+ *
+ *  Media sample references inside hint samples are rebound to the new sample
+ *  ids of the same segment occurrence, and hint self references are rebound to
+ *  the newly allocated hint sample id.  Output RTP sequence numbers are
+ *  renumbered densely from zero.  The output hint track has no edit list and
+ *  its track reference points at the new media track.
+ *
+ *  All validation is performed before any destination track is created.  On
+ *  failure, including unsupported hint constructs, invalid references,
+ *  non-exact timescale conversion or I/O errors, *pMediaTrackId and
+ *  *pHintTrackId are set to #MP4_INVALID_TRACK_ID and any partially created
+ *  destination tracks are removed.
+ *
+ *  Supported sources are self contained avc1 or mp4v video tracks with a
+ *  single sample description, one RTP hint track, identical media/hint
+ *  timetables and only ordinary contiguous sample references.
+ *
+ *  @param srcFile source file handle; read-only.
+ *  @param srcHintTrackId id of the RTP hint track to copy.
+ *  @param dstFile destination file handle; may already contain tracks.
+ *  @param[out] pMediaTrackId receives the new media track id.
+ *  @param[out] pHintTrackId receives the new hint track id.
+ *
+ *  @return true on success, false otherwise.
+ */
+MP4V2_EXPORT
+bool MP4CopyHintedTrack(
+    MP4FileHandle srcFile,
+    MP4TrackId    srcHintTrackId,
+    MP4FileHandle dstFile,
+    MP4TrackId*   pMediaTrackId,
+    MP4TrackId*   pHintTrackId );
+
 MP4V2_EXPORT
 bool MP4DeleteTrack(
     MP4FileHandle hFile,
