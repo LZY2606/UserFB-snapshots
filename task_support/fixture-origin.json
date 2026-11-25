@@ -1,0 +1,10 @@
+{
+  "file": "normal.aac",
+  "sha256": "ff3df324ed59b926a71a830360f27c8282ccc9d5edc8c52a3f6a53dbd53117cd",
+  "format": "AAC-LC ADTS 48kHz stereo, 24 frames",
+  "generated_by": "vo-aacenc fixed production baseline; C generator integer noise and alternating transient levels",
+  "encoder_repo": "https://github.com/mstorsjo/vo-aacenc",
+  "encoder_commit": "a277487e051e92e99a532294eed3c673f4d879f2",
+  "encoder_license": "Apache-2.0",
+  "generator_sha256": "92b9d8d7fd84b2a8bcae204bed6a882b0239adc162871eaf72aa3cb14483021b"
+}
