@@ -6,8 +6,13 @@ if [[ $mode == target ]]; then test -s tests/relocation_preview_cases.cpp; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   c++ -std=c++11 -I. -x c++ -c task_support/driver.c -o .task-build/driver.o
-c++ -std=c++11 -I. -Ipe-parser-library/include tests/relocation_preview_cases.cpp .task-build/driver.o .task-build/lib/pe-parser-library/libpe-parse.a -o .task-build/target
-  output_log=$(mktemp)
+# -iquote keeps the repo root out of the angle-bracket search path so that
+# the root VERSION file cannot shadow libc++'s <version> on case-insensitive
+# filesystems, while "task_support/check.h" still resolves.
+c++ -std=c++11 -iquote . -Ipe-parser-library/include tests/relocation_preview_cases.cpp .task-build/driver.o .task-build/lib/pe-parser-library/libpe-parse.a -o .task-build/target
+  # Explicit template so mktemp honors TMPDIR instead of the per-user
+  # Darwin temp directory, which may be unavailable in a sandbox.
+  output_log=$(mktemp "${TMPDIR:-/tmp}/target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
