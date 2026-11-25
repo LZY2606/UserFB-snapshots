@@ -1,0 +1,28 @@
+{
+  "repo": "https://github.com/sandflow/imscJS",
+  "commit": "d842e6c0e9cdbf2dd1dd012dd6a39d31f2f672f9",
+  "license": "BSD-2-Clause",
+  "gitlinks": [
+    {
+      "path": "src/test/resources/imsc-tests",
+      "mode": "160000",
+      "git_blob": "4ac9259e39334f40a0508ee76129717d8561a715",
+      "reason": "unused optional external test gitlink"
+    }
+  ],
+  "submodule_descriptor": "upstream .gitmodules excluded before synthetic export; no OSS patch used",
+  "dependencies": [
+    {
+      "name": "sax",
+      "version": "1.4.1",
+      "source": "https://registry.npmjs.org/sax/-/sax-1.4.1.tgz",
+      "sha256": "ce758b585dd0f6e010bb375db1c081be70fddea7f1af129404e6f07db2ed9309",
+      "license": "ISC",
+      "files": [
+        "vendor/sax/lib/sax.js",
+        "vendor/sax/package.json",
+        "vendor/sax/LICENSE"
+      ]
+    }
+  ]
+}

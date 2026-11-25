@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {parse,wrap,find,generateISD,ns} from './xml.mjs';
+const d=parse(wrap('<div timeContainer="seq"><p xml:id="a" dur="2s">A</p><p xml:id="b" dur="3s">B<set begin="1s" dur="1s" tts:textAlign="center"/></p></div>'));
+assert.deepEqual([d.body.contents[0].contents[1].begin,d.body.contents[0].contents[1].end],[2,5]);
+assert.equal(find(generateISD(d,3.5),'p').styleAttrs[ns+'textAlign'],'center');
+assert.equal(find(generateISD(d,2.5),'p').styleAttrs[ns+'textAlign'],'start');
+assert.equal(find(generateISD(d,5),'p'),null);
+assert.deepEqual(d.getMediaTimeEvents(),[0,2,3,4,5]);
+console.log('BASELINE_SEQ begin=2 end=5');
+console.log('BASELINE_SET textAlign=center restored=start');
+console.log('BASELINE_EVENTS 0,2,3,4,5');
