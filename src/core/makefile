@@ -17,6 +17,7 @@ CXX=g++
 LD=g++
 
 CFLAGS+=-I. -Ilo
+CFLAGS+=-DCHUCK_BEAT_CLOCK
 
 ifneq ($(COVERAGE_REPORT),)
 CFLAGS+=-fprofile-arcs
@@ -93,6 +94,7 @@ endif
 CSRCS_CORE+= chuck.tab.c chuck.yy.c util_network.c \
 	util_raw.c util_xforms.c
 CXXSRCS_CORE+= chuck_absyn.cpp chuck_parse.cpp chuck_errmsg.cpp \
+	chuck_beat.cpp \
 	chuck_frame.cpp chuck_symbol.cpp chuck_table.cpp \
 	chuck_vm.cpp chuck_instr.cpp chuck_scan.cpp chuck_type.cpp \
 	chuck_emit.cpp chuck_compile.cpp chuck_dl.cpp chuck_oo.cpp \

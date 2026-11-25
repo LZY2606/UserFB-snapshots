@@ -43,6 +43,10 @@
 #include "util_platforms.h"
 #include "util_string.h"
 
+#ifdef CHUCK_BEAT_CLOCK
+#include "chuck_beat.h"
+#endif
+
 #ifndef __DISABLE_SERIAL__
 #include "chuck_io.h"
 #endif
@@ -492,6 +496,12 @@ t_CKBOOL Chuck_VM::shutdown()
     // set state
     m_init = FALSE;
 
+#ifdef CHUCK_BEAT_CLOCK
+    // The VM and its scheduler are going away; drop VM-keyed beat scheduling
+    // state. Live beat objects retain their own clock curve shared state.
+    chuck_beat_vm_shutdown( this );
+#endif
+
     // notify registered callbacks we are shutting down | 1.5.2.5 (ge) added
     notify_callbacks_on_shutdown();
 
@@ -585,6 +595,12 @@ t_CKBOOL Chuck_VM::compute()
     // iterate until no more shreds/events/messages
     while( iterate )
     {
+#ifdef CHUCK_BEAT_CLOCK
+        // At an integer deadline, append all due beat-event waiters to the
+        // existing ready queue before get() preserves that queue's order.
+        chuck_beat_process_due( this, m_shreduler->now_system );
+#endif
+
         // get the shreds queued for 'now'
         shred = m_shreduler->get();
         // run all shreds waiting to run 'now'
@@ -615,6 +631,13 @@ t_CKBOOL Chuck_VM::compute()
 
         // set to false for now
         iterate = FALSE;
+
+#ifdef CHUCK_BEAT_CLOCK
+        // All ordinary ready shreds at this time have been drained.  Enqueue
+        // due beat-event waiters afterward, preserving the ready queue order.
+        if( chuck_beat_process_due( this, m_shreduler->now_system ) > 0 )
+            iterate = TRUE;
+#endif
 
         // broadcast queued events
         while( m_event_buffer->get( &event, 1 ) )
@@ -2813,6 +2836,13 @@ void Chuck_VM_Shreduler::advance_v( t_CKINT & numLeft, t_CKINT & offset )
         if( numFrames == 0 ) numFrames = 1;
         this->m_samps_until_next -= numFrames;
     }
+#ifdef CHUCK_BEAT_CLOCK
+    // Do not adapt across a beat-event deadline; the next compute() must run
+    // at that exact integer frame.
+    numFrames = (t_CKINT)chuck_beat_adaptive_limit(
+        vm_ref, this->now_system, numFrames );
+    if( numFrames < 1 ) numFrames = 1;
+#endif
     numLeft -= numFrames;
     offset += numFrames;
 
@@ -2984,6 +3014,12 @@ Chuck_VM_Shred * Chuck_VM_Shreduler::get( )
     {
         // if empty we are done
         m_samps_until_next = -1;
+#ifdef CHUCK_BEAT_CLOCK
+        {
+            double beat_delay = chuck_beat_next_delay_samples( vm_ref, now_system );
+            if( beat_delay >= 0.0 ) m_samps_until_next = beat_delay;
+        }
+#endif
         return NULL;
     }
 
@@ -3008,9 +3044,30 @@ Chuck_VM_Shred * Chuck_VM_Shreduler::get( )
             if( m_samps_until_next < 0 ) m_samps_until_next = 0;
         }
 
+#ifdef CHUCK_BEAT_CLOCK
+        {
+            double beat_delay = chuck_beat_next_delay_samples( vm_ref, now_system );
+            if( beat_delay >= 0.0 &&
+                ( m_samps_until_next < 0 || beat_delay < m_samps_until_next ) )
+                m_samps_until_next = beat_delay;
+        }
+#endif
+
         // return
         return shred;
     }
+
+    // The head is not ready; make sure the adaptive deadline also accounts
+    // for beat Events.
+    m_samps_until_next = shred->wake_time - this->now_system;
+    if( m_samps_until_next < 0 ) m_samps_until_next = 0;
+#ifdef CHUCK_BEAT_CLOCK
+    {
+        double beat_delay = chuck_beat_next_delay_samples( vm_ref, now_system );
+        if( beat_delay >= 0.0 && beat_delay < m_samps_until_next )
+            m_samps_until_next = beat_delay;
+    }
+#endif
 
     // nothing is ready to run 'now'
     return NULL;

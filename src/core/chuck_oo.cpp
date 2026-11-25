@@ -40,6 +40,10 @@
 #include "chuck_dl.h"
 #include "util_math.h"
 
+#ifdef CHUCK_BEAT_CLOCK
+#include "chuck_beat.h"
+#endif
+
 #include <algorithm>
 #include <iostream>
 using namespace std;
@@ -3251,6 +3255,9 @@ void Chuck_Event::signal_local()
         #ifndef __DISABLE_THREADS__
         m_queue_lock.release();
         #endif
+#ifdef CHUCK_BEAT_CLOCK
+        chuck_beat_on_signal( this, shred );
+#endif
         // REFACTOR-2017: BUG-FIX
         // release the extra ref we added when we started waiting for this event
         CK_SAFE_RELEASE( shred->event );
@@ -3304,6 +3311,9 @@ t_CKBOOL Chuck_Event::remove( Chuck_VM_Shred * shred )
             // the deletion of the object while we are still using it.
             // so, put it in the caller: Chuck_VM_Shreduler::remove_blocked()
 
+#ifdef CHUCK_BEAT_CLOCK
+            chuck_beat_on_remove( this, shred );
+#endif
             // zero out
             shred->event = NULL;
             // flag
@@ -3719,6 +3729,17 @@ void Chuck_Event::wait( Chuck_VM_Shred * shred, Chuck_VM * vm )
     // make sure the shred info matches the vm
     assert( shred->vm_ref == vm );
 
+#ifdef CHUCK_BEAT_CLOCK
+    // A reached/latched beat Event must resume immediately instead of
+    // entering the normal blocking queue.
+    if( chuck_beat_pre_wait( this, shred, vm ) )
+    {
+        t_CKTIME *& sp = (t_CKTIME *&)shred->reg->sp;
+        push_( sp, shred->now );
+        return;
+    }
+#endif
+
     // invoke virtual function our_can_wait | 1.5.1.5
     Chuck_DL_Return RETURN = ck_invoke_mfun_immediate_mode( this, our_can_wait, vm, shred, NULL, 0 );
     // see if we can wait
@@ -3753,6 +3774,10 @@ void Chuck_Event::wait( Chuck_VM_Shred * shred, Chuck_VM * vm )
         // needed to wait on an Event, and can be notified/broadcasted from
         // a different thread
         ck_invoke_mfun_immediate_mode( this, our_waiting_on, vm, shred, NULL, 0 );
+
+#ifdef CHUCK_BEAT_CLOCK
+        chuck_beat_post_wait( this, shred, vm );
+#endif
     }
     else // can't wait
     {
