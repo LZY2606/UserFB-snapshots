@@ -1,0 +1,7 @@
+{
+  "repo": "https://github.com/otherlab/openmesh",
+  "commit": "1b57069ba1902edf5c1d27e5a5f61c13c1b82787",
+  "license": "LGPL-3.0-or-later WITH OpenMesh exceptions",
+  "runtime": "C/C++ standard library and libm only; Bash runner; no Python or downloads",
+  "support": "Offline build and original-feature baseline only; upstream source and licenses are preserved."
+}
