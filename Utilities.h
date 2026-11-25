@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
+#include <vector>
 
 
 namespace fftconvolver
@@ -342,14 +343,99 @@ void ComplexMultiplyAccumulate(SplitComplex& result, const SplitComplex& a, cons
 * @param reB The real part of the 2nd factor of the complex product
 * @param imB The imaginary part of the 2nd factor of the complex product
 */
-void ComplexMultiplyAccumulate(Sample* FFTCONVOLVER_RESTRICT re, 
+void ComplexMultiplyAccumulate(Sample* FFTCONVOLVER_RESTRICT re,
                                Sample* FFTCONVOLVER_RESTRICT im,
                                const Sample* FFTCONVOLVER_RESTRICT reA,
                                const Sample* FFTCONVOLVER_RESTRICT imA,
                                const Sample* FFTCONVOLVER_RESTRICT reB,
                                const Sample* FFTCONVOLVER_RESTRICT imB,
                                const size_t len);
-  
+
+
+/**
+* @brief Adds the complex product conj(a)*b of two split-complex buffers to a result buffer
+* @param result The result buffer
+* @param a The factor which gets complex-conjugated
+* @param b The 2nd factor of the complex product
+*/
+void ComplexConjugateMultiplyAccumulate(SplitComplex& result, const SplitComplex& a, const SplitComplex& b);
+
+
+/**
+* @brief Adds the complex product conj(a)*b of two split-complex arrays to a result array
+* @param re The real part of the result buffer
+* @param im The imaginary part of the result buffer
+* @param reA The real part of the conjugated factor
+* @param imA The imaginary part of the conjugated factor
+* @param reB The real part of the 2nd factor of the complex product
+* @param imB The imaginary part of the 2nd factor of the complex product
+*/
+void ComplexConjugateMultiplyAccumulate(Sample* FFTCONVOLVER_RESTRICT re,
+                                        Sample* FFTCONVOLVER_RESTRICT im,
+                                        const Sample* FFTCONVOLVER_RESTRICT reA,
+                                        const Sample* FFTCONVOLVER_RESTRICT imA,
+                                        const Sample* FFTCONVOLVER_RESTRICT reB,
+                                        const Sample* FFTCONVOLVER_RESTRICT imB,
+                                        const size_t len);
+
+
+/**
+* @class PartitionSpectrumRing
+* @brief Ring of frequency-domain partitions shared by the convolver implementations
+*
+* The slot returned by current() holds the spectrum of the most recent block.
+* at(age) returns the spectrum "age" blocks older than that (age=0 => current()).
+* advance() rotates the ring backwards so that the next block writes into a
+* fresh current() slot, overwriting the oldest partition once the ring wraps.
+*/
+class PartitionSpectrumRing
+{
+public:
+  PartitionSpectrumRing();
+  ~PartitionSpectrumRing();
+
+  PartitionSpectrumRing(PartitionSpectrumRing&& other);
+  PartitionSpectrumRing& operator=(PartitionSpectrumRing&& other);
+
+  /**
+  * @brief (Re-)allocates the ring
+  * @param slotCount Number of partitions held in the ring
+  * @param complexSize Number of complex bins per partition
+  */
+  void init(size_t slotCount, size_t complexSize);
+
+  /**
+  * @brief Frees all slots
+  */
+  void clear();
+
+  /**
+  * @brief Sets all partitions to zero
+  */
+  void setZero();
+
+  size_t slotCount() const;
+
+  SplitComplex& current();
+  const SplitComplex& current() const;
+
+  SplitComplex& at(size_t age);
+  const SplitComplex& at(size_t age) const;
+
+  /**
+  * @brief Rotates the ring backwards (the former current() becomes age 1)
+  */
+  void advance();
+
+private:
+  std::vector<SplitComplex*> _slots;
+  size_t _current;
+
+  // Prevent uncontrolled usage
+  PartitionSpectrumRing(const PartitionSpectrumRing&);
+  PartitionSpectrumRing& operator=(const PartitionSpectrumRing&);
+};
+
 } // End of namespace fftconvolver
 
 #endif // Header guard

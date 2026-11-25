@@ -63,6 +63,149 @@ void ComplexMultiplyAccumulate(SplitComplex& result, const SplitComplex& a, cons
 }
 
 
+void ComplexConjugateMultiplyAccumulate(SplitComplex& result, const SplitComplex& a, const SplitComplex& b)
+{
+  assert(result.size() == a.size());
+  assert(result.size() == b.size());
+  ComplexConjugateMultiplyAccumulate(result.re(), result.im(), a.re(), a.im(), b.re(), b.im(), result.size());
+}
+
+
+void ComplexConjugateMultiplyAccumulate(Sample* FFTCONVOLVER_RESTRICT re,
+                                        Sample* FFTCONVOLVER_RESTRICT im,
+                                        const Sample* FFTCONVOLVER_RESTRICT reA,
+                                        const Sample* FFTCONVOLVER_RESTRICT imA,
+                                        const Sample* FFTCONVOLVER_RESTRICT reB,
+                                        const Sample* FFTCONVOLVER_RESTRICT imB,
+                                        const size_t len)
+{
+  const size_t end4 = 4 * (len / 4);
+  for (size_t i=0; i<end4; i+=4)
+  {
+    re[i+0] += reA[i+0] * reB[i+0] + imA[i+0] * imB[i+0];
+    re[i+1] += reA[i+1] * reB[i+1] + imA[i+1] * imB[i+1];
+    re[i+2] += reA[i+2] * reB[i+2] + imA[i+2] * imB[i+2];
+    re[i+3] += reA[i+3] * reB[i+3] + imA[i+3] * imB[i+3];
+    im[i+0] += reA[i+0] * imB[i+0] - imA[i+0] * reB[i+0];
+    im[i+1] += reA[i+1] * imB[i+1] - imA[i+1] * reB[i+1];
+    im[i+2] += reA[i+2] * imB[i+2] - imA[i+2] * reB[i+2];
+    im[i+3] += reA[i+3] * imB[i+3] - imA[i+3] * reB[i+3];
+  }
+  for (size_t i=end4; i<len; ++i)
+  {
+    re[i] += reA[i] * reB[i] + imA[i] * imB[i];
+    im[i] += reA[i] * imB[i] - imA[i] * imB[i];
+  }
+}
+
+
+PartitionSpectrumRing::PartitionSpectrumRing() :
+  _slots(),
+  _current(0)
+{
+}
+
+
+PartitionSpectrumRing::PartitionSpectrumRing(PartitionSpectrumRing&& other) :
+  _slots(std::move(other._slots)),
+  _current(other._current)
+{
+  other._slots.clear();
+  other._current = 0;
+}
+
+
+PartitionSpectrumRing& PartitionSpectrumRing::operator=(PartitionSpectrumRing&& other)
+{
+  if (this != &other)
+  {
+    clear();
+    _slots = std::move(other._slots);
+    _current = other._current;
+    other._slots.clear();
+    other._current = 0;
+  }
+  return *this;
+}
+
+
+PartitionSpectrumRing::~PartitionSpectrumRing()
+{
+  clear();
+}
+
+
+void PartitionSpectrumRing::init(size_t slotCount, size_t complexSize)
+{
+  clear();
+  _slots.reserve(slotCount);
+  for (size_t i=0; i<slotCount; ++i)
+  {
+    _slots.push_back(new SplitComplex(complexSize));
+  }
+  _current = 0;
+}
+
+
+void PartitionSpectrumRing::clear()
+{
+  for (size_t i=0; i<_slots.size(); ++i)
+  {
+    delete _slots[i];
+  }
+  _slots.clear();
+  _current = 0;
+}
+
+
+void PartitionSpectrumRing::setZero()
+{
+  for (size_t i=0; i<_slots.size(); ++i)
+  {
+    _slots[i]->setZero();
+  }
+  _current = 0;
+}
+
+
+size_t PartitionSpectrumRing::slotCount() const
+{
+  return _slots.size();
+}
+
+
+SplitComplex& PartitionSpectrumRing::current()
+{
+  return *_slots[_current];
+}
+
+
+const SplitComplex& PartitionSpectrumRing::current() const
+{
+  return *_slots[_current];
+}
+
+
+SplitComplex& PartitionSpectrumRing::at(size_t age)
+{
+  assert(age < _slots.size());
+  return *_slots[(_current + age) % _slots.size()];
+}
+
+
+const SplitComplex& PartitionSpectrumRing::at(size_t age) const
+{
+  assert(age < _slots.size());
+  return *_slots[(_current + age) % _slots.size()];
+}
+
+
+void PartitionSpectrumRing::advance()
+{
+  _current = (_current > 0) ? (_current - 1) : (_slots.size() - 1);
+}
+
+
 void ComplexMultiplyAccumulate(Sample* FFTCONVOLVER_RESTRICT re, 
                                Sample* FFTCONVOLVER_RESTRICT im,
                                const Sample* FFTCONVOLVER_RESTRICT reA,

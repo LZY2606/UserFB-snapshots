@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s test/adaptive.cpp; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   c++ -std=c++17 -O2 -I. task_support/driver.c test/adaptive.cpp .task-build/libproduction.a -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/adaptive-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
