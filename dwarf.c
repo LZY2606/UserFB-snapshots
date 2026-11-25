@@ -604,6 +604,10 @@ struct function
   unsigned int caller_disc;
   /* The line number of the declaration.  */
   int decl_lineno;
+  /* Section-relative .debug_info offset of the concrete DIE that
+     produced this function.  Used by the source evidence code to map
+     a selected frame back to its on-disk DIE.  */
+  size_t evidence_die_offset;
   /* Map PC ranges to inlined functions.  */
   struct function_addrs *function_addrs;
   size_t function_addrs_count;
@@ -746,6 +750,11 @@ struct dwarf_data
   /* A vector used for function addresses.  We keep this here so that
      we can grow the vector as we read more functions.  */
   struct function_vector fvec;
+  /* Cached source evidence results, keyed by PC.  Lazily allocated by
+     backtrace_dwarf_evidence in the same state allocator; the entries
+     live for the lifetime of the state.  Only used when the state is
+     not threaded.  */
+  struct dwarf_evidence_cache *evidence_cache;
 };
 
 /* Report an error for a DWARF buffer.  */
@@ -3821,6 +3830,12 @@ read_function_entry (struct backtrace_state *state, struct dwarf_data *ddata,
       size_t i;
       struct pcrange pcrange;
       int have_linkage_name;
+      size_t die_section_offset;
+
+      /* Section-relative offset of this DIE (the abbrev code byte),
+	 recorded before the code and any attributes are consumed,
+	 for source evidence reconstruction.  */
+      die_section_offset = unit_buf->buf - unit_buf->start;
 
       code = read_uleb128 (unit_buf);
       if (code == 0)
@@ -3848,6 +3863,7 @@ read_function_entry (struct backtrace_state *state, struct dwarf_data *ddata,
 	  if (function == NULL)
 	    return 0;
 	  memset (function, 0, sizeof *function);
+	  function->evidence_die_offset = die_section_offset;
 	}
 
       memset (&pcrange, 0, sizeof pcrange);
@@ -4233,33 +4249,28 @@ report_inlined_functions (struct backtrace_state *state, uintptr_t pc,
   return 0;
 }
 
-/* Look for a PC in the DWARF mapping for one module.  On success,
-   call CALLBACK and return whatever it returns.  On error, call
-   ERROR_CALLBACK and return 0.  Sets *FOUND to 1 if the PC is found,
-   0 if not.  */
+/* Select the single compilation unit whose address range contains PC,
+   using the library's existing half-open range search (no overlap
+   enumeration), and make sure its line table and function address
+   chains have been parsed.  This is the shared selection logic used by
+   both dwarf_lookup_pc and the source evidence reconstruction, so
+   both always follow the same single chain.  Returns the selected
+   unit and stores the matching unit_addrs entry in *PENTRY; *FOUND is
+   set to 0 when no range covers PC.  */
 
-static int
-dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
-		 uintptr_t pc, backtrace_full_callback callback,
-		 backtrace_error_callback error_callback, void *data,
-		 int *found)
+static struct unit *
+dwarf_prepare_unit_for_pc (struct backtrace_state *state,
+			   struct dwarf_data *ddata, uintptr_t pc,
+			   backtrace_error_callback error_callback,
+			   void *data, struct unit_addrs **pentry, int *found)
 {
   struct unit_addrs *entry;
-  int found_entry;
   struct unit *u;
-  int new_data;
   struct line *lines;
-  struct line *ln;
-  struct function_addrs *p;
-  struct function_addrs *fmatch;
-  struct function *function;
-  const char *filename;
-  int lineno;
-  unsigned int disc;
-  int decl_lineno;
-  int ret;
+  int new_data;
 
   *found = 1;
+  *pentry = NULL;
 
   /* Find an address range that includes PC.  Our search isn't safe if
      PC == -1, as we use that as a sentinel value, so skip the search
@@ -4272,7 +4283,7 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
   if (entry == NULL)
     {
       *found = 0;
-      return 0;
+      return NULL;
     }
 
   /* Here pc >= entry->low && pc < (entry + 1)->low.  The unit_addrs
@@ -4282,24 +4293,21 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
      backward and use the first range that includes pc.  */
   while (pc == (entry + 1)->low)
     ++entry;
-  found_entry = 0;
   while (1)
     {
       if (pc < entry->high)
-	{
-	  found_entry = 1;
-	  break;
-	}
+	break;
       if (entry == ddata->addrs)
-	break;
+	{
+	  *found = 0;
+	  return NULL;
+	}
       if ((entry - 1)->low < entry->low)
-	break;
+	{
+	  *found = 0;
+	  return NULL;
+	}
       --entry;
-    }
-  if (!found_entry)
-    {
-      *found = 0;
-      return 0;
     }
 
   /* We need the lines, lines_count, function_addrs,
@@ -4347,7 +4355,7 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
       function_addrs = NULL;
       function_addrs_count = 0;
       if (read_line_info (state, ddata, error_callback, data, entry->u, &lhdr,
-			  &lines, &count))
+			      &lines, &count))
 	{
 	  struct function_vector *pfvec;
 
@@ -4388,16 +4396,55 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
 	}
     }
 
-  /* Now all fields of U have been initialized.  */
-
-  if (lines == (struct line *) (uintptr_t) -1)
+  if (lines == (struct line *) (uintptr_t) -1 && new_data)
     {
       /* If reading the line number information failed in some way,
 	 try again to see if there is a better compilation unit for
 	 this PC.  */
-      if (new_data)
-	return dwarf_lookup_pc (state, ddata, pc, callback, error_callback,
-				data, found);
+      return dwarf_prepare_unit_for_pc (state, ddata, pc, error_callback,
+					data, pentry, found);
+    }
+
+  *pentry = entry;
+  return u;
+}
+
+/* Look for a PC in the DWARF mapping for one module.  On success,
+   call CALLBACK and return whatever it returns.  On error, call
+   ERROR_CALLBACK and return 0.  Sets *FOUND to 1 if the PC is found,
+   0 if not.  */
+
+static int
+dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
+		 uintptr_t pc, backtrace_full_callback callback,
+		 backtrace_error_callback error_callback, void *data,
+		 int *found)
+{
+  struct unit_addrs *entry;
+  struct unit *u;
+  struct line *lines;
+  struct line *ln;
+  struct function_addrs *p;
+  struct function_addrs *fmatch;
+  struct function *function;
+  const char *filename;
+  int lineno;
+  unsigned int disc;
+  int decl_lineno;
+  int ret;
+
+  *found = 1;
+
+  u = dwarf_prepare_unit_for_pc (state, ddata, pc, error_callback, data,
+				 &entry, found);
+  if (u == NULL)
+    return 0;
+
+  lines = u->lines;
+
+  if (lines == (struct line *) (uintptr_t) -1)
+    {
+      /* The line number information could not be read.  */
       return call_callback (state, callback, data, pc, NULL, 0, NULL, 0, 0);
     }
 
@@ -4604,6 +4651,7 @@ build_dwarf_data (struct backtrace_state *state,
   fdata->dwarf_sections = *dwarf_sections;
   fdata->is_bigendian = is_bigendian;
   memset (&fdata->fvec, 0, sizeof fdata->fvec);
+  fdata->evidence_cache = NULL;
 
   return fdata;
 }
@@ -4669,5 +4717,1097 @@ backtrace_dwarf_add (struct backtrace_state *state,
 
   *fileline_fn = dwarf_fileline;
 
+  return 1;
+}
+
+/* Source evidence reconstruction.  Everything below builds the
+   provenance structures declared in internal.h from the same parsed
+   DWARF data used by dwarf_lookup_pc; the production readers
+   (read_attribute, read_uleb128, lookup_abbrev, find_unit, ...) are
+   reused, and every byte span is measured around an actual parse.  No
+   second DWARF parser and no value-based byte searching is used.  */
+
+#define EVIDENCE_MAX_ATTRS 48
+#define EVIDENCE_MAX_DEPTH 16
+#define EVIDENCE_MAX_FRAMES 16
+
+/* Per-object cache of evidence results, keyed by PC.  */
+
+struct dwarf_evidence_cache
+{
+  uintptr_t *pcs;
+  const struct dwarf_evidence **results;
+  size_t count;
+  size_t alc;
+};
+
+/* A DIE parsed for evidence, kept on the stack while a chain is
+   resolved.  */
+
+struct evidence_die_scratch
+{
+  size_t die_offset;
+  size_t cu_offset;
+  size_t cu_end;
+  uint64_t stmt_list;
+  unsigned int tag;
+  struct dwarf_evidence_attr attrs[EVIDENCE_MAX_ATTRS];
+  size_t attrs_count;
+};
+
+/* Find the parsed attribute named ATTR on a scratch DIE.  */
+
+static struct dwarf_evidence_attr *
+evidence_find_attr (struct evidence_die_scratch *die, unsigned int attr)
+{
+  size_t i;
+
+  for (i = 0; i < die->attrs_count; ++i)
+    {
+      if (die->attrs[i].attr == attr)
+	return &die->attrs[i];
+    }
+  return NULL;
+}
+
+/* Parse the DIE at section-relative offset DIE_OFF in UNIT into OUT.
+   Every attribute operand span is measured around the production
+   read_attribute call, so the recorded offsets come straight from the
+   parse position rather than from any post hoc search.  */
+
+static int
+evidence_parse_die (struct backtrace_state *state ATTRIBUTE_UNUSED,
+		    struct dwarf_data *ddata,
+		    struct unit *unit, size_t die_off,
+		    struct evidence_die_scratch *out,
+		    backtrace_error_callback error_callback, void *data)
+{
+  struct dwarf_buf buf;
+  uint64_t code;
+  const struct abbrev *abbrev;
+  size_t i;
+
+  memset (out, 0, sizeof *out);
+  out->die_offset = die_off;
+  out->cu_offset = unit->low_offset;
+  out->cu_end = unit->high_offset;
+  out->stmt_list = (uint64_t) unit->lineoff;
+
+  if (die_off < unit->low_offset || die_off >= unit->high_offset)
+    {
+      error_callback (data, "evidence DIE outside its unit", 0);
+      return 0;
+    }
+
+  buf.name = ".debug_info";
+  buf.start = ddata->dwarf_sections.data[DEBUG_INFO];
+  buf.buf = buf.start + die_off;
+  buf.left = ddata->dwarf_sections.size[DEBUG_INFO]
+	     - (size_t) (buf.buf - buf.start);
+  buf.is_bigendian = ddata->is_bigendian;
+  buf.error_callback = error_callback;
+  buf.data = data;
+  buf.reported_underflow = 0;
+
+  code = read_uleb128 (&buf);
+  if (code == 0)
+    {
+      error_callback (data, "evidence DIE has null abbrev code", 0);
+      return 0;
+    }
+
+  abbrev = lookup_abbrev (&unit->abbrevs, code, error_callback, data);
+  if (abbrev == NULL)
+    return 0;
+
+  out->tag = (unsigned int) abbrev->tag;
+
+  for (i = 0; i < abbrev->num_attrs; ++i)
+    {
+      struct attr_val val;
+      struct dwarf_evidence_attr *ea;
+      const unsigned char *op_start;
+      const unsigned char *op_end;
+      const struct attr *attr = &abbrev->attrs[i];
+
+      if (out->attrs_count >= EVIDENCE_MAX_ATTRS)
+	{
+	  error_callback (data, "evidence DIE has too many attributes", 0);
+	  return 0;
+	}
+
+      op_start = buf.buf;
+      if (!read_attribute (attr->form, attr->val, &buf, unit->is_dwarf64,
+			   unit->version, unit->addrsize,
+			   &ddata->dwarf_sections, ddata->altlink, &val))
+	return 0;
+      op_end = buf.buf;
+
+      ea = &out->attrs[out->attrs_count++];
+      memset (ea, 0, sizeof *ea);
+      ea->attr = (unsigned int) attr->name;
+      ea->form = (unsigned int) attr->form;
+      ea->offset = (size_t) (op_start - buf.start);
+      ea->length = (size_t) (op_end - op_start);
+      ea->raw_value = val.u.uint;
+
+      switch (attr->form)
+	{
+	case DW_FORM_string:
+	  ea->encoding = DW_EVIDENCE_ENCODING_INLINE_STRING;
+	  ea->string = (const unsigned char *) val.u.string;
+	  ea->string_length = strnlen (val.u.string,
+				       ddata->dwarf_sections.size[DEBUG_INFO])
+			      + 1;
+	  break;
+	case DW_FORM_strp:
+	  ea->encoding = DW_EVIDENCE_ENCODING_STRP;
+	  ea->string = (const unsigned char *) val.u.string;
+	  ea->string_length = strnlen (val.u.string,
+				       ddata->dwarf_sections.size[DEBUG_STR])
+			      + 1;
+	  /* read_attribute stores only the resolved pointer; recover
+	     the .debug_str operand offset it decoded.  */
+	  ea->raw_value
+	    = (uint64_t) ((const unsigned char *) val.u.string
+			  - ddata->dwarf_sections.data[DEBUG_STR]);
+	  break;
+	case DW_FORM_flag_present:
+	  ea->encoding = DW_EVIDENCE_ENCODING_NONE;
+	  break;
+	default:
+	  ea->encoding = DW_EVIDENCE_ENCODING_UINT;
+	  break;
+	}
+    }
+
+  return 1;
+}
+
+/* Map an evidence key to its DW_AT_* attribute.  */
+
+static unsigned int
+evidence_key_attr (unsigned int key)
+{
+  switch (key)
+    {
+    case DW_EVIDENCE_KEY_NAME:
+      return DW_AT_name;
+    case DW_EVIDENCE_KEY_DECL_FILE:
+      return DW_AT_decl_file;
+    case DW_EVIDENCE_KEY_DECL_LINE:
+      return DW_AT_decl_line;
+    case DW_EVIDENCE_KEY_DECL_COLUMN:
+      return DW_AT_decl_column;
+    case DW_EVIDENCE_KEY_CALL_FILE:
+      return DW_AT_call_file;
+    case DW_EVIDENCE_KEY_CALL_LINE:
+      return DW_AT_call_line;
+    case DW_EVIDENCE_KEY_CALL_COLUMN:
+      return DW_AT_call_column;
+    case DW_EVIDENCE_KEY_LOW_PC:
+      return DW_AT_low_pc;
+    case DW_EVIDENCE_KEY_HIGH_PC:
+      return DW_AT_high_pc;
+    default:
+      return 0;
+    }
+}
+
+/* Locate the unit and DIE targeted by a reference operand.  FORM is
+   the reference form and OPERAND its decoded value; FROM_UNIT is the
+   unit containing the reference.  */
+
+static struct unit *
+evidence_resolve_reference (struct dwarf_data *ddata, struct unit *from_unit,
+			    unsigned int form, uint64_t operand,
+			    size_t *target_die)
+{
+  if (form == DW_FORM_ref_addr)
+    *target_die = (size_t) operand;
+  else
+    {
+      /* Unit-relative reference (DW_FORM_ref4 and friends).  */
+      *target_die = from_unit->low_offset + (size_t) operand;
+    }
+
+  return find_unit (ddata->units, ddata->units_count, *target_die);
+}
+
+/* Copy a scratch DIE into storage owned by the backtrace state.  */
+
+static struct dwarf_evidence_die *
+evidence_persist_die (struct backtrace_state *state,
+		      const struct evidence_die_scratch *scratch,
+		      backtrace_error_callback error_callback, void *data)
+{
+  struct dwarf_evidence_die *die;
+  struct dwarf_evidence_attr *attrs;
+
+  die = backtrace_alloc (state, sizeof *die, error_callback, data);
+  if (die == NULL)
+    return NULL;
+  attrs = backtrace_alloc (state,
+			   scratch->attrs_count * sizeof *attrs,
+			   error_callback, data);
+  if (attrs == NULL)
+    return NULL;
+
+  die->tag = scratch->tag;
+  die->die_offset = scratch->die_offset;
+  die->cu_offset = scratch->cu_offset;
+  die->cu_end = scratch->cu_end;
+  die->stmt_list = scratch->stmt_list;
+  die->attrs = attrs;
+  die->attrs_count = scratch->attrs_count;
+  memcpy (attrs, scratch->attrs,
+	  scratch->attrs_count * sizeof *attrs);
+  return die;
+}
+
+/* Recursive worker for evidence_resolve_key.  DIES/REFS hold the
+   current DFS path (root first).  On finding the attribute it records
+   the provider index in *PROVIDER and returns 1.  The
+   abstract_origin branch is always exhausted before the
+   specification branch.  */
+
+struct evidence_search_ctx
+{
+  struct backtrace_state *state;
+  struct dwarf_data *ddata;
+  unsigned int key;
+  unsigned int target_attr;
+  /* Non-zero for DW_AT_name, which follows the library's name
+     preference: linkage/reference names beat a local DW_AT_name.  */
+  int name_mode;
+  backtrace_error_callback error_callback;
+  void *data;
+  struct evidence_die_scratch dies[EVIDENCE_MAX_DEPTH];
+  struct dwarf_evidence_ref refs[EVIDENCE_MAX_DEPTH];
+  size_t depth;
+  size_t provider;
+};
+
+static int
+evidence_search_recurse (struct evidence_search_ctx *ctx,
+			 struct unit *unit, size_t die_offset,
+			 const struct dwarf_evidence_ref *incoming)
+{
+  struct evidence_die_scratch *die;
+  struct dwarf_evidence_attr *hit;
+  size_t saved_depth;
+  struct dwarf_evidence_attr *origin;
+  struct dwarf_evidence_attr *spec;
+
+  if (ctx->depth >= EVIDENCE_MAX_DEPTH)
+    {
+      ctx->error_callback (ctx->data,
+			   "evidence reference chain too long", 0);
+      return 0;
+    }
+
+  saved_depth = ctx->depth;
+  die = &ctx->dies[ctx->depth];
+  if (!evidence_parse_die (ctx->state, ctx->ddata, unit, die_offset, die,
+			   ctx->error_callback, ctx->data))
+    return 0;
+  if (incoming != NULL)
+    ctx->refs[ctx->depth - 1] = *incoming;
+  ++ctx->depth;
+
+  hit = evidence_find_attr (die, ctx->target_attr);
+  origin = evidence_find_attr (die, DW_AT_abstract_origin);
+  spec = evidence_find_attr (die, DW_AT_specification);
+
+  /* For names the library prefers a referenced name over a local
+     DW_AT_name: only accept a local name once the abstract_origin and
+     specification branches have both failed.  Every other tracked
+     attribute accepts a concrete value immediately.  */
+  if (hit != NULL && !ctx->name_mode)
+    {
+      /* A zero value is still present.  */
+      ctx->provider = ctx->depth - 1;
+      return 1;
+    }
+
+  /* Call coordinates and ranges only exist on the concrete DIE.  A
+     present concrete value was already accepted above; otherwise the
+     attribute is absent and references must not be followed.  */
+  if (ctx->key == DW_EVIDENCE_KEY_CALL_FILE
+      || ctx->key == DW_EVIDENCE_KEY_CALL_LINE
+      || ctx->key == DW_EVIDENCE_KEY_CALL_COLUMN
+      || ctx->key == DW_EVIDENCE_KEY_LOW_PC
+      || ctx->key == DW_EVIDENCE_KEY_HIGH_PC)
+    {
+      ctx->depth = saved_depth;
+      return 1;
+    }
+
+  if (origin != NULL)
+    {
+      struct unit *target_unit;
+      size_t target_die;
+      struct dwarf_evidence_ref hop;
+
+      target_unit = evidence_resolve_reference (ctx->ddata, unit,
+						origin->form,
+						origin->raw_value,
+						&target_die);
+      if (target_unit == NULL)
+	{
+	  ctx->error_callback (ctx->data,
+			       "evidence abstract_origin target not found", 0);
+	  return 0;
+	}
+      memset (&hop, 0, sizeof hop);
+      hop.attr = DW_AT_abstract_origin;
+      hop.form = origin->form;
+      hop.attr_offset = origin->offset;
+      hop.attr_length = origin->length;
+      hop.from_die = die_offset;
+      hop.to_die = target_die;
+      hop.from_cu = unit->low_offset;
+      hop.to_cu = target_unit->low_offset;
+      if (evidence_search_recurse (ctx, target_unit, target_die, &hop))
+	{
+	  if (ctx->provider != (size_t) -1)
+	    return 1;
+	}
+      else
+	return 0;
+    }
+
+  spec = evidence_find_attr (die, DW_AT_specification);
+  if (spec != NULL)
+    {
+      struct unit *target_unit;
+      size_t target_die;
+      struct dwarf_evidence_ref hop;
+
+      target_unit = evidence_resolve_reference (ctx->ddata, unit,
+						spec->form,
+						spec->raw_value,
+						&target_die);
+      if (target_unit == NULL)
+	{
+	  ctx->error_callback (ctx->data,
+			       "evidence specification target not found", 0);
+	  return 0;
+	}
+      memset (&hop, 0, sizeof hop);
+      hop.attr = DW_AT_specification;
+      hop.form = spec->form;
+      hop.attr_offset = spec->offset;
+      hop.attr_length = spec->length;
+      hop.from_die = die_offset;
+      hop.to_die = target_die;
+      hop.from_cu = unit->low_offset;
+      hop.to_cu = target_unit->low_offset;
+      if (evidence_search_recurse (ctx, target_unit, target_die, &hop))
+	{
+	  if (ctx->provider != (size_t) -1)
+	    return 1;
+	}
+      else
+	return 0;
+    }
+
+  /* Neither reference supplied a value.  In name mode a local
+     DW_AT_name is the last resort, matching the library's fallback.  */
+  if (hit != NULL)
+    {
+      ctx->provider = ctx->depth - 1;
+      return 1;
+    }
+
+  ctx->depth = saved_depth;
+  return 1;
+}
+
+/* Resolve one attribute key starting at the concrete DIE.  */
+
+static int
+evidence_resolve_key (struct backtrace_state *state,
+		      struct dwarf_data *ddata, struct unit *concrete_unit,
+		      size_t concrete_die, unsigned int key,
+		      struct dwarf_evidence_source *source,
+		      backtrace_error_callback error_callback, void *data)
+{
+  struct evidence_search_ctx ctx;
+  size_t i;
+
+  memset (source, 0, sizeof *source);
+  source->key = key;
+
+  memset (&ctx, 0, sizeof ctx);
+  ctx.state = state;
+  ctx.ddata = ddata;
+  ctx.key = key;
+  ctx.target_attr = evidence_key_attr (key);
+  ctx.name_mode = (key == DW_EVIDENCE_KEY_NAME);
+  ctx.error_callback = error_callback;
+  ctx.data = data;
+  ctx.depth = 0;
+  ctx.provider = (size_t) -1;
+
+  if (!evidence_search_recurse (&ctx, concrete_unit, concrete_die, NULL))
+    return 0;
+
+  if (ctx.provider == (size_t) -1)
+    {
+      /* Attribute absent on every permitted DIE: no A and no R.  */
+      source->present = 0;
+      return 1;
+    }
+
+  {
+    struct dwarf_evidence_die *persist_dies;
+    struct dwarf_evidence_ref *persist_refs;
+    size_t ndies = ctx.provider + 1;
+    size_t nrefs = ctx.provider;
+
+    persist_dies = backtrace_alloc (state,
+				    ndies * sizeof *persist_dies,
+				    error_callback, data);
+    if (persist_dies == NULL)
+      return 0;
+    for (i = 0; i < ndies; ++i)
+      {
+	struct dwarf_evidence_die *p
+	  = evidence_persist_die (state, &ctx.dies[i],
+				  error_callback, data);
+	if (p == NULL)
+	  return 0;
+	persist_dies[i] = *p;
+      }
+
+    persist_refs = NULL;
+    if (nrefs > 0)
+      {
+	persist_refs = backtrace_alloc (state,
+					nrefs * sizeof *persist_refs,
+					error_callback, data);
+	if (persist_refs == NULL)
+	  return 0;
+	memcpy (persist_refs, ctx.refs, nrefs * sizeof *persist_refs);
+      }
+
+    source->present = 1;
+    source->dies = persist_dies;
+    source->dies_count = ndies;
+    source->refs = persist_refs;
+    source->refs_count = nrefs;
+    source->provider_index = ctx.provider;
+    source->provider_attr
+      = *evidence_find_attr (&ctx.dies[ctx.provider], ctx.target_attr);
+  }
+
+  return 1;
+}
+
+/* One selected frame while walking the inlined chain.  */
+
+struct evidence_chain_entry
+{
+  struct function *function;
+  uintptr_t low;
+  uintptr_t high;
+};
+
+/* Collect the single inlined chain selected for PC, mirroring
+   report_inlined_functions' bsearch and tie-break walk.  Output is
+   innermost first.  */
+
+static int
+evidence_collect_chain (struct function *function, uintptr_t pc,
+			struct evidence_chain_entry *out, size_t *count,
+			size_t cap)
+{
+  struct function_addrs *p;
+  struct function_addrs *match;
+
+  if (function->function_addrs_count == 0 || pc + 1 == 0)
+    return 1;
+
+  p = ((struct function_addrs *)
+       bsearch (&pc, function->function_addrs,
+		function->function_addrs_count,
+		sizeof (struct function_addrs), function_addrs_search));
+  if (p == NULL)
+    return 1;
+
+  while (pc == (p + 1)->low)
+    ++p;
+  match = NULL;
+  while (1)
+    {
+      if (pc < p->high)
+	{
+	  match = p;
+	  break;
+	}
+      if (p == function->function_addrs)
+	break;
+      if ((p - 1)->low < p->low)
+	break;
+      --p;
+    }
+  if (match == NULL)
+    return 1;
+
+  if (*count >= cap)
+    return 0;
+
+  if (!evidence_collect_chain (match->function, pc, out, count, cap))
+    return 0;
+
+  out[*count].function = match->function;
+  out[*count].low = match->low;
+  out[*count].high = match->high;
+  ++*count;
+  return 1;
+}
+
+/* Parse the DWARF4 line header of UNIT with the production readers
+   and build file-table evidence for the 1-based FILE_INDEX.  */
+
+static int
+evidence_build_file (struct backtrace_state *state,
+		     struct dwarf_data *ddata, struct unit *unit,
+		     uint64_t file_index, struct dwarf_evidence_file *out,
+		     backtrace_error_callback error_callback, void *data)
+{
+  struct dwarf_buf lb;
+  struct dwarf_buf hb;
+  uint64_t total_length;
+  int is_dwarf64;
+  unsigned int opcode_base;
+  uint64_t dir_index;
+  size_t i;
+  struct evidence_die_scratch root;
+  struct dwarf_evidence_attr *compdir;
+  const unsigned char *name_start;
+  const unsigned char *entry_start;
+  const unsigned char *entry_end;
+  const unsigned char *dir_list_start;
+  const char *dir_name = NULL;
+  size_t dir_entry_off = 0;
+  size_t dir_entry_len = 0;
+
+  memset (out, 0, sizeof *out);
+
+  if ((size_t) unit->lineoff >= ddata->dwarf_sections.size[DEBUG_LINE])
+    {
+      error_callback (data, "evidence line offset out of range", 0);
+      return 0;
+    }
+
+  lb.name = ".debug_line";
+  lb.start = ddata->dwarf_sections.data[DEBUG_LINE];
+  lb.buf = lb.start + unit->lineoff;
+  lb.left = ddata->dwarf_sections.size[DEBUG_LINE]
+	    - (size_t) (lb.buf - lb.start);
+  lb.is_bigendian = ddata->is_bigendian;
+  lb.error_callback = error_callback;
+  lb.data = data;
+  lb.reported_underflow = 0;
+
+  total_length = read_initial_length (&lb, &is_dwarf64);
+  if (is_dwarf64)
+    {
+      error_callback (data, "evidence DWARF64 line table unsupported", 0);
+      return 0;
+    }
+  if (read_uint16 (&lb) != 4)
+    {
+      error_callback (data, "evidence line table is not DWARF4", 0);
+      return 0;
+    }
+
+  {
+    uint64_t prologue_length = read_offset (&lb, 0);
+    if (!advance (&lb, prologue_length))
+      return 0;
+    /* hb covers only the prologue bytes, starting just after the
+       prologue length field.  */
+    hb.start = lb.start;
+    hb.name = lb.name;
+    hb.is_bigendian = lb.is_bigendian;
+    hb.error_callback = lb.error_callback;
+    hb.data = lb.data;
+    hb.reported_underflow = 0;
+    hb.buf = lb.buf - prologue_length;
+    hb.left = prologue_length;
+  }
+  (void) total_length;
+
+  /* min_inst_length, max_ops_per_insn, default_is_stmt, line_base,
+     line_range.  */
+  if (!advance (&hb, 5))
+    return 0;
+  opcode_base = read_byte (&hb);
+  if (!advance (&hb, opcode_base - 1))
+    return 0;
+
+  dir_list_start = hb.buf;
+
+  /* Skip the include directory list (NUL terminated strings, then a
+     terminating NUL).  */
+  while (hb.left > 0 && *hb.buf != 0)
+    {
+      if (read_string (&hb) == NULL)
+	return 0;
+    }
+  if (!advance (&hb, 1))
+    return 0;
+
+  /* File names, 1-based: name string, dir index ULEB, time ULEB,
+     size ULEB.  */
+  for (i = 1; hb.left > 0 && *hb.buf != 0; ++i)
+    {
+      const char *fname;
+
+      entry_start = hb.buf;
+      fname = read_string (&hb);
+      if (fname == NULL)
+	return 0;
+      name_start = (const unsigned char *) fname;
+      dir_index = read_uleb128 (&hb);
+      read_uleb128 (&hb); /* modification time */
+      read_uleb128 (&hb); /* file size */
+      entry_end = hb.buf;
+
+      if (i == file_index)
+	{
+	  out->cu_offset = unit->low_offset;
+	  out->cu_end = unit->high_offset;
+	  out->stmt_list = (uint64_t) unit->lineoff;
+	  out->file_index = file_index;
+	  out->file_entry_offset
+	    = (size_t) (name_start - lb.start);
+	  out->file_entry_length = (size_t) (entry_end - entry_start);
+	  out->directory_index = dir_index;
+
+	  if (dir_index != 0)
+	    {
+	      struct dwarf_buf db;
+	      size_t di;
+
+	      db = hb;
+	      db.buf = dir_list_start;
+	      db.left = (size_t) (hb.buf - dir_list_start);
+	      for (di = 1; db.left > 0 && *db.buf != 0; ++di)
+		{
+		  const unsigned char *dstart = db.buf;
+		  const char *dstr = read_string (&db);
+
+		  if (dstr == NULL)
+		    return 0;
+		  if (di == dir_index)
+		    {
+		      dir_name = dstr;
+		      dir_entry_off = (size_t) (dstart - lb.start);
+		      dir_entry_len = (size_t) (db.buf - dstart);
+		      break;
+		    }
+		}
+	      out->directory_entry_offset = dir_entry_off;
+	      out->directory_entry_length = dir_entry_len;
+	    }
+
+	  /* comp_dir attribute span on the CU root DIE.  */
+	  if (!evidence_parse_die (state, ddata, unit,
+				   unit->low_offset + unit->unit_data_offset,
+				   &root, error_callback, data))
+	    return 0;
+	  compdir = evidence_find_attr (&root, DW_AT_comp_dir);
+	  if (compdir == NULL)
+	    {
+	      error_callback (data, "evidence CU has no comp_dir", 0);
+	      return 0;
+	    }
+	  out->compdir_attr_offset = compdir->offset;
+	  out->compdir_attr_length = compdir->length;
+	  out->compdir_form = compdir->form;
+	  out->compdir_string = compdir->string;
+	  out->compdir_string_length = compdir->string_length;
+	  out->compdir_raw_value = compdir->raw_value;
+
+	  {
+	    const char *comp_dir = (const char *) compdir->string;
+	    size_t comp_len = compdir->string_length
+			      ? compdir->string_length - 1 : 0;
+	    size_t name_len = strnlen (fname, 4096);
+	    size_t dir_len = dir_name == NULL ? 0 : strnlen (dir_name, 4096);
+	    size_t total;
+	    char *resolved;
+	    char *w;
+
+	    if (fname[0] == '/')
+	      total = name_len + 1;
+	    else if (dir_index == 0)
+	      total = comp_len + 1 + name_len + 1;
+	    else
+	      total = comp_len + 1 + dir_len + 1 + name_len + 1;
+
+	    resolved = backtrace_alloc (state, total,
+					error_callback, data);
+	    if (resolved == NULL)
+	      return 0;
+	    w = resolved;
+	    if (fname[0] == '/')
+	      {
+		memcpy (w, fname, name_len);
+		w += name_len;
+	      }
+	    else
+	      {
+		memcpy (w, comp_dir, comp_len);
+		w += comp_len;
+		if (dir_index != 0)
+		  {
+		    *w++ = '/';
+		    memcpy (w, dir_name, dir_len);
+		    w += dir_len;
+		  }
+		*w++ = '/';
+		memcpy (w, fname, name_len);
+		w += name_len;
+	      }
+	    *w = 0;
+	    out->resolved_path = resolved;
+	  }
+	  return 1;
+	}
+    }
+
+  error_callback (data, "evidence file index not in line table", 0);
+  return 0;
+}
+
+/* Allocate and return an empty evidence result (no match).  */
+
+static const struct dwarf_evidence *
+evidence_empty (struct backtrace_state *state,
+		backtrace_error_callback error_callback, void *data)
+{
+  struct dwarf_evidence *evidence;
+
+  evidence = backtrace_alloc (state, sizeof *evidence,
+			      error_callback, data);
+  if (evidence == NULL)
+    return NULL;
+  evidence->frames = NULL;
+  evidence->frames_count = 0;
+  return evidence;
+}
+
+/* Build the full evidence record for one query.  */
+
+static int
+evidence_build (struct backtrace_state *state, struct dwarf_data *ddata,
+		uintptr_t pc, const struct dwarf_evidence **out,
+		backtrace_error_callback error_callback, void *data)
+{
+  struct unit_addrs *entry;
+  struct unit *unit;
+  int found;
+  struct function_addrs *p;
+  struct function_addrs *fmatch;
+  struct function *physical;
+  struct evidence_chain_entry chain[EVIDENCE_MAX_FRAMES];
+  size_t chain_count = 0;
+  size_t nested_count;
+  struct dwarf_evidence_frame *frames;
+  struct dwarf_evidence_frame *ordered;
+  struct dwarf_evidence *evidence;
+  size_t i;
+  size_t k;
+
+  *out = NULL;
+
+  unit = dwarf_prepare_unit_for_pc (state, ddata, pc, error_callback, data,
+				    &entry, &found);
+  if (unit == NULL || unit->lines == (struct line *) (uintptr_t) -1
+      || unit->function_addrs_count == 0)
+    {
+      *out = evidence_empty (state, error_callback, data);
+      return *out != NULL;
+    }
+
+  /* Select the physical function with the same tie-break rules as
+     dwarf_lookup_pc.  */
+  p = ((struct function_addrs *)
+       bsearch (&pc, unit->function_addrs, unit->function_addrs_count,
+		sizeof (struct function_addrs), function_addrs_search));
+  if (p == NULL)
+    {
+      *out = evidence_empty (state, error_callback, data);
+      return *out != NULL;
+    }
+  while (pc == (p + 1)->low)
+    ++p;
+  fmatch = NULL;
+  while (1)
+    {
+      if (pc < p->high)
+	{
+	  fmatch = p;
+	  break;
+	}
+      if (p == unit->function_addrs)
+	break;
+      if ((p - 1)->low < p->low)
+	break;
+      --p;
+    }
+  if (fmatch == NULL)
+    {
+      *out = evidence_empty (state, error_callback, data);
+      return *out != NULL;
+    }
+
+  physical = fmatch->function;
+
+  if (!evidence_collect_chain (physical, pc, chain, &chain_count,
+			       EVIDENCE_MAX_FRAMES - 1))
+    {
+      error_callback (data, "evidence inlined chain too deep", 0);
+      return 0;
+    }
+  nested_count = chain_count;
+
+  frames = backtrace_alloc (state,
+			    (nested_count + 1) * sizeof *frames,
+			    error_callback, data);
+  if (frames == NULL)
+    return 0;
+
+  /* frames[0] is the physical function; nested frames follow.  */
+  frames[0].depth = 0;
+  frames[0].low_pc = fmatch->low;
+  frames[0].high_pc = fmatch->high;
+  frames[0].decl_file_evidence = NULL;
+  frames[0].call_file_evidence = NULL;
+  {
+    struct evidence_die_scratch scratch;
+    struct dwarf_evidence_die *concrete;
+
+    if (!evidence_parse_die (state, ddata, unit,
+			     physical->evidence_die_offset, &scratch,
+			     error_callback, data))
+      return 0;
+    concrete = evidence_persist_die (state, &scratch,
+				     error_callback, data);
+    if (concrete == NULL)
+      return 0;
+    frames[0].concrete = *concrete;
+  }
+  for (k = 0; k < DW_EVIDENCE_KEY_COUNT; ++k)
+    {
+      if (!evidence_resolve_key (state, ddata, unit,
+				 physical->evidence_die_offset, k,
+				 &frames[0].sources[k],
+				 error_callback, data))
+	return 0;
+    }
+
+  for (i = 0; i < nested_count; ++i)
+    {
+      struct dwarf_evidence_frame *frame = &frames[i + 1];
+      struct evidence_die_scratch scratch;
+      struct dwarf_evidence_die *concrete;
+
+      /* chain[0] is the innermost instance; depth counts away from
+	 the physical function, which is depth 0.  */
+      frame->depth = (unsigned int) (nested_count - i);
+      frame->low_pc = chain[i].low;
+      frame->high_pc = chain[i].high;
+      frame->decl_file_evidence = NULL;
+      frame->call_file_evidence = NULL;
+
+      if (!evidence_parse_die (state, ddata, unit,
+			       chain[i].function->evidence_die_offset,
+			       &scratch, error_callback, data))
+	return 0;
+      concrete = evidence_persist_die (state, &scratch,
+				       error_callback, data);
+      if (concrete == NULL)
+	return 0;
+      frame->concrete = *concrete;
+
+      for (k = 0; k < DW_EVIDENCE_KEY_COUNT; ++k)
+	{
+	  if (!evidence_resolve_key (state, ddata, unit,
+				     chain[i].function->evidence_die_offset,
+				     k, &frame->sources[k],
+				     error_callback, data))
+	    return 0;
+	}
+    }
+
+  /* File-table evidence for every resolved declaration/call file,
+     interpreted by the CU that actually supplied the file number.  */
+  for (i = 0; i <= nested_count; ++i)
+    {
+      struct dwarf_evidence_frame *frame = &frames[i];
+      struct dwarf_evidence_source *decl
+	= &frame->sources[DW_EVIDENCE_KEY_DECL_FILE];
+      struct dwarf_evidence_source *call
+	= &frame->sources[DW_EVIDENCE_KEY_CALL_FILE];
+
+      if (decl->present)
+	{
+	  size_t provider_cu
+	    = decl->dies[decl->provider_index].cu_offset;
+	  struct unit *provider_unit
+	    = find_unit (ddata->units, ddata->units_count, provider_cu);
+	  struct dwarf_evidence_file *f;
+
+	  if (provider_unit == NULL)
+	    {
+	      error_callback (data, "evidence decl_file CU not found", 0);
+	      return 0;
+	    }
+	  f = backtrace_alloc (state, sizeof *f, error_callback, data);
+	  if (f == NULL)
+	    return 0;
+	  if (!evidence_build_file (state, ddata, provider_unit,
+				    decl->provider_attr.raw_value, f,
+				    error_callback, data))
+	    return 0;
+	  frame->decl_file_evidence = f;
+	}
+      if (call->present)
+	{
+	  size_t provider_cu
+	    = call->dies[call->provider_index].cu_offset;
+	  struct unit *provider_unit
+	    = find_unit (ddata->units, ddata->units_count, provider_cu);
+	  struct dwarf_evidence_file *f;
+
+	  if (provider_unit == NULL)
+	    {
+	      error_callback (data, "evidence call_file CU not found", 0);
+	      return 0;
+	    }
+	  f = backtrace_alloc (state, sizeof *f, error_callback, data);
+	  if (f == NULL)
+	    return 0;
+	  if (!evidence_build_file (state, ddata, provider_unit,
+				    call->provider_attr.raw_value, f,
+				    error_callback, data))
+	    return 0;
+	  frame->call_file_evidence = f;
+	}
+    }
+
+  ordered = backtrace_alloc (state,
+			     (nested_count + 1) * sizeof *ordered,
+			     error_callback, data);
+  if (ordered == NULL)
+    return 0;
+  /* chain (and thus frames[1..]) is innermost first; finish with the
+     physical function in frames[0].  */
+  for (i = 0; i < nested_count; ++i)
+    ordered[i] = frames[i + 1];
+  ordered[nested_count] = frames[0];
+
+  evidence = backtrace_alloc (state, sizeof *evidence,
+			      error_callback, data);
+  if (evidence == NULL)
+    return 0;
+  evidence->frames = ordered;
+  evidence->frames_count = nested_count + 1;
+  *out = evidence;
+  return 1;
+}
+
+/* Reconstruct source evidence for PC.  In a non-threaded state results
+   are cached per dwarf_data object in the state allocator, so
+   interleaved analysis of different objects can never mix evidence.
+   A threaded state has no locking around this cache, so results are
+   rebuilt per call instead of sharing mutable storage.  */
+
+int
+backtrace_dwarf_evidence (struct backtrace_state *state,
+			  struct dwarf_data *entry, uintptr_t pc,
+			  const struct dwarf_evidence **evidence,
+			  backtrace_error_callback error_callback,
+			  void *data)
+{
+  struct dwarf_evidence_cache *cache;
+  size_t i;
+
+  if (state == NULL || entry == NULL || evidence == NULL)
+    {
+      if (error_callback != NULL)
+	error_callback (data, "backtrace_dwarf_evidence: bad argument", 0);
+      return 0;
+    }
+  *evidence = NULL;
+
+  cache = entry->evidence_cache;
+  if (!state->threaded && cache != NULL)
+    {
+      for (i = 0; i < cache->count; ++i)
+	{
+	  if (cache->pcs[i] == pc)
+	    {
+	      *evidence = cache->results[i];
+	      return 1;
+	    }
+	}
+    }
+
+  if (!evidence_build (state, entry, pc, evidence,
+		       error_callback, data))
+    return 0;
+
+  /* Threaded states never install or read the shared cache.  */
+  if (state->threaded)
+    return 1;
+
+  if (entry->evidence_cache == NULL)
+    {
+      cache = backtrace_alloc (state, sizeof *cache,
+			       error_callback, data);
+      if (cache == NULL)
+	return 0;
+      cache->pcs = NULL;
+      cache->results = NULL;
+      cache->count = 0;
+      cache->alc = 0;
+      entry->evidence_cache = cache;
+    }
+  cache = entry->evidence_cache;
+
+  if (cache->count == cache->alc)
+    {
+      size_t new_alc = cache->alc == 0 ? 8 : cache->alc * 2;
+      uintptr_t *new_pcs;
+      const struct dwarf_evidence **new_results;
+
+      new_pcs = backtrace_alloc (state, new_alc * sizeof *new_pcs,
+				 error_callback, data);
+      new_results = backtrace_alloc (state,
+				     new_alc * sizeof *new_results,
+				     error_callback, data);
+      if (new_pcs == NULL || new_results == NULL)
+	return 0;
+      if (cache->count > 0)
+	{
+	  memcpy (new_pcs, cache->pcs, cache->count * sizeof *new_pcs);
+	  memcpy (new_results, cache->results,
+		  cache->count * sizeof *new_results);
+	}
+      cache->pcs = new_pcs;
+      cache->results = new_results;
+      cache->alc = new_alc;
+    }
+
+  cache->pcs[cache->count] = pc;
+  cache->results[cache->count] = *evidence;
+  ++cache->count;
   return 1;
 }

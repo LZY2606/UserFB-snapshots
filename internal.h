@@ -427,6 +427,227 @@ extern int backtrace_uncompress_lzma (struct backtrace_state *,
 				      unsigned char **uncompressed,
 				      size_t *uncompressed_size);
 
+/* Source evidence.  These structures reconstruct the provenance of an
+   inlined call chain directly from the parsed DWARF data.  Every byte
+   span is recorded while the .debug_info/.debug_line/.debug_str
+   sections are being parsed; the offsets are section relative offsets,
+   not ELF file offsets.  All pointers are borrowed from the
+   dwarf_sections buffers passed to backtrace_dwarf_add and from the
+   backtrace_state allocator, so they stay valid for the lifetime of
+   the backtrace_state.  The state is never freed by this library;
+   callers that own the section buffers (the sample driver keeps them
+   for the whole process) must keep them alive as long as any evidence
+   structure is in use.  */
+
+/* Kind of a parsed attribute operand.  */
+
+enum dwarf_evidence_encoding
+{
+  /* No operand bytes (DW_FORM_flag_present).  */
+  DW_EVIDENCE_ENCODING_NONE,
+  /* An address-sized unsigned value (DW_FORM_addr).  */
+  DW_EVIDENCE_ENCODING_UINT,
+  /* An inline DW_FORM_string, pointing into .debug_info.  */
+  DW_EVIDENCE_ENCODING_INLINE_STRING,
+  /* A DW_FORM_strp value, pointing into .debug_str.  */
+  DW_EVIDENCE_ENCODING_STRP
+};
+
+/* One attribute operand on a concrete or abstract DIE.  */
+
+struct dwarf_evidence_attr
+{
+  /* DW_AT_* attribute name.  */
+  unsigned int attr;
+  /* DW_FORM_* form.  */
+  unsigned int form;
+  /* Section-relative .debug_info offset of the first operand byte.  */
+  size_t offset;
+  /* Number of operand bytes; zero for DW_FORM_flag_present.  */
+  size_t length;
+  /* How raw_value/string should be interpreted.  */
+  enum dwarf_evidence_encoding encoding;
+  /* The decoded scalar value (also used for DW_FORM_strp offsets).  */
+  uint64_t raw_value;
+  /* For string forms, the NUL-terminated bytes.  */
+  const unsigned char *string;
+  /* Length of STRING including the terminating NUL, or 0.  */
+  size_t string_length;
+};
+
+/* One hop along a DW_AT_abstract_origin or DW_AT_specification
+   reference.  */
+
+struct dwarf_evidence_ref
+{
+  /* DW_AT_abstract_origin or DW_AT_specification.  */
+  unsigned int attr;
+  /* Form of the reference operand.  */
+  unsigned int form;
+  /* .debug_info offset and length of the reference operand.  */
+  size_t attr_offset;
+  size_t attr_length;
+  /* Section-relative offset of the DIE holding the reference.  */
+  size_t from_die;
+  /* Section-relative offset of the referenced DIE.  */
+  size_t to_die;
+  /* Section-relative start of the CU containing FROM_DIE.  */
+  size_t from_cu;
+  /* Section-relative start of the CU containing TO_DIE.  */
+  size_t to_cu;
+};
+
+/* A DIE that participates in a provenance chain, together with the
+   attributes the evidence reconstruction inspected.  */
+
+struct dwarf_evidence_die
+{
+  /* DW_TAG_* tag of the DIE.  */
+  unsigned int tag;
+  /* Section-relative .debug_info offset of the DIE (first abbrev code
+     byte).  */
+  size_t die_offset;
+  /* Section-relative start/end of the containing CU.  */
+  size_t cu_offset;
+  size_t cu_end;
+  /* DW_AT_stmt_list raw value of the containing CU.  */
+  uint64_t stmt_list;
+  /* The attributes of this DIE in their on-disk order.  */
+  const struct dwarf_evidence_attr *attrs;
+  size_t attrs_count;
+};
+
+/* The provenance of one resolved declaration attribute.  */
+
+struct dwarf_evidence_source
+{
+  /* One of the DW_EVIDENCE_KEY_* keys below.  */
+  unsigned int key;
+  /* The chain of DIEs consulted, starting with the concrete DIE.  */
+  const struct dwarf_evidence_die *dies;
+  size_t dies_count;
+  /* The reference hops actually followed, in traversal order.  */
+  const struct dwarf_evidence_ref *refs;
+  size_t refs_count;
+  /* The DIE that supplied the value, i.e. dies[provider_index].  */
+  size_t provider_index;
+  /* The supplying attribute on that DIE.  */
+  struct dwarf_evidence_attr provider_attr;
+  /* Non-zero if the attribute was present; a value of zero is still
+     present and must be reported.  */
+  int present;
+};
+
+/* Keys for the declaration/call attributes reconstructed per frame.  */
+
+enum dwarf_evidence_key
+{
+  DW_EVIDENCE_KEY_NAME = 0,
+  DW_EVIDENCE_KEY_DECL_FILE,
+  DW_EVIDENCE_KEY_DECL_LINE,
+  DW_EVIDENCE_KEY_DECL_COLUMN,
+  DW_EVIDENCE_KEY_CALL_FILE,
+  DW_EVIDENCE_KEY_CALL_LINE,
+  DW_EVIDENCE_KEY_CALL_COLUMN,
+  DW_EVIDENCE_KEY_LOW_PC,
+  DW_EVIDENCE_KEY_HIGH_PC,
+  DW_EVIDENCE_KEY_COUNT
+};
+
+/* One frame of an inlined call chain.  Depth 0 is the physical
+   (concrete outer) function; each inlined instance adds one.  The
+   sources array is indexed by enum dwarf_evidence_key.  A source with
+   present == 0 means the attribute did not exist anywhere on the
+   permitted chain.  */
+
+/* Evidence for one DWARF4 line-program file-name entry.  All offsets
+   are section-relative .debug_line offsets, except comp_dir_* which
+   are section-relative .debug_info offsets of the CU's
+   DW_AT_comp_dir operand.  A directory index of zero means the entry
+   is relative to the compilation directory; the directory spans are
+   then unused.  */
+
+struct dwarf_evidence_file
+{
+  /* The CU whose line table and file table supply this entry.  */
+  size_t cu_offset;
+  size_t cu_end;
+  /* Raw DW_AT_stmt_list value of that CU.  */
+  uint64_t stmt_list;
+  /* Original DW_AT_decl_file / DW_AT_call_file value (1-based).  */
+  uint64_t file_index;
+  /* .debug_line span of the whole file entry: from the first file
+     name byte through the trailing size ULEB.  */
+  size_t file_entry_offset;
+  size_t file_entry_length;
+  /* .debug_line span of the referenced directory entry including its
+     NUL.  Zero length when the directory index is zero.  */
+  size_t directory_entry_offset;
+  size_t directory_entry_length;
+  /* .debug_info span of the CU's DW_AT_comp_dir operand.  */
+  size_t compdir_attr_offset;
+  size_t compdir_attr_length;
+  /* Form and decoded NUL-terminated bytes of DW_AT_comp_dir, so the
+     report can place the string evidence in .debug_info (inline
+     string) or .debug_str (strp).  */
+  unsigned int compdir_form;
+  const unsigned char *compdir_string;
+  size_t compdir_string_length;
+  /* For DW_FORM_strp, the raw .debug_str offset operand.  */
+  uint64_t compdir_raw_value;
+  /* The fully resolved path (directory joined with comp_dir when the
+     directory entry is relative), borrowed from the state allocator.  */
+  const char *resolved_path;
+  /* The directory index as encoded.  */
+  uint64_t directory_index;
+};
+
+struct dwarf_evidence_frame
+{
+  /* Depth of this frame; 0 for the physical function.  */
+  unsigned int depth;
+  /* The concrete DIE backing this frame.  */
+  struct dwarf_evidence_die concrete;
+  /* The half-open address range of this frame that contains the
+     queried PC.  */
+  uintptr_t low_pc;
+  uintptr_t high_pc;
+  /* Resolved provenance for every tracked attribute.  */
+  struct dwarf_evidence_source sources[DW_EVIDENCE_KEY_COUNT];
+  /* File-table evidence for the resolved declaration and call files.
+     NULL when the corresponding file attribute is absent.  Borrowed
+     from the state allocator.  */
+  const struct dwarf_evidence_file *decl_file_evidence;
+  const struct dwarf_evidence_file *call_file_evidence;
+};
+
+/* The complete evidence for one PC query.  */
+
+struct dwarf_evidence
+{
+  /* Frames ordered from the innermost inlined instance down to the
+     physical function.  frames[0] is innermost; the physical function
+     is the last entry.  */
+  const struct dwarf_evidence_frame *frames;
+  size_t frames_count;
+};
+
+/* Reconstruct the source evidence for PC using the existing DWARF
+   address and inlined-function selection (single chain, half-open
+   ranges, no overlap enumeration).  STATE must be the non-threaded
+   state that ENTRY was added to.  On success *EVIDENCE points to
+   memory owned by STATE (via backtrace_alloc) and remains valid for
+   the lifetime of the state; it must not be freed by the caller.  The
+   per-PC result is cached on ENTRY, so distinct objects (distinct
+   dwarf_data) never share evidence.  Returns 1 on success, 0 on
+   error.  A PC with no match succeeds with frames_count == 0.  */
+
+extern int backtrace_dwarf_evidence (struct backtrace_state *state,
+				     struct dwarf_data *entry, uintptr_t pc,
+				     const struct dwarf_evidence **evidence,
+				     backtrace_error_callback error_callback,
+				     void *data);
+
 /* Current expected backtrace_moredata version.  */
 #define BACKTRACE_MOREDATA_VERSION (4)
 
