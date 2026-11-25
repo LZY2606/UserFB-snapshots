@@ -244,6 +244,17 @@ NEAACDECAPI void* NeAACDecDecode2(NeAACDecHandle hDecoder,
                                   void **sample_buffer,
                                   unsigned long sample_buffer_size);
 
+/* Conceal one missing 1024-sample AAC access unit.  These calls consume no
+   compressed input and advance the decoder's synthesis state exactly like an
+   ordinary frame. */
+NEAACDECAPI void* NeAACDecConceal(NeAACDecHandle hDecoder,
+                                  NeAACDecFrameInfo *hInfo);
+
+NEAACDECAPI void* NeAACDecConceal2(NeAACDecHandle hDecoder,
+                                   NeAACDecFrameInfo *hInfo,
+                                   void **sample_buffer,
+                                   unsigned long sample_buffer_size);
+
 NEAACDECAPI char NeAACDecAudioSpecificConfig(unsigned char *pBuffer,
                                              unsigned long buffer_size,
                                              mp4AudioSpecificConfig *mp4ASC);

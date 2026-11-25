@@ -41,6 +41,7 @@
 #include "output.h"
 #include "filtbank.h"
 #include "drc.h"
+#include "conceal.h"
 #ifdef SBR_DEC
 #include "sbr_dec.h"
 #include "sbr_syntax.h"
@@ -64,8 +65,8 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
                               unsigned long buffer_size,
                               void **sample_buffer2,
                               unsigned long sample_buffer_size);
-static void create_channel_config(NeAACDecStruct *hDecoder,
-                                  NeAACDecFrameInfo *hInfo);
+void create_channel_config(NeAACDecStruct *hDecoder,
+                           NeAACDecFrameInfo *hInfo);
 
 
 int NeAACDecGetVersion(char **faad_id_string,
@@ -279,6 +280,8 @@ long NeAACDecInit(NeAACDecHandle hpDecoder,
     if ((hDecoder == NULL) || (samplerate == NULL) || (channels == NULL) || (buffer_size == 0))
         return -1;
 
+    conceal_reinit(hDecoder);
+
     adts.old_format = hDecoder->config.useOldADTSFormat;
     hDecoder->sf_index = get_sr_index(hDecoder->config.defSampleRate);
     hDecoder->object_type = hDecoder->config.defObjectType;
@@ -405,6 +408,7 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
         return -1;
     }
 
+    conceal_reinit(hDecoder);
     hDecoder->adif_header_present = 0;
     hDecoder->adts_header_present = 0;
 
@@ -471,6 +475,7 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
         hDecoder->frameLength >>= 1;
 #endif
 
+    hDecoder->conceal.raw_init2 = 1;
     return 0;
 }
 
@@ -578,13 +583,14 @@ void NeAACDecPostSeekReset(NeAACDecHandle hpDecoder, long frame)
     if (hDecoder)
     {
         hDecoder->postSeekResetFlag = 1;
+        conceal_post_seek_reset(hDecoder);
 
         if (frame != -1)
             hDecoder->frame = frame;
     }
 }
 
-static void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
+void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
 {
     hInfo->num_front_channels = 0;
     hInfo->num_side_channels = 0;
@@ -865,7 +871,14 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
 #endif
 
     /* safety checks */
-    if ((hDecoder == NULL) || (hInfo == NULL) || (buffer == NULL))
+    if ((hDecoder == NULL) || (hInfo == NULL))
+    {
+        return NULL;
+    }
+    /* Any attempted decode that cannot complete retires the old concealment
+       history; preserve the historical untouched hInfo for a NULL buffer. */
+    conceal_decode_begin(hDecoder);
+    if (buffer == NULL)
     {
         return NULL;
     }
@@ -885,7 +898,9 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
     {
         hDecoder->TL_count += 1024;
     } else {
-        hInfo->error = (NUM_ERROR_MESSAGES-1);
+        /* Preserve the historical time-limit error code; newly appended
+           concealment messages are not the generic final table entry. */
+        hInfo->error = 34;
         goto error;
     }
 #endif
@@ -1199,6 +1214,8 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
             hInfo->samples = 0;
     }
 #endif
+
+    conceal_commit_good_au(hDecoder);
 
     /* cleanup */
 #ifdef ANALYSIS

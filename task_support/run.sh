@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s tests/conceal.c; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   cc -std=c99 -O2 -I. -Iinclude -Ilibfaad task_support/driver.c tests/conceal.c .task-build/library/libfaad.a -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=.task-build/target-output.$$.log
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

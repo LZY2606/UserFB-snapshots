@@ -47,6 +47,41 @@ extern "C" {
 #define MAX_LTP_SFB         40
 #define MAX_LTP_SFB_S        8
 
+#define CONCEAL_FRAME_LEN   1024
+#define CONCEAL_MAX_CHANNELS 2
+
+typedef void (*conceal_spectrum_observer)(void *user, uint8_t channel,
+    uint8_t window_sequence, uint8_t window_shape, const real_t *spectrum);
+
+typedef struct
+{
+    /* A complete good AU has been atomically committed. */
+    uint8_t history_valid;
+    /* Set only after a successful NeAACDecInit2() raw initialisation. */
+    uint8_t raw_init2;
+    uint8_t channels;
+    uint8_t window_sequence[CONCEAL_MAX_CHANNELS];
+    uint8_t window_shape[CONCEAL_MAX_CHANNELS];
+    /* Sequence most recently passed to the real synthesis filterbank. */
+    uint8_t synthesis_sequence[CONCEAL_MAX_CHANNELS];
+
+    uint32_t lost_frames;
+
+    /* Post-PNS/MS/IS/TNS/DRC spectrum, immediately before ifilter_bank(). */
+    real_t spectrum[CONCEAL_MAX_CHANNELS][CONCEAL_FRAME_LEN];
+    /* Atomic commit staging for the AU currently being decoded. */
+    real_t pending_spectrum[CONCEAL_MAX_CHANNELS][CONCEAL_FRAME_LEN];
+    uint8_t pending_valid[CONCEAL_MAX_CHANNELS];
+    uint8_t pending_sequence[CONCEAL_MAX_CHANNELS];
+    uint8_t pending_shape[CONCEAL_MAX_CHANNELS];
+    /* Fixed in-place attenuation/synthesis scratch. */
+    real_t work[CONCEAL_MAX_CHANNELS][CONCEAL_FRAME_LEN];
+
+    /* Read-only test hook for observing the real pre-filter spectrum. */
+    conceal_spectrum_observer observer;
+    void *observer_user;
+} conceal_state;
+
 /* used to save the prediction state */
 typedef struct {
     int16_t r[2];
@@ -428,6 +463,9 @@ typedef struct
 
     /* Configuration data */
     NeAACDecConfiguration config;
+
+    /* Fixed-size packet-loss concealment history and scratch state. */
+    conceal_state conceal;
 
 #ifdef PROFILE
     int64_t cycles;
