@@ -10,6 +10,30 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 
 ## Methods
 
+### .bakeAffineGeometry( geometry : BufferGeometry, matrix : Matrix4 ) : BufferGeometry (inner)
+
+Bakes an affine transformation into a new [BufferGeometry](BufferGeometry.html), including its morph targets, and returns the new geometry. The source geometry and the matrix are not modified, and the returned geometry owns independent arrays.
+
+Only triangular meshes are supported, indexed or non-indexed. The geometry may carry `position` and `normal` morph attributes, but no skinning or instanced attributes. Plain [BufferAttribute](BufferAttribute.html) and [InterleavedBufferAttribute](InterleavedBufferAttribute.html) inputs are both accepted; interleaved storage may be de-interleaved in the result. Relative morph targets (`morphTargetsRelative = true`) are treated as displacement vectors, so the translation part of the matrix is never applied to them, while absolute targets are transformed as endpoints. For any finite morph weights, blending the baked geometry with the same weights gives the same positions as blending the source geometry first and then applying the matrix.
+
+Positions and normals (base and morph) are written to `Float32` arrays. Base normals are unit length; morph normals use the inverse transpose without per-target normalization, which keeps linear normal blending correct under non-uniform scale and shear. Blended normals are compared after normalization; only states with a non-zero blended normal are considered, and artist-authored morph normals are never recomputed. Other attributes keep their typed array type, item size and `normalized` flag.
+
+When the determinant of the matrix is negative, every triangle exchanges its second and third corner so the original front faces stay front faces: the index is rewritten for indexed geometry, and every per-vertex attribute (including morph records) is permuted for non-indexed geometry. Triangle order, groups, draw ranges and material groups are preserved. Existing tangents are re-orthogonalized against the transformed tangent plane, stay unit and orthogonal to their normal, and their `.w` reflects the new handedness; no tangent is generated when the source has none. UVs, colors and custom attributes do not participate in the geometric transform, but stay aligned with their vertices when a non-indexed reflection permutes corners.
+
+Existing bounding boxes and spheres are rebuilt through the geometry's own computation entry points; absent bounds stay lazy.
+
+The method throws when the geometry lacks a `position` attribute, has inconsistent attribute lengths, illegal triangle indices, skinning/instanced data, unsupported attribute types or morph kinds, or when the matrix is non-affine, singular, or contains non-finite values. This is a CPU-only utility with no browser or GPU dependency.
+
+**geometry**
+
+The geometry to bake. It is not modified.
+
+**matrix**
+
+The affine matrix to bake. It is not modified.
+
+**Returns:** A new independent geometry with the transformation baked in.
+
 ### .computeMikkTSpaceTangents( geometry : BufferGeometry, MikkTSpace : Object, negateSign : boolean ) : BufferGeometry (inner)
 
 Computes vertex tangents using the MikkTSpace algorithm. MikkTSpace generates the same tangents consistently, and is used in most modelling tools and normal map bakers. Use MikkTSpace for materials with normal maps, because inconsistent tangents may lead to subtle visual issues in the normal map, particularly around mirrored UV seams.
