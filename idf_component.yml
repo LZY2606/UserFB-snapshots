@@ -1,0 +1,11 @@
+version: "0.1.0"
+description: A minimal MPEG-1 (ISO/IEC 11172-2) video decoder for microcontrollers.
+url: https://github.com/pschatzmann/TinyMPG
+repository: https://github.com/pschatzmann/TinyMPG.git
+issues: https://github.com/pschatzmann/TinyMPG/issues
+license: GPL-3.0-only
+tags:
+  - video
+  - mpeg1
+  - decoder
+  - codec
