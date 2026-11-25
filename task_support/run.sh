@@ -21,7 +21,7 @@ done
 cc -std=c99 -O2 -Iinclude -I. task_support/baseline.c "${objects[@]}" -o .task-build/baseline
 if [[ $mode == target ]]; then
   cc -std=c99 -O2 -Iinclude -I. task_support/driver.c test/packet-events.c "${objects[@]}" -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/task-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

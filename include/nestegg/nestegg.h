@@ -8,6 +8,7 @@
 #define NESTEGG_671cac2a_365d_ed69_d7a3_4491d3538d79
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(__cplusplus)
