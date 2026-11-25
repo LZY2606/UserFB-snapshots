@@ -1,0 +1,18 @@
+CASE timeline onset_phase checks=22
+CASE timeline cut_decay checks=120
+CASE timeline ordering checks=18
+CASE timeline position checks=13
+GROUP timeline cases=4 checks=173 COMPLETE
+CASE voices it_nna checks=17
+CASE voices keyoff_sustain checks=15
+CASE voices cut_and_reuse checks=18
+GROUP voices cases=3 checks=50 COMPLETE
+CASE stream large_vs_fragmented checks=216
+CASE stream matches_legacy checks=6
+CASE stream after_end checks=9
+CASE stream rejection_keeps_pcm checks=1039
+CASE stream contexts_and_restart checks=13
+CASE stream parameter_errors checks=16
+CASE stream interpolation checks=165
+GROUP stream cases=7 checks=1464 COMPLETE
+TARGET_COMPLETE cases=14

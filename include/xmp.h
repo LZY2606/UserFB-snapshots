@@ -377,6 +377,13 @@ LIBXMP_EXPORT void        xmp_release_module  (xmp_context);
 LIBXMP_EXPORT int         xmp_start_player    (xmp_context, int, int);
 LIBXMP_EXPORT int         xmp_play_frame      (xmp_context);
 LIBXMP_EXPORT int         xmp_play_buffer     (xmp_context, void *, int, int);
+
+/* Sample-accurate timed playback (XM and IT modules only) */
+LIBXMP_EXPORT int         xmp_start_timed_player (xmp_context, int, int);
+LIBXMP_EXPORT int         xmp_schedule_event     (xmp_context, unsigned long long,
+						  int, const struct xmp_event *);
+LIBXMP_EXPORT int         xmp_play_timed_buffer  (xmp_context, void *, int);
+LIBXMP_EXPORT int         xmp_get_timed_position (xmp_context, unsigned long long *);
 LIBXMP_EXPORT void        xmp_get_frame_info  (xmp_context, struct xmp_frame_info *);
 LIBXMP_EXPORT void        xmp_end_player      (xmp_context);
 LIBXMP_EXPORT void        xmp_inject_event    (xmp_context, int, struct xmp_event *);

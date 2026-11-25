@@ -1,6 +1,15 @@
 Stable versions
 ---------------
 
+Unreleased:
+	- Add a sample-accurate timed playback path for XM and IT modules:
+	  xmp_start_timed_player, xmp_schedule_event,
+	  xmp_play_timed_buffer and xmp_get_timed_position. Scheduled note
+	  onsets, key offs and note cuts can land on any output sample
+	  frame while the song clock keeps advancing at natural tick
+	  boundaries. Output is byte-identical to the regular player when
+	  no events are scheduled.
+
 4.7.4 (20261010):
 	Changes by Alice Rowan:
 	- Fix sample bounding in Imago Orpheus IMF loader.

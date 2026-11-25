@@ -649,6 +649,7 @@ static int ft2_arpeggio(struct context_data *ctx, struct channel_data *xc)
 
 static int arpeggio(struct context_data *ctx, struct channel_data *xc)
 {
+	struct player_data *p = &ctx->p;
 	struct module_data *m = &ctx->m;
 	int arp;
 
@@ -658,8 +659,10 @@ static int arpeggio(struct context_data *ctx, struct channel_data *xc)
 		arp = xc->arpeggio.val[xc->arpeggio.count];
 	}
 
-	xc->arpeggio.count++;
-	xc->arpeggio.count %= xc->arpeggio.size;
+	if (!p->timed_publish) {
+		xc->arpeggio.count++;
+		xc->arpeggio.count %= xc->arpeggio.size;
+	}
 
 	return arp;
 }
@@ -883,7 +886,7 @@ static int tremor_ft2(struct context_data *ctx, int chn, int finalvol)
 	struct player_data *p = &ctx->p;
 	struct channel_data *xc = &p->xc_data[chn];
 
-	if (TEST(TREMOR) && p->frame != 0) {
+	if (TEST(TREMOR) && p->frame != 0 && !p->timed_publish) {
 		xc->tremor.count &= ~TREMOR_SUPPRESS;
 		if (xc->tremor.count == 0) {
 			/* end of down cycle, set up counter for up  */
@@ -908,7 +911,7 @@ static int tremor_s3m(struct context_data *ctx, int chn, int finalvol)
 	struct player_data *p = &ctx->p;
 	struct channel_data *xc = &p->xc_data[chn];
 
-	if (TEST(TREMOR)) {
+	if (TEST(TREMOR) && !p->timed_publish) {
 		if (xc->tremor.count == 0) {
 			/* end of down cycle, set up counter for up  */
 			xc->tremor.count = xc->tremor.up | TREMOR_ON;
@@ -1010,7 +1013,7 @@ static void process_volume(struct context_data *ctx, int chn, int act)
 		}
 	}
 
-	if (!TEST_PER(VENV_PAUSE)) {
+	if (!p->timed_publish && !TEST_PER(VENV_PAUSE)) {
 		xc->v_idx = update_envelope(ctx, &instrument->aei, xc->v_idx,
 			DOENV_RELEASE, TEST(KEY_OFF));
 	}
@@ -1046,18 +1049,20 @@ static void process_volume(struct context_data *ctx, int chn, int act)
 	}
 
 	if (fade) {
-		if (xc->fadeout > xc->ins_fade) {
-			xc->fadeout -= xc->ins_fade;
-		} else {
-			xc->fadeout = 0;
-			SET_NOTE(NOTE_END);
+		if (!p->timed_publish) {
+			if (xc->fadeout > xc->ins_fade) {
+				xc->fadeout -= xc->ins_fade;
+			} else {
+				xc->fadeout = 0;
+				SET_NOTE(NOTE_END);
+			}
 		}
 	}
 
 	/* If note ended in background channel, we can safely reset it */
 	if (TEST_NOTE(NOTE_END) && chn >= p->virt.num_tracks) {
 		libxmp_virt_resetchannel(ctx, chn);
-		return;
+		goto publish_done;
 	}
 
 #ifndef LIBXMP_CORE_PLAYER
@@ -1076,7 +1081,8 @@ static void process_volume(struct context_data *ctx, int chn, int act)
 			finalvol += libxmp_lfo_get(ctx, &xc->tremolo.lfo, 0) / (1 << 6);
 		}
 
-		if (!is_first_frame(ctx) || HAS_QUIRK(QUIRK_VIBALL)) {
+		if (!p->timed_publish &&
+		    (!is_first_frame(ctx) || HAS_QUIRK(QUIRK_VIBALL))) {
 			libxmp_lfo_update(&xc->tremolo.lfo);
 		}
 	}
@@ -1127,6 +1133,9 @@ static void process_volume(struct context_data *ctx, int chn, int act)
 	if (xc->split) {
 		libxmp_virt_setvol(ctx, xc->pair, finalvol);
 	}
+
+publish_done:
+	;
 }
 
 static void process_frequency(struct context_data *ctx, int chn, int act)
@@ -1149,7 +1158,7 @@ static void process_frequency(struct context_data *ctx, int chn, int act)
 
 	instrument = libxmp_get_instrument(ctx, xc->ins);
 
-	if (!TEST_PER(FENV_PAUSE)) {
+	if (!p->timed_publish && !TEST_PER(FENV_PAUSE)) {
 		xc->f_idx = update_envelope(ctx, &instrument->fei, xc->f_idx,
 			DOENV_RELEASE, TEST(KEY_OFF));
 	}
@@ -1174,11 +1183,13 @@ static void process_frequency(struct context_data *ctx, int chn, int act)
 	/* Instrument vibrato */
 	vibrato = 1.0 * libxmp_lfo_get(ctx, &xc->insvib.lfo, 1) /
 				(4096 * (1 + xc->insvib.sweep));
-	libxmp_lfo_update(&xc->insvib.lfo);
-	if (xc->insvib.sweep > 1) {
-		xc->insvib.sweep -= 2;
-	} else {
-		xc->insvib.sweep = 0;
+	if (!p->timed_publish) {
+		libxmp_lfo_update(&xc->insvib.lfo);
+		if (xc->insvib.sweep > 1) {
+			xc->insvib.sweep -= 2;
+		} else {
+			xc->insvib.sweep = 0;
+		}
 	}
 
 	/* Vibrato */
@@ -1195,7 +1206,8 @@ static void process_frequency(struct context_data *ctx, int chn, int act)
 			}
 		}
 
-		if (!is_first_frame(ctx) || HAS_QUIRK(QUIRK_VIBALL)) {
+		if (!p->timed_publish &&
+		    (!is_first_frame(ctx) || HAS_QUIRK(QUIRK_VIBALL))) {
 			libxmp_lfo_update(&xc->vibrato.lfo);
 		}
 	}
@@ -1359,7 +1371,7 @@ static void process_pan(struct context_data *ctx, int chn, int act)
 
 	instrument = libxmp_get_instrument(ctx, xc->ins);
 
-	if (!TEST_PER(PENV_PAUSE)) {
+	if (!p->timed_publish && !TEST_PER(PENV_PAUSE)) {
 		xc->p_idx = update_envelope(ctx, &instrument->pei, xc->p_idx,
 			DOENV_RELEASE, TEST(KEY_OFF));
 	}
@@ -1368,7 +1380,7 @@ static void process_pan(struct context_data *ctx, int chn, int act)
 #ifndef LIBXMP_CORE_DISABLE_IT
 	if (TEST(PANBRELLO)) {
 		panbrello = libxmp_lfo_get(ctx, &xc->panbrello.lfo, 0) / 512;
-		if (is_first_frame(ctx)) {
+		if (!p->timed_publish && is_first_frame(ctx)) {
 			libxmp_lfo_update(&xc->panbrello.lfo);
 		}
 	}
@@ -1712,6 +1724,50 @@ static void play_channel(struct context_data *ctx, int chn)
 /*
  * Event injection
  */
+
+/* Publish the current channel state to its mixer voice without advancing
+ * any song clock, slide/LFO/delay counters or envelope positions. Used by
+ * the timed player to make a scheduled event audible inside a tick. */
+void libxmp_timed_publish(struct context_data *ctx, int chn)
+{
+	struct player_data *p = &ctx->p;
+	struct module_data *m = &ctx->m;
+	struct xmp_module *mod = &m->mod;
+	struct smix_data *smix = &ctx->smix;
+	struct channel_data *xc = &p->xc_data[chn];
+	int act;
+	int save_publish = p->timed_publish;
+
+	xc->info_finalvol = 0;
+
+	act = libxmp_virt_cstat(ctx, chn);
+	if (act == VIRT_INVALID)
+		return;
+
+	if (!IS_VALID_INSTRUMENT_OR_SFX(xc->ins))
+		return;
+
+#ifndef LIBXMP_CORE_PLAYER
+	libxmp_play_extras(ctx, xc, chn);
+#endif
+
+	p->timed_publish = 1;
+
+	/* Release the sample sustain immediately on a key off; envelope
+	 * release and fadeout are still driven by the natural ticks. */
+	libxmp_virt_release(ctx, chn, TEST_NOTE(NOTE_SAMPLE_RELEASE));
+
+	process_volume(ctx, chn, act);
+	process_frequency(ctx, chn, act);
+	process_pan(ctx, chn, act);
+
+	if (TEST_NOTE(NOTE_SUSEXIT))
+		SET_NOTE(NOTE_ENV_RELEASE);
+
+	p->timed_publish = save_publish;
+
+	xc->info_position = libxmp_virt_getvoicepos(ctx, chn);
+}
 
 static void inject_event(struct context_data *ctx)
 {
@@ -2080,9 +2136,8 @@ static void check_end_of_module(struct context_data *ctx)
 	}
 }
 
-int xmp_play_frame(xmp_context opaque)
+int play_frame_core(struct context_data *ctx, int do_inject, int do_mix)
 {
-	struct context_data *ctx = (struct context_data *)opaque;
 	struct player_data *p = &ctx->p;
 	struct module_data *m = &ctx->m;
 	struct xmp_module *mod = &m->mod;
@@ -2187,7 +2242,8 @@ int xmp_play_frame(xmp_context opaque)
 #endif
 	}
 
-	inject_event(ctx);
+	if (do_inject)
+		inject_event(ctx);
 
 	/* play_frame */
 	for (i = 0; i < p->virt.virt_channels; i++) {
@@ -2198,9 +2254,15 @@ int xmp_play_frame(xmp_context opaque)
 
 	p->current_time += libxmp_get_frame_time(ctx);
 
-	libxmp_mixer_softmixer(ctx);
+	if (do_mix)
+		libxmp_mixer_softmixer(ctx);
 
 	return 0;
+}
+
+int xmp_play_frame(xmp_context opaque)
+{
+	return play_frame_core((struct context_data *)opaque, 1, 1);
 }
 
 int xmp_play_buffer(xmp_context opaque, void *out_buffer, int size, int loop)
@@ -2272,6 +2334,8 @@ void xmp_end_player(xmp_context opaque)
 
 	if (ctx->state < XMP_STATE_PLAYING)
 		return;
+
+	libxmp_timed_end(ctx);
 
 	ctx->state = XMP_STATE_LOADED;
 

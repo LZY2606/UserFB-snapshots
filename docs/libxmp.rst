@@ -1042,6 +1042,122 @@ void xmp_inject_event(xmp_context c, int chn, struct xmp_event \*event)
         };
 
 
+Sample-accurate timed playback
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The timed player is an alternative rendering path for XM and IT modules
+that lets note events take effect on any individual output sample frame,
+instead of only at natural tick boundaries. The song itself (pattern
+rows, effects and envelope clocks) still advances exactly once per
+natural tick; only the externally scheduled note onsets, key offs and
+note cuts are placed between ticks. The mixer renders each natural tick
+in fragments, so the PCM is identical to the regular player when no
+events are scheduled.
+
+Only signed 16-bit mono or stereo output from the plain software mixer
+is supported. The timed player is a separate, mutually exclusive
+replay path: do not mix its calls with ``xmp_play_frame()``,
+``xmp_play_buffer()``, ``xmp_inject_event()``, ``xmp_start_smix()``,
+``xmp_seek_time()`` or ``xmp_restart_module()`` on the same context.
+
+.. _xmp_start_timed_player():
+
+int xmp_start_timed_player(xmp_context c, int rate, int format)
+`````````````````````````````````````````````````````````````````
+
+  Start the sample-accurate timed player on the currently loaded
+  module. The parameter and error conventions match
+  `xmp_start_player()`_.
+
+  **Parameters:**
+    :c: the player context handle.
+
+    :rate: the sampling rate in Hz.
+
+    :format: output format flags. Only signed 16-bit mono
+     (``XMP_FORMAT_MONO``) or stereo (``0``) are accepted; 8-bit,
+     32-bit and unsigned formats are rejected.
+
+  **Returns:**
+    0 on success, ``-XMP_ERROR_FORMAT`` if the loaded module is not an
+    XM or IT module, ``-XMP_ERROR_INVALID`` for an unsupported rate or
+    format, or another negative error code as returned by
+    `xmp_start_player()`_.
+
+  Calling this again on a running context restarts playback, clears the
+  scheduled event queue and resets the delivered frame position to zero.
+
+.. _xmp_schedule_event():
+
+int xmp_schedule_event(xmp_context c, unsigned long long at, int chn, const struct xmp_event \*event)
+```````````````````````````````````````````````````````````````````````````````````````````````````
+
+  Queue an event to be applied at an absolute output-sample position.
+
+  **Parameters:**
+    :c: the player context handle.
+
+    :at: the position, in frames delivered since the timed player
+     started, at which the event becomes audible. A value equal to the
+     current position is valid and takes effect before the first sample
+     of the next non-empty read.
+
+    :chn: a module channel number.
+
+    :event: the event to schedule. Effects (``fxt``, ``fxp``,
+     ``f2t``, ``f2p``) and ``_flag`` must be zero. A note onset uses a
+     note from 1 to 120, a valid nonzero instrument number and a volume
+     from 0 to 65. ``XMP_KEY_OFF`` and ``XMP_KEY_CUT`` are accepted with
+     zero instrument and volume. Up to 1024 events can be queued.
+
+  Events are delivered in ascending ``at`` order; events sharing a
+  timestamp run in the order they were submitted, including several
+  events for the same channel at one instant. Out-of-order submission is
+  allowed and reordered internally.
+
+  **Returns:**
+    0 on success, ``-XMP_ERROR_INVALID`` for a bad channel, malformed
+    event, timestamp in the past, or a full queue, or
+    ``-XMP_ERROR_STATE`` if the timed player is not running.
+
+.. _xmp_play_timed_buffer():
+
+int xmp_play_timed_buffer(xmp_context c, void \*buffer, int frames)
+```````````````````````````````````````````````````````````````````
+
+  Render up to the requested number of frames into ``buffer``.
+
+  **Parameters:**
+    :c: the player context handle.
+
+    :buffer: destination for signed 16-bit interleaved PCM, or NULL
+     together with a zero ``frames`` for a legal no-op.
+
+    :frames: number of frames to render (not bytes); the result holds
+     one sample per output channel per frame.
+
+  **Returns:**
+    the number of frames actually generated. A normal request is filled
+    completely. When the song ends, a short final buffer (silence padded)
+    may be returned and further calls return 0 without touching the
+    buffer. Returns a negative error code for bad arguments or state.
+    ``xmp_play_timed_buffer(c, NULL, 0)`` always returns 0, processes no
+    events and advances the position by zero.
+
+.. _xmp_get_timed_position():
+
+int xmp_get_timed_position(xmp_context c, unsigned long long \*position)
+`````````````````````````````````````````````````````````````````````
+
+  Report the number of frames delivered since the timed player started.
+  The value counts frames, never individual samples, so it is identical
+  for mono and stereo output.
+
+  **Returns:**
+    0 on success, ``-XMP_ERROR_INVALID`` if ``position`` is NULL, or
+    ``-XMP_ERROR_STATE`` if the timed player is not running.
+
+
 .. raw:: pdf
 
     PageBreak

@@ -299,6 +299,19 @@ void	libxmp_process_line_jump	(struct context_data *,
 void	libxmp_player_set_release	(struct context_data *, int);
 void	libxmp_player_set_fadeout	(struct context_data *, int);
 
+/* Shared frame update, used by the regular player and the timed player */
+int	play_frame_core			(struct context_data *, int, int);
+
+/* Apply a validated scheduled event inside a tick. */
+void	libxmp_timed_dispatch_event	(struct context_data *, int,
+					 const struct xmp_event *);
+
+/* Publish one channel to the mixer without advancing the song clock. */
+void	libxmp_timed_publish		(struct context_data *, int);
+
+/* Release timed player resources from xmp_end_player. */
+void	libxmp_timed_end		(struct context_data *);
+
 LIBXMP_END_DECLS
 
 #endif /* LIBXMP_PLAYER_H */

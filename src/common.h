@@ -587,6 +587,40 @@ struct virt_channel {
 	int map;
 };
 
+/* Sample-accurate scheduled event, ordered by (at, submission order). */
+struct xmp_timed_event {
+	unsigned long long at;		/* delivery position in frames */
+	unsigned int seq;		/* submission order for ties */
+	int channel;
+	struct xmp_event event;
+};
+
+#define XMP_TIMED_QUEUE_SIZE	1024
+/* At most one pending anticlick decay per mixer voice. */
+#define XMP_TIMED_MAX_DECAY	128
+
+struct timed_decay {
+	int active;
+	int remain;		/* discharge frames left */
+	int done;		/* discharge frames already rendered */
+	int total;		/* total discharge length */
+	int sleft;		/* 32bit sample captured at the cut */
+	int sright;
+};
+
+struct timed_player_data {
+	struct xmp_timed_event *queue;	/* pending events, kept sorted */
+	struct timed_decay *decay;	/* one anticlick decay per voice */
+	int count;			/* number of queued events */
+	unsigned int seq;		/* next submission sequence number */
+	unsigned long long position;	/* frames delivered since timed start */
+	int active;			/* timed player is running */
+	int ended;			/* song reached its end */
+	int tick_active;		/* a natural tick render is in progress */
+	int tick_off;			/* frames consumed in the current tick */
+	int tick_total;			/* frames in the current tick */
+};
+
 struct scan_data {
 	double time;			/* replay time in ms */
 	int row;
@@ -650,6 +684,10 @@ struct player_data {
 	int st26_speed;			/* For IceTracker speed effect */
 #endif
 	int filter;			/* Amiga led filter */
+
+	int timed_publish;		/* publish channel state without
+					 * advancing envelopes, LFOs or any
+					 * song clock (timed player only) */
 };
 
 struct mixer_data {
@@ -670,6 +708,12 @@ struct mixer_data {
 	int dtleft;		/* anticlick control, left channel */
 	int bidir_adjust;	/* adjustment for IT bidirectional loops */
 	double pbase;		/* period base */
+
+	/* Sample-accurate timed player fragment state. When timed_mode
+	 * is set the soft mixer renders into buf32 in fragments instead
+	 * of producing a whole tick at once. */
+	int timed_mode;		/* mixer is owned by the timed player */
+	int ramp_size;		/* natural-tick attack ramp length in frames */
 };
 
 struct rng_state {
@@ -682,6 +726,7 @@ struct context_data {
 	struct module_data m;
 	struct smix_data smix;
 	struct rng_state rng;
+	struct timed_player_data t;
 	int state;
 };
 

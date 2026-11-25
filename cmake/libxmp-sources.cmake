@@ -3,6 +3,7 @@ set(LIBXMP_SRC_LIST
     src/format.c
     src/period.c
     src/player.c
+    src/timed.c
     src/read_event.c
     src/dataio.c
     src/misc.c

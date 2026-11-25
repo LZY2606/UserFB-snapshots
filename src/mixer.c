@@ -25,6 +25,7 @@
 #include "virtual.h"
 #include "mixer.h"
 #include "mix_all.h"
+#include "precomp_lut.h"
 #include "period.h"
 #include "player.h"	/* for set_sample_end() */
 
@@ -42,22 +43,6 @@
 #define LIM32_LO	(-2147483647 - 1)
 
 #define ANTICLICK_FPSHIFT	24
-
-struct loop_data
-{
-#define LOOP_PROLOGUE 1
-#define LOOP_EPILOGUE 2
-	void *sptr;
-	int start;
-	int end;
-	int first_loop;
-	int _16bit;
-	int active;
-	int prologue_num;
-	int epilogue_num;
-	uint8 prologue[LOOP_PROLOGUE * 2 /* 16-bit */ * 2 /* stereo */];
-	uint8 epilogue[LOOP_EPILOGUE * 2 /* 16-bit */ * 2 /* stereo */];
-};
 
 /* See mix_all.h for a full explanation of these flags. */
 #define FLAG_16_BITS	0x01
@@ -1112,4 +1097,719 @@ void libxmp_mixer_off(struct context_data *ctx)
 	free(s->buf32);
 	s->buf32 = NULL;
 	s->buffer = NULL;
+}
+
+
+/*
+ * Sample-accurate timed player mixer.
+ *
+ * A natural tick is still produced by the regular player update; here the
+ * same per-voice logic is driven one fragment at a time into buf32 so
+ * scheduled events can take effect inside a tick. State that the whole-tick
+ * mixer keeps on its stack (wraparound backups, ramp remainder) is kept in
+ * struct mixer_voice, and note cut anticlick discharges live in the timed
+ * player's per-voice decay array so they survive voice reuse.
+ */
+
+/* Persistent-phase fragment mixer. The regular mix functions derive their
+ * position from vi->pos and run a one-time rounding each call, so they
+ * cannot be re-entered mid-tick; here the integer/fraction position lives
+ * on the voice and survives across fragments. */
+static void timed_mix_fn(struct mixer_voice *vi, int32 *buffer, int count,
+			 int vl, int vr, int step, int ramp,
+			 int delta_l, int delta_r, int is16, int instereo,
+			 int outstereo, int interp, int do_filter)
+{
+	int chn = instereo ? 2 : 1;
+	int pos = vi->mix_pos;
+	int frac = vi->mix_frac;
+	int old_vl = vi->old_vl;
+	int old_vr = vi->old_vr;
+#ifndef LIBXMP_CORE_DISABLE_IT
+	int64 a0 = vi->filter.a0, b0 = vi->filter.b0, b1 = vi->filter.b1;
+	int fl1 = vi->filter.l1, fl2 = vi->filter.l2;
+	int fr1 = vi->filter.r1, fr2 = vi->filter.r2;
+	int sl64, sl, sr64, sr;
+#endif
+	int i;
+
+	/* Match the whole-tick mixer: the nearest-neighbor mixers have no
+	 * anticlick ramp at all (they only implement LOOP), and zero deltas
+	 * also disable the ramp in linear/spline mixers. */
+	if (interp == XMP_INTERP_NEAREST ||
+	    (delta_l == 0 && delta_r == 0))
+		ramp = 0;
+
+	for (i = 0; i < count; i++) {
+		int use_ramp = (i < ramp);
+		int level_l, level_r;
+		int smpl, smpr;
+
+		if (use_ramp) {
+			level_l = old_vl >> 8;
+			level_r = old_vr >> 8;
+			old_vl += delta_l;
+			old_vr += delta_r;
+		} else {
+			level_l = vl;
+			level_r = vr;
+		}
+
+		if (is16) {
+			int16 *sptr = (int16 *)vi->sptr;
+			if (interp == XMP_INTERP_NEAREST) {
+				smpl = sptr[pos * chn];
+				if (instereo)
+					smpr = sptr[pos * chn + 1];
+			} else if (interp == XMP_INTERP_LINEAR) {
+				int l1 = sptr[pos * chn];
+				int dt = sptr[(pos + 1) * chn] - l1;
+				smpl = l1 + (((frac >> 1) * dt) >>
+					     (SMIX_SHIFT - 1));
+				if (instereo) {
+					int r1 = sptr[pos * chn + 1];
+					int dr = sptr[(pos + 1) * chn + 1] - r1;
+					smpr = r1 + (((frac >> 1) * dr) >>
+						     (SMIX_SHIFT - 1));
+				}
+			} else {
+				/* Spline uses the precomputed LUTs. */
+				int f = frac >> 6;
+				smpl = (cubic_spline_lut0[f] *
+					sptr[(pos - 1) * chn] +
+					cubic_spline_lut1[f] *
+					sptr[pos * chn] +
+					cubic_spline_lut3[f] *
+					sptr[(pos + 2) * chn] +
+					cubic_spline_lut2[f] *
+					sptr[(pos + 1) * chn]) >>
+					14;
+				if (instereo) {
+					smpr = (cubic_spline_lut0[f] *
+						sptr[(pos - 1) * chn + 1] +
+						cubic_spline_lut1[f] *
+						sptr[pos * chn + 1] +
+						cubic_spline_lut3[f] *
+						sptr[(pos + 2) * chn + 1] +
+						cubic_spline_lut2[f] *
+						sptr[(pos + 1) * chn + 1]) >>
+						14;
+				}
+			}
+		} else {
+			int8 *sptr = (int8 *)vi->sptr;
+			if (interp == XMP_INTERP_NEAREST) {
+				smpl = XMP_ASL(sptr[pos * chn], 8);
+				if (instereo)
+					smpr = XMP_ASL(sptr[pos * chn + 1], 8);
+			} else if (interp == XMP_INTERP_LINEAR) {
+				int l1 = XMP_ASL(sptr[pos * chn], 8);
+				int dt = XMP_ASL(sptr[(pos + 1) * chn], 8) - l1;
+				smpl = l1 + (((frac >> 1) * dt) >>
+					     (SMIX_SHIFT - 1));
+				if (instereo) {
+					int r1 = XMP_ASL(sptr[pos * chn + 1], 8);
+					int dr = XMP_ASL(sptr[(pos + 1) * chn + 1], 8) - r1;
+					smpr = r1 + (((frac >> 1) * dr) >>
+						     (SMIX_SHIFT - 1));
+				}
+			} else {
+				int f = frac >> 6;
+				smpl = (cubic_spline_lut0[f] *
+					XMP_ASL(sptr[(pos - 1) * chn], 8) +
+					cubic_spline_lut1[f] *
+					XMP_ASL(sptr[pos * chn], 8) +
+					cubic_spline_lut3[f] *
+					XMP_ASL(sptr[(pos + 2) * chn], 8) +
+					cubic_spline_lut2[f] *
+					XMP_ASL(sptr[(pos + 1) * chn], 8)) >>
+					(14 - 8);
+				if (instereo) {
+					smpr = (cubic_spline_lut0[f] *
+						XMP_ASL(sptr[(pos - 1) * chn + 1], 8) +
+						cubic_spline_lut1[f] *
+						XMP_ASL(sptr[pos * chn + 1], 8) +
+						cubic_spline_lut3[f] *
+						XMP_ASL(sptr[(pos + 2) * chn + 1], 8) +
+						cubic_spline_lut2[f] *
+						XMP_ASL(sptr[(pos + 1) * chn + 1], 8)) >>
+						(14 - 8);
+				}
+			}
+		}
+
+#ifndef LIBXMP_CORE_DISABLE_IT
+		/* IT resonant low-pass filter, matching the regular mixer's
+		 * per-sample recurrence. State persists on the voice, so
+		 * fragments chain together exactly like one whole tick. */
+		if (do_filter) {
+			/* Same clamp range as mix_all.c. */
+			enum {
+				FILTER_MIN = -65536 * (1 << 15),
+				FILTER_MAX = 65535 * (1 << 15)
+			};
+			sl64 = (a0 * XMP_ASL(smpl, 15) + b0 * fl1 +
+				b1 * fl2) >> FILTER_SHIFT;
+			sl = sl64 < FILTER_MIN ? FILTER_MIN :
+			      sl64 > FILTER_MAX ? FILTER_MAX : (int)sl64;
+			fl2 = fl1;
+			fl1 = sl;
+			smpl = sl >> 15;
+			if (instereo) {
+				sr64 = (a0 * XMP_ASL(smpr, 15) + b0 * fr1 +
+					b1 * fr2) >> FILTER_SHIFT;
+				sr = sr64 < FILTER_MIN ? FILTER_MIN :
+				     sr64 > FILTER_MAX ? FILTER_MAX : (int)sr64;
+				fr2 = fr1;
+				fr1 = sr;
+				smpr = sr >> 15;
+			}
+		}
+#endif
+
+		if (outstereo) {
+			if (instereo) {
+				buffer[0] += ((smpl + smpr) >> 1) * level_l;
+				buffer[1] += ((smpl + smpr) >> 1) * level_r;
+			} else {
+				buffer[0] += smpl * level_l;
+				buffer[1] += smpl * level_r;
+			}
+			buffer += 2;
+		} else {
+			if (instereo)
+				buffer[0] += ((smpl + smpr) >> 1) * level_l;
+			else
+				buffer[0] += smpl * level_l;
+			buffer++;
+		}
+
+		frac += step;
+		pos += (frac >> SMIX_SHIFT) * chn;
+		frac &= SMIX_MASK;
+	}
+
+	vi->mix_pos = pos;
+	vi->mix_frac = frac;
+#ifndef LIBXMP_CORE_DISABLE_IT
+	if (do_filter) {
+		vi->filter.l1 = fl1;
+		vi->filter.l2 = fl2;
+		vi->filter.r1 = fr1;
+		vi->filter.r2 = fr2;
+	}
+#endif
+}
+
+/* Start a new natural tick render. */
+void libxmp_mixer_timed_begin_tick(struct context_data *ctx)
+{
+	struct player_data *p = &ctx->p;
+	struct module_data *m = &ctx->m;
+	struct mixer_data *s = &ctx->s;
+	int bytelen;
+
+	/* Same tick size calculation as libxmp_mixer_prepare(). */
+	s->ticksize = libxmp_mixer_get_ticksize(s->freq,
+		m->time_factor * p->time_factor_relative, m->rrate, p->bpm);
+	if (s->ticksize < 0 || s->ticksize > (s->total_size / 2))
+		s->ticksize = s->total_size / 2;
+
+	bytelen = s->ticksize * (int)sizeof(int32);
+	if (~s->format & XMP_FORMAT_MONO)
+		bytelen *= 2;
+
+	memset(s->buf32, 0, bytelen);
+	s->ramp_size = s->ticksize >> ANTICLICK_SHIFT;
+}
+
+/* Re-arm an attack ramp for a voice restarted inside the tick. The ramp
+ * runs over one eighth of the current natural tick, matching the regular
+ * mixer ramp length. */
+void libxmp_mixer_timed_arm_ramp(struct context_data *ctx, int voc)
+{
+	struct player_data *p = &ctx->p;
+	struct mixer_data *s = &ctx->s;
+	struct mixer_voice *vi;
+
+	if ((uint32)voc >= p->virt.maxvoc)
+		return;
+
+	vi = &p->virt.voice_array[voc];
+	vi->ramp_remain = s->ramp_size > 0 ? s->ramp_size : 1;
+	vi->flags |= VOICE_RAMP_ARM;
+	/* The slot may host a brand new patch: force its wraparound backup
+	 * to be rebuilt and its integer position re-seeded on the next
+	 * fragment render. */
+	vi->loop.active = 0;
+	vi->mix_resync = 1;
+}
+
+/* Begin the anticlick discharge of a voice cut inside the tick. */
+void libxmp_mixer_timed_start_decay(struct context_data *ctx, int voc)
+{
+	struct player_data *p = &ctx->p;
+	struct mixer_data *s = &ctx->s;
+	struct mixer_voice *vi;
+	struct timed_decay *d;
+
+	if ((uint32)voc >= p->virt.maxvoc)
+		return;
+
+	vi = &p->virt.voice_array[voc];
+	d = &ctx->t.decay[voc];
+
+	d->active = 1;
+	d->total = s->ramp_size > 0 ? s->ramp_size : 1;
+	d->remain = d->total;
+	d->done = 0;
+	d->sleft = vi->sleft;
+	d->sright = vi->sright;
+	vi->sleft = vi->sright = 0;
+	vi->flags &= ~ANTICLICK;
+}
+
+/* Anticlick discharge for one fragment using the captured 32bit sample.
+ * Each output frame's weight depends only on its index within the total
+ * discharge, so splitting the decay across fragments is bit-exact. */
+static void timed_render_decay(struct mixer_data *s, struct timed_decay *d,
+				int32 *buf_pos, int count)
+{
+	int stepval;
+	uint32 stepmul_sq;
+	int smp_l, smp_r;
+	int i;
+
+	if (!d->active || d->remain <= 0 || count <= 0)
+		return;
+
+	if (count > d->remain)
+		count = d->remain;
+
+	smp_l = d->sleft;
+	smp_r = d->sright;
+	stepval = (1 << ANTICLICK_FPSHIFT) / d->total;
+
+	/* Frame k (0-based over the whole discharge) uses stepmul
+	 * stepval * (total - k). */
+	for (i = 0; i < count; i++) {
+		int stepmul = stepval * (d->total - d->done - i);
+		stepmul_sq = stepmul >> (ANTICLICK_FPSHIFT - 16);
+		stepmul_sq *= stepmul_sq;
+
+		if (~s->format & XMP_FORMAT_MONO) {
+			buf_pos[0] += (stepmul_sq * (int64)smp_l) >> 32;
+			buf_pos[1] += (stepmul_sq * (int64)smp_r) >> 32;
+			buf_pos += 2;
+		} else {
+			buf_pos[0] += (stepmul_sq * (int64)smp_l) >> 32;
+			buf_pos++;
+		}
+	}
+
+	d->done += count;
+	d->remain -= count;
+	if (d->remain <= 0) {
+		d->remain = 0;
+		d->active = 0;
+	}
+}
+
+/* Render one fragment of a single voice. tick_off is the fragment offset
+ * within the natural tick; count is the fragment length. */
+static void timed_render_voice(struct context_data *ctx, int voc,
+			       int tick_off, int count)
+{
+	struct player_data *p = &ctx->p;
+	struct mixer_data *s = &ctx->s;
+	struct module_data *m = &ctx->m;
+	struct xmp_module *mod = &m->mod;
+	struct extra_sample_data *xtra;
+	struct xmp_sample *xxs;
+	struct mixer_voice *vi = &p->virt.voice_array[voc];
+	struct loop_data *ld = &vi->loop;
+	struct timed_decay *d = &ctx->t.decay[voc];
+	double step, step_dir;
+	int samples, size, c5spd;
+	int vol, vol_l, vol_r, usmp;
+	int prev_l, prev_r = 0;
+	int32 *buf_pos;
+	int chn_step;
+
+	chn_step = (~s->format & XMP_FORMAT_MONO) ? 2 : 1;
+	buf_pos = s->buf32 + tick_off * chn_step;
+
+	if (vi->flags & ANTICLICK) {
+		/* At a natural tick boundary this matches the whole-tick
+		 * mixer discharge at the start of buf32. Mid-tick the flag
+		 * comes from an event whose attack ramp replaces it. */
+		if (tick_off == 0 && s->interp > XMP_INTERP_NEAREST)
+			do_anticlick(ctx, voc, NULL, 0);
+		vi->flags &= ~ANTICLICK;
+	}
+
+	/* A cut decay is an independent residual signal: it is added on top
+	 * of whatever the slot renders next, so a note reusing the slot still
+	 * gets its own attack ramp instead of inheriting the decay. */
+	if (d->active) {
+		timed_render_decay(s, d, buf_pos, count);
+	}
+
+	if (vi->chn < 0)
+		return;
+
+	if (vi->period < 1) {
+		libxmp_virt_resetvoice(ctx, voc, 1);
+		return;
+	}
+
+	if (vi->pos < 0.0)
+		vi->pos = 0.0;
+
+	/* First fragment of the tick: snapshot the voice position and
+	 * install the persistent wraparound backup. */
+	if (tick_off == 0) {
+		vi->pos0 = vi->pos;
+		ld->active = 0;
+		vi->mix_pos = (int)vi->pos;
+		vi->mix_frac = (int)((vi->pos - (int)vi->pos) *
+				     (1 << SMIX_SHIFT));
+		/* Nearest neighbor rounds once per tick, matching the
+		 * whole-tick mixer's one-time NEAREST_ROUND. */
+		if (s->interp == XMP_INTERP_NEAREST)
+			vi->mix_frac += (1 << (SMIX_SHIFT - 1));
+	}
+
+	vol = vi->vol;
+
+	if (m->mvolbase > 0 && m->mvol != m->mvolbase)
+		vol = vol * m->mvol / m->mvolbase;
+
+	if (vi->pan == PAN_SURROUND) {
+		vol_l = vol * 0x80;
+		vol_r = -vol * 0x80;
+	} else {
+		vol_l = vol * (0x80 - vi->pan);
+		vol_r = vol * (0x80 + vi->pan);
+	}
+
+	/* Natural per-tick ramp, identical to the whole-tick mixer. */
+	if (tick_off == 0 && !(vi->flags & VOICE_RAMP_ARM)) {
+		vi->ramp_remain = s->ramp_size > 0 ? s->ramp_size : 1;
+		vi->ramp_delta_l = (vol_l - vi->old_vl) / vi->ramp_remain;
+		vi->ramp_delta_r = (vol_r - vi->old_vr) / vi->ramp_remain;
+	}
+
+	/* Sample is paused - skip unless a new sample is queued. */
+	if (vi->flags & SAMPLE_PAUSED) {
+		if ((~vi->flags & SAMPLE_QUEUED) || vi->queued.smp < 0) {
+			vi->flags &= ~SAMPLE_QUEUED;
+			return;
+		}
+		hotswap_sample(ctx, vi, voc, vi->queued.smp);
+		get_current_sample(ctx, vi, &xxs, &xtra, &c5spd);
+		vi->pos = vi->start;
+	} else {
+		get_current_sample(ctx, vi, &xxs, &xtra, &c5spd);
+	}
+
+	step = C4_PERIOD * c5spd / s->freq / vi->period;
+	if (step < 0.001 || step > (double)SHRT_MAX)
+		return;
+
+	/* A mid-tick event may have swapped or cut the patch while an old
+	 * sample's data was still backed up: restore that old sample first. */
+	if (ld->active && ld->sptr != vi->sptr) {
+		reset_sample_wraparound(ld);
+		ld->active = 0;
+	}
+
+	if (tick_off == 0 || !ld->active)
+		init_sample_wraparound(s, ld, vi, xxs);
+
+	/* Ramp bookkeeping: a freshly armed attack starts from zero volume;
+	 * otherwise the per-tick ramp delta is reconstructed from the
+	 * remaining ramp length stored on the voice. */
+	{
+		int delta_l, delta_r, rampsize;
+
+		if (vi->flags & VOICE_RAMP_ARM) {
+			vi->old_vl = 0;
+			vi->old_vr = 0;
+			vi->ramp_delta_l = vol_l / vi->ramp_remain;
+			vi->ramp_delta_r = vol_r / vi->ramp_remain;
+			vi->flags &= ~VOICE_RAMP_ARM;
+		}
+
+		rampsize = vi->ramp_remain;
+		if (rampsize > 0) {
+			delta_l = vi->ramp_delta_l;
+			delta_r = vi->ramp_delta_r;
+		} else {
+			delta_l = delta_r = 0;
+		}
+
+		for (size = usmp = count; size > 0; ) {
+			int split_noloop = 0;
+
+			if (p->xc_data[vi->chn].split)
+				split_noloop = 1;
+
+			if (~vi->flags & VOICE_REVERSE) {
+				if (vi->pos >= vi->end) {
+					samples = 0;
+					if (--usmp <= 0)
+						break;
+				} else {
+					double c = ceil(((double)vi->end - vi->pos) / step);
+					if (c > size)
+						c = size;
+					samples = c;
+				}
+				step_dir = step;
+			} else {
+				if (vi->pos <= vi->start) {
+					samples = 0;
+					if (--usmp <= 0)
+						break;
+				} else {
+					double c = ceil((vi->pos - (double)vi->start) / step);
+					if (c > size)
+						c = size;
+					samples = c;
+				}
+				step_dir = -step;
+			}
+
+			if (vi->vol) {
+				int mix_size = samples;
+
+				if (~s->format & XMP_FORMAT_MONO)
+					mix_size *= 2;
+
+				if (samples > 0) {
+					if (~s->format & XMP_FORMAT_MONO) {
+						prev_l = buf_pos[mix_size - 2];
+						prev_r = buf_pos[mix_size - 1];
+					} else {
+						prev_l = buf_pos[mix_size - 1];
+					}
+				} else {
+					prev_r = prev_l = 0;
+				}
+
+				if (samples > 0 && vi->sptr != NULL) {
+					int rsize = 0;
+					int is16 = (vi->fidx & FLAG_16_BITS) != 0;
+					int instereo = (vi->fidx & FLAG_STEREO) != 0;
+					int outstereo = (vi->fidx &
+							 FLAG_STEREOOUT) != 0;
+
+					if (rampsize > samples) {
+						rampsize -= samples;
+					} else {
+						rsize = samples - rampsize;
+						rampsize = 0;
+					}
+
+					if (delta_l == 0 && delta_r == 0)
+						rsize = samples;
+
+					/* Re-seed the integer position when an
+					 * external move (loop reposition, patch
+					 * swap, or a mid-tick event) set the
+					 * resync flag; otherwise it stays
+					 * persistent across fragments, which
+					 * makes fragmented rendering
+					 * bit-identical to a whole-tick mix. */
+					if (vi->mix_resync) {
+						vi->mix_pos = (int)vi->pos;
+						vi->mix_frac = (int)((vi->pos -
+							(int)vi->pos) *
+							(1 << SMIX_SHIFT));
+						if (s->interp ==
+						    XMP_INTERP_NEAREST)
+							vi->mix_frac +=
+								(1 << (SMIX_SHIFT - 1));
+						vi->mix_resync = 0;
+					}
+
+					{
+						/* See OpenMPT env-flt-max.it: a
+						 * fully open cutoff with zero
+						 * resonance bypasses the
+						 * filter, same as the
+						 * whole-tick mixer. */
+						int do_filter =
+							(vi->fidx & FLAG_FILTER) &&
+							!(vi->filter.cutoff >= 0xfe &&
+							  vi->filter.resonance == 0);
+
+						timed_mix_fn(vi, buf_pos, samples,
+							vol_l >> 8, vol_r >> 8,
+							(int)(step_dir * (1 << SMIX_SHIFT)),
+							samples - rsize, delta_l, delta_r,
+							is16, instereo, outstereo,
+							s->interp, do_filter);
+					}
+
+					/* vi->pos follows the exact floating
+					 * walk of the whole-tick mixer, so the
+					 * next tick's integer position is seeded
+					 * from the identical value. The integer
+					 * mix position stays authoritative for
+					 * the in-tick sample reads. */
+					vi->pos += step_dir * samples;
+
+					buf_pos += mix_size;
+					vi->old_vl += samples * delta_l;
+					vi->old_vr += samples * delta_r;
+
+					if (~s->format & XMP_FORMAT_MONO) {
+						vi->sleft = buf_pos[-2] - prev_l;
+						vi->sright = buf_pos[-1] - prev_r;
+					} else {
+						vi->sleft = buf_pos[-1] - prev_l;
+					}
+				}
+			}
+
+			/* A silent voice never entered the mixer; both the
+			 * floating position and the persistent integer
+			 * position advance by this fragment's step. */
+			if (vi->vol == 0) {
+				vi->pos += step_dir * samples;
+				vi->mix_frac += (int)(step_dir *
+						      (1 << SMIX_SHIFT)) * samples;
+				vi->mix_pos += (vi->mix_frac >> SMIX_SHIFT);
+				vi->mix_frac &= SMIX_MASK;
+			}
+			size -= samples;
+
+			if ((!has_active_loop(ctx, vi, xxs) || split_noloop) &&
+			    !(vi->flags & SAMPLE_QUEUED)) {
+				if (size > 0) {
+					do_anticlick(ctx, voc, buf_pos, size);
+					set_sample_end(ctx, voc, 1);
+					vol_l = vol_r = 0;
+				}
+				size = 0;
+				continue;
+			}
+
+			if (size > 0 ||
+			    ((~vi->flags & VOICE_REVERSE) && vi->pos >= vi->end) ||
+			    ((vi->flags & VOICE_REVERSE) && vi->pos <= vi->start)) {
+				if (vi->flags & SAMPLE_QUEUED) {
+					do_anticlick(ctx, voc, buf_pos, size);
+					if (vi->queued.smp < 0 ||
+					    (!has_active_loop(ctx, vi, xxs) &&
+					     !(mod->xxs[vi->queued.smp].flg & XMP_SAMPLE_LOOP))) {
+						vi->flags &= ~SAMPLE_QUEUED;
+						vi->flags |= SAMPLE_PAUSED;
+						set_sample_end(ctx, voc, 1);
+						vol_l = vol_r = 0;
+						size = 0;
+						continue;
+					}
+					reset_sample_wraparound(ld);
+					hotswap_sample(ctx, vi, voc, vi->queued.smp);
+					get_current_sample(ctx, vi, &xxs, &xtra, &c5spd);
+					init_sample_wraparound(s, ld, vi, xxs);
+					vi->pos = vi->start;
+					vi->mix_resync = 1;
+					continue;
+				}
+				if (loop_reposition(ctx, vi, xxs, xtra)) {
+					reset_sample_wraparound(ld);
+					init_sample_wraparound(s, ld, vi, xxs);
+					vi->mix_resync = 1;
+				}
+			}
+		}
+
+		vi->ramp_remain = rampsize;
+	}
+
+	/* Match the whole-tick mixer: at the tick boundary the ramp
+	 * target becomes the starting volume of the next tick. */
+	if (tick_off + count == s->ticksize) {
+		vi->old_vl = vol_l;
+		vi->old_vr = vol_r;
+	}
+}
+
+/* Render count frames at tick offset tick_off into buf32. */
+int libxmp_mixer_timed_render(struct context_data *ctx, int tick_off, int count)
+{
+	struct player_data *p = &ctx->p;
+	struct module_data *m = &ctx->m;
+	struct mixer_data *s = &ctx->s;
+	int voc;
+
+	if (count <= 0 || tick_off < 0 || tick_off + count > s->ticksize)
+		return -XMP_ERROR_INVALID;
+
+#ifndef LIBXMP_CORE_DISABLE_IT
+	s->bidir_adjust = IS_PLAYER_MODE_IT() ? 1 : 0;
+#endif
+
+	for (voc = 0; voc < p->virt.maxvoc; voc++)
+		timed_render_voice(ctx, voc, tick_off, count);
+
+	return 0;
+}
+
+/* A natural tick render is complete: restore sample data and clear the
+ * per-voice fragment state that only lasts for one tick. */
+void libxmp_mixer_timed_finish_tick(struct context_data *ctx)
+{
+	struct player_data *p = &ctx->p;
+	int voc;
+
+	for (voc = 0; voc < p->virt.maxvoc; voc++) {
+		struct mixer_voice *vi = &p->virt.voice_array[voc];
+
+		reset_sample_wraparound(&vi->loop);
+		vi->ramp_remain = 0;
+		vi->ramp_delta_l = 0;
+		vi->ramp_delta_r = 0;
+		vi->flags &= ~VOICE_RAMP_ARM;
+		vi->loop.active = 0;
+	}
+}
+
+/* Convert a rendered fragment of buf32 to signed 16-bit PCM using the same
+ * downmix path as the whole-tick mixer. */
+void libxmp_mixer_timed_downmix(struct context_data *ctx, int16 *dst,
+				int tick_off, int count)
+{
+	struct mixer_data *s = &ctx->s;
+	int chn = (~s->format & XMP_FORMAT_MONO) ? 2 : 1;
+	int32 *src = s->buf32 + tick_off * chn;
+
+	downmix_int_16bit(dst, src, count * chn, s->amplify, 0);
+}
+
+/* Clear all timed fragment state. Called when the timed player starts. */
+void libxmp_mixer_timed_reset(struct context_data *ctx)
+{
+	struct player_data *p = &ctx->p;
+	struct mixer_data *s = &ctx->s;
+	int voc;
+
+	s->timed_mode = 0;
+	s->ramp_size = 0;
+
+	if (p->virt.voice_array == NULL)
+		return;
+
+	for (voc = 0; voc < p->virt.maxvoc; voc++) {
+		struct mixer_voice *vi = &p->virt.voice_array[voc];
+		vi->ramp_remain = 0;
+		vi->ramp_delta_l = 0;
+		vi->ramp_delta_r = 0;
+		vi->flags &= ~VOICE_RAMP_ARM;
+		vi->loop.active = 0;
+	}
 }

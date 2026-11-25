@@ -56,11 +56,15 @@ static void do_virt_resetvoice(struct mixer_voice *vi)
 #endif
 	int anticlick_l, anticlick_r;
 	int flags;
+	struct loop_data loop;
 
 	/* Preserve anticlick decay state through note cut. */
 	anticlick_l = vi->sleft;
 	anticlick_r = vi->sright;
 	flags = vi->flags & ANTICLICK;
+	/* Preserve the timed player's sample wraparound backup so the
+	 * previous sample's data can still be restored. */
+	loop = vi->loop;
 #ifdef LIBXMP_PAULA_SIMULATOR
 	paula = vi->paula;
 #endif
@@ -70,6 +74,7 @@ static void do_virt_resetvoice(struct mixer_voice *vi)
 	vi->sleft = anticlick_l;
 	vi->sright = anticlick_r;
 	vi->flags = flags;
+	vi->loop = loop;
 #ifdef LIBXMP_PAULA_SIMULATOR
 	vi->paula = paula;
 #endif

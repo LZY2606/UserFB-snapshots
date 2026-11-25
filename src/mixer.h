@@ -16,6 +16,24 @@
 #include "paula.h"
 #endif
 
+/* Sample wraparound backup state, kept per voice so a tick can be
+ * rendered in multiple fragments. */
+struct loop_data
+{
+#define LOOP_PROLOGUE 1
+#define LOOP_EPILOGUE 2
+	void *sptr;
+	int start;
+	int end;
+	int first_loop;
+	int _16bit;
+	int active;
+	int prologue_num;
+	int epilogue_num;
+	uint8 prologue[LOOP_PROLOGUE * 2 /* 16-bit */ * 2 /* stereo */];
+	uint8 epilogue[LOOP_EPILOGUE * 2 /* 16-bit */ * 2 /* stereo */];
+};
+
 struct mixer_voice {
 	int chn;		/* channel number */
 	int root;		/* */
@@ -44,6 +62,7 @@ struct mixer_voice {
 #define VOICE_BIDIR	(1 << 4)
 #define SAMPLE_QUEUED	(1 << 5)
 #define SAMPLE_PAUSED	(1 << 6)
+#define VOICE_RAMP_ARM	(1 << 7) /* timed player: rearm attack ramp mid-tick */
 	int flags;		/* flags */
 	void *sptr;		/* sample pointer */
 #ifdef LIBXMP_PAULA_SIMULATOR
@@ -53,6 +72,15 @@ struct mixer_voice {
 	struct {		/* Protracker queued instrument change */
 		int smp;
 	} queued;
+
+	/* Timed player fragment state. Unused by the regular mixer. */
+	int ramp_remain;	/* attack ramp frames left in this tick */
+	int ramp_delta_l;
+	int ramp_delta_r;
+	int mix_pos;		/* persistent integer sample position */
+	int mix_frac;		/* persistent fractional sample position */
+	int mix_resync;		/* re-seed integer position from vi->pos */
+	struct loop_data loop;	/* persistent sample wraparound state */
 
 #ifndef LIBXMP_CORE_DISABLE_IT
 	struct {
@@ -88,6 +116,15 @@ void	libxmp_mixer_setperiod	(struct context_data *, int, double);
 void	libxmp_mixer_release	(struct context_data *, int, int);
 void	libxmp_mixer_reverse	(struct context_data *, int, int);
 int	libxmp_mixer_get_ticksize(int freq, double time_factor, double rrate, int bpm);
+
+/* Sample-accurate timed playback */
+void	libxmp_mixer_timed_begin_tick	(struct context_data *);
+int	libxmp_mixer_timed_render	(struct context_data *, int, int);
+void	libxmp_mixer_timed_finish_tick	(struct context_data *);
+void	libxmp_mixer_timed_arm_ramp	(struct context_data *, int);
+void	libxmp_mixer_timed_start_decay	(struct context_data *, int);
+void	libxmp_mixer_timed_downmix	(struct context_data *, int16 *, int, int);
+void	libxmp_mixer_timed_reset	(struct context_data *);
 
 LIBXMP_END_DECLS
 
