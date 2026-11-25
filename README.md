@@ -99,6 +99,43 @@ for the available options.
   reflections avoid draw-order dependencies across parallel rendering bands.
 - Perspective-correct Phong normal interpolation.
 
+### Screen-space CSG expression DAG
+
+`Scene::setCsgExpression()` accepts a read-only boolean DAG of leaves, unions,
+intersections and differences (`src/Csg.hpp`). Leaves use stable `uint32_t`
+numbers and bind either an ordinary `Object` mesh or one entry in
+`Object::instances`; different placements of one shared prototype must use
+different leaf numbers. The expression nodes and settings are copied
+independently by `Scene`, while the bound `Object` pointers are borrowed. Keep
+those objects, instances, materials and textures alive until the expression is
+cleared/replaced or the `Scene` is destroyed. Rigid object/instance positions
+and rotations may change between frames; no boolean result mesh is built.
+
+The supported input scope is closed, consistently outward-wound,
+non-self-intersecting triangle meshes. Non-convex meshes and meshes with
+multiple disconnected closed components are supported; mesh repair is not
+implemented. The first CSG scope covers full-resolution rendering with
+`Z_BUFFERING=1`, `FAST_Z=0`, `JET_PERSPECTIVE_DEPTH=1`, picking,
+`UNLIT`/`FLAT`/`PHONG`, ambient/directional lights and ordinary UV textures.
+Leaf alpha is fixed to 255. Custom shaders, transparency/colour-key textures,
+billboards, LOD substitution, `zBias` and special depth flags are rejected
+during validation. Half-width buffers, interlaced/field execution, transparent
+surfaces, post-processing and parallel band executors are outside the first
+CSG scope; the supported task configuration uses full-resolution serial bands.
+Serial `prepareFrame()`/`rasterizeBand()` calls are supported and produce the
+same result as one full-height band.
+
+CSG collects directed screen-space surface crossings through Jet's ordinary
+triangle coverage and perspective-depth interpolation, maintains a non-zero
+signed winding number per leaf, and only then evaluates the DAG. Crossings
+beyond `farPlane` are retained for the outside-in sweep from positive infinity;
+the camera may be inside an operand. `nearPlane`/`farPlane` filter only the
+final visible boundary and do not create cap surfaces. Resolved boundaries are
+shaded and picked through the same `Rasterizer::drawTriangle()` material, UV,
+normal, depth and pick paths as ordinary triangles. Call
+`clearCsgExpression()` to restore the previous drawing path. See
+`examples/csg.cpp` and `task_tests/csg.cpp` for runnable usage.
+
 ### Lighting
 
 - Ambient and directional lights with Flat, Gouraud or Phong shading.

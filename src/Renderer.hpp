@@ -167,6 +167,28 @@ class Rasterizer
         int32_t          currentPickTriangleIndex = -1;     ///< Source-mesh triangle index for hit attribution.
 #endif
 
+        /// Optional per-covered-pixel crossing probe used by Scene CSG. The
+        /// callback runs after the ordinary edge-function coverage test and
+        /// perspective depth interpolation, but before near/far rejection and
+        /// shading. When csgProbeStop is true the rasterizer continues to the
+        /// next pixel without colour/depth/pick writes.
+        bool csgProbeEnabled = false;
+        bool csgProbeStop = true;
+        void* csgProbeUser = nullptr;
+        void (*csgProbeCallback)(void* user, int x, int y, double perspectiveZ,
+                                 uint32_t leaf, uint32_t originalTriangle,
+                                 uint32_t queueIndex, int direction) = nullptr;
+        uint32_t csgProbeLeaf = 0;
+        uint32_t csgProbeTriangle = 0;
+        uint32_t csgProbeQueueIndex = 0;
+        int csgProbeDirection = 1;
+
+        /// When non-null, a covered pixel is shaded only if
+        /// csgAcceptKeys[y*screenWidth+x] == csgAcceptKey. Scene uses this to
+        /// route one resolved CSG boundary pixel to its selected source tri.
+        const uint32_t* csgAcceptKeys = nullptr;
+        uint32_t csgAcceptKey = 0;
+
         /// True when this frame uses depth testing/writes and depth clears.
         bool isDepthTestingEnabled() const {
 #if Z_BUFFERING && JET_RUNTIME_DEPTH

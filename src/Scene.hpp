@@ -11,6 +11,7 @@
 #include "PostFX.hpp"
 #include "Sprite2D.hpp"
 #include "DepthBuckets.hpp"
+#include "Csg.hpp"
 
 #ifndef JET_SORT_DEPTH_BUCKETS
 #define JET_SORT_DEPTH_BUCKETS 64
@@ -64,6 +65,28 @@ public:
     /// @brief Add an object to the scene.
     /// @param obj Object to add. Pointer is borrowed; caller retains ownership.
     void addObject(Object* obj);
+
+    /// @brief Install a borrowed-leaf CSG DAG for subsequent frames.
+    ///
+    /// The DAG numbers/structure and all settings are copied and owned by
+    /// Scene. CsgBinding only borrows Object pointers (and through them an
+    /// existing Object::MeshInstance/shared mesh); keep those objects and
+    /// materials alive until clearCsgExpression(), replacement, or Scene
+    /// destruction. Rigid Object/instance positions and rotations may change
+    /// between frames. Validation is all-or-nothing: a failed call returns an
+    /// error and leaves the previous expression/config active.
+    CsgStatus setCsgExpression(const CsgDesc& expression,
+                                const CsgBinding* bindings,
+                                size_t bindingCount);
+    CsgStatus setCsgExpression(const CsgDesc& expression,
+                                const std::vector<CsgBinding>& bindings) {
+        return setCsgExpression(expression, bindings.data(), bindings.size());
+    }
+    /// Clear the CSG expression and restore ordinary drawing of all objects.
+    void clearCsgExpression();
+    bool csgExpressionActive() const { return csgConfig.active; }
+    CsgError lastCsgError() const { return lastCsgStatus.code; }
+    const CsgStatus& csgStatus() const { return lastCsgStatus; }
 
     /// @brief Add a point light to the scene.
     /// @param light Light to add. Pointer is borrowed; caller retains ownership.
@@ -302,6 +325,12 @@ private:
         int32_t sourceInstanceIndex;
 #endif // JET_MESH_INSTANCING
 #endif
+        // CSG leaf metadata. csgLeafId is the caller's stable uint32 number.
+        // csgAreaSign records original projective winding before emitTri's
+        // positive-area normalization: +1 is a front/entry crossing.
+        bool csgIsLeaf = false;
+        uint32_t csgLeafId = 0;
+        int8_t csgAreaSign = 1;
     };
     std::vector<RenderTri> renderQueue;
     // One byte per triangle: background, configurable depth buckets, overlay.
@@ -353,6 +382,23 @@ private:
     float cullPlaneLh = 1.0f;
     float cullPlaneLv = 1.0f;
 
+    // Last-good CSG configuration. A failed setCsgExpression() does not
+    // assign this object. The engine is per-Scene scratch state.
+    CsgStatus lastCsgStatus;
+    CsgConfig csgConfig;
+    CsgEngine csgEngine;
+    // While renderObject() runs for a bound owner, the instance loop uses this
+    // to tag RenderTri records. csgOnlyBound is used for borrowed owners that
+    // were not also added through addObject().
+    const Object* csgTagOwner = nullptr;
+    bool csgOnlyBound = false;
+
+    bool csgOwnerInObjects(const Object* object) const;
+    void renderCsgOwner(Object* obj,
+                        int32_t camCosX, int32_t camSinX,
+                        int32_t camCosY, int32_t camSinY,
+                        int32_t camCosZ, int32_t camSinZ);
+
     bool cullObject(Object* obj, const Vector3& relativeCentre, int32_t maxExtent,
                     int32_t camCosX, int32_t camSinX,
                     int32_t camCosY, int32_t camSinY,
@@ -368,6 +414,7 @@ private:
 #else
                       Object* meshSource = nullptr);
 #endif // JET_MESH_INSTANCING
+    void rasterizeCsgBand(int yMin, int yMax, uint8_t* triangleFlags);
     void reconstructCheckerboard();
     void clearBuffers();
 

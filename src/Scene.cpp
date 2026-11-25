@@ -265,6 +265,7 @@ Scene::Scene(uint16_t* framebuffer, uint16_t* zBuffer, int screenWidth, int scre
       framebuffer(framebuffer), zBuffer(zBuffer), screenWidth(screenWidth), screenHeight(screenHeight), scanlinesUpdated(nullptr) {
     initializeTrigTables();
     initBakedMat();
+    csgEngine.resize(screenWidth, screenHeight);
     renderer = new Rasterizer(framebuffer, screenWidth, screenHeight, zBuffer);
     postFX = new PostFX(screenWidth, screenHeight);
 }
@@ -290,6 +291,7 @@ void Scene::resize(uint16_t* newFramebuffer, uint16_t* newZBuffer,
     zBuffer      = newZBuffer;
     screenWidth  = newWidth;
     screenHeight = newHeight;
+    csgEngine.resize(newWidth, newHeight);
     if (renderer) {
         renderer->resize(newFramebuffer, newZBuffer, newWidth, newHeight);
     }
@@ -303,6 +305,69 @@ void Scene::resize(uint16_t* newFramebuffer, uint16_t* newZBuffer,
 
 void Scene::addObject(Object* obj) {
     objects.push_back(obj);
+}
+
+CsgStatus Scene::setCsgExpression(const CsgDesc& expression,
+                                  const CsgBinding* bindings,
+                                  size_t bindingCount) {
+    CsgConfig candidate;
+    CsgStatus status = validateCsgConfiguration(expression, bindings, bindingCount,
+                                                lodScale, candidate);
+    if (!status) {
+        // Intentionally do not assign csgConfig: the last-good expression,
+        // bindings and per-frame state remain usable.
+        lastCsgStatus = status;
+        return status;
+    }
+    csgConfig = std::move(candidate);
+    lastCsgStatus = CsgStatus{};
+    csgEngine.resize(screenWidth, screenHeight);
+    return lastCsgStatus;
+}
+
+void Scene::clearCsgExpression() {
+    csgConfig = CsgConfig{};
+    lastCsgStatus = CsgStatus{};
+    csgTagOwner = nullptr;
+    csgOnlyBound = false;
+    csgEngine.resize(screenWidth, screenHeight);
+}
+
+bool Scene::csgOwnerInObjects(const Object* object) const {
+    return std::find(objects.begin(), objects.end(), object) != objects.end();
+}
+
+void Scene::renderCsgOwner(Object* obj,
+                           int32_t camCosX, int32_t camSinX,
+                           int32_t camCosY, int32_t camSinY,
+                           int32_t camCosZ, int32_t camSinZ) {
+    if (!camera || !obj) return;
+    // Crossing collection needs both winding orders and exits beyond the
+    // caller's visible far plane. Use a projection-safe positive collection
+    // near plane, not Camera::nearPlane; the latter filters final winners.
+    constexpr int32_t CsgCollectionNear = 1;
+    constexpr int32_t CsgCollectionFar = INT32_C(1) << 27;
+    const int32_t savedNear = camera->nearPlane;
+    const int32_t savedFar = camera->farPlane;
+    const CullingMode savedCull = obj->cullingMode;
+    camera->nearPlane = CsgCollectionNear;
+    camera->farPlane = CsgCollectionFar;
+    obj->cullingMode = CullingMode::NO_CULLING;
+
+    const Object* savedTagOwner = csgTagOwner;
+    const bool savedOnlyBound = csgOnlyBound;
+    csgTagOwner = obj;
+    // Owners reached through objects[] may also contain ordinary unbound
+    // geometry/instances, which should continue through the normal queue.
+    csgOnlyBound = !csgOwnerInObjects(obj);
+
+    renderObject(obj, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ, 255);
+
+    csgTagOwner = savedTagOwner;
+    csgOnlyBound = savedOnlyBound;
+    obj->cullingMode = savedCull;
+    camera->nearPlane = savedNear;
+    camera->farPlane = savedFar;
 }
 
 void Scene::addPointLight(PointLight* light) {
@@ -682,6 +747,15 @@ void Scene::prepareFrame() {
 
     for (auto obj : objects) {
         if (!obj->enabled) continue;
+
+        // Bound CSG owners must survive ordinary far/sphere/frustum culling:
+        // the camera may be inside one operand and an exit may lie beyond
+        // farPlane. renderCsgOwner() still uses the normal transform path.
+        if (csgConfig.active && csgConfig.hasObject(obj)) {
+            renderCsgOwner(obj, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ);
+            ++drawnObjs;
+            continue;
+        }
         // 1) Quick sphere far-cull before the expensive 8-corner AABB test.
         //    distSq to the object centre is computed unconditionally so it
         //    is also available for the fade ramps and LOD pick below,
@@ -795,6 +869,21 @@ void Scene::prepareFrame() {
         renderObject(obj, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ, objAlpha, meshSource);
         ++drawnObjs;
     }
+
+    // Bindings may borrow an Object that was not added to objects[]. It is
+    // still transformed through the same rigid object/instance pipeline, but
+    // csgOnlyBound suppresses unbound helper geometry in that owner.
+    if (csgConfig.active) {
+        std::vector<Object*> borrowedOwners;
+        for (const CsgBinding& binding : csgConfig.bindings) {
+            Object* obj = binding.object;
+            if (!obj || csgOwnerInObjects(obj)) continue;
+            if (std::find(borrowedOwners.begin(), borrowedOwners.end(), obj) != borrowedOwners.end())
+                continue;
+            borrowedOwners.push_back(obj);
+            renderCsgOwner(obj, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ);
+        }
+    }
     lastFrameDrawnObjects   = drawnObjs;
     lastFrameDrawnTriangles = static_cast<int>(renderQueue.size());
 
@@ -868,7 +957,202 @@ void Scene::clearBand(int yMin, int yMax) {
     clearBuffers();
 }
 
+void Scene::rasterizeCsgBand(int yMin, int yMax, uint8_t* triangleFlags) {
+    if (!renderer || !camera) return;
+    const int by0 = std::max(0, yMin);
+    const int by1 = std::min(screenHeight, yMax);
+    csgEngine.beginBand(by0, by1);
+
+    Rasterizer bandRast = *renderer;
+    bandRast.yBandMin = yMin;
+    bandRast.yBandMax = yMax;
+    int rasterized = 0;
+
+    auto expandRenderTri = [&](const RenderTri& t) {
+        RenderVertex a = t.v1.expand(), b = t.v2.expand(), c = t.v3.expand();
+#if LIGHTING && JET_COMPACT_QUEUE
+        if (t.normalIndex != UINT32_MAX) {
+            const auto& n = normalQueue[t.normalIndex];
+            a.normal = n.a; b.normal = n.b; c.normal = n.c;
+            a.lambertBrightness = n.brightnessA;
+            b.lambertBrightness = n.brightnessB;
+            c.lambertBrightness = n.brightnessC;
+        }
+#endif
+#if TEXTURE_MAPPING
+        if (t.uvIndex != UINT32_MAX) {
+            const TriangleUV& uv = textureQueue[t.uvIndex];
+            a.uv = uv.a; b.uv = uv.b; c.uv = uv.c;
+        }
+#endif
+        return std::array<RenderVertex, 3>{a, b, c};
+    };
+
+    // Ordinary objects first. Their depth writes are the real depth competition
+    // for resolved CSG boundaries drawn below.
+    for (const int32_t idx : renderOrder) {
+        const RenderTri& t = renderQueue[idx];
+        if (t.csgIsLeaf) continue;
+        if (std::max({t.v1.position.y, t.v2.position.y, t.v3.position.y}) < yMin ||
+            std::min({t.v1.position.y, t.v2.position.y, t.v3.position.y}) >= yMax) continue;
+#if MAX_PICK_QUERIES > 0
+        bandRast.currentPickObject        = t.sourceObject;
+        bandRast.currentPickTriangleIndex = t.sourceTriangleIndex;
+#if JET_MESH_INSTANCING
+        bandRast.currentPickMesh = t.sourceMesh;
+        bandRast.currentPickInstanceIndex = t.sourceInstanceIndex;
+#endif
+#endif
+        auto verts = expandRenderTri(t);
+        if (bandRast.drawTriangle(verts[0], verts[1], verts[2], t.material,
+                                  directionalLight, ambientLight, renderEvenLines,
+                                  t.ignoreZBuffer, t.noWriteZBuffer,
+                                  static_cast<int>(t.zBias), t.objAlpha,
+                                  t.brightnessPrecomputed, t.avgZ)) {
+            ++rasterized;
+            if (triangleFlags) triangleFlags[idx] = 1;
+        }
+    }
+
+    // Collect every directed leaf crossing through the existing coverage and
+    // perspective-depth interpolation code. Iterate queue indices rather than
+    // painter order; CsgEngine performs all semantic sorting itself.
+    Rasterizer probeRast = *renderer;
+    probeRast.yBandMin = yMin;
+    probeRast.yBandMax = yMax;
+#if MAX_PICK_QUERIES > 0
+    probeRast.pickQueryCount = 0;
+#endif
+    probeRast.csgAcceptKeys = nullptr;
+    probeRast.csgProbeEnabled = true;
+    probeRast.csgProbeStop = true;
+    probeRast.csgProbeUser = &csgEngine;
+    probeRast.csgProbeCallback = &CsgEngine::probeCallback;
+    for (int32_t idx = 0; idx < static_cast<int32_t>(renderQueue.size()); ++idx) {
+        const RenderTri& t = renderQueue[idx];
+        if (!t.csgIsLeaf) continue;
+        if (std::max({t.v1.position.y, t.v2.position.y, t.v3.position.y}) < yMin ||
+            std::min({t.v1.position.y, t.v2.position.y, t.v3.position.y}) >= yMax) continue;
+
+        probeRast.csgProbeLeaf = t.csgLeafId;
+#if MAX_PICK_QUERIES > 0
+        probeRast.csgProbeTriangle = static_cast<uint32_t>(t.sourceTriangleIndex);
+#else
+        probeRast.csgProbeTriangle = 0;
+#endif
+        probeRast.csgProbeQueueIndex = static_cast<uint32_t>(idx);
+        probeRast.csgProbeDirection = static_cast<int>(t.csgAreaSign);
+        auto verts = expandRenderTri(t);
+        probeRast.drawTriangle(verts[0], verts[1], verts[2], t.material,
+                               directionalLight, ambientLight, renderEvenLines,
+                               t.ignoreZBuffer, t.noWriteZBuffer,
+                               static_cast<int>(t.zBias), t.objAlpha,
+                               t.brightnessPrecomputed, t.avgZ);
+    }
+
+    csgEngine.resolveBand(by0, by1, csgConfig, camera->nearPlane, camera->farPlane);
+
+#if MAX_PICK_QUERIES > 0
+    struct PendingCsgPick {
+        int slot;
+        uint32_t queueIndex;
+        double z;
+    };
+    std::vector<PendingCsgPick> pendingPicks;
+    for (int p = 0; p < pickQueryCount; ++p) {
+        const PickQuery& q = pickQueries[p];
+        if (q.x < 0 || q.y < by0 || q.y >= by1) continue;
+        if (q.x < 0 || q.x >= screenWidth) continue;
+        const CsgWinner& winner = csgEngine.winners[static_cast<size_t>(q.y) * screenWidth + q.x];
+        if (!winner.valid) continue;
+
+        int32_t zInt = static_cast<int32_t>(winner.z);
+        uint32_t zb = static_cast<uint32_t>(std::max<int32_t>(0, std::min<int32_t>(65535, zInt)));
+        bool depthWins = true;
+        if (zBuffer) {
+            const size_t zi = static_cast<size_t>(q.y) * ZBUFFER_STRIDE(screenWidth)
+#if HALF_WIDTH_BUFFERS
+                + q.x / 2;
+#else
+                + q.x;
+#endif
+            // Match Rasterizer's strict farther-rejects comparison.
+            depthWins = zb <= zBuffer[zi];
+        }
+        if (depthWins) pendingPicks.push_back({p, winner.queueIndex, winner.z});
+    }
+#endif
+
+    // Shade only the resolved source surface at each winning pixel, still via
+    // the ordinary triangle attribute/lighting/texture/depth path.
+    Rasterizer csgRast = bandRast;
+#if MAX_PICK_QUERIES > 0
+    csgRast.pickQueryCount = 0; // CSG picks are authored from the same winner below.
+#endif
+    csgRast.csgProbeEnabled = false;
+    csgRast.csgAcceptKeys = csgEngine.acceptKeys.data();
+    for (uint32_t key : csgEngine.usedKeys) {
+        uint32_t idxU = 0;
+        bool flipped = false;
+        CsgEngine::decodeKey(key, idxU, flipped);
+        if (idxU >= renderQueue.size()) continue;
+        const int32_t idx = static_cast<int32_t>(idxU);
+        const RenderTri& t = renderQueue[idx];
+        csgRast.csgAcceptKey = key;
+#if MAX_PICK_QUERIES > 0
+        csgRast.currentPickObject = t.sourceObject;
+        csgRast.currentPickTriangleIndex = t.sourceTriangleIndex;
+#if JET_MESH_INSTANCING
+        csgRast.currentPickMesh = t.sourceMesh;
+        csgRast.currentPickInstanceIndex = t.sourceInstanceIndex;
+#endif
+#endif
+        auto verts = expandRenderTri(t);
+        if (flipped) {
+            for (RenderVertex& v : verts) {
+                v.normal.x = -v.normal.x;
+                v.normal.y = -v.normal.y;
+                v.normal.z = -v.normal.z;
+            }
+        }
+        if (csgRast.drawTriangle(verts[0], verts[1], verts[2], t.material,
+                                 directionalLight, ambientLight, renderEvenLines,
+                                 t.ignoreZBuffer, t.noWriteZBuffer,
+                                 static_cast<int>(t.zBias), t.objAlpha,
+                                 t.brightnessPrecomputed, t.avgZ)) {
+            ++rasterized;
+            if (triangleFlags) triangleFlags[idx] = 1;
+        }
+    }
+    csgRast.csgAcceptKeys = nullptr;
+
+#if MAX_PICK_QUERIES > 0
+    for (const auto& pending : pendingPicks) {
+        if (pending.queueIndex >= renderQueue.size()) continue;
+        const RenderTri& t = renderQueue[pending.queueIndex];
+        PickResult result{};
+        result.hit = true;
+        result.object = t.sourceObject;
+        result.triangleIndex = t.sourceTriangleIndex;
+        result.depth = static_cast<int32_t>(pending.z);
+        result.x = pickQueries[pending.slot].x;
+        result.y = pickQueries[pending.slot].y;
+#if JET_MESH_INSTANCING
+        result.mesh = t.sourceMesh;
+        result.instanceIndex = t.sourceInstanceIndex;
+#endif
+        pickResults[pending.slot] = result;
+    }
+#endif
+
+    if (!triangleFlags) lastFrameRasterizedTriangles = rasterized;
+}
+
 void Scene::rasterizeBand(int yMin, int yMax, uint8_t* triangleFlags) {
+    if (csgConfig.active) {
+        rasterizeCsgBand(yMin, yMax, triangleFlags);
+        return;
+    }
     // Create a thread-local copy of the rasteriser so each band worker has
     // its own yBandMin/yBandMax. Only framebuffer/zbuffer ptrs are shared;
     // writes go to non-overlapping y regions so there is no write race.
@@ -1245,7 +1529,25 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
             instance->triangleMaterials->size()==meshSource->triangles.size()
             ? instance->triangleMaterials->data() : nullptr;
 
+        uint32_t currentCsgLeaf = 0;
+        if (csgConfig.active && csgTagOwner == obj) {
+            const int32_t targetInstance = instance ? static_cast<int32_t>(draw - 1) : -1;
+            const CsgBinding* leafBinding = csgConfig.findBinding(obj, targetInstance);
+            if (leafBinding) {
+                currentCsgLeaf = leafBinding->leaf;
+            } else if (csgOnlyBound) {
+                continue;
+            }
+        }
 #endif // JET_MESH_INSTANCING
+#if !JET_MESH_INSTANCING
+        uint32_t currentCsgLeaf = 0;
+        if (csgConfig.active && csgTagOwner == obj) {
+            const CsgBinding* leafBinding = csgConfig.findBinding(obj, -1);
+            if (leafBinding) currentCsgLeaf = leafBinding->leaf;
+            else if (csgOnlyBound) return;
+        }
+#endif
 #if LIGHTING
 #if JET_MESH_INSTANCING
     // Ordinary billboard normals retain their authored orientation. Match
@@ -1336,7 +1638,7 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
                 break;
             }
         }
-        if (allNonSpecular) {
+        if (allNonSpecular && currentCsgLeaf == 0) {
             objectLocalLight = true;
             objLightIntensity = directionalLight->intensity;
             // Diffuse coef varies per triangle; we use the first triangle's
@@ -1689,6 +1991,9 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
         }
 #endif
         const bool reverse = cullingMode == CullingMode::NO_CULLING && shoelaceArea < 0;
+        rt.csgIsLeaf = currentCsgLeaf != 0;
+        rt.csgLeafId = currentCsgLeaf;
+        rt.csgAreaSign = shoelaceArea > 0 ? 1 : -1;
         if (reverse) {
             rt.v1.assign(c); rt.v2.assign(b); rt.v3.assign(a);
         } else {

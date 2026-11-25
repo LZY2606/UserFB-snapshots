@@ -1751,6 +1751,14 @@ namespace Renderer
                         continue;
                     }
 
+                    // Scene CSG final-boundary mask, applied after ordinary
+                    // triangle coverage and before shading/interpolation.
+                    if (csgAcceptKeys &&
+                        csgAcceptKeys[static_cast<size_t>(y) * screenWidth + x] != csgAcceptKey)
+                    {
+                        continue;
+                    }
+
     #if !HALF_WIDTH_BUFFERS
                     // Checkerboard: skip pixels that belong to the other frame's pattern.
                     // Using XOR parity: (x^y)&1 == (x+y)&1 (no carry in the lowest bit).
@@ -1774,16 +1782,30 @@ namespace Renderer
                     // Runtime painter specialization removes depth arithmetic
                     // as well as memory traffic. Other consumers keep precise Z.
                     int32_t z = 0;
+                    double csgRawPerspectiveZ = 0.0;
                     if constexpr (perPixelZ) {
 #if JET_PERSPECTIVE_DEPTH
                         if constexpr (UseDepth) {
                             const double inverseZ = depthInvZ1*ew0 + depthInvZ2*ew1 + depthInvZ3*ew2;
-                            z = int32_t(double(denom64) / inverseZ);
+                            csgRawPerspectiveZ = double(denom64) / inverseZ;
+                            z = int32_t(csgRawPerspectiveZ);
                         } else
 #endif
                         {
+                            csgRawPerspectiveZ = wideDepth ? double(wideZ)
+                                : double(v1.position.z*w0 + v2.position.z*w1 + v3.position.z*w2) / double(denom);
                             z = wideDepth ? int32_t(wideZ)
                                 : (v1.position.z*w0 + v2.position.z*w1 + v3.position.z*w2) / denom;
+                        }
+
+                        // CSG needs all directed crossings, including exits
+                        // beyond the visible far plane. Report before the
+                        // ordinary near/far discard.
+                        if (csgProbeEnabled && csgProbeCallback) {
+                            csgProbeCallback(csgProbeUser, x, y, csgRawPerspectiveZ,
+                                             csgProbeLeaf, csgProbeTriangle,
+                                             csgProbeQueueIndex, csgProbeDirection);
+                            if (csgProbeStop) continue;
                         }
                         if (z < nearPlane || z > farPlane) continue;
                     }
