@@ -23,6 +23,33 @@
 4. RTP with MPEG-2 PS/TS
 5. RTP Header Extension
 6. RTCP PSFB/RTPFB/XR
+7. H.264 interleaved mode (RFC6184 packetization-mode=2) de-interleaving
+
+### H.264 interleaved mode
+The default H.264 decoder (`rtp_h264_decode()`, `rtp_payload_decode_create()`)
+keeps handing NAL units downstream in transmission order. Receivers that get
+STAP-B / MTAP / FU-B streams (RFC6184 6.4 Interleaved Mode) can opt in to
+decoding-order delivery with `rtp-h264-interleaved.h`:
+
+```c
+struct rtp_h264_interleaved_t* d = rtp_h264_interleaved_create(depth, &handler, param);
+rtp_h264_interleaved_input(d, packet, bytes); // one complete RTP packet
+rtp_h264_interleaved_flush(d);                // deliver what remains
+rtp_h264_interleaved_destroy(d);              // free only, no callback
+```
+
+* `depth` is the maximum number of complete NAL units kept pending, range
+  `[0, 32767]`. After a packet's NAL units are collected, while more than
+  `depth` are pending the one with the earliest decoding order number (DON) is
+  delivered, until only `depth` remain.
+* `flush` delivers the remaining complete NAL units in the same order. An
+  unfinished FU (no final fragment) is not a complete NAL unit and is never
+  flushed.
+* Input must already be in network sequence order; network reordering is not
+  handled. Sequence 65535 followed by 0 counts as contiguous. Only
+  interleaved-mode payloads are accepted (STAP-B, MTAP16/24, FU-B start with
+  FU-A continuation); single NAL unit packets and STAP-A are discarded.
+* Callback bytes are valid only for the duration of that callback.
 
 # librtsp
 1. RFC2326 RTSP
