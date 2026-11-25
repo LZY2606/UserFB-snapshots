@@ -71,21 +71,61 @@ type OnAvPacket func(pkt base.AvPacket)
 
 // DefaultRtpUnpackerFactory 目前支持AVC，HEVC和AAC MPEG4-GENERIC，业务方也可以自己实现IRtpUnpackerProtocol，甚至是IRtpUnpackContainer
 func DefaultRtpUnpackerFactory(payloadType base.AvPacketPt, clockRate int, maxSize int, onAvPacket OnAvPacket) IRtpUnpacker {
-	nazalog.Debugf("DefaultRtpUnpackerFactory. type=%d, clockRate=%d, maxSize=%d", payloadType, clockRate, maxSize)
+	return DefaultRtpUnpackerFactoryWithOptions(payloadType, clockRate, maxSize, onAvPacket)
+}
+
+// FactoryOption 用于配置DefaultRtpUnpackerFactoryWithOptions
+type FactoryOption func(*factoryOptions)
+
+type factoryOptions struct {
+	// rawRtpTimestamp 为true时，输出的base.AvPacket.Timestamp保留RTP头中的原始uint32时间戳，
+	// 而不是默认的除以clockRate/1000后的毫秒值
+	rawRtpTimestamp bool
+}
+
+// FactoryOptionRawRtpTimestamp 让解包后的AvPacket.Timestamp保留原始RTP时间戳（tick单位）
+func FactoryOptionRawRtpTimestamp() FactoryOption {
+	return func(o *factoryOptions) {
+		o.rawRtpTimestamp = true
+	}
+}
+
+// DefaultRtpUnpackerFactoryWithOptions 与DefaultRtpUnpackerFactory相同，支持额外选项
+func DefaultRtpUnpackerFactoryWithOptions(payloadType base.AvPacketPt, clockRate int, maxSize int, onAvPacket OnAvPacket, opts ...FactoryOption) IRtpUnpacker {
+	var option factoryOptions
+	for _, op := range opts {
+		op(&option)
+	}
+
+	nazalog.Debugf("DefaultRtpUnpackerFactory. type=%d, clockRate=%d, maxSize=%d, rawRtpTimestamp=%v", payloadType, clockRate, maxSize, option.rawRtpTimestamp)
 	var protocol IRtpUnpackerProtocol
 	switch payloadType {
 	case base.AvPacketPtAac:
-		protocol = NewRtpUnpackerAac(payloadType, clockRate, onAvPacket)
+		p := NewRtpUnpackerAac(payloadType, clockRate, onAvPacket)
+		p.rawTimestamp = option.rawRtpTimestamp
+		protocol = p
 	case base.AvPacketPtG711U:
 		fallthrough
 	case base.AvPacketPtG711A, base.AvPacketPtOpus:
-		protocol = NewRtpUnpackerRaw(payloadType, clockRate, onAvPacket)
+		p := NewRtpUnpackerRaw(payloadType, clockRate, onAvPacket)
+		p.rawTimestamp = option.rawRtpTimestamp
+		protocol = p
 	case base.AvPacketPtAvc:
 		fallthrough
 	case base.AvPacketPtHevc:
-		protocol = NewRtpUnpackerAvcHevc(payloadType, clockRate, onAvPacket)
+		p := NewRtpUnpackerAvcHevc(payloadType, clockRate, onAvPacket)
+		p.rawTimestamp = option.rawRtpTimestamp
+		protocol = p
 	default:
 		Log.Fatalf("payload type not support yet. payloadType=%d", payloadType)
 	}
 	return NewRtpUnpackContainer(maxSize, protocol)
+}
+
+// avPacketTimestamp 各解包器共用的时间戳换算：默认输出毫秒，rawTimestamp时保留原始RTP tick
+func avPacketTimestamp(rtpTimestamp uint32, clockRate int, rawTimestamp bool) int64 {
+	if rawTimestamp {
+		return int64(rtpTimestamp)
+	}
+	return int64(rtpTimestamp / uint32(clockRate/1000))
 }

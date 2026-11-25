@@ -13,9 +13,10 @@ import (
 )
 
 type RtpUnpackerAac struct {
-	payloadType base.AvPacketPt
-	clockRate   int
-	onAvPacket  OnAvPacket
+	payloadType  base.AvPacketPt
+	clockRate    int
+	onAvPacket   OnAvPacket
+	rawTimestamp bool
 }
 
 func NewRtpUnpackerAac(payloadType base.AvPacketPt, clockRate int, onAvPacket OnAvPacket) *RtpUnpackerAac {
@@ -77,7 +78,7 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 			// one complete access unit
 			var outPkt base.AvPacket
 			outPkt.PayloadType = unpacker.payloadType
-			outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+			outPkt.Timestamp = avPacketTimestamp(p.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 			outPkt.Payload = b[aus[0].pos : aus[0].pos+aus[0].size]
 			unpacker.onAvPacket(outPkt)
 
@@ -134,7 +135,7 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 			} else if cacheSize == totalSize {
 				var outPkt base.AvPacket
 				outPkt.PayloadType = unpacker.payloadType
-				outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+				outPkt.Timestamp = avPacketTimestamp(p.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 				for _, a := range as {
 					outPkt.Payload = append(outPkt.Payload, a...)
 				}
@@ -156,9 +157,13 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 	for i := range aus {
 		var outPkt base.AvPacket
 		outPkt.PayloadType = unpacker.payloadType
-		outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		outPkt.Timestamp = avPacketTimestamp(p.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 		// TODO chef: 这里1024的含义
-		outPkt.Timestamp += int64(uint32(i * (1024 * 1000) / unpacker.clockRate))
+		if unpacker.rawTimestamp {
+			outPkt.Timestamp += int64(uint32(i * 1024))
+		} else {
+			outPkt.Timestamp += int64(uint32(i * (1024 * 1000) / unpacker.clockRate))
+		}
 		outPkt.Payload = b[aus[i].pos : aus[i].pos+aus[i].size]
 		unpacker.onAvPacket(outPkt)
 	}

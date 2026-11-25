@@ -11,9 +11,10 @@ package rtprtcp
 import "github.com/q191201771/lal/pkg/base"
 
 type RtpUnpackerRaw struct {
-	payloadType base.AvPacketPt
-	clockRate   int
-	onAvPacket  OnAvPacket
+	payloadType  base.AvPacketPt
+	clockRate    int
+	onAvPacket   OnAvPacket
+	rawTimestamp bool
 }
 
 func NewRtpUnpackerRaw(payloadType base.AvPacketPt, clockRate int, onAvPacket OnAvPacket) *RtpUnpackerRaw {
@@ -38,7 +39,7 @@ func (unpacker *RtpUnpackerRaw) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 	b := p.Packet.Body()
 	var outPkt base.AvPacket
 	outPkt.PayloadType = unpacker.payloadType
-	outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+	outPkt.Timestamp = avPacketTimestamp(p.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 	outPkt.Payload = b
 	unpacker.onAvPacket(outPkt)
 

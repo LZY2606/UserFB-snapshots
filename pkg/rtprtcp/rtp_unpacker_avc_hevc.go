@@ -18,9 +18,10 @@ import (
 )
 
 type RtpUnpackerAvcHevc struct {
-	payloadType base.AvPacketPt
-	clockRate   int
-	onAvPacket  OnAvPacket
+	payloadType  base.AvPacketPt
+	clockRate    int
+	onAvPacket   OnAvPacket
+	rawTimestamp bool
 }
 
 func NewRtpUnpackerAvcHevc(payloadType base.AvPacketPt, clockRate int, onAvPacket OnAvPacket) *RtpUnpackerAvcHevc {
@@ -50,7 +51,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 	case PositionTypeSingle:
 		var pkt base.AvPacket
 		pkt.PayloadType = unpacker.payloadType
-		pkt.Timestamp = int64(first.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		pkt.Timestamp = avPacketTimestamp(first.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 
 		pkt.Payload = make([]byte, len(first.Packet.Body())+4)
 		bele.BePutUint32(pkt.Payload, uint32(len(first.Packet.Body())))
@@ -71,7 +72,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 
 		var pkt base.AvPacket
 		pkt.PayloadType = unpacker.payloadType
-		pkt.Timestamp = int64(first.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		pkt.Timestamp = avPacketTimestamp(first.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 
 		// 跳过前面的字节，并且将多nalu前的2字节长度，替换成4字节长度
 		// skip后：
@@ -125,7 +126,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 			} else if p.Packet.positionType == PositionTypeFuaEnd {
 				var pkt base.AvPacket
 				pkt.PayloadType = unpacker.payloadType
-				pkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+				pkt.Timestamp = avPacketTimestamp(p.Packet.Header.Timestamp, unpacker.clockRate, unpacker.rawTimestamp)
 
 				var naluTypeLen int
 				var naluType []byte

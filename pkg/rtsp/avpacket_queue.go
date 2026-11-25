@@ -162,7 +162,29 @@ func (a *AvPacketQueue) Feed(pkt base.AvPacket) {
 		a.adjustTs(&pkt)
 	}
 
-	// 如果音频和视频都存在，则按序输出，直到其中一个为空
+	a.drainOrdered(pkt.IsAudio())
+
+	a.checkFullAndPopAll()
+}
+
+// FeedAligned 输入的pkt.Timestamp已经位于音视频公共时间轴上（SR时钟模式下相对于唯一零点的毫秒值），
+// 因此跳过逐轨归零和回绕处理，只复用现有的双队列互相等待的归并输出逻辑。
+func (a *AvPacketQueue) FeedAligned(pkt base.AvPacket) {
+	if pkt.IsVideo() {
+		_ = a.videoQueue.PushBack(pkt)
+	} else {
+		_ = a.audioQueue.PushBack(pkt)
+	}
+
+	a.drainOrdered(pkt.IsAudio())
+
+	a.checkFullAndPopAll()
+}
+
+// drainOrdered 只要音频和视频队列都非空，就按时间戳顺序输出，直到其中一个为空
+//
+// @param incomingIsAudio 触发本次排空的输入包是否为音频，时间戳相等时沿用Feed中的先后输出规则
+func (a *AvPacketQueue) drainOrdered(incomingIsAudio bool) {
 	for !a.audioQueue.Empty() && !a.videoQueue.Empty() {
 		apkt, _ := a.audioQueue.Front()
 		vpkt, _ := a.videoQueue.Front()
@@ -178,7 +200,7 @@ func (a *AvPacketQueue) Feed(pkt base.AvPacket) {
 			a.onAvPacket(vvpkt)
 		} else {
 			// 相等时，我们把早加入的先输出
-			if pkt.IsAudio() {
+			if incomingIsAudio {
 				_, _ = a.videoQueue.PopFront()
 				//Log.Debugf("[AVQ] pop video by audio. a=%d, v=%d", aapkt.Timestamp, vvpkt.Timestamp)
 				a.onAvPacket(vvpkt)
@@ -189,7 +211,9 @@ func (a *AvPacketQueue) Feed(pkt base.AvPacket) {
 			}
 		}
 	}
+}
 
+func (a *AvPacketQueue) checkFullAndPopAll() {
 	// 如果视频满了，则全部输出
 	if a.videoQueue.Full() {
 		Log.Assert(true, a.audioQueue.Empty())

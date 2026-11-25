@@ -68,6 +68,16 @@ func (lc *LogicContext) IsVideoUri(uri string) bool {
 	return lc.videoAControl != "" && strings.HasSuffix(uri, lc.videoAControl)
 }
 
+// HasAudio SDP中是否出现了audio媒体行
+func (lc *LogicContext) HasAudio() bool {
+	return lc.hasAudio
+}
+
+// HasVideo SDP中是否出现了video媒体行
+func (lc *LogicContext) HasVideo() bool {
+	return lc.hasVideo
+}
+
 func (lc *LogicContext) HasAudioAControl() bool {
 	return lc.audioAControl != ""
 }
