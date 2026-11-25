@@ -28,6 +28,7 @@ The following functionalities are covered:
 * [Singularity](#Singularity)
 * [Conversion](#Conversion)
 * [Intersection](#Intersection)
+* [Bidirectional curve networks](docs/curve_network.md)
 
 ### Data structure
 
@@ -509,6 +510,20 @@ std::tie(u, v, converged) = nanospline::intersect(
     num_iterations, ///< Max num iterations.
     tolerance);     ///< Convergence tolerance.
 ```
+
+### Bidirectional curve networks
+
+`nanospline/CurveNetwork.h` builds a Gordon surface
+`S = L_U + L_V - L_UV` from two intersecting families of clamped,
+non-periodic `BSpline<double,3,-1>` curves and their parameter tables.
+Each curve is first composed with the prescribed C1 monotone cubic
+Hermite reparameterization; composition is polynomial and produces an
+owned dynamic-degree native BSpline.  The three Gordon terms are then
+assembled in one common tensor-product B-spline space.
+
+See [docs/curve_network.md](docs/curve_network.md) for the `a[j][i]` /
+`b[i][j]` table convention, mapping rules, validation behavior, OBJ
+example, and control-grid/knot layout.
 
 [The NURBS Book]: https://www.springer.com/gp/book/9783642973857
 
