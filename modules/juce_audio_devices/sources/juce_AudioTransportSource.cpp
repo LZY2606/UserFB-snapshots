@@ -104,6 +104,48 @@ void AudioTransportSource::setSource (PositionableAudioSource* const newSource,
         oldMasterSource->releaseResources();
 }
 
+void AudioTransportSource::notifySourceChanged (Range<int64> sourceFrames)
+{
+    if (sourceFrames.isEmpty() || source == nullptr)
+        return;
+
+    const ScopedLock sl (callbackLock);
+
+    const auto changedStart = sourceFrames.getStart();
+
+    // The resampler only retains a couple of source frames of read-ahead. If the
+    // edit reaches them, drop that lead and remember the frame that the upstream
+    // positionable source must be rewound to so the next pull is aligned.
+    int64 resamplerRepositionFrame = -1;
+
+    if (resamplerSource != nullptr)
+        resamplerRepositionFrame = resamplerSource->discardBufferedInputFrom (changedStart);
+
+    // positionableSource is exactly the resampler's input when resampling is on,
+    // and the master source otherwise. It is a BufferingAudioSource both for the
+    // read-ahead wrapper created by setSource() and when the caller supplied one.
+    if (auto* buffering = dynamic_cast<BufferingAudioSource*> (positionableSource))
+    {
+        if (resamplerRepositionFrame >= 0)
+            buffering->rewindAndInvalidate (resamplerRepositionFrame);
+        else
+            buffering->notifySourceChanged (sourceFrames);
+    }
+    else if (positionableSource != nullptr)
+    {
+        // A plain positionable source has no cache: only rewind it when the
+        // resampler discarded a lead that must be re-read.
+        if (resamplerRepositionFrame >= 0)
+            positionableSource->setNextReadPosition (resamplerRepositionFrame);
+    }
+
+    // If the caller wrapped the source in its own BufferingAudioSource and also
+    // asked setSource() for read-ahead, a second cache sits one layer further down.
+    if (auto* outerBuffering = dynamic_cast<BufferingAudioSource*> (source))
+        if (outerBuffering != positionableSource)
+            outerBuffering->notifySourceChanged (sourceFrames);
+}
+
 void AudioTransportSource::start()
 {
     if ((! playing) && masterSource != nullptr)

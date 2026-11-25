@@ -97,6 +97,32 @@ public:
     */
     bool waitForNextAudioBlockReady (const AudioSourceChannelInfo& info, uint32 timeout);
 
+    //==============================================================================
+    /** Invalidates any buffered PCM belonging to source frames inside/after the
+        given range, which describes a region of the original source that has been
+        edited in place.
+
+        The playback position is left untouched, so subsequent blocks neither skip
+        nor repeat frames. A read-ahead operation that is already in flight while
+        this method is called is fenced by an internal generation: if it started
+        before the invalidation its result can never afterwards be published as
+        valid cache. Empty ranges are ignored.
+
+        This does not call prepareToPlay() or releaseResources() on the source.
+
+        @see rewindAndInvalidate, AudioTransportSource::notifySourceChanged
+    */
+    void notifySourceChanged (Range<int64> sourceFrames);
+
+    /** Rewinds the playback/read-ahead position to @p newPosition and discards the
+        entire buffered range, fencing any in-flight read.
+
+        This is used when a downstream resampler has discarded the few input
+        samples it had already pulled, so that its next pull is served from the
+        matching absolute source frame.
+    */
+    void rewindAndInvalidate (int64 newPosition);
+
 private:
     //==============================================================================
     Range<int> getValidBufferRange (int numSamples) const;
@@ -113,6 +139,8 @@ private:
     WaitableEvent bufferReadyEvent;
     int64 bufferValidStart = 0, bufferValidEnd = 0;
     std::atomic<int64> nextPlayPos { 0 };
+    std::atomic<uint64> readGeneration { 0 };
+    std::atomic<bool> refreshPending { false };
     double sampleRate = 0;
     bool wasSourceLooping = false, isPrepared = false;
     const bool prefillBuffer;

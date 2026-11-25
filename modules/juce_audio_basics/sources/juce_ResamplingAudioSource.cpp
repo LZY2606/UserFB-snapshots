@@ -60,6 +60,14 @@ void ResamplingAudioSource::prepareToPlay (int samplesPerBlockExpected, double s
     flushBuffers();
 }
 
+int64 ResamplingAudioSource::getInputAnchorPosition() const
+{
+    if (auto* positionable = dynamic_cast<PositionableAudioSource*> (input.get()))
+        return positionable->getNextReadPosition();
+
+    return 0;
+}
+
 void ResamplingAudioSource::flushBuffers()
 {
     const ScopedLock sl (callbackLock);
@@ -68,7 +76,74 @@ void ResamplingAudioSource::flushBuffers()
     bufferPos = 0;
     sampsInBuffer = 0;
     subSampleOffset = 0.0;
+    bufferPosFrame = getInputAnchorPosition();
+    filteredUntilFrame = bufferPosFrame;
+    filterRingPos = 0;
     resetFilters();
+}
+
+int64 ResamplingAudioSource::discardBufferedInputFrom (int64 changedStartFrame)
+{
+    const ScopedLock sl (callbackLock);
+
+    const auto baseFrame = bufferPosFrame;
+    const auto endFrame = baseFrame + sampsInBuffer;
+
+    // Nothing that was read ahead reaches the edited region: future reads will
+    // pick up the new content directly, so the fractional phase and filters can
+    // be left completely untouched.
+    if (changedStartFrame >= endFrame)
+        return -1;
+
+    // The caller guarantees that the edit starts at least a couple of source
+    // frames beyond the position already delivered, which keeps the current
+    // interpolation pair and the filter history on unchanged samples. Refuse to
+    // rewind the interpolation base if that guarantee was violated.
+    if (changedStartFrame < baseFrame + 2)
+        return -1;
+
+    // The down-sampling pre-filter is applied just in time for interpolation, so
+    // its state must never have crossed the cut. If it had, preserving the exact
+    // filter history would be impossible; the documented range rule prevents it.
+    jassert (filteredUntilFrame <= changedStartFrame);
+
+    sampsInBuffer = (int) (changedStartFrame - baseFrame);
+    return changedStartFrame;
+}
+
+void ResamplingAudioSource::notifySourceChanged (Range<int64> sourceFrames)
+{
+    if (sourceFrames.isEmpty())
+        return;
+
+    const auto repositionFrame = discardBufferedInputFrom (sourceFrames.getStart());
+
+    if (repositionFrame >= 0)
+        if (auto* positionable = dynamic_cast<PositionableAudioSource*> (input.get()))
+            positionable->setNextReadPosition (repositionFrame);
+}
+
+void ResamplingAudioSource::ensureDownsamplingFilteredUpTo (int64 throughFrame, int channelsToProcess)
+{
+    // callbackLock is held by getNextAudioBlock()
+
+    if (filterStates == nullptr || buffer.getNumSamples() <= 0)
+        return;
+
+    const auto bufferSize = buffer.getNumSamples();
+
+    while (filteredUntilFrame <= throughFrame)
+    {
+        jassert (filterRingPos >= 0 && filterRingPos < bufferSize);
+
+        for (int channel = 0; channel < channelsToProcess; ++channel)
+            applyFilter (buffer.getWritePointer (channel, filterRingPos), 1, filterStates[channel]);
+
+        if (++filterRingPos >= bufferSize)
+            filterRingPos = 0;
+
+        ++filteredUntilFrame;
+    }
 }
 
 void ResamplingAudioSource::releaseResources()
@@ -120,13 +195,11 @@ void ResamplingAudioSource::getNextAudioBlock (const AudioSourceChannelInfo& inf
         AudioSourceChannelInfo readInfo (&buffer, endOfBufferPos, numToDo);
         input->getNextAudioBlock (readInfo);
 
-        if (localRatio > 1.0001)
-        {
-            // for down-sampling, pre-apply the filter..
-
-            for (int i = channelsToProcess; --i >= 0;)
-                applyFilter (buffer.getWritePointer (i, endOfBufferPos), numToDo, filterStates[i]);
-        }
+        // For down-sampling the anti-aliasing filter is applied just before each
+        // sample is interpolated (see ensureDownsamplingFilteredUpTo), rather than
+        // eagerly to the whole chunk, so that a source-change notification cannot
+        // leave filter history that has already consumed edited samples. The per
+        // sample filter operations are identical and in the same order as before.
 
         sampsInBuffer += numToDo;
         endOfBufferPos += numToDo;
@@ -142,6 +215,9 @@ void ResamplingAudioSource::getNextAudioBlock (const AudioSourceChannelInfo& inf
 
     for (int m = info.numSamples; --m >= 0;)
     {
+        if (localRatio > 1.0001)
+            ensureDownsamplingFilteredUpTo (bufferPosFrame + 1, channelsToProcess);
+
         jassert (sampsInBuffer > 0 && nextPos != endOfBufferPos);
 
         const float alpha = (float) subSampleOffset;
@@ -157,6 +233,7 @@ void ResamplingAudioSource::getNextAudioBlock (const AudioSourceChannelInfo& inf
             if (++bufferPos >= bufferSize)
                 bufferPos = 0;
 
+            ++bufferPosFrame;
             --sampsInBuffer;
 
             nextPos = (bufferPos + 1) % bufferSize;

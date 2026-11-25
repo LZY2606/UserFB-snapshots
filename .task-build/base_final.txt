@@ -1,0 +1,1 @@
+BASELINE_AUDIO normal=0.25 edited_source=-0.5 cached_output=0.25 output_frames=256

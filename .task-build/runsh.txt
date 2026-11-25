@@ -1,0 +1,17 @@
+CASE prefetch internal_buffer_immediate checks=4
+CASE prefetch no_notification_keeps_cache checks=1
+CASE prefetch barrier_inflight_read_fenced checks=521
+CASE prefetch direct_vs_buffered_stereo checks=9
+GROUP prefetch cases=4 checks=535 COMPLETE
+CASE resampling ratio_3_over_2_prefilter checks=9
+CASE resampling ratio_2_over_3_postfilter checks=9
+CASE resampling mono_3_over_2_boundary checks=9
+CASE resampling chunk_independence checks=4
+GROUP resampling cases=4 checks=31 COMPLETE
+CASE continuity no_skip_no_repeat checks=30
+CASE continuity two_edits_last_wins checks=5
+CASE continuity empty_range_noop checks=1
+CASE continuity seek_and_pause_unchanged checks=6
+GROUP continuity cases=4 checks=42 COMPLETE
+TARGET_COMPLETE cases=12
+BASELINE_AUDIO normal=0.25 edited_source=-0.5 cached_output=0.25 output_frames=256

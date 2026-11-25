@@ -82,6 +82,43 @@ public:
                     int maxNumChannels = 2);
 
     //==============================================================================
+    /** Notifies the transport that a region of the currently selected source has
+        been overwritten in place, without changing its length or sample rate.
+
+        @param sourceFrames  the edited region, expressed in the original source's
+                             sample frames (not device/output frames). An empty
+                             range is ignored.
+
+        This connects the notification to every layer that may already be holding
+        old PCM: the background BufferingAudioSource read-ahead cache (including a
+        read that is in flight on the TimeSliceThread while this method is called)
+        and the few input samples buffered by the ResamplingAudioSource. After this
+        method returns, a stale in-flight read can no longer be published as valid
+        cache, and subsequent blocks read the new content.
+
+        The playback position is not moved: audio already delivered is unchanged,
+        and the following output frames neither skip nor repeat. The resampler's
+        fractional phase and its filter history are preserved, so this must not be
+        used as a substitute for setNextReadPosition()/setPosition(). No
+        prepareToPlay() or releaseResources() call is made on the underlying source.
+
+        The caller must synchronise its own edits to the source and must ensure
+        that the range starts at {@code ceil(q) + 2} or later (and stays within the
+        source), where {@code q} is the source-frame position of the next frame to
+        deliver: the source position at the most recent seek plus the number of
+        device frames delivered since then multiplied by sourceRate/deviceRate.
+        That margin keeps the resampler interpolation pair and filter history on
+        samples that have not been edited. Repeated edits to the same unplayed
+        region simply converge on the latest content.
+
+        Call this between audio callbacks. It does not restart playback and does
+        not require setSource() to be called again.
+
+        @see BufferingAudioSource::notifySourceChanged
+    */
+    void notifySourceChanged (Range<int64> sourceFrames);
+
+    //==============================================================================
     /** Changes the current playback position in the source stream.
 
         The next time the getNextAudioBlock() method is called, this

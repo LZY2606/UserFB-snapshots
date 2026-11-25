@@ -1,0 +1,1 @@
+RUN [prefetch] barrier_inflight_read_fenced

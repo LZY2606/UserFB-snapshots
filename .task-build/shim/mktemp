@@ -1,0 +1,8 @@
+#!/bin/bash
+# Verification-only shim: the sandbox denies mktemp's /var/folders location,
+# so create the log inside the repository build directory instead.
+dir="/Users/lzy/pro/UserFB/workspace/Z2114/attempts/20261124T235407007308Z/repo/.task-build/tmp"
+mkdir -p "$dir"
+f="$dir/mt.$$.$RANDOM"
+: > "$f"
+printf '%s\n' "$f"

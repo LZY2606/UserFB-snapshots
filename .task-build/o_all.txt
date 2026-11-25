@@ -1,0 +1,24 @@
+RUN [prefetch] internal_buffer_immediate
+DONE internal_buffer_immediate r=0 checks=4
+RUN [prefetch] no_notification_keeps_cache
+DONE no_notification_keeps_cache r=0 checks=5
+RUN [prefetch] barrier_inflight_read_fenced
+DONE barrier_inflight_read_fenced r=0 checks=526
+RUN [prefetch] direct_vs_buffered_stereo
+DONE direct_vs_buffered_stereo r=0 checks=535
+RUN [resampling] ratio_3_over_2_prefilter
+DONE ratio_3_over_2_prefilter r=0 checks=544
+RUN [resampling] ratio_2_over_3_postfilter
+DONE ratio_2_over_3_postfilter r=0 checks=553
+RUN [resampling] mono_3_over_2_boundary
+DONE mono_3_over_2_boundary r=0 checks=562
+RUN [resampling] chunk_independence
+DONE chunk_independence r=0 checks=566
+RUN [continuity] no_skip_no_repeat
+DONE no_skip_no_repeat r=0 checks=596
+RUN [continuity] two_edits_last_wins
+DONE two_edits_last_wins r=0 checks=601
+RUN [continuity] empty_range_noop
+DONE empty_range_noop r=0 checks=602
+RUN [continuity] seek_and_pause_unchanged
+DONE seek_and_pause_unchanged r=0 checks=608

@@ -1,0 +1,2 @@
+RUN [prefetch] barrier_inflight_read_fenced
+DONE barrier_inflight_read_fenced r=0 checks=521

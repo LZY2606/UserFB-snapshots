@@ -100,6 +100,14 @@ void BufferingAudioSource::releaseResources()
 
 void BufferingAudioSource::getNextAudioBlock (const AudioSourceChannelInfo& info)
 {
+    // Directly after a source change the valid range may have just been dropped.
+    // Block (offline use) until the background thread has re-read fresh PCM so
+    // that the caller never receives a zeroed gap or skips frames. This only
+    // waits after an explicit notification; normal cache-miss behaviour is
+    // otherwise unchanged.
+    if (refreshPending.exchange (false))
+        waitForNextAudioBlockReady (info, 10000);
+
     const auto bufferRange = getValidBufferRange (info.numSamples);
 
     if (bufferRange.isEmpty())
@@ -218,6 +226,50 @@ void BufferingAudioSource::setNextReadPosition (int64 newPosition)
     backgroundThread.moveToFrontOfQueue (this);
 }
 
+void BufferingAudioSource::notifySourceChanged (Range<int64> sourceFrames)
+{
+    if (sourceFrames.isEmpty())
+        return;
+
+    refreshPending = true;
+
+    const ScopedLock sl (bufferRangeLock);
+
+    // Any read chunk published after this bump is only accepted if it started
+    // after the invalidation, fencing off a stale read that is in flight.
+    ++readGeneration;
+
+    const auto changedStart = sourceFrames.getStart();
+    const auto playPos = nextPlayPos.load();
+
+    if (changedStart <= bufferValidStart)
+    {
+        // The whole valid window may contain stale data: drop it and leave an
+        // empty range anchored at the current playback position.
+        bufferValidStart = bufferValidEnd = playPos;
+    }
+    else if (changedStart < bufferValidEnd)
+    {
+        // Keep the still-valid prefix, discard the stale suffix.
+        bufferValidEnd = changedStart;
+    }
+
+    backgroundThread.moveToFrontOfQueue (this);
+}
+
+void BufferingAudioSource::rewindAndInvalidate (int64 newPosition)
+{
+    refreshPending = true;
+
+    const ScopedLock sl (bufferRangeLock);
+
+    ++readGeneration;
+    nextPlayPos = newPosition;
+    bufferValidStart = bufferValidEnd = newPosition;
+
+    backgroundThread.moveToFrontOfQueue (this);
+}
+
 Range<int> BufferingAudioSource::getValidBufferRange (int numSamples) const
 {
     const ScopedLock sl (bufferRangeLock);
@@ -231,9 +283,12 @@ Range<int> BufferingAudioSource::getValidBufferRange (int numSamples) const
 bool BufferingAudioSource::readNextBufferChunk()
 {
     int64 newBVS, newBVE, sectionToReadStart, sectionToReadEnd;
+    uint64 generationAtStart = 0;
 
     {
         const ScopedLock sl (bufferRangeLock);
+
+        generationAtStart = readGeneration.load();
 
         if (wasSourceLooping != isLooping())
         {
@@ -299,14 +354,26 @@ bool BufferingAudioSource::readNextBufferChunk()
                            0);
     }
 
+    bool published = false;
+
     {
         const ScopedLock sl2 (bufferRangeLock);
 
-        bufferValidStart = newBVS;
-        bufferValidEnd = newBVE;
+        // If notifySourceChanged()/rewindAndInvalidate() interleaved with this
+        // read and bumped the generation, the chunk that was just read may hold
+        // old PCM and must never become the valid cache range. The next time
+        // slice then re-reads using the current validity/position.
+        if (readGeneration.load() == generationAtStart)
+        {
+            bufferValidStart = newBVS;
+            bufferValidEnd = newBVE;
+            published = true;
+        }
     }
 
-    bufferReadyEvent.signal();
+    if (published)
+        bufferReadyEvent.signal();
+
     return true;
 }
 
