@@ -30,10 +30,13 @@ Makefile.in
 .libs/
 .deps/
 /build
+/.budget-logs/
 /onig-*.tar.gz
 m4/*.m4
 /coverage
 /coverage.info
+/test/redos_mutation_artifacts/
+/.budget-failures/
 /fuzzers
 /.vscode
 
