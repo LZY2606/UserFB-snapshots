@@ -25,7 +25,7 @@
  */
 
 import { ns_ebutts, ns_itts, ns_smpte, ns_tts } from "./names.js";
-import { ComputedLength, parseColor, parseLength, parsePosition, parseTextShadow, toComputedLength } from "./utils.js";
+import { createComputedLength, parseColor, parseLength, parsePosition, parseTextShadow, toComputedLength } from "./utils.js";
 
 /**
  * @module imscStyles
@@ -151,7 +151,7 @@ export const all = [
 
             if (attr === "auto") {
 
-                h = new ComputedLength(0, 1);
+                h = createComputedLength(0, 1);
 
             } else {
 
@@ -173,7 +173,7 @@ export const all = [
 
             if (attr === "auto") {
 
-                w = new ComputedLength(1, 0);
+                w = createComputedLength(1, 0);
 
             } else {
 
@@ -419,7 +419,7 @@ export const all = [
 
             if (attr === "auto") {
 
-                h = new ComputedLength(0, 0);
+                h = createComputedLength(0, 0);
 
             } else {
 
@@ -442,7 +442,7 @@ export const all = [
 
             if (attr === "auto") {
 
-                w = new ComputedLength(0, 0);
+                w = createComputedLength(0, 0);
 
             } else {
 
@@ -573,7 +573,7 @@ export const all = [
 
                 if (padding[i].value === 0) {
 
-                    out[i] = new ComputedLength(0, 0);
+                    out[i] = createComputedLength(0, 0);
 
                 } else {
 
@@ -614,7 +614,7 @@ export const all = [
                 attr.v.offset.value,
                 attr.v.offset.unit,
                 null,
-                new ComputedLength(
+                createComputedLength(
                     - element.styleAttrs[byName.extent.qname].h.rw,
                     doc.dimensions.h.rh - element.styleAttrs[byName.extent.qname].h.rh,
                 ),
@@ -626,7 +626,7 @@ export const all = [
 
             if (attr.v.edge === "bottom") {
 
-                h = new ComputedLength(
+                h = createComputedLength(
                     - h.rw - element.styleAttrs[byName.extent.qname].h.rw,
                     doc.dimensions.h.rh - h.rh - element.styleAttrs[byName.extent.qname].h.rh,
                 );
@@ -637,7 +637,7 @@ export const all = [
                 attr.h.offset.value,
                 attr.h.offset.unit,
                 null,
-                new ComputedLength(
+                createComputedLength(
                     doc.dimensions.w.rw - element.styleAttrs[byName.extent.qname].w.rw,
                     - element.styleAttrs[byName.extent.qname].w.rh,
                 ),
@@ -649,7 +649,7 @@ export const all = [
 
             if (attr.h.edge === "right") {
 
-                w = new ComputedLength(
+                w = createComputedLength(
                     doc.dimensions.w.rw - w.rw - element.styleAttrs[byName.extent.qname].w.rw,
                     - w.rh - element.styleAttrs[byName.extent.qname].w.rh,
                 );
@@ -759,7 +759,7 @@ export const all = [
 
             if (attr[1] === null) {
 
-                fs = new ComputedLength(
+                fs = createComputedLength(
                     element.styleAttrs[byName.fontSize.qname].rw * 0.5,
                     element.styleAttrs[byName.fontSize.qname].rh * 0.5,
                 );

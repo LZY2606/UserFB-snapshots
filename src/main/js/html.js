@@ -26,9 +26,13 @@
 
 import { reportError, reportWarning } from "./error.js";
 import { byName } from "./styles.js";
+import { lengthIsZero, usedLength } from "./utils.js";
 
 /**
- * @typedef {import("./isd").ISD} ISD
+ * @typedef {Object} ISD Plain intermediate document object
+ * @property {Object[]} contents
+ * @property {string} aspectRatio
+ * @property {string} lang
  * @typedef {import("./error").ErrorHandler} ErrorHandler
  */
 
@@ -316,9 +320,9 @@ function processElement(context, dom_parent, isd_element, isd_parent) {
 
     const lp = isd_element.styleAttrs[byName.linePadding.qname];
 
-    if (lp && (!lp.isZero())) {
+    if (lp && (!lengthIsZero(lp))) {
 
-        const plength = lp.toUsedLength(context.w, context.h);
+        const plength = usedLength(lp, context.w, context.h);
 
         if (plength > 0) {
 
@@ -520,7 +524,7 @@ function processElement(context, dom_parent, isd_element, isd_parent) {
 
         if (context.lp) {
 
-            applyLinePadding(linelist, context.lp.toUsedLength(context.w, context.h), context);
+            applyLinePadding(linelist, usedLength(context.lp, context.w, context.h), context);
 
             context.lp = null;
 
@@ -986,7 +990,7 @@ function applyRubyReserve(lineList, context) {
 
     for (let i = 0; i < lineList.length; i++) {
 
-        const fs = context.rubyReserve[1].toUsedLength(context.w, context.h) + "px";
+        const fs = usedLength(context.rubyReserve[1], context.w, context.h) + "px";
 
         /* We cannot use the deprecated <rtc> to reserve space, so instead we use nested rubies */
 
@@ -1457,8 +1461,8 @@ const STYLING_MAP_DEFS = [
         function (context, dom_element, isd_element, attr) {
             /* TODO: this is super ugly */
 
-            context.regionH = attr.h.toUsedLength(context.w, context.h);
-            context.regionW = attr.w.toUsedLength(context.w, context.h);
+            context.regionH = usedLength(attr.h, context.w, context.h);
+            context.regionW = usedLength(attr.w, context.w, context.h);
 
             /*
              * CSS height/width are measured against the content rectangle,
@@ -1476,8 +1480,8 @@ const STYLING_MAP_DEFS = [
 
             } else {
 
-                hdelta = p[0].toUsedLength(context.w, context.h) + p[2].toUsedLength(context.w, context.h);
-                wdelta = p[1].toUsedLength(context.w, context.h) + p[3].toUsedLength(context.w, context.h);
+                hdelta = usedLength(p[0], context.w, context.h) + usedLength(p[2], context.w, context.h);
+                wdelta = usedLength(p[1], context.w, context.h) + usedLength(p[3], context.w, context.h);
 
             }
 
@@ -1590,7 +1594,7 @@ const STYLING_MAP_DEFS = [
     new HTMLStylingMapDefinition(
         "http://www.w3.org/ns/ttml#styling fontSize",
         function (context, dom_element, isd_element, attr) {
-            dom_element.style.fontSize = attr.toUsedLength(context.w, context.h) + "px";
+            dom_element.style.fontSize = usedLength(attr, context.w, context.h) + "px";
         },
     ),
 
@@ -1622,7 +1626,7 @@ const STYLING_MAP_DEFS = [
 
             const fs = isd_element.styleAttrs[byName.fontSize.qname];
 
-            dom_element.style.fontSize = (fs.toUsedLength(context.w, context.h) * 0.70) + "px";
+            dom_element.style.fontSize = (usedLength(fs, context.w, context.h) * 0.70) + "px";
         },
     ),
     new HTMLStylingMapDefinition(
@@ -1640,7 +1644,7 @@ const STYLING_MAP_DEFS = [
 
             } else {
 
-                dom_element.style.lineHeight = attr.toUsedLength(context.w, context.h) + "px";
+                dom_element.style.lineHeight = usedLength(attr, context.w, context.h) + "px";
             }
         },
     ),
@@ -1653,8 +1657,8 @@ const STYLING_MAP_DEFS = [
     new HTMLStylingMapDefinition(
         "http://www.w3.org/ns/ttml#styling origin",
         function (context, dom_element, isd_element, attr) {
-            dom_element.style.top = attr.h.toUsedLength(context.w, context.h) + "px";
-            dom_element.style.left = attr.w.toUsedLength(context.w, context.h) + "px";
+            dom_element.style.top = usedLength(attr.h, context.w, context.h) + "px";
+            dom_element.style.left = usedLength(attr.w, context.w, context.h) + "px";
         },
     ),
     new HTMLStylingMapDefinition(
@@ -1673,10 +1677,10 @@ const STYLING_MAP_DEFS = [
 
             const rslt = [];
 
-            rslt[0] = attr[0].toUsedLength(context.w, context.h) + "px";
-            rslt[1] = attr[3].toUsedLength(context.w, context.h) + "px";
-            rslt[2] = attr[2].toUsedLength(context.w, context.h) + "px";
-            rslt[3] = attr[1].toUsedLength(context.w, context.h) + "px";
+            rslt[0] = usedLength(attr[0], context.w, context.h) + "px";
+            rslt[1] = usedLength(attr[3], context.w, context.h) + "px";
+            rslt[2] = usedLength(attr[2], context.w, context.h) + "px";
+            rslt[3] = usedLength(attr[1], context.w, context.h) + "px";
 
             dom_element.style.padding = rslt.join(" ");
         },
@@ -1684,8 +1688,8 @@ const STYLING_MAP_DEFS = [
     new HTMLStylingMapDefinition(
         "http://www.w3.org/ns/ttml#styling position",
         function (context, dom_element, isd_element, attr) {
-            dom_element.style.top = attr.h.toUsedLength(context.w, context.h) + "px";
-            dom_element.style.left = attr.w.toUsedLength(context.w, context.h) + "px";
+            dom_element.style.top = usedLength(attr.h, context.w, context.h) + "px";
+            dom_element.style.left = usedLength(attr.w, context.w, context.h) + "px";
         },
     ),
     new HTMLStylingMapDefinition(
@@ -1815,9 +1819,9 @@ const STYLING_MAP_DEFS = [
 
                     for (let i = 0; i < attr.length; i++) {
 
-                        s.push(attr[i].x_off.toUsedLength(context.w, context.h) + "px " +
-                            attr[i].y_off.toUsedLength(context.w, context.h) + "px " +
-                            attr[i].b_radius.toUsedLength(context.w, context.h) + "px " +
+                        s.push(usedLength(attr[i].x_off, context.w, context.h) + "px " +
+                            usedLength(attr[i].y_off, context.w, context.h) + "px " +
+                            usedLength(attr[i].b_radius, context.w, context.h) + "px " +
                             "rgba(" +
                             attr[i].color[0].toString() + "," +
                             attr[i].color[1].toString() + "," +

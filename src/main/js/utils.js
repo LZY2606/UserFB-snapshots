@@ -359,6 +359,39 @@ export class ComputedLength {
 }
 
 /**
+ * Creates a computed length as a plain object. Computed lengths that end up in
+ * an ISD are plain (rather than ComputedLength instances) so that an ISD can
+ * be serialized to JSON and compared against the in-memory representation.
+ *
+ * @param {number} rw
+ * @param {number} rh
+ * @returns {{rw: number, rh: number}}
+ */
+export function createComputedLength(rw, rh) {
+    return { rw, rh };
+}
+
+/**
+ * Resolves a plain computed length against the root container dimensions.
+ *
+ * @param {{rw: number, rh: number}} computedLength
+ * @param {number} width
+ * @param {number} height
+ * @returns {number}
+ */
+export function usedLength(computedLength, width, height) {
+    return width * computedLength.rw + height * computedLength.rh;
+}
+
+/**
+ * @param {{rw: number, rh: number}} computedLength
+ * @returns {boolean}
+ */
+export function lengthIsZero(computedLength) {
+    return computedLength.rw === 0 && computedLength.rh === 0;
+}
+
+/**
  * Computes a specified length to a root container relative length
  *
  * @param {number} lengthVal Length value to be computed
@@ -374,42 +407,42 @@ export function toComputedLength(lengthVal, lengthUnit, emLength, percentLength,
 
     if (lengthUnit === "%" && percentLength) {
 
-        return new ComputedLength(
+        return createComputedLength(
             percentLength.rw * lengthVal / 100,
             percentLength.rh * lengthVal / 100,
         );
 
     } else if (lengthUnit === "em" && emLength) {
 
-        return new ComputedLength(
+        return createComputedLength(
             emLength.rw * lengthVal,
             emLength.rh * lengthVal,
         );
 
     } else if (lengthUnit === "c" && cellLength) {
 
-        return new ComputedLength(
+        return createComputedLength(
             lengthVal * cellLength.rw,
             lengthVal * cellLength.rh,
         );
 
     } else if (lengthUnit === "px" && pxLength) {
 
-        return new ComputedLength(
+        return createComputedLength(
             lengthVal * pxLength.rw,
             lengthVal * pxLength.rh,
         );
 
     } else if (lengthUnit === "rh") {
 
-        return new ComputedLength(
+        return createComputedLength(
             0,
             lengthVal / 100,
         );
 
     } else if (lengthUnit === "rw") {
 
-        return new ComputedLength(
+        return createComputedLength(
             lengthVal / 100,
             0,
         );
@@ -429,4 +462,78 @@ export function toComputedLength(lengthVal, lengthUnit, emLength, percentLength,
  */
 export function hasOwnProperty(obj, prop) {
     return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+/**
+ * Parses a TTML time expression into a number of seconds, or null if the
+ * expression cannot be parsed.
+ *
+ * @param {number} tickRate Document tick rate
+ * @param {number} effectiveFrameRate Document effective frame rate
+ * @param {string} str Time expression
+ * @returns {number | null}
+ */
+export function parseTimeExpression(tickRate, effectiveFrameRate, str) {
+
+    const CLOCK_TIME_FRACTION_RE = /^(\d{2,}):(\d\d):(\d\d(?:\.\d+)?)$/;
+    const CLOCK_TIME_FRAMES_RE = /^(\d{2,}):(\d\d):(\d\d):(\d{2,})$/;
+    const OFFSET_FRAME_RE = /^(\d+(?:\.\d+)?)f$/;
+    const OFFSET_TICK_RE = /^(\d+(?:\.\d+)?)t$/;
+    const OFFSET_MS_RE = /^(\d+(?:\.\d+)?)ms$/;
+    const OFFSET_S_RE = /^(\d+(?:\.\d+)?)s$/;
+    const OFFSET_H_RE = /^(\d+(?:\.\d+)?)h$/;
+    const OFFSET_M_RE = /^(\d+(?:\.\d+)?)m$/;
+    let m;
+    let r = null;
+    if ((m = OFFSET_FRAME_RE.exec(str)) !== null) {
+
+        if (effectiveFrameRate !== null) {
+
+            r = parseFloat(m[1]) / effectiveFrameRate;
+        }
+
+    } else if ((m = OFFSET_TICK_RE.exec(str)) !== null) {
+
+        if (tickRate !== null) {
+
+            r = parseFloat(m[1]) / tickRate;
+        }
+
+    } else if ((m = OFFSET_MS_RE.exec(str)) !== null) {
+
+        r = parseFloat(m[1]) / 1000.0;
+
+    } else if ((m = OFFSET_S_RE.exec(str)) !== null) {
+
+        r = parseFloat(m[1]);
+
+    } else if ((m = OFFSET_H_RE.exec(str)) !== null) {
+
+        r = parseFloat(m[1]) * 3600.0;
+
+    } else if ((m = OFFSET_M_RE.exec(str)) !== null) {
+
+        r = parseFloat(m[1]) * 60.0;
+
+    } else if ((m = CLOCK_TIME_FRACTION_RE.exec(str)) !== null) {
+
+        r = parseInt(m[1]) * 3600 +
+            parseInt(m[2]) * 60 +
+            parseFloat(m[3]);
+
+    } else if ((m = CLOCK_TIME_FRAMES_RE.exec(str)) !== null) {
+
+        /* this assumes that HH:MM:SS is a clock-time-with-fraction */
+
+        if (effectiveFrameRate !== null) {
+
+            r = parseInt(m[1]) * 3600 +
+                parseInt(m[2]) * 60 +
+                parseInt(m[3]) +
+                (m[4] === null ? 0 : parseInt(m[4]) / effectiveFrameRate);
+        }
+
+    }
+
+    return r;
 }

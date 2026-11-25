@@ -79,11 +79,38 @@ imscJS consists of the following ES modules at [src/main/js](src/main/js), which
 * `parser.js`: defines the XML parser contract expected by `doc.js`
 * `dom_to_parser.js`: implements the XML parser contract using the browser's `DOMParser`
 * `isd.js`: generates an ISD object from a TT object
+* `animation.js`: offline sampling of the supported inline TTML2 `<animate>` subset
 * `html.js`: generates an HTML fragment from an ISD object
 * `names.js`: common constants
 * `styles.js`: defines TTML styling attributes processing
 * `utils.js`: common utility functions
 * `error.js`: defines error handling utilities used across modules
+
+### Inline animation (offline sampling)
+
+A restricted subset of TTML2 inline [`<animate>`](https://www.w3.org/TR/ttml2/#animation-vocabulary) is resolved directly against the document clock by `fromParser()` and sampled by `generateISD()`, without any browser animation machinery. The ISD produced at an arbitrary offset therefore reflects the animated values, and an ISD can be generated at any frame time — it does not have to coincide with a media time event.
+
+Supported subset:
+
+* hosts: `region`, `body`, `div`, `p` and `span`
+* target properties: `tts:opacity` (regions only) and `tts:fontSize` (on `p`/`span`, and on `body`/`div` as an inheritance source). Values are written directly on the `<animate>` element, e.g. `tts:opacity="0;1"`; each list has at least two values. Opacity values must be in `[0,1]`; fontSize values must be single positive lengths that all share the same `px` or `%` unit
+* `calcMode="linear"` (default) and `calcMode="discrete"`; `keyTimes` default to equidistant values and, when present, must match the number of values, start at 0, end at 1 and be strictly increasing
+* a positive finite `dur`; `begin`/`end` use the existing time expressions; finite `repeatCount` in `(0,1024]` (default 1); `fill="remove"` (default) or `fill="freeze"`
+* the active duration is bounded by both `dur * repeatCount` and an explicit `end`; the phase is computed from the unclipped begin, so ancestor visibility clips only restrict when an animation takes effect and never shift or rescale a cycle
+
+Other animation styling, `paced`/`spline` interpolation, external animations and `animateMotion`/`animateColor` are not supported and raise an explicit parse error rather than being silently treated as static styling.
+
+In addition to `getMediaTimeEvents()`, which is extended with the clipped animation begin, active end, cycle boundaries and keyTimes instants, the parsed document exposes:
+
+* `getContinuousAnimationRanges()`: returns the merged union (independent `[start, end]` arrays) of the intervals during which `linear` animations actually take effect, clipped by each host and all of its ancestors. Freeze tails and discrete animations are excluded; an empty array is returned for static content.
+
+The headless sample [examples/animate_frames.mjs](examples/animate_frames.mjs) uses the bundled SAX parser (no DOM) to sample a document at an arbitrary list of times:
+
+```sh
+node examples/animate_frames.mjs input.ttml times.json output.json
+```
+
+It writes `{ events, ranges, frames }`, where each frame is `{ time, isd }` and the ISDs are identical to calling `fromParser()`/`generateISD()` directly. The process exits non-zero on any error.
 
 ## Build
 

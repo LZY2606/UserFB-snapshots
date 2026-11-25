@@ -27,7 +27,8 @@
 import { reportError, reportFatal, reportWarning } from "./error.js";
 import { ns_ebutts, ns_ittp, ns_itts, ns_tt, ns_ttp, ns_tts } from "./names.js";
 import { byName, byQName } from "./styles.js";
-import { ComputedLength, hasOwnProperty, parseLength } from "./utils.js";
+import { ComputedLength, hasOwnProperty, parseLength, parseTimeExpression } from "./utils.js";
+import { applyAnimations, collectContinuousAnimationRanges, parseAnimateNode, resolveAnimateTiming, resolveDocumentAnimations } from "./animation.js";
 
 /**
  * @module imscDoc
@@ -550,6 +551,43 @@ export function fromParser(xmlstring, errorHandler, metadataHandler, parser) {
 
                 estack.unshift(st);
 
+            } else if (node.local === "animate") {
+
+                if (!(estack[0] instanceof SpanElement ||
+                    estack[0] instanceof PElement ||
+                    estack[0] instanceof DivElement ||
+                    estack[0] instanceof BodyElement ||
+                    estack[0] instanceof RegionElement)) {
+
+                    reportFatal(errorHandler, "Parent of <animate> element is not a region, body, div, p or span at " + this.line + "," + this.column + ")");
+
+                }
+
+                const hostKind = estack[0].kind || "region";
+
+                const anim = parseAnimateNode(doc, node, hostKind, errorHandler);
+
+                if (!("animates" in estack[0])) {
+                    estack[0].animates = [];
+                }
+
+                estack[0].animates.push(anim);
+
+                /* push so that the matching closing tag simply shifts the
+                 * stack, like <set>; <animate> has no children of interest */
+
+                estack.unshift(anim);
+
+            } else if (node.local === "animateMotion" ||
+                node.local === "animateColor" ||
+                node.local === "animation") {
+
+                /* only inline <animate> of tts:opacity and tts:fontSize is
+                 * supported: other animation constructs must fail explicitly
+                 * rather than be silently ignored as static content */
+
+                reportFatal(errorHandler, "TTML <" + node.local + "> elements are not supported");
+
             } else {
 
                 /* element in the TT namespace, but not a content element */
@@ -653,6 +691,10 @@ export function fromParser(xmlstring, errorHandler, metadataHandler, parser) {
         resolveTiming(doc, doc.body, null, null);
     }
 
+    /* register clipped media time events for inline animations */
+
+    resolveDocumentAnimations(doc);
+
     /* remove undefined spans in ruby containers */
 
     if (doc.body) {
@@ -748,6 +790,27 @@ function resolveTiming(doc, element, prev_sibling, parent) {
 
     }
 
+    /* resolve inline <animate> timing. The active duration (possibly extended
+     * by repeatCount or shortened by an explicit end) extends the host's
+     * implicit duration, so a seq successor starts after the full active
+     * interval rather than a single simple duration. The contribution is
+     * folded into implicit_end below, after the contents pass, since the
+     * no-contents/seq branches otherwise reset it. */
+
+    let animate_end = null;
+
+    if ("animates" in element) {
+
+        for (const anim of element.animates) {
+
+            resolveAnimateTiming(element, anim);
+
+            animate_end = animate_end === null ? anim.activeEnd : Math.max(animate_end, anim.activeEnd);
+
+        }
+
+    }
+
     if (!("contents" in element)) {
 
         /* anonymous spans and regions and <set> and <br>s and spans with only children text nodes */
@@ -783,6 +846,26 @@ function resolveTiming(doc, element, prev_sibling, parent) {
             }
 
             s = element.contents[content_i];
+
+        }
+
+    }
+
+    /* extend the implicit duration by the active interval of inline
+     * animations; an explicit host dur/end still clamps the desired end.
+     * In a seq container, terminal text content yields an indefinite
+     * implicit end: the finite animation active interval bounds it so that
+     * the seq successor starts when the animation becomes inactive. */
+
+    if (animate_end !== null) {
+
+        if (Number.isFinite(implicit_end)) {
+
+            implicit_end = Math.max(implicit_end, animate_end);
+
+        } else if (isinseq) {
+
+            implicit_end = animate_end;
 
         }
 
@@ -964,6 +1047,20 @@ export class TTElement {
     getMediaTimeEvents() {
 
         return this.events;
+    };
+
+    /**
+     * Returns the union of the intervals during which linear inline
+     * animations actually take effect, clipped by each host and all of its
+     * ancestors. Overlapping or adjacent intervals are merged. Freeze tails
+     * and discrete animations are excluded. An empty array is returned when
+     * the document contains no continuous animation.
+     *
+     * @returns {[number, number][]} Independent [start, end] pairs
+     */
+    getContinuousAnimationRanges() {
+
+        return collectContinuousAnimationRanges(this);
     };
 }
 
@@ -1205,13 +1302,16 @@ export class StyledMixin {
 export class AnimatedMixin {
     /**
      * @param {any[]} sets
+     * @param {any[]} animates
      */
-    constructor(sets) {
+    constructor(sets, animates) {
         this.sets = sets;
+        this.animates = animates;
     }
 
     initFromNode() {
         this.sets = [];
+        this.animates = [];
     }
 }
 
@@ -1434,6 +1534,7 @@ export class RegionElement {
         r.id = "";
         r.styleAttrs = {};
         r.sets = [];
+        r.animates = [];
         r.explicit_begin = 0;
         r.explicit_end = Number.POSITIVE_INFINITY;
         r.explicit_dur = null;
@@ -1839,77 +1940,6 @@ function extractExtent(node, errorHandler) {
 
     return { "h": h, "w": w };
 
-}
-
-/**
- * @param {number} tickRate
- * @param {number} effectiveFrameRate
- * @param {string} str
- * @returns {number | null}
- */
-function parseTimeExpression(tickRate, effectiveFrameRate, str) {
-
-    const CLOCK_TIME_FRACTION_RE = /^(\d{2,}):(\d\d):(\d\d(?:\.\d+)?)$/;
-    const CLOCK_TIME_FRAMES_RE = /^(\d{2,}):(\d\d):(\d\d):(\d{2,})$/;
-    const OFFSET_FRAME_RE = /^(\d+(?:\.\d+)?)f$/;
-    const OFFSET_TICK_RE = /^(\d+(?:\.\d+)?)t$/;
-    const OFFSET_MS_RE = /^(\d+(?:\.\d+)?)ms$/;
-    const OFFSET_S_RE = /^(\d+(?:\.\d+)?)s$/;
-    const OFFSET_H_RE = /^(\d+(?:\.\d+)?)h$/;
-    const OFFSET_M_RE = /^(\d+(?:\.\d+)?)m$/;
-    let m;
-    let r = null;
-    if ((m = OFFSET_FRAME_RE.exec(str)) !== null) {
-
-        if (effectiveFrameRate !== null) {
-
-            r = parseFloat(m[1]) / effectiveFrameRate;
-        }
-
-    } else if ((m = OFFSET_TICK_RE.exec(str)) !== null) {
-
-        if (tickRate !== null) {
-
-            r = parseFloat(m[1]) / tickRate;
-        }
-
-    } else if ((m = OFFSET_MS_RE.exec(str)) !== null) {
-
-        r = parseFloat(m[1]) / 1000.0;
-
-    } else if ((m = OFFSET_S_RE.exec(str)) !== null) {
-
-        r = parseFloat(m[1]);
-
-    } else if ((m = OFFSET_H_RE.exec(str)) !== null) {
-
-        r = parseFloat(m[1]) * 3600.0;
-
-    } else if ((m = OFFSET_M_RE.exec(str)) !== null) {
-
-        r = parseFloat(m[1]) * 60.0;
-
-    } else if ((m = CLOCK_TIME_FRACTION_RE.exec(str)) !== null) {
-
-        r = parseInt(m[1]) * 3600 +
-            parseInt(m[2]) * 60 +
-            parseFloat(m[3]);
-
-    } else if ((m = CLOCK_TIME_FRAMES_RE.exec(str)) !== null) {
-
-        /* this assumes that HH:MM:SS is a clock-time-with-fraction */
-
-        if (effectiveFrameRate !== null) {
-
-            r = parseInt(m[1]) * 3600 +
-                parseInt(m[2]) * 60 +
-                parseInt(m[3]) +
-                (m[4] === null ? 0 : parseInt(m[4]) / effectiveFrameRate);
-        }
-
-    }
-
-    return r;
 }
 
 /**

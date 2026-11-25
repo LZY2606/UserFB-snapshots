@@ -26,7 +26,8 @@
 
 import { reportError } from "./error.js";
 import { all, byName, byQName } from "./styles.js";
-import { ComputedLength, hasOwnProperty } from "./utils.js";
+import { createComputedLength, hasOwnProperty } from "./utils.js";
+import { applyAnimations } from "./animation.js";
 
 /**
  * @module imscISD
@@ -54,7 +55,7 @@ export function generateISD(tt, offset, errorHandler) {
 
     /* create the ISD object from the IMSC1 doc */
 
-    const isd = new ISD(tt);
+    const isd = createISD(tt);
 
     /* context */
 
@@ -198,7 +199,7 @@ function isdProcessContentElement(doc, offset, region, body, parent, inherited_r
 
     /* create an ISD element, including applying specified styles */
 
-    const isd_element = new ISDContentElement(elem);
+    const isd_element = createISDContentElement(elem);
     const styleAttrs = isd_element.styleAttrs;
 
     /* apply set (animation) styling */
@@ -218,6 +219,15 @@ function isdProcessContentElement(doc, offset, region, body, parent, inherited_r
             }
 
         }
+    }
+
+    /* apply inline <animate> styling, in XML document order and after <set>,
+     * so a later animation overrides an earlier one for the same property.
+     * Animated specified values feed the existing inheritance and computed
+     * value resolution below. */
+
+    if ("animates" in elem) {
+        applyAnimations(elem, styleAttrs, offset);
     }
 
     /*
@@ -322,7 +332,7 @@ function isdProcessContentElement(doc, offset, region, body, parent, inherited_r
 
                 const ruby_fs = parent.styleAttrs[byName.fontSize.qname];
 
-                styleAttrs[sa.qname] = new ComputedLength(
+                styleAttrs[sa.qname] = createComputedLength(
                     0.5 * ruby_fs.rw,
                     0.5 * ruby_fs.rh);
 
@@ -341,7 +351,7 @@ function isdProcessContentElement(doc, offset, region, body, parent, inherited_r
 
                 } else {
 
-                    styleAttrs[sa.qname] = new ComputedLength(
+                    styleAttrs[sa.qname] = createComputedLength(
                         0.5 * parent_fs.rw,
                         0.5 * parent_fs.rh);
                 }
@@ -731,82 +741,99 @@ function pruneEmptySpans(element) {
     }
 }
 
-export class ISD {
-    constructor(tt) {
+/**
+ * Creates a plain ISD object. Plain objects (rather than class instances) are
+ * used throughout the ISD graph so that the in-memory representation is
+ * identical to its JSON serialization, allowing direct frame comparison.
+ *
+ * @param {import("./doc").TTElement} tt
+ * @returns {Object}
+ */
+export function createISD(tt) {
+    return {
         /**
-         * @type {ISDContentElement[]}
+         * @type {Object[]}
          */
-        this.contents = [];
+        contents: [],
 
         /**
          * @type {string}
          */
-        this.aspectRatio = tt.aspectRatio;
+        aspectRatio: tt.aspectRatio,
 
         /**
          * @type {string}
          */
-        this.lang = tt.lang;
-    }
+        lang: tt.lang,
+    };
 }
 
-export class ISDContentElement {
-    constructor(ttelem) {
+/**
+ * Creates a plain ISD content element from a document element.
+ *
+ * @param {Object} ttelem
+ * @returns {Object}
+ */
+export function createISDContentElement(ttelem) {
 
-        /* assume the element is a region if it does not have a kind */
+    const isd_element = {};
 
-        this.kind = ttelem.kind || "region";
+    /* assume the element is a region if it does not have a kind */
 
-        /* copy lang */
+    isd_element.kind = ttelem.kind || "region";
 
-        this.lang = ttelem.lang;
+    /* copy lang */
 
-        /* copy id */
+    isd_element.lang = ttelem.lang;
 
-        if (ttelem.id) {
-            this.id = ttelem.id;
-        }
+    /* copy id */
 
-        /* deep copy of style attributes */
-        this.styleAttrs = {};
+    if (ttelem.id) {
 
-        for (const sname in ttelem.styleAttrs) {
-
-            if (!hasOwnProperty(ttelem.styleAttrs, sname)) continue;
-
-            this.styleAttrs[sname] =
-                ttelem.styleAttrs[sname];
-        }
-
-        /* copy src and type if image */
-
-        if ("src" in ttelem) {
-
-            this.src = ttelem.src;
-
-        }
-
-        if ("type" in ttelem) {
-
-            this.type = ttelem.type;
-
-        }
-
-        /* TODO: clean this!
-         * TODO: ISDElement and document element should be better tied together */
-
-        if ("text" in ttelem) {
-
-            this.text = ttelem.text;
-
-        } else if (this.kind === "region" || "contents" in ttelem) {
-
-            this.contents = [];
-        }
-
-        if ("space" in ttelem) {
-
-            this.space = ttelem.space;
-        }
+        isd_element.id = ttelem.id;
     }
+
+    /* deep copy of style attributes */
+    isd_element.styleAttrs = {};
+
+    for (const sname in ttelem.styleAttrs) {
+
+        if (!hasOwnProperty(ttelem.styleAttrs, sname)) continue;
+
+        isd_element.styleAttrs[sname] =
+            ttelem.styleAttrs[sname];
+    }
+
+    /* copy src and type if image */
+
+    if ("src" in ttelem) {
+
+        isd_element.src = ttelem.src;
+
+    }
+
+    if ("type" in ttelem) {
+
+        isd_element.type = ttelem.type;
+
+    }
+
+    /* TODO: clean this!
+     * TODO: ISDElement and document element should be better tied together */
+
+    if ("text" in ttelem) {
+
+        isd_element.text = ttelem.text;
+
+    } else if (isd_element.kind === "region" || "contents" in ttelem) {
+
+        isd_element.contents = [];
+    }
+
+    if ("space" in ttelem) {
+
+        isd_element.space = ttelem.space;
+    }
+
+    return isd_element;
 }
