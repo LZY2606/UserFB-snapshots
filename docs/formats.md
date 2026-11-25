@@ -44,6 +44,35 @@ From version 1.1.0, libsndfile can read and write MP3.
 
 32 bit PCM in FLAC requires libFLAC 1.4.0 or later.
 
+### CAF/ALAC variable packet durations
+
+In addition to fixed block size CAF/ALAC files, the reader supports seekable
+CAF files whose `desc` chunk has both `bytes per packet` and `frames per
+packet` set to zero and whose `pakt` chunk stores an alternating
+`(byte count, frame count)` pair of big endian 7 bit continuation integers for
+every packet. Each packet's byte interval and sample interval are recorded from
+the metadata only; opening such a file does not scan or decode the audio to
+determine its duration.
+
+The current support range is:
+
+- seekable CAF, including memory based `sf_open_virtual` streams ;
+- `SF_FORMAT_ALAC_16` and `SF_FORMAT_ALAC_24`, mono or stereo ;
+- zero priming and zero remainder frames ;
+- one to the cookie's maximum frame length per packet, capped at 4096.
+
+The packet count, cumulative frame count (`valid frames`), cumulative byte
+count against the `data` chunk and the decoder's per packet output count are
+all checked. Truncated or overflowing continuation integers, zero lengths,
+packet count mismatches and frame or byte range mismatches are rejected as
+malformed input instead of being treated as a normal end of file. A packet
+whose decoded frame count disagrees with its declaration is withheld and raises
+an `sf_error` while the correctly decoded prefix remains available. Seeking,
+`sf_readf_short`, `sf_readf_int`, `sf_readf_float` and `sf_readf_double` all
+use the same zero based sample axis. Writing variable packet duration CAF is
+not provided; the existing fixed block writer and its short tail packets are
+unchanged.
+
 Some of the file formats I am also interested in adding are:
 
 - Kurzweil K2000 sampler files.

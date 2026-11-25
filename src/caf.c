@@ -279,6 +279,7 @@ decode_desc_chunk (SF_PRIVATE *psf, const DESC_CHUNK *desc)
 				} ;
 
 			pcaf->alac.frames_per_packet = desc->frames_per_packet ;
+			pcaf->alac.bytes_per_packet = desc->pkt_bytes ;
 			} ;
 
 		return format ;

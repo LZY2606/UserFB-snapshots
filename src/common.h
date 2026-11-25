@@ -189,6 +189,7 @@ typedef struct
 
 	unsigned	bits_per_sample ;
 	unsigned	frames_per_packet ;
+	unsigned	bytes_per_packet ;
 
 	int64_t 	packets ;
 	int64_t 	valid_frames ;
