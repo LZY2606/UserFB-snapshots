@@ -52,6 +52,29 @@ namespace cr
         virtual color run(const vector<float>& in) const = 0;
     };
 
+    // optional per-fragment gradient input supplied by the production rasterizer
+    // value/dx/dy always refer to the same affine attribute plane evaluated at the
+    // covered integer canvas pixel (x, y); the derivatives are per canvas pixel.
+    struct fragment_gradient
+    {
+        const vector<float>& value; // attribute value at (x, y)
+        const vector<float>& dx;    // derivative with respect to canvas x
+        const vector<float>& dy;    // derivative with respect to canvas y
+        bool has_2d_gradient;       // false for points, lines and disabled interpolation
+        unsigned x;                 // canvas pixel coordinate
+        unsigned y;
+    };
+
+    // optional extension of fragment_shader for shaders consuming gradients
+    // the original run(in) interface and all old shader programs remain valid
+    class gradient_fragment_shader : public fragment_shader
+    {
+    public:
+        virtual ~gradient_fragment_shader() = default;
+
+        virtual color run_gradient(const fragment_gradient& in) const = 0;
+    };
+
     // default vertex shader
     class default_vs : public vertex_shader
     {

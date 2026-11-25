@@ -39,6 +39,10 @@ namespace cr
         void enable_interpolation();
         // disable interpolation, uses first vertex attributes for all fragments
         void disable_interpolation();
+        // enable/disable optional per-fragment gradient callbacks; enabling implies
+        // attribute interpolation (gradient callbacks are a superset thereof)
+        void enable_fragment_gradients();
+        void disable_fragment_gradients();
 
         // drawing of primitives (v - vertex attributes)
         void draw_point(const vector<float>& v);

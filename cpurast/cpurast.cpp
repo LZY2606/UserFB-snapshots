@@ -62,6 +62,15 @@ namespace cr
         renderer.set_interp_enabled(false);
     }
 
+    void context::enable_fragment_gradients() {
+        renderer.set_interp_enabled(true);
+        renderer.set_gradient_enabled(true);
+    }
+
+    void context::disable_fragment_gradients() {
+        renderer.set_gradient_enabled(false);
+    }
+
     void context::draw_point(const vector<float>& v) {
         renderer.render_point(v);
     }

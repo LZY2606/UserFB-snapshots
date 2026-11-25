@@ -29,6 +29,54 @@ This project was created during my master's studies. I chose this assignment bec
 * `examples/square` - colored square utilizing squared viewport
 * `examples/grid` - grid of randomly colored rectangles
 * `shaders` - example cpurast shaders
+* `shaders/lean_shader.hpp` - lean slope-moment vertex/fragment shaders
+* `cpurast/normal_moments.hpp` - owning normal-moment mip texture
+
+## Lean Slope-Moment Material
+
+`cr::normal_moments` stores five raw moments of the slope pair
+`p = nx/nz, q = ny/nz`: `E[p]`, `E[q]`, `E[p^2]`, `E[pq]`, `E[q^2]`.
+The constructor copies the tightly packed `(nx, ny, nz)` array and keeps no
+reference to it, so one texture may be shared by several shader objects.
+Mip levels halve with rounding up; each cell averages its valid 2x2 sub-cells
+weighted by the number of base texels they represent, so the 1x1 top level is
+the full-image statistic. Sampling uses `u*w-0.5`, `v*h-0.5` repeat bilinear;
+the two derivative columns are scaled by the original width/height and the
+largest singular value `rho` selects a trilinear LOD of
+`clamp(log2(max(1, rho)), 0, last)`. The five moments are blended first; the
+mean and covariance are derived afterwards, never blended pre-reduced.
+
+The shader pair `cr::lean_vertex_shader` / `cr::lean_fragment_shader` binds to
+the existing `cr::context`. Input vertices are packed tightly (see
+`shaders/lean_shader.hpp`): homogeneous clip position, view-space position,
+normal, tangent, handedness (+1/-1), and UV. The vertex shader divides UV,
+position, normal and tangent by `w` and appends `1/w`; the fragment shader
+restores them with the analytic quotient rule. Geometry clipping is unchanged.
+
+Enable the optional gradient callback on the production rasterizer to feed the
+material:
+
+```cpp
+context.enable_fragment_gradients(); // implies attribute interpolation
+context.bind_vertex_shader(std::make_shared<cr::lean_vertex_shader>());
+context.bind_fragment_shader(std::make_shared<cr::lean_fragment_shader>(moments, material));
+```
+
+With gradients enabled, the fragment attributes and their `dx`/`dy` come from
+one affine plane through the actually quantized integer canvas vertices, with
+derivatives per canvas pixel. Points, lines, and disabled interpolation report
+`has_2d_gradient == false` with zero derivatives and the provoking attributes;
+old shaders keep the original `run(in)` path, coverage, depth competition, and
+early depth order.
+
+`examples/lean_cpu.cpp` renders a slanted crossed-slope material and writes a
+P3 PPM:
+
+```
+c++ -std=c++17 -O2 -Icpurast -Ishaders examples/lean_cpu.cpp \
+    cpurast/*.cpp shaders/*.cpp -o lean_cpu
+./lean_cpu out.ppm
+```
 
 ## How to Run Examples
 

@@ -112,6 +112,10 @@ namespace cr
         rast.set_interp_enabled(interp_enabled);
     }
 
+    void renderer::set_gradient_enabled(bool gradient_enabled) {
+        rast.set_gradient_enabled(gradient_enabled);
+    }
+
     void renderer::set_fs(const fragment_shader& fs) {
         rast.set_fs(fs);
     }

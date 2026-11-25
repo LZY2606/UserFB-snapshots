@@ -21,7 +21,11 @@ namespace cr
             provoking_attribs = v;
         }
 
-        process_fragment(x, y, d, *v);
+        if (gradient_enabled) {
+            process_fragment_gradient(x, y, d, *v, false);
+        } else {
+            process_fragment(x, y, d, *v);
+        }
     }
 
     void rasterizer::fill_line(int x1, int y1, float d1, const vector<float>* v1,
@@ -69,7 +73,16 @@ namespace cr
         while (x <= x2) // from x1 to x2
         {
             interpolation(0, d1, *v1, d2, *v2, x - x1);
-            process_fragment(fb_x, fb_y, interp_depth[0], interp_attribs[0]);
+            if (gradient_enabled) {
+                // lines have no two-dimensional gradient
+                if (interp_enabled) {
+                    process_fragment_gradient(fb_x, fb_y, interp_depth[0], interp_attribs[0], false);
+                } else {
+                    process_fragment_gradient(fb_x, fb_y, d1, *v1, false);
+                }
+            } else {
+                process_fragment(fb_x, fb_y, interp_depth[0], interp_attribs[0]);
+            }
 
             if (error > 0)
             {
@@ -90,6 +103,13 @@ namespace cr
         {
             provoking_depth = d1;
             provoking_attribs = v1;
+        }
+
+        if (gradient_enabled) {
+            // the attribute planes go through the exact quantized triangle vertices
+            // and are expressed in canvas pixels; this must not be replaced by the
+            // discrete edge/span interpolation steps below
+            prepare_triangle_planes(v1, v2, v3, x1, y1, x2, y2, x3, y3);
         }
 
         // sort vertices by its y position (so that y1 <= y2 <= y3)
@@ -170,7 +190,11 @@ namespace cr
             for (int fb_x = left_x; fb_x < right_x; fb_x++)
             {
                 interpolation(2, interp_depth[0], interp_attribs[0], interp_depth[1], interp_attribs[1], fb_x - left_x);
-                process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                if (gradient_enabled) {
+                    process_fragment_gradient(fb_x, fb_y, interp_depth[2], interp_attribs[2], true);
+                } else {
+                    process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                }
             }
 
             left_error -= 2 * left_dx;
@@ -184,7 +208,7 @@ namespace cr
             left_dy = dy23;
             right_d = d1;
             right_attribs = v1;
-            
+
             left_dx_sign = left_dx < 0 ? -1 : 1;
             left_dx = abs(left_dx);
         }
@@ -226,11 +250,50 @@ namespace cr
             for (int fb_x = left_x; fb_x < right_x; fb_x++)
             {
                 interpolation(2, interp_depth[0], interp_attribs[0], interp_depth[1], interp_attribs[1], fb_x - left_x);
-                process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                if (gradient_enabled) {
+                    process_fragment_gradient(fb_x, fb_y, interp_depth[2], interp_attribs[2], true);
+                } else {
+                    process_fragment(fb_x, fb_y, interp_depth[2], interp_attribs[2]);
+                }
             }
 
             left_error -= 2 * left_dx;
             right_error -= 2 * right_dx;
+        }
+    }
+
+    void rasterizer::prepare_triangle_planes(const vector<float>* v1, const vector<float>* v2,
+                                             const vector<float>* v3,
+                                             int i1x, int i1y, int i2x, int i2y, int i3x, int i3y)
+    {
+        assert(v1->size() == v2->size() && v1->size() == v3->size());
+
+        const double x1 = i1x, y1 = i1y;
+        const double x2 = i2x, y2 = i2y;
+        const double x3 = i3x, y3 = i3y;
+        const double det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
+
+        // the reference point is the first submitted vertex, which is on the plane
+        plane_ref_x = i1x;
+        plane_ref_y = i1y;
+        plane_ref_value = *v1;
+
+        const size_t count = v1->size();
+        plane_dx.assign(count, 0.f);
+        plane_dy.assign(count, 0.f);
+
+        if (det == 0.0) {
+            return; // degenerate triangle: constant attributes, zero derivatives
+        }
+
+        for (size_t i = 0; i < count; i++)
+        {
+            const double dv2 = double((*v2)[i]) - double((*v1)[i]);
+            const double dv3 = double((*v3)[i]) - double((*v1)[i]);
+
+            // solve [x2-x1, y2-y1; x3-x1, y3-y1] * [gx, gy] = [dv2, dv3]
+            plane_dx[i] = float((dv2 * (y3 - y1) - dv3 * (y2 - y1)) / det);
+            plane_dy[i] = float((dv3 * (x2 - x1) - dv2 * (x3 - x1)) / det);
         }
     }
 
@@ -286,8 +349,61 @@ namespace cr
         }
     }
 
+    void rasterizer::process_fragment_gradient(unsigned x, unsigned y, float d, const vector<float>& v,
+                                               bool triangle_with_2d)
+    {
+        // points, lines, and disabled interpolation explicitly have no 2D gradient;
+        // never read leftover planes from a previously rendered triangle in that case
+        const bool has_2d = triangle_with_2d && interp_enabled;
+
+        const float& final_d = interp_enabled ? d : provoking_depth;
+        const vector<float>& final_v = interp_enabled ? v : *provoking_attribs;
+
+        const gradient_fragment_shader* gfs = dynamic_cast<const gradient_fragment_shader*>(fs);
+
+        if (!gfs) {
+            // old shader programs keep their old inputs and old outputs
+            process_fragment(x, y, d, v);
+            return;
+        }
+
+        if (has_2d) {
+            // evaluate the common affine attribute plane at this canvas pixel
+            plane_value.resize(plane_ref_value.size());
+            const long long dx = static_cast<long long>(x) - static_cast<long long>(plane_ref_x);
+            const long long dy = static_cast<long long>(y) - static_cast<long long>(plane_ref_y);
+            for (size_t i = 0; i < plane_value.size(); i++)
+            {
+                plane_value[i] = plane_ref_value[i] + plane_dx[i] * float(dx) + plane_dy[i] * float(dy);
+            }
+
+            const fragment_gradient grad{plane_value, plane_dx, plane_dy, true, x, y};
+            const unsigned fb_index = fb.get_index(x, y);
+            if (fb.depth_test(fb_index, final_d)) {
+                const color fb_col = gfs->run_gradient(grad);
+                fb.write(fb_index, fb_col);
+            }
+            return;
+        }
+
+        // no two-dimensional gradient: zero derivatives and the provoking attribute
+        grad_dx.assign(final_v.size(), 0.f);
+        grad_dy.assign(final_v.size(), 0.f);
+
+        const fragment_gradient grad{final_v, grad_dx, grad_dy, false, x, y};
+        const unsigned fb_index = fb.get_index(x, y);
+        if (fb.depth_test(fb_index, final_d)) {
+            const color fb_col = gfs->run_gradient(grad);
+            fb.write(fb_index, fb_col);
+        }
+    }
+
     void rasterizer::set_interp_enabled(bool interp_enabled) {
         this->interp_enabled = interp_enabled;
+    }
+
+    void rasterizer::set_gradient_enabled(bool gradient_enabled) {
+        this->gradient_enabled = gradient_enabled;
     }
 
     void rasterizer::set_fs(const fragment_shader& fs) {
