@@ -1,0 +1,4 @@
+/Users/lzy/pro/UserFB/workspace/Z02433/attempts/20261125T163157900905Z/repo/.task-build/CMakeFiles/Horde3D.dir
+/Users/lzy/pro/UserFB/workspace/Z02433/attempts/20261125T163157900905Z/repo/.task-build/CMakeFiles/motion_baseline.dir
+/Users/lzy/pro/UserFB/workspace/Z02433/attempts/20261125T163157900905Z/repo/.task-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02433/attempts/20261125T163157900905Z/repo/.task-build/CMakeFiles/rebuild_cache.dir
