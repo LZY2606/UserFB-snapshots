@@ -1968,7 +1968,7 @@ static const uint16_t ud_itab__329[] = {
   /* 84 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 88 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 8c */     INVALID,     INVALID,     INVALID,     INVALID,
-  /* 90 */     INVALID,     INVALID,     INVALID,     INVALID,
+  /* 90 */        1761,        1762,        1763,        1764,
   /* 94 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 98 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 9c */     INVALID,     INVALID,     INVALID,     INVALID,
@@ -3181,6 +3181,8 @@ struct ud_lookup_table_list_entry ud_lookup_table_list[] = {
 #define O_Mo      { OP_M,        SZ_O     }
 #define O_Mq      { OP_M,        SZ_Q     }
 #define O_MqU     { OP_MU,       SZ_QO    }
+#define O_VSIBd   { OP_VSIB,     SZ_D     }
+#define O_VSIBq   { OP_VSIB,     SZ_Q     }
 #define O_Ms      { OP_M,        SZ_W     }
 #define O_Mt      { OP_M,        SZ_T     }
 #define O_Mv      { OP_M,        SZ_V     }
@@ -5031,6 +5033,15 @@ struct ud_itab_entry ud_itab[] = {
   /* 1758 */ { UD_Ivpslld, O_H, O_V, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
   /* 1759 */ { UD_Ivpsllq, O_V, O_H, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
   /* 1760 */ { UD_Ivpsllq, O_H, O_V, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
+
+  /* AVX2 gather (VSIB), VEX.66.0F38 opcodes 90-93. Each opcode has a W=0
+   * placeholder mnemonic here; VEX.W selects the paired flavour and the
+   * operand widths/uniqueness are resolved by resolve_gather() in decode.c.
+   * Operand order is destination, VSIB memory, vector mask. */
+  /* 1761 */ { UD_Ivpgatherdd, O_Vx, O_VSIBd, O_Hx, O_NONE, P_aso|P_rexw|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1762 */ { UD_Ivpgatherqd, O_Vx, O_VSIBd, O_Hx, O_NONE, P_aso|P_rexw|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1763 */ { UD_Ivgatherdps, O_Vx, O_VSIBd, O_Hx, O_NONE, P_aso|P_rexw|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1764 */ { UD_Ivgatherqps, O_Vx, O_VSIBd, O_Hx, O_NONE, P_aso|P_rexw|P_rexr|P_rexx|P_rexb|P_vexl },
 };
 
 
@@ -5942,5 +5953,13 @@ const char* ud_mnemonics_str[] = {
     "3dnow",
     "none",
     "db",
-    "pause"
+    "pause",
+    "vgatherdps",
+    "vgatherdpd",
+    "vgatherqps",
+    "vgatherqpd",
+    "vpgatherdd",
+    "vpgatherdq",
+    "vpgatherqd",
+    "vpgatherqq"
 };

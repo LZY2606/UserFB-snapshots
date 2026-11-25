@@ -96,9 +96,14 @@ enum ud_operand_code {
     OP_U,      OP_N,      OP_MU,      OP_H,
     OP_L,
 
-    OP_R,      OP_C,      OP_D,       
+    OP_R,      OP_C,      OP_D,
 
-    OP_MR
+    OP_MR,
+
+    /* VSIB memory operand (AVX2 gather): ModRM + SIB addressing where
+     * the SIB index field names a vector register instead of a GPR.
+     * Appended so all pre-existing operand code values are preserved. */
+    OP_VSIB
 } UD_ATTR_PACKED;
 
 

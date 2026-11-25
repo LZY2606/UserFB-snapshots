@@ -931,6 +931,18 @@ enum ud_mnemonic_code {
     UD_Inone,
     UD_Idb,
     UD_Ipause,
+
+    /* AVX2 gather (VSIB) extensions. Appended so all pre-existing
+     * public mnemonic enumerator values remain unchanged. */
+    UD_Ivgatherdps,
+    UD_Ivgatherdpd,
+    UD_Ivgatherqps,
+    UD_Ivgatherqpd,
+    UD_Ivpgatherdd,
+    UD_Ivpgatherdq,
+    UD_Ivpgatherqd,
+    UD_Ivpgatherqq,
+
     UD_MAX_MNEMONIC_CODE
 };
 

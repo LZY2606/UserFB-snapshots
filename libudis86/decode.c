@@ -341,12 +341,167 @@ resolve_operand_size(const struct ud* u, ud_operand_size_t osize)
 }
 
 
+/*
+ * gather_vec_num
+ *    Return the physical vector register number (0..15) of an XMM or
+ *    YMM operand enumerator. XMMn and YMMn share physical register n.
+ */
+static unsigned int
+gather_vec_num(enum ud_type t)
+{
+  return (unsigned int)(t - UD_R_XMM0) & 0xfu;
+}
+
+
+/*
+ * resolve_gather
+ *    Finalize an AVX2 gather instruction: select the exact mnemonic from
+ *    VEX.W and apply the operand widths mandated by each flavour.
+ *
+ *    Width matrix (L = VEX.L):
+ *
+ *      mnemonic     W  destination / mask     VSIB index      mem element
+ *      VGATHERDPS   0  L ? YMM(256) : XMM     L ? YMM : XMM   32
+ *      VGATHERDPD   1  L ? YMM(256) : XMM     always XMM      64
+ *      VGATHERQPS   0  always XMM             L ? YMM : XMM   32
+ *      VGATHERQPD   1  L ? YMM(256) : XMM     L ? YMM : XMM   64
+ *      VPGATHERDD   0  L ? YMM(256) : XMM     L ? YMM : XMM   32
+ *      VPGATHERDQ   1  L ? YMM(256) : XMM     always XMM      64
+ *      VPGATHERQD   0  always XMM             L ? YMM : XMM   32
+ *      VPGATHERQQ   1  L ? YMM(256) : XMM     L ? YMM : XMM   64
+ *
+ *    For the integer opcodes 90/91 the opcode selects the index element
+ *    width (D/Q) while VEX.W selects the data element width (D/Q), which
+ *    mirrors the floating-point gather encoding.
+ *
+ *    The destination, VSIB index and mask must name three pairwise
+ *    distinct physical vector registers; XMMn/YMMn count as a collision.
+ *    Any violation marks the instruction invalid through UDERR().
+ */
+static int
+resolve_gather(struct ud *u)
+{
+  struct ud_operand *dst = &u->operand[0];
+  struct ud_operand *mem = &u->operand[1];
+  struct ud_operand *msk = &u->operand[2];
+  enum ud_mnemonic_code m = u->mnemonic;
+  int l = vex_l(u);
+  int w = vex_w(u);
+  int dest_ymm = 0;
+  int index_ymm = 0;
+  unsigned int data_size = 32;
+  unsigned int dn, ix, mn;
+
+  if (dst->type != UD_OP_REG ||
+      mem->type != UD_OP_MEM ||
+      msk->type != UD_OP_REG ||
+      mem->index == UD_NONE) {
+    UDERR(u, "malformed gather operands\n");
+    return -1;
+  }
+
+  switch (m) {
+  case UD_Ivgatherdps:            /* opcode 92, W = 0 */
+    if (w) {
+      m = UD_Ivgatherdpd;         /* DPD: YMM dest, XMM index when L=1 */
+      data_size = 64;
+      dest_ymm = l;
+      index_ymm = 0;
+    } else {
+      data_size = 32;
+      dest_ymm = l;
+      index_ymm = l;
+    }
+    break;
+  case UD_Ivgatherqps:            /* opcode 93, W = 0 */
+    if (w) {
+      m = UD_Ivgatherqpd;
+      data_size = 64;
+      dest_ymm = l;
+      index_ymm = l;
+    } else {
+      /* QPS with L=1: XMM destination/mask, YMM index */
+      data_size = 32;
+      dest_ymm = 0;
+      index_ymm = l;
+    }
+    break;
+  case UD_Ivpgatherdd:            /* opcode 90, D-index */
+    if (w) {
+      m = UD_Ivpgatherdq;         /* W=1: qword data, dword index */
+      data_size = 64;
+      dest_ymm = l;
+      index_ymm = 0;
+    } else {
+      m = UD_Ivpgatherdd;
+      data_size = 32;
+      dest_ymm = l;
+      index_ymm = l;
+    }
+    break;
+  case UD_Ivpgatherqd:            /* opcode 91, Q-index */
+    if (w) {
+      m = UD_Ivpgatherqq;
+      data_size = 64;
+      dest_ymm = l;
+      index_ymm = l;
+    } else {
+      /* QD with L=1: XMM destination/mask, YMM index */
+      m = UD_Ivpgatherqd;
+      data_size = 32;
+      dest_ymm = 0;
+      index_ymm = l;
+    }
+    break;
+  default:
+    UD_ASSERT(!"unreachable gather mnemonic");
+    return -1;
+  }
+
+  dn = gather_vec_num(dst->base);
+  mn = gather_vec_num(msk->base);
+  ix = gather_vec_num(mem->index);
+
+  dst->base = dest_ymm ? (UD_R_YMM0 + dn) : (UD_R_XMM0 + dn);
+  dst->size = dest_ymm ? 256 : 128;
+  msk->base = dest_ymm ? (UD_R_YMM0 + mn) : (UD_R_XMM0 + mn);
+  msk->size = dest_ymm ? 256 : 128;
+  mem->index = index_ymm ? (UD_R_YMM0 + ix) : (UD_R_XMM0 + ix);
+  /* Memory size is the width of a single gathered element. */
+  mem->size = data_size;
+
+  u->mnemonic = m;
+
+  if (dn == mn || dn == ix || mn == ix) {
+    UDERR(u, "gather destination, index and mask must be distinct\n");
+    return -1;
+  }
+  return 0;
+}
+
 static int resolve_mnemonic( struct ud* u )
 {
   /* resolve 3dnow weirdness. */
   if ( u->mnemonic == UD_I3dnow ) {
     u->mnemonic = ud_itab[ u->le->table[ inp_curr( u )  ] ].mnemonic;
   }
+
+  /* AVX2 gather (VSIB) instructions. The itab only keys on the four
+   * opcodes in the VEX.66.0F38 map; VEX.W selects the paired flavour and
+   * the vector widths do not always follow VEX.L, so resolve both here.
+   */
+  if (u->mnemonic == UD_Ivgatherdps  ||
+      u->mnemonic == UD_Ivgatherqps  ||
+      u->mnemonic == UD_Ivpgatherdd  ||
+      u->mnemonic == UD_Ivpgatherqd) {
+    if (u->error || u->vex_op == 0) {
+      return -1;
+    }
+    if (resolve_gather(u) != 0) {
+      return -1;
+    }
+  }
+
   /* SWAPGS is only valid in 64bits mode */
   if ( u->mnemonic == UD_Iswapgs && u->dis_mode != 64 ) {
     UDERR(u, "swapgs invalid in 64bits mode\n");
@@ -538,11 +693,12 @@ decode_modrm_reg(struct ud         *u,
  *    Decodes rm field of mod/rm byte
  * 
  */
-static void 
-decode_modrm_rm(struct ud         *u, 
+static void
+decode_modrm_rm(struct ud         *u,
                 struct ud_operand *op,
                 unsigned char      type,    /* register type */
-                unsigned int       size)    /* operand size */
+                unsigned int       size,    /* operand size */
+                int                vsib)   /* SIB index is a vector reg */
 
 {
   size_t offset = 0;
@@ -584,15 +740,22 @@ decode_modrm_rm(struct ud         *u,
      */
     if ((rm & 7) == 4) {
       inp_next(u);
-      
+
       op->base  = UD_R_RAX + (SIB_B(inp_curr(u)) | (REX_B(u->_rex) << 3));
-      op->index = UD_R_RAX + (SIB_I(inp_curr(u)) | (REX_X(u->_rex) << 3));
-      /* special conditions for base reference */
-      if (op->index == UD_R_RSP) {
-        op->index = UD_NONE;
-        op->scale = UD_NONE;
-      } else {
+      if (vsib) {
+        /* VSIB: the index field always selects a vector register,
+         * including encoding 4 (xmm4/ymm4). Width is fixed up later. */
+        op->index = UD_R_XMM0 + (SIB_I(inp_curr(u)) | (REX_X(u->_rex) << 3));
         op->scale = (1 << SIB_S(inp_curr(u))) & ~1;
+      } else {
+        op->index = UD_R_RAX + (SIB_I(inp_curr(u)) | (REX_X(u->_rex) << 3));
+        /* special conditions for base reference */
+        if (op->index == UD_R_RSP) {
+          op->index = UD_NONE;
+          op->scale = UD_NONE;
+        } else {
+          op->scale = (1 << SIB_S(inp_curr(u))) & ~1;
+        }
       }
 
       if (op->base == UD_R_RBP || op->base == UD_R_R13) {
@@ -627,19 +790,31 @@ decode_modrm_rm(struct ud         *u,
       inp_next(u);
 
       op->scale = (1 << SIB_S(inp_curr(u))) & ~1;
-      op->index = UD_R_EAX + (SIB_I(inp_curr(u)) | (REX_X(u->pfx_rex) << 3));
-      op->base  = UD_R_EAX + (SIB_B(inp_curr(u)) | (REX_B(u->pfx_rex) << 3));
+      if (vsib) {
+        /* VSIB under 32-bit address size (e.g. 67h in 64-bit mode):
+         * VEX-encoded REX.X/B extension bits still apply, and index
+         * encoding 4 is xmm4/ymm4 rather than the no-index marker. */
+        op->index = UD_R_XMM0 + (SIB_I(inp_curr(u)) |
+                                 (REX_X(u->_rex) << 3));
+        op->base  = UD_R_EAX + (SIB_B(inp_curr(u)) |
+                                (REX_B(u->_rex) << 3));
+      } else {
+        op->index = UD_R_EAX + (SIB_I(inp_curr(u)) | (REX_X(u->pfx_rex) << 3));
+        op->base  = UD_R_EAX + (SIB_B(inp_curr(u)) | (REX_B(u->pfx_rex) << 3));
 
-      if (op->index == UD_R_ESP) {
-        op->index = UD_NONE;
-        op->scale = UD_NONE;
+        if (op->index == UD_R_ESP) {
+          op->index = UD_NONE;
+          op->scale = UD_NONE;
+        }
       }
 
-      /* special condition for base reference */
-      if (op->base == UD_R_EBP) {
+      /* special condition for base reference. With VSIB and 32-bit
+       * addressing in 64-bit mode, REX.B turns base encoding 5 into
+       * r13d, which has the same mod==0 no-base meaning as ebp. */
+      if (op->base == UD_R_EBP || (vsib && op->base == UD_R_R13D)) {
         if (mod == 0) {
           op->base = UD_NONE;
-        } 
+        }
         if (mod == 1) {
           offset = 8;
         } else {
@@ -738,9 +913,9 @@ decode_operand(struct ud           *u,
       decode_a(u, operand);
       break;
     case OP_MR:
-      decode_modrm_rm(u, operand, REGCLASS_GPR, 
-                      MODRM_MOD(modrm(u)) == 3 ? 
-                        Mx_reg_size(size) : Mx_mem_size(size));
+      decode_modrm_rm(u, operand, REGCLASS_GPR,
+                      MODRM_MOD(modrm(u)) == 3 ?
+                        Mx_reg_size(size) : Mx_mem_size(size), 0);
       break;
     case OP_F:
       u->br_far  = 1;
@@ -751,7 +926,7 @@ decode_operand(struct ud           *u,
       }
       /* intended fall through */
     case OP_E:
-      decode_modrm_rm(u, operand, REGCLASS_GPR, size);
+      decode_modrm_rm(u, operand, REGCLASS_GPR, size, 0);
       break;
     case OP_G:
       decode_modrm_reg(u, operand, REGCLASS_GPR, size);
@@ -770,7 +945,7 @@ decode_operand(struct ud           *u,
       }
       /* intended fall through */
     case OP_Q:
-      decode_modrm_rm(u, operand, REGCLASS_MMX, size);
+      decode_modrm_rm(u, operand, REGCLASS_MMX, size, 0);
       break;
     case OP_P:
       decode_modrm_reg(u, operand, REGCLASS_MMX, size);
@@ -781,7 +956,7 @@ decode_operand(struct ud           *u,
       }
       /* intended fall through */
     case OP_W:
-      decode_modrm_rm(u, operand, REGCLASS_XMM, size);
+      decode_modrm_rm(u, operand, REGCLASS_XMM, size, 0);
       break;
     case OP_V:
       decode_modrm_reg(u, operand, REGCLASS_XMM, size);
@@ -790,9 +965,21 @@ decode_operand(struct ud           *u,
       decode_vex_vvvv(u, operand, size);
       break;
     case OP_MU:
-      decode_modrm_rm(u, operand, REGCLASS_XMM, 
-                      MODRM_MOD(modrm(u)) == 3 ? 
-                        Mx_reg_size(size) : Mx_mem_size(size));
+      decode_modrm_rm(u, operand, REGCLASS_XMM,
+                      MODRM_MOD(modrm(u)) == 3 ?
+                        Mx_reg_size(size) : Mx_mem_size(size), 0);
+      break;
+    case OP_VSIB:
+      /* AVX2 gather memory operand: ModRM/SIB addressing with a vector
+       * index. Only memory forms with an SIB byte and 32/64-bit address
+       * size are legal; the gather fixup resolves widths and checks
+       * register uniqueness in resolve_mnemonic(). */
+      decode_modrm_rm(u, operand, REGCLASS_XMM, size, 1);
+      if (MODRM_MOD(modrm(u)) == 3 ||
+          (MODRM_RM(modrm(u)) & 7) != 4 ||
+          u->adr_mode == 16) {
+        UDERR(u, "invalid vsib operand\n");
+      }
       break;
     case OP_S:
       decode_modrm_reg(u, operand, REGCLASS_SEG, size);
@@ -851,7 +1038,7 @@ decode_operand(struct ud           *u,
       if (MODRM_MOD(modrm(u)) != 3) {
         UDERR(u, "expected modrm.mod == 3\n");
       }
-      decode_modrm_rm(u, operand, REGCLASS_GPR, size);
+      decode_modrm_rm(u, operand, REGCLASS_GPR, size, 0);
       break;
     case OP_C:
       decode_modrm_reg(u, operand, REGCLASS_CR, size);

@@ -76,6 +76,10 @@ gen_operand(struct ud* u, struct ud_operand* op)
     if (op->index) {
       if (op->base) {
         ud_asmprintf(u, ",");
+      } else if (op->index >= UD_R_XMM0 && op->index <= UD_R_YMM15) {
+        /* A VSIB vector index cannot act as the base: print the empty
+         * base slot so e.g. disp(,%ymm10,4) is unambiguous. */
+        ud_asmprintf(u, "(,");
       } else {
         ud_asmprintf(u, "(");
       }
