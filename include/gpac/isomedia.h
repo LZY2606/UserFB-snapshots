@@ -5872,6 +5872,27 @@ GF_ISOSample *gf_isom_text_to_sample(const GF_TextSample *tx_samp);
 */
 u32 gf_isom_text_sample_size(GF_TextSample *tx_samp);
 
+/*! bakes karaoke (krok) and highlight (hlit/hclr) modifiers of a tx3g text track into regular
+tx3g style (styl) modifiers, creating a new track in the destination file. The source track is
+split at karaoke event points into several samples, each carrying the plain text and the effective
+style records with the highlight color applied to the highlighted character ranges. The media
+timescale, sample timing, edit list, sample descriptions and description switches of the source
+track are preserved; the source track and the other tracks of both files are left untouched.
+The source track shall be a self-contained, non-fragmented tx3g track with no CTS offsets and
+with media DTS starting at 0 and increasing continuously. Sample modifiers other than krok, hlit,
+hclr, tbox, twrp, frcd and href result in GF_NOT_SUPPORTED, as does a non-empty highlight without
+highlight color. Malformed samples (bad encoding, out-of-range or reverted character ranges,
+non-monotonic karaoke times or karaoke times beyond the sample duration) result in
+GF_CORRUPTED_DATA. On error, no partial track is left in the destination file and out_track is
+set to 0.
+\param src the source ISO file, shall be different from dst
+\param track the source track number
+\param dst the destination ISO file, opened for writing
+\param out_track set to the number of the created track in dst, or 0 on error
+\return error if any
+*/
+GF_Err gf_isom_text_bake_karaoke(GF_ISOFile *src, u32 track, GF_ISOFile *dst, u32 *out_track);
+
 /*! creates a new XML subtitle sample
 \return a new XML subtitle sample
 */
