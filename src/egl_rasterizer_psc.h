@@ -87,6 +87,8 @@ struct rasterizer_psc_base
   enum {tbfc_mode=rstate_tbfc_ccw};              // triangle back-face culling mode
   enum {bci_mode=rstate_bcimode_perspective};    // barycentric coordinate interpolation mode
   enum {vertex_cache=true};                      // enable post-transform vertex caching
+  // motion cluster marker (static PSCs keep the default and are unaffected)
+  enum {is_motion_cluster=false};
   // debug state
   enum {debug_disable_pixel_depth_test=false};   // force-disable per-pixel depth test (always passes)
   //--------------------------------------------------------------------------

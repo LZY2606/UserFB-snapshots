@@ -23,6 +23,11 @@
 #include "egl_meta.h"
 EGL_NAMESPACE_BEGIN
 
+// forward declaration for the optional motion-cluster rasterization hook
+#if defined(EGL_MOTION_H)
+template<class PSC> struct motion_raster_context;
+#endif
+
 // new
 typedef vec2<uint16_t> vec2u16;
 typedef vec2<int32_t> vec2i32;
@@ -620,6 +625,27 @@ void rasterizer::psc_wrapper<PSC, HWDevice>::rasterize_cluster(rasterizer_callba
   EGL_STATIC_ASSERT_MSG(rasterizer_max_rts==4, psout_supports_4_rts);
   res_.hiz_update=PSC::depth_write && PSC::hiz_update && PSC::depth_func!=int(rstate_depthfunc_never);
   void *EGL_RESTRICT depth_buf=(uint8_t*)rt_cfg_.depth.data+tile_buffer_pixel_offset_*depth_format_traits<(e_depth_format)PSC::depth_format>::type_size;
+#if defined(EGL_MOTION_H)
+  // motion clusters take over the tile and rasterize every scanline of their
+  // exposure path themselves; the static triangle loop below is skipped.
+  // if constexpr keeps static PSCs (is_motion_cluster==false) untouched.
+  if constexpr(PSC::is_motion_cluster)
+  {
+    motion_raster_context<PSC> mctx;
+    mctx.rt_cfg=&rt_cfg_;
+    mctx.psout=&psout;
+    mctx.depth_buf=depth_buf;
+    mctx.tile_x=tile_x_;
+    mctx.tile_y=tile_y_;
+    mctx.tile_width=tile_width_;
+    mctx.tile_height=tile_height_;
+    mctx.thread_idx=thread_idx_;
+    mctx.tile_min=&res_.tile_min;
+    mctx.tile_end=&res_.tile_end;
+    pso.motion_rasterize(mctx, pso_state);
+    return;
+  }
+#endif
   for(uint8_t prim_idx=0; prim_idx<num_prims; ++prim_idx)
   {
     // setup triangle

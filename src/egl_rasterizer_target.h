@@ -20,6 +20,7 @@ EGL_NAMESPACE_BEGIN
 // new
 struct rasterizer_depth_target;
 template<class PSC> class rasterizer_pixel_out;
+template<class PSC> struct motion_pixel_out_access;
 //----------------------------------------------------------------------------
 
 
@@ -79,6 +80,7 @@ private:
   typedef pixel<(e_pixel_format)PSC::rt2_fmt> rt2_fmt_t;
   typedef pixel<(e_pixel_format)PSC::rt3_fmt> rt3_fmt_t;
   friend class rasterizer;
+  template<class> friend struct motion_pixel_out_access;
   void *m_rts[rasterizer_max_rts];
   uint32_t m_px_offs;
 };
