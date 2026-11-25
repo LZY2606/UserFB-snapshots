@@ -25,6 +25,7 @@
  */
 
 import { reportError, reportFatal, reportWarning } from "./error.js";
+import { collectContinuousAnimationRanges, createAnimateElement, getMediaTimeEventsWithAnimations, resolveAnimateTiming } from "./animation.js";
 import { ns_ebutts, ns_ittp, ns_itts, ns_tt, ns_ttp, ns_tts } from "./names.js";
 import { byName, byQName } from "./styles.js";
 import { ComputedLength, hasOwnProperty, parseLength } from "./utils.js";
@@ -529,6 +530,38 @@ export function fromParser(xmlstring, errorHandler, metadataHandler, parser) {
 
                 estack.unshift(nb);
 
+            } else if (node.local === "animate") {
+
+                if (!(estack[0] instanceof SpanElement ||
+                    estack[0] instanceof PElement ||
+                    estack[0] instanceof DivElement ||
+                    estack[0] instanceof BodyElement ||
+                    estack[0] instanceof RegionElement)) {
+
+                    reportFatal(errorHandler, "Parent of <animate> element is not region, body, div, p or span at " + this.line + "," + this.column + ")");
+
+                }
+
+                const animationTiming = processTiming(doc, estack[0], node, errorHandler);
+                const an = createAnimateElement(
+                    node,
+                    estack[0].kind || "region",
+                    animationTiming,
+                    errorHandler,
+                );
+
+                if (!Array.isArray(estack[0].animations)) {
+                    estack[0].animations = [];
+                }
+
+                estack[0].animations.push(an);
+
+                estack.unshift(an);
+
+            } else if (node.local === "animation") {
+
+                reportFatal(errorHandler, "Out-of-line/external <animation> is not supported at " + this.line + "," + this.column);
+
             } else if (node.local === "set") {
 
                 if (!(estack[0] instanceof SpanElement ||
@@ -743,6 +776,28 @@ function resolveTiming(doc, element, prev_sibling, parent) {
             }
 
             s = element.sets[set_i];
+
+        }
+
+    }
+
+    if (Array.isArray(element.animations)) {
+
+        for (const animation of element.animations) {
+
+            resolveAnimateTiming(animation, s, element);
+
+            if (element.timeContainer === "seq") {
+
+                implicit_end = animation.end;
+
+            } else {
+
+                implicit_end = Math.max(implicit_end, animation.end);
+
+            }
+
+            s = animation;
 
         }
 
@@ -963,7 +1018,17 @@ export class TTElement {
      */
     getMediaTimeEvents() {
 
-        return this.events;
+        return getMediaTimeEventsWithAnimations(this);
+    };
+
+    /**
+     * Returns merged intervals in which linear inline animations are active.
+     *
+     * @returns {[number, number][]}
+     */
+    getContinuousAnimationRanges() {
+
+        return collectContinuousAnimationRanges(this);
     };
 }
 

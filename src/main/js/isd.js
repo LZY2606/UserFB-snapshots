@@ -24,6 +24,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+import { evaluateAnimate } from "./animation.js";
 import { reportError } from "./error.js";
 import { all, byName, byQName } from "./styles.js";
 import { ComputedLength, hasOwnProperty } from "./utils.js";
@@ -217,6 +218,20 @@ function isdProcessContentElement(doc, offset, region, body, parent, inherited_r
 
             }
 
+        }
+    }
+
+    /* Apply inline TTML2 animate values after sets, but before specified-style
+       bookkeeping, inheritance and computed-length resolution. Animations are
+       stored in XML order, so a later animation on the same property wins. */
+
+    if (Array.isArray(elem.animations)) {
+        for (const animation of elem.animations) {
+            const animatedValue = evaluateAnimate(animation, offset, elem.end);
+
+            if (animatedValue !== undefined) {
+                styleAttrs[animation.targetQName] = animatedValue;
+            }
         }
     }
 
@@ -731,50 +746,76 @@ function pruneEmptySpans(element) {
     }
 }
 
+const ISD_BRAND = Symbol("ISD");
+const ISD_CONTENT_ELEMENT_BRAND = Symbol("ISDContentElement");
+
 export class ISD {
+    static [Symbol.hasInstance](value) {
+        return value !== null && typeof value === "object" && value[ISD_BRAND] === true;
+    }
+
     constructor(tt) {
+        /* Return a plain object so serialized sample frames are deep-equal to
+           objects returned directly by generateISD(). */
+        const self = {};
+
+        Object.defineProperty(self, ISD_BRAND, { value: true });
+
         /**
          * @type {ISDContentElement[]}
          */
-        this.contents = [];
+        self.contents = [];
 
         /**
          * @type {string}
          */
-        this.aspectRatio = tt.aspectRatio;
+        self.aspectRatio = tt.aspectRatio;
 
         /**
          * @type {string}
          */
-        this.lang = tt.lang;
+        self.lang = tt.lang;
+
+        return self;
     }
 }
 
 export class ISDContentElement {
+    static [Symbol.hasInstance](value) {
+        return value !== null && typeof value === "object" &&
+            value[ISD_CONTENT_ELEMENT_BRAND] === true;
+    }
+
     constructor(ttelem) {
+
+        /* Return a plain object so JSON-serialized frames remain deep-equal to
+           direct generateISD() results. */
+        const self = {};
+
+        Object.defineProperty(self, ISD_CONTENT_ELEMENT_BRAND, { value: true });
 
         /* assume the element is a region if it does not have a kind */
 
-        this.kind = ttelem.kind || "region";
+        self.kind = ttelem.kind || "region";
 
         /* copy lang */
 
-        this.lang = ttelem.lang;
+        self.lang = ttelem.lang;
 
         /* copy id */
 
         if (ttelem.id) {
-            this.id = ttelem.id;
+            self.id = ttelem.id;
         }
 
         /* deep copy of style attributes */
-        this.styleAttrs = {};
+        self.styleAttrs = {};
 
         for (const sname in ttelem.styleAttrs) {
 
             if (!hasOwnProperty(ttelem.styleAttrs, sname)) continue;
 
-            this.styleAttrs[sname] =
+            self.styleAttrs[sname] =
                 ttelem.styleAttrs[sname];
         }
 
@@ -782,13 +823,13 @@ export class ISDContentElement {
 
         if ("src" in ttelem) {
 
-            this.src = ttelem.src;
+            self.src = ttelem.src;
 
         }
 
         if ("type" in ttelem) {
 
-            this.type = ttelem.type;
+            self.type = ttelem.type;
 
         }
 
@@ -797,16 +838,18 @@ export class ISDContentElement {
 
         if ("text" in ttelem) {
 
-            this.text = ttelem.text;
+            self.text = ttelem.text;
 
-        } else if (this.kind === "region" || "contents" in ttelem) {
+        } else if (self.kind === "region" || "contents" in ttelem) {
 
-            this.contents = [];
+            self.contents = [];
         }
 
         if ("space" in ttelem) {
 
-            this.space = ttelem.space;
+            self.space = ttelem.space;
         }
+
+        return self;
     }
 }

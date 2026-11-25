@@ -330,31 +330,45 @@ export function parsePosition(str) {
     return pos;
 };
 
+const COMPUTED_LENGTH_BRAND = Symbol("ComputedLength");
+
 export class ComputedLength {
+    static [Symbol.hasInstance](value) {
+        return value !== null && typeof value === "object" && value[COMPUTED_LENGTH_BRAND] === true;
+    }
+
     /**
      * @param {number} rw
      * @param {number} rh
      */
     constructor(rw, rh) {
-        this.rw = rw;
-        this.rh = rh;
+        /* Return a plain object so a JSON round trip is deep-equal to a direct
+           ISD call. Methods remain available as non-enumerable own members. */
+        const length = { rw, rh };
+
+        Object.defineProperty(length, COMPUTED_LENGTH_BRAND, { value: true });
+
+        Object.defineProperties(length, {
+            toUsedLength: {
+                enumerable: false,
+                configurable: true,
+                writable: true,
+                value: function toUsedLength(width, height) {
+                    return width * length.rw + height * length.rh;
+                },
+            },
+            isZero: {
+                enumerable: false,
+                configurable: true,
+                writable: true,
+                value: function isZero() {
+                    return length.rw === 0 && length.rh === 0;
+                },
+            },
+        });
+
+        return length;
     }
-
-    /**
-     * @param {number} width
-     * @param {number} height
-     * @returns {number}
-     */
-    toUsedLength(width, height) {
-        return width * this.rw + height * this.rh;
-    };
-
-    /**
-     * @returns {boolean}
-     */
-    isZero() {
-        return this.rw === 0 && this.rh === 0;
-    };
 
 }
 

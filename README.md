@@ -68,6 +68,30 @@ imscJS renders an IMSC document in three distinct steps:
 
 In each step, the caller can provide an `errorHandler` to be notified of events during processing. The `errorHandler` may define four methods: `info`, `warn`, `error` and `fatal`. Each is called with a string argument describing the event, and will cause processing to terminate if it returns `true`.
 
+### Offline inline animation sampling
+
+The Node/ISD path also supports a limited subset of TTML2 inline `<animate>` elements without a browser animation engine:
+
+* `<animate>` is accepted as a child of `region`, `body`, `div`, `p`, and `span`.
+* Animated values are semicolon-separated lists written directly in `tts:opacity` or `tts:fontSize`. `tts:opacity` is limited to `region`; `tts:fontSize` is supported on `p` and `span`, and on `body`/`div` as an inheritance source.
+* Opacity values are finite numbers in `[0,1]`. Font-size values are positive lengths that all use the same `px` or `%` unit, with at least two values per list.
+* `calcMode="linear"` (default) and `calcMode="discrete"` are supported. Explicit `keyTimes` must match the value count and be strictly increasing from `0` to `1`; otherwise key times are evenly spaced.
+* `dur` must be a positive finite time expression. `begin` and `end` use the existing TTML time-expression parser, and `repeatCount` defaults to `1` and may be a finite number in `(0,1024]`.
+* `fill="remove"` (default) and `fill="freeze"` are supported. Repeated intervals use `[start, end)` semantics: an exact cycle boundary returns to the first value. Freeze retains the left-limit value until the host element ends.
+* Paced/spline interpolation, other animated style properties, SMIL `values`/`from`/`to`/`by`/`attributeName` forms, and external/out-of-line animations are rejected with an error instead of being treated as static styles.
+
+Animated specified values are inserted after `<set>` elements and before style inheritance and computed-length resolution. Consequently, an animated parent font size affects percentage font sizes and the default ruby text size of descendants.
+
+`getMediaTimeEvents()` includes the existing document events plus clipped animation starts/active ends, repeat boundaries, and key-time instants. `tt.getContinuousAnimationRanges()` returns a fresh array of merged `[start, end]` intervals where linear animations are active, clipped to host, ancestor, and associated-region visibility intervals. Freeze tails and discrete animations are not included.
+
+The command-line sample writes `{events, ranges, frames}` JSON:
+
+```sh
+node examples/animate_frames.mjs input.ttml times.json output.json
+```
+
+`times.json` is a JSON array of finite media times in seconds. Each frame is `{ "time": number, "isd": ISD }`, and the serialized ISD is deep-equal to calling `generateISD()` directly at that time. The example uses the vendored SAX parser and exits non-zero on usage, parse, or I/O errors.
+
 Inline documentation provides additional information.
 
 ### Modules
@@ -75,6 +99,7 @@ Inline documentation provides additional information.
 imscJS consists of the following ES modules at [src/main/js](src/main/js), which can be imported individually, or used together as the `imsc` global when loaded as a UMD bundle (see [Build](#build)):
 
 * `main.js`: public entry point; exposes `fromXML()`, `renderHTML()`, `generateISD()` and `createSAXParserFromDOMParser()`
+* `animation.js`: offline TTML2 inline `<animate>` parsing, timing, evaluation, event and continuous-range helpers
 * `doc.js`: parses an IMSC document into an in-memory TT object
 * `parser.js`: defines the XML parser contract expected by `doc.js`
 * `dom_to_parser.js`: implements the XML parser contract using the browser's `DOMParser`
