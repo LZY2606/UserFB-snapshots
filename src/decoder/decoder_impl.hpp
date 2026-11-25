@@ -51,8 +51,25 @@ public:
     [[nodiscard]]
     uint32_t QueryISO6392LanguageCode(LanguageId language_id) const;
     DecodeStatus Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result);
+    DecodeStatus DecodeSequence(const uint8_t* pes_data,
+                                size_t length,
+                                int64_t pts,
+                                DecodeSequenceResult& out_result);
     void Flush();
 private:
+    DecodeStatus DecodePES(const uint8_t* pes_data,
+                           size_t length,
+                           int64_t pts,
+                           DecodeResult* out_result,
+                           DecodeSequenceResult* out_sequence);
+    bool PublishSequenceWait(int64_t wait_duration);
+    bool FinishSequence();
+    void FinalizeSequenceCaption(Caption& caption,
+                                 int64_t pts,
+                                 int64_t wait_duration,
+                                 bool determined_duration);
+    static bool AddNonNegativeDuration(int64_t base, int64_t duration, int64_t* result);
+
     auto DetectEncodingScheme() -> EncodingScheme;
     void ResetGraphicSets();
     void ResetWritingFormat();
@@ -121,6 +138,10 @@ private:
     int prev_dgi_group_ = -1;
 
     std::unique_ptr<Caption> caption_;
+
+    DecodeSequenceResult* sequence_result_ = nullptr;
+    int64_t sequence_base_pts_ = PTS_NOPTS;
+    int64_t sequence_elapsed_ = 0;
 
     CodesetEntry* GL_ = nullptr;
     CodesetEntry* GR_ = nullptr;

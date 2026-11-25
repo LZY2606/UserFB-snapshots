@@ -205,6 +205,49 @@ ARIBCC_API aribcc_decode_status_t aribcc_decoder_decode(aribcc_decoder_t* decode
                                                         aribcc_caption_t* out_caption);
 
 /**
+ * Result of @aribcc_decoder_decode_sequence().
+ *
+ * The caption array and all text, region, character and DRCS storage are owned
+ * by the result. Release them with @aribcc_decode_sequence_result_cleanup().
+ */
+typedef struct aribcc_decode_sequence_result_t {
+    aribcc_caption_t* captions;
+    uint32_t caption_count;
+} aribcc_decode_sequence_result_t;
+
+/**
+ * Decode caption PES data into time-ordered incremental caption fragments.
+ *
+ * Positive TIME controls split the result. A fragment's pts is the input pts
+ * plus waits accumulated before the fragment, while wait_duration is the wait
+ * following that fragment. The final fragment has ARIBCC_DURATION_INDEFINITE.
+ *
+ * @param decoder     @aribcc_decoder_t
+ * @param pes_data    pointer pointed to PES data, must be non-null
+ * @param length      PES data length, must be greater than 0
+ * @param pts         PES packet PTS, in milliseconds
+ * @param out_result  Parameter for writing back decoded fragments, must be non-null
+ * @return            ARIBCC_DECODE_STATUS_ERROR on failure,
+ *                    ARIBCC_DECODE_STATUS_NO_CAPTION if nothing obtained,
+ *                    ARIBCC_DECODE_STATUS_GOT_CAPTION if got at least one caption
+ */
+ARIBCC_API aribcc_decode_status_t aribcc_decoder_decode_sequence(
+    aribcc_decoder_t* decoder,
+    const uint8_t* pes_data,
+    size_t length,
+    int64_t pts,
+    aribcc_decode_sequence_result_t* out_result);
+
+/**
+ * Release all captions and nested arrays owned by a sequence result.
+ *
+ * The result structure itself is not freed because it is normally allocated by
+ * the caller. Calling this function more than once on the same zero-initialized
+ * or already cleaned result is safe.
+ */
+ARIBCC_API void aribcc_decode_sequence_result_cleanup(aribcc_decode_sequence_result_t* result);
+
+/**
  * Reset decoder internal states
  *
  * @param decoder  @aribcc_decoder_t

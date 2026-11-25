@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include "aribcc_export.h"
 #include "caption.hpp"
 #include "context.hpp"
@@ -99,6 +100,16 @@ enum class DecodeStatus {
  */
 struct DecodeResult {
     std::unique_ptr<Caption> caption;
+};
+
+/**
+ * Structure for holding the time-split caption fragments decoded from one PES.
+ *
+ * The captions are stored in presentation time order. Each fragment owns all
+ * of its text, regions, colors and DRCS data.
+ */
+struct DecodeSequenceResult {
+    std::vector<Caption> captions;
 };
 
 /**
@@ -185,6 +196,29 @@ public:
      * @return           kError on failure, kNoCaption if nothing obtained, kGotCaption if got a caption
      */
     ARIBCC_API DecodeStatus Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result);
+
+    /**
+     * Decode caption PES data and split it at positive TIME waits.
+     *
+     * Unlike Decode(), this entry point does not aggregate all statements into
+     * one Caption. Each positive TIME control publishes the text, regions and
+     * clear-screen flag accumulated before that wait. The returned fragments
+     * are ordered by their PTS and contain incremental drawing only.
+     *
+     * A fragment with a positive wait_duration stays on screen for that interval;
+     * the wait is an execution interval between batches, not an automatic
+     * clear-screen command. The final fragment has DURATION_INDEFINITE.
+     *
+     * @param pes_data   pointer pointed to PES data, must be non-null
+     * @param length     PES data length, must be greater than 0
+     * @param pts        PES packet PTS, in milliseconds
+     * @param out_result Write back parameter for passing decoded fragments
+     * @return           kError on failure, kNoCaption if nothing obtained, kGotCaption if got captions
+     */
+    ARIBCC_API DecodeStatus DecodeSequence(const uint8_t* pes_data,
+                                           size_t length,
+                                           int64_t pts,
+                                           DecodeSequenceResult& out_result);
 
     /**
      * Reset decoder internal states

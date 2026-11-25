@@ -162,6 +162,63 @@ aribcc_decode_status_t aribcc_decoder_decode(aribcc_decoder_t* decoder,
     return static_cast<aribcc_decode_status_t>(status);
 }
 
+aribcc_decode_status_t aribcc_decoder_decode_sequence(
+    aribcc_decoder_t* decoder,
+    const uint8_t* pes_data,
+    size_t length,
+    int64_t pts,
+    aribcc_decode_sequence_result_t* out_result) {
+    static_assert(sizeof(aribcc_caption_char_t) == sizeof(CaptionChar));
+
+    if (out_result == nullptr) {
+        return ARIBCC_DECODE_STATUS_ERROR;
+    }
+    memset(out_result, 0, sizeof(*out_result));
+    if (decoder == nullptr) {
+        return ARIBCC_DECODE_STATUS_ERROR;
+    }
+
+    auto impl = reinterpret_cast<DecoderImpl*>(decoder);
+    DecodeSequenceResult result;
+    DecodeStatus status = impl->DecodeSequence(pes_data, length, pts, result);
+    if (status != DecodeStatus::kGotCaption) {
+        return static_cast<aribcc_decode_status_t>(status);
+    }
+
+    if (result.captions.size() > static_cast<size_t>(UINT32_MAX)) {
+        return ARIBCC_DECODE_STATUS_ERROR;
+    }
+    out_result->caption_count = static_cast<uint32_t>(result.captions.size());
+    out_result->captions = reinterpret_cast<aribcc_caption_t*>(
+        calloc(out_result->caption_count, sizeof(aribcc_caption_t))
+    );
+    if (out_result->captions == nullptr) {
+        out_result->caption_count = 0;
+        return ARIBCC_DECODE_STATUS_ERROR;
+    }
+
+    for (size_t i = 0; i < result.captions.size(); ++i) {
+        ConvertCaptionToCAPI(std::move(result.captions[i]), &out_result->captions[i]);
+    }
+
+    return ARIBCC_DECODE_STATUS_GOT_CAPTION;
+}
+
+void aribcc_decode_sequence_result_cleanup(aribcc_decode_sequence_result_t* result) {
+    if (result == nullptr) {
+        return;
+    }
+
+    if (result->captions != nullptr) {
+        for (size_t i = 0; i < result->caption_count; ++i) {
+            aribcc_caption_cleanup(&result->captions[i]);
+        }
+        free(result->captions);
+        result->captions = nullptr;
+    }
+    result->caption_count = 0;
+}
+
 void aribcc_decoder_flush(aribcc_decoder_t* decoder) {
     auto impl = reinterpret_cast<DecoderImpl*>(decoder);
     impl->Flush();

@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cstring>
 #include <cmath>
+#include <limits>
 #include "base/floating_helper.hpp"
 #include "base/logger.hpp"
 #include "base/md5_helper.hpp"
@@ -106,6 +107,31 @@ uint32_t DecoderImpl::QueryISO6392LanguageCode(LanguageId language_id) const {
 }
 
 DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result) {
+    out_result.caption.reset();
+    return DecodePES(pes_data, length, pts, &out_result, nullptr);
+}
+
+DecodeStatus DecoderImpl::DecodeSequence(const uint8_t* pes_data,
+                                        size_t length,
+                                        int64_t pts,
+                                        DecodeSequenceResult& out_result) {
+    out_result.captions.clear();
+    return DecodePES(pes_data, length, pts, nullptr, &out_result);
+}
+
+DecodeStatus DecoderImpl::DecodePES(const uint8_t* pes_data,
+                                    size_t length,
+                                    int64_t pts,
+                                    DecodeResult* out_result,
+                                    DecodeSequenceResult* out_sequence) {
+    sequence_result_ = out_sequence;
+    sequence_base_pts_ = pts;
+    sequence_elapsed_ = 0;
+    struct SequenceContextGuard {
+        DecodeSequenceResult*& context;
+        ~SequenceContextGuard() { context = nullptr; }
+    } sequence_guard{sequence_result_};
+
     if (pes_data == nullptr) {
         log_->e("DecoderImpl: pes_data is nullptr");
         assert(pes_data != nullptr);
@@ -117,7 +143,12 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
         return DecodeStatus::kError;
     }
 
-    out_result.caption.reset();
+    if (out_result != nullptr) {
+        out_result->caption.reset();
+    }
+    if (out_sequence != nullptr) {
+        out_sequence->captions.clear();
+    }
     pts_ = pts;
     const uint8_t* data = pes_data;
 
@@ -172,6 +203,7 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
              * For caption management data, if data_group_id group equals to previous management data's group
              * This packet could be considered as retransmission, ignore it
              */
+            caption_.reset();
             return DecodeStatus::kNoCaption;
         } else {
             // Handle caption management data
@@ -185,6 +217,7 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
         // Caption statement data
         if (dgi_id != static_cast<uint8_t>(language_id_)) {
             // Non-expected language id, ignore it
+            caption_.reset();
             return DecodeStatus::kNoCaption;
         } else {
             // Handle caption statement data
@@ -194,7 +227,24 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
 
     if (!ret) {
         caption_.reset();
+        if (out_sequence != nullptr) {
+            out_sequence->captions.clear();
+        }
         return DecodeStatus::kError;
+    }
+
+    if (out_sequence != nullptr) {
+        if (!FinishSequence()) {
+            caption_.reset();
+            out_sequence->captions.clear();
+            return DecodeStatus::kError;
+        }
+        caption_.reset();
+
+        if (out_sequence->captions.empty()) {
+            return DecodeStatus::kNoCaption;
+        }
+        return DecodeStatus::kGotCaption;
     }
 
     if (!caption_->regions.empty() || caption_->flags) {
@@ -211,11 +261,90 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
             caption_->wait_duration = DURATION_INDEFINITE;
         }
 
-        out_result.caption = std::move(caption_);
+        out_result->caption = std::move(caption_);
         return DecodeStatus::kGotCaption;
     }
 
     return DecodeStatus::kNoCaption;
+}
+
+bool DecoderImpl::AddNonNegativeDuration(int64_t base, int64_t duration, int64_t* result) {
+    if (duration < 0) {
+        return false;
+    }
+    if (base > 0 && duration > std::numeric_limits<int64_t>::max() - base) {
+        return false;
+    }
+    *result = base + duration;
+    return true;
+}
+
+void DecoderImpl::FinalizeSequenceCaption(Caption& caption,
+                                          int64_t pts,
+                                          int64_t wait_duration,
+                                          bool determined_duration) {
+    caption.type = static_cast<CaptionType>(type_);
+    caption.iso6392_language_code = current_iso6392_language_code_;
+    caption.plane_width = caption_plane_width_;
+    caption.plane_height = caption_plane_height_;
+    caption.has_builtin_sound = has_builtin_sound_;
+    caption.builtin_sound_id = builtin_sound_id_;
+    caption.pts = pts;
+    caption.wait_duration = wait_duration;
+
+    if (determined_duration) {
+        caption.flags = static_cast<CaptionFlags>(caption.flags | CaptionFlags::kCaptionFlagsWaitDuration);
+    } else {
+        caption.flags = static_cast<CaptionFlags>(caption.flags & ~CaptionFlags::kCaptionFlagsWaitDuration);
+    }
+}
+
+bool DecoderImpl::PublishSequenceWait(int64_t wait_duration) {
+    int64_t segment_pts = PTS_NOPTS;
+    if (sequence_base_pts_ != PTS_NOPTS &&
+        !AddNonNegativeDuration(sequence_base_pts_, sequence_elapsed_, &segment_pts)) {
+        log_->e("DecoderImpl: PTS overflow while splitting TIME sequence");
+        return false;
+    }
+
+    int64_t next_elapsed = 0;
+    if (!AddNonNegativeDuration(sequence_elapsed_, wait_duration, &next_elapsed)) {
+        log_->e("DecoderImpl: wait duration overflow while splitting TIME sequence");
+        return false;
+    }
+
+    bool has_display_change = !caption_->regions.empty() ||
+                              (caption_->flags & CaptionFlags::kCaptionFlagsClearScreen);
+    if (has_display_change) {
+        Caption segment = std::move(*caption_);
+        FinalizeSequenceCaption(segment, segment_pts, wait_duration, true);
+        sequence_result_->captions.push_back(std::move(segment));
+    }
+
+    sequence_elapsed_ = next_elapsed;
+    caption_ = std::make_unique<Caption>();
+    return true;
+}
+
+bool DecoderImpl::FinishSequence() {
+    bool has_display_change = caption_ &&
+        (!caption_->regions.empty() ||
+         (caption_->flags & CaptionFlags::kCaptionFlagsClearScreen));
+    if (!has_display_change) {
+        return true;
+    }
+
+    int64_t segment_pts = PTS_NOPTS;
+    if (sequence_base_pts_ != PTS_NOPTS &&
+        !AddNonNegativeDuration(sequence_base_pts_, sequence_elapsed_, &segment_pts)) {
+        log_->e("DecoderImpl: PTS overflow while finishing TIME sequence");
+        return false;
+    }
+
+    Caption segment = std::move(*caption_);
+    FinalizeSequenceCaption(segment, segment_pts, DURATION_INDEFINITE, false);
+    sequence_result_->captions.push_back(std::move(segment));
+    return true;
 }
 
 void DecoderImpl::Flush() {
@@ -526,11 +655,17 @@ bool DecoderImpl::ParseDataUnit(const uint8_t* data, size_t length) {
         }
 
         if (data_unit_parameter == 0x20) {
-            ParseStatementBody(data + offset + 5, data_unit_size);
+            if (!ParseStatementBody(data + offset + 5, data_unit_size)) {
+                return false;
+            }
         } else if (data_unit_parameter == 0x30) {
-            ParseDRCS(data + offset + 5, data_unit_size, 1);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 1)) {
+                return false;
+            }
         } else if (data_unit_parameter == 0x31) {
-            ParseDRCS(data + offset + 5, data_unit_size, 2);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 2)) {
+                return false;
+            }
         }
 
         offset += 5 + data_unit_size;
@@ -1075,8 +1210,23 @@ bool DecoderImpl::HandleC1(const uint8_t* data, size_t remain_bytes, size_t* byt
                 return false;
             if (data[1] == 0x20) {
                 uint8_t p2 = data[2] & 0b00111111;
-                caption_->wait_duration += static_cast<int64_t>(p2) * 100;
-                caption_->flags = static_cast<CaptionFlags>(caption_->flags | CaptionFlags::kCaptionFlagsWaitDuration);
+                int64_t wait_duration = static_cast<int64_t>(p2) * 100;
+                if (sequence_result_ != nullptr) {
+                    if (wait_duration > 0 && !PublishSequenceWait(wait_duration)) {
+                        return false;
+                    }
+                } else {
+                    int64_t next_wait_duration = 0;
+                    if (!AddNonNegativeDuration(caption_->wait_duration,
+                                                wait_duration,
+                                                &next_wait_duration)) {
+                        log_->e("DecoderImpl: wait duration overflow");
+                        return false;
+                    }
+                    caption_->wait_duration = next_wait_duration;
+                    caption_->flags = static_cast<CaptionFlags>(
+                        caption_->flags | CaptionFlags::kCaptionFlagsWaitDuration);
+                }
                 bytes = 3;
             } else if (data[1] == 0x28) {
                 // Not used according to ARIB TR-B14

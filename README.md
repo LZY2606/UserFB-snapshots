@@ -153,6 +153,51 @@ gcc main.c -o main `pkg-config --cflags --libs libaribcaption`
 ## Documents
 See the comments in [public headers](include/aribcaption), and [sample code with ffmpeg](test/ffmpeg)
 
+## Consuming incremental captions by PTS
+
+`Decoder::Decode()` keeps the traditional behavior: all statements in a PES are
+aggregated into one `Caption`, and positive `TIME` waits are accumulated in
+`Caption::wait_duration`. Existing players do not need to change.
+
+When a PES draws part of a caption, waits with `TIME`, and then draws more
+characters, use `Decoder::DecodeSequence()`. It returns independent fragments in
+PTS order. Each fragment owns its text, regions, colors and DRCS data, so later
+DRCS redefinitions or decoder calls cannot mutate an already returned fragment.
+
+```cpp
+aribcaption::DecodeSequenceResult sequence;
+auto status = decoder.DecodeSequence(pes, pes_size, pts_ms, sequence);
+if (status == aribcaption::DecodeStatus::kGotCaption) {
+    for (const aribcaption::Caption& fragment : sequence.captions) {
+        // fragment.pts is pts_ms + waits before this fragment.
+        schedule_caption(fragment.pts, [&player, fragment] {
+            if (fragment.flags & aribcaption::kCaptionFlagsClearScreen) {
+                player.ClearCaptionOverlay();
+            }
+
+            // Regions/chars are incremental; merge them into the persistent
+            // overlay instead of replacing the previous fragment.
+            player.DrawIncrementalRegions(fragment.regions, fragment.drcs_map);
+        });
+
+        // fragment.wait_duration is the TIME wait after this batch. It is an
+        // execution interval, not an automatic clear command. The final
+        // fragment has DURATION_INDEFINITE and remains until CS/overwrite.
+    }
+}
+```
+
+For example, `A`, `TIME 500ms`, `B`, `TIME 300ms`, `CS` with input PTS `1000`
+produces:
+
+- PTS `1000`, `wait_duration = 500`: incremental `A`
+- PTS `1500`, `wait_duration = 300`: incremental `B`
+- PTS `1800`, `wait_duration = DURATION_INDEFINITE`: clear-screen fragment
+
+The C API provides `aribcc_decoder_decode_sequence()` and
+`aribcc_decode_sequence_result_cleanup()`. Cleanup is idempotent after the
+result has been zero-initialized or already cleaned.
+
 ## Hints
 libaribcaption's C++ headers are also written in C++17. If your environment doesn't support C++17,
 consider using the C API or switch to a newer compiler.
