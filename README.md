@@ -127,6 +127,70 @@ It describes
 
 Sample numbers in the APIs start at 1, as in the ISOBMFF standard.
 
+### Continuous clock for fragments without tfdt
+
+Some recorders write a `tfdt` box only at the start of a track or when they re-synchronize the clock, and let
+later fragments continue from the end time of the previous one. By default, such a fragment gives sample decode
+times that start at zero. The optional continuous-clock mode instead makes every track remember the decode time
+of its next sample, in its own timescale: a `tfdt` re-anchors the clock, forwards or backwards, and a `traf`
+without `tfdt` continues it, starting at zero when the track first appears. No `tfdt` box is added or modified,
+and the media bytes and the re-encoded time fields stay unchanged.
+
+With `FragmentDecoder`, set the field before decoding and clear the clocks of all tracks with `ResetClocks`:
+
+```go
+var d mp4.FragmentDecoder
+d.ContinuousClock = true
+d.Moov = init.Moov // optional, provides trex default sample durations
+for {
+    frag, err := d.DecodeSR(sr, pos)
+    if errors.Is(err, io.EOF) {
+        break
+    }
+    if err != nil {
+        log.Fatal(err) // a failed fragment moves no clock; retry with the complete fragment
+    }
+    samples, err := frag.GetFullSamples(trex) // DecodeTime now continues across fragments
+    if err != nil {
+        log.Fatal(err)
+    }
+    // ...
+}
+d.ResetClocks() // all tracks restart from zero, unless their next traf has a tfdt
+```
+
+With the streaming `StreamFile`, enable it with the `WithContinuousClock` option. Every track keeps time even if
+the callback reads no samples, or only the samples of one track:
+
+```go
+sf, err := mp4.InitDecodeStream(r,
+    mp4.WithContinuousClock(),
+    mp4.WithMaxFragments(1), // the sliding window can drop fragments; the clocks are kept separately
+    mp4.WithFragmentCallback(func(frag *mp4.Fragment, sa mp4.SampleAccessor) error {
+        for _, traf := range frag.Moof.Trafs {
+            samples, err := sa.GetSamples(traf.Tfhd.TrackID)
+            if err != nil {
+                return err
+            }
+            // samples[i].DecodeTime is continuous across fragments, composition offsets are unchanged
+            _ = samples
+        }
+        return nil
+    }),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := sf.ProcessFragments(); err != nil {
+    log.Fatal(err)
+}
+```
+
+The mode applies to unencrypted fragmented MP4 with one `mdat` after each `moof` and at most one `traf` per track
+in a `moof`. Sample durations are resolved from the `trun` per-sample fields, then the `tfhd` defaults (including
+an explicit zero), then the `trex` defaults; a non-empty run without any duration source is an error, as is a
+decode-time addition that overflows.
+
 ### Packages
 
 The packages in the mp4ff module are

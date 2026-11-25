@@ -158,6 +158,10 @@ type StreamFile struct {
 	maxFragments     int
 	streamPos        uint64
 	preFragmentBoxes []Box // Boxes read by InitDecodeStream that precede the first moof
+	// continuousClock selects continuous-clock mode, in which every track keeps the decode time of its next
+	// sample across fragments that omit a tfdt. clock holds those times.
+	continuousClock bool
+	clock           *continuousClock
 }
 
 // FragmentCallback is called when a fragment's moof box has been parsed and mdat is ready to be accessed.
@@ -216,11 +220,26 @@ func WithMaxFragments(max int) StreamOption {
 	return func(sf *StreamFile) { sf.maxFragments = max }
 }
 
+// WithContinuousClock enables continuous-clock mode. Each track then remembers the decode time of its next
+// sample in its own ticks: a tfdt re-anchors the clock, forwards or backwards, and a traf without tfdt
+// continues it, starting at zero on the track's first appearance. Without this option, the default behavior is
+// kept and such a traf gives sample decode times that start at zero. The fragment boxes and encoded bytes are
+// not changed. Sample times keep moving for every track even if the callback reads no samples, or only those
+// of one track, and a fragment that fails while being read or in a callback moves no clock.
+func WithContinuousClock() StreamOption {
+	return func(sf *StreamFile) {
+		sf.continuousClock = true
+		sf.clock = newContinuousClock()
+	}
+}
+
 // fragmentSampleAccessor implements SampleAccessor for a fragment using the boxSeekReader.
 type fragmentSampleAccessor struct {
 	fragment      *Fragment
 	boxSeekReader io.ReadSeeker
 	mvex          *MvexBox
+	// clock is the fragment's continuous-clock state, nil in the default mode.
+	clock *fragmentClock
 }
 
 // trex returns the trex box of the track, or nil if there is none.
@@ -230,6 +249,18 @@ func (fsa *fragmentSampleAccessor) trex(trackID uint32) *TrexBox {
 	}
 	trex, _ := fsa.mvex.GetTrex(trackID)
 	return trex
+}
+
+// trexMap returns the trex boxes of the init segment keyed by track ID, or nil when there is no moov or mvex.
+func (sf *StreamFile) trexMap() map[uint32]*TrexBox {
+	if sf.Moov == nil || sf.Moov.Mvex == nil {
+		return nil
+	}
+	trexs := make(map[uint32]*TrexBox, len(sf.Moov.Mvex.Trexs))
+	for _, trex := range sf.Moov.Mvex.Trexs {
+		trexs[trex.TrackID] = trex
+	}
+	return trexs
 }
 
 // GetSample retrieves a specific sample by track ID and sample number (1-based).
@@ -252,7 +283,9 @@ func (fsa *fragmentSampleAccessor) GetSample(trackID uint32, sampleNr uint32) (*
 
 	tfhd := traf.Tfhd
 	var baseTime uint64
-	if traf.Tfdt != nil {
+	if fsa.clock != nil {
+		baseTime = fsa.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		baseTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	moofStartPos := moof.StartPos
@@ -342,7 +375,9 @@ func (fsa *fragmentSampleAccessor) GetSampleRange(trackID uint32, startSampleNr,
 
 	tfhd := traf.Tfhd
 	var baseTime uint64
-	if traf.Tfdt != nil {
+	if fsa.clock != nil {
+		baseTime = fsa.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		baseTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	moofStartPos := moof.StartPos
@@ -429,7 +464,9 @@ func (fsa *fragmentSampleAccessor) GetSamples(trackID uint32) ([]FullSample, err
 
 	tfhd := traf.Tfhd
 	var baseTime uint64
-	if traf.Tfdt != nil {
+	if fsa.clock != nil {
+		baseTime = fsa.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		baseTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	moofStartPos := moof.StartPos
@@ -531,7 +568,9 @@ func (fsa *fragmentSampleAccessor) appendSamples(dst []FullSample, buf []byte, t
 
 	// Second pass: read the selected samples of each trun into buf and append views of them.
 	var baseTime uint64
-	if traf.Tfdt != nil {
+	if fsa.clock != nil {
+		baseTime = fsa.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		baseTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	sampleNr = 1
@@ -832,6 +871,21 @@ func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFra
 	frag.AddChild(moof)
 	frag.AddChild(mdatBox)
 
+	// In continuous-clock mode, work out and check the new clock of every track before the callback runs. All
+	// tracks therefore keep time whether or not the callback reads their samples. The clock is committed only
+	// after the callback and the rest of the fragment succeed: a media read or callback failure installs
+	// nothing, so a later complete fragment continues from the last successful one. The fragment keeps the
+	// prepared result, so reading a retained fragment does not move a clock again.
+	var fc *fragmentClock
+	if sf.continuousClock {
+		var err error
+		fc, err = sf.clock.prepare(moof, sf.trexMap())
+		if err != nil {
+			return err
+		}
+		frag.clock = fc
+	}
+
 	// Invoke callback if set
 	if sf.onFragmentReady != nil {
 		var mvex *MvexBox
@@ -842,6 +896,7 @@ func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFra
 			fragment:      frag,
 			boxSeekReader: sf.boxSeekReader,
 			mvex:          mvex,
+			clock:         fc,
 		}
 		err = sf.onFragmentReady(frag, accessor)
 		if err != nil {
@@ -886,6 +941,9 @@ func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFra
 
 	// Reset mdat-specific state after seeking (clears mdatActive flag and buffer)
 	sf.boxSeekReader.ResetBuffer()
+
+	// The whole fragment has now been read and both callbacks have succeeded, so advance the clocks together.
+	fc.commit()
 
 	// Stream is now positioned at mdatEndPos, ready to read next box header
 	return nil

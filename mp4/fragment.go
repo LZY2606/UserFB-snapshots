@@ -29,6 +29,10 @@ type Fragment struct {
 	spareSenc *SencBox
 	spareSaiz *SaizBox
 	spareSaio *SaioBox
+
+	// clock carries the continuous-clock base times of the fragment when its decoder or stream runs in
+	// continuous-clock mode. It is nil in the default mode, when sample times come from the tfdt alone.
+	clock *fragmentClock
 }
 
 // NewFragment creates an empty MP4 Fragment.
@@ -266,13 +270,24 @@ func (f *Fragment) AppendFullSamples(dst []FullSample, trex *TrexBox) ([]FullSam
 	}
 	tfhd := traf.Tfhd
 	var baseTime uint64
-	if traf.Tfdt != nil {
+	if f.clock != nil {
+		baseTime = f.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		baseTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	origLen := len(dst)
 	walk := f.trunWalk(traf)
 	for _, trun := range traf.Truns {
-		totalDur := trun.AddSampleDefaultValues(tfhd, trex)
+		var totalDur uint64
+		if f.clock != nil {
+			var err error
+			totalDur, err = trunDuration(trun, tfhd, trex)
+			if err != nil {
+				return dst[:origLen], err
+			}
+		} else {
+			totalDur = trun.AddSampleDefaultValues(tfhd, trex)
+		}
 		var offsetInMdat uint64
 		var err error
 		if walk != nil {
@@ -322,13 +337,19 @@ func (f *Fragment) yieldSamples(trex *TrexBox, yield func(FullSample, error) boo
 	tfhd := traf.Tfhd
 	walk := f.trunWalk(traf)
 	for nr, trun := range traf.Truns {
-		trun.AddSampleDefaultValues(tfhd, trex)
-		var offset uint64
 		var err error
-		if walk != nil {
-			offset = walk.offset(f, trun)
+		if f.clock != nil {
+			_, err = trunDuration(trun, tfhd, trex)
 		} else {
-			offset, err = f.trunOffsetInMdat(tfhd, trun)
+			trun.AddSampleDefaultValues(tfhd, trex)
+		}
+		var offset uint64
+		if err == nil {
+			if walk != nil {
+				offset = walk.offset(f, trun)
+			} else {
+				offset, err = f.trunOffsetInMdat(tfhd, trun)
+			}
 		}
 		if err == nil {
 			err = checkSampleData(f.Mdat.cursorAt(offset), trun.Samples)
@@ -339,7 +360,9 @@ func (f *Fragment) yieldSamples(trex *TrexBox, yield func(FullSample, error) boo
 		}
 	}
 	var decodeTime uint64
-	if traf.Tfdt != nil {
+	if f.clock != nil {
+		decodeTime = f.clock.baseTime(traf)
+	} else if traf.Tfdt != nil {
 		decodeTime = traf.Tfdt.BaseMediaDecodeTime()
 	}
 	if walk != nil {

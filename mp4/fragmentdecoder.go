@@ -22,6 +22,12 @@ type FragmentDecoder struct {
 	// Moov is the movie box of the init segment, if known. It gives the per-sample IV size for parsing senc boxes.
 	Moov *MoovBox
 
+	// ContinuousClock enables continuous-clock mode. Each track then remembers the decode time of its next
+	// sample in its own ticks: a tfdt re-anchors the clock, forwards or backwards, and a traf without tfdt
+	// continues it, starting at zero on the track's first appearance. The default zero value keeps the original
+	// behavior, where such a traf starts at zero. The boxes and encoded bytes of every fragment stay unchanged.
+	ContinuousClock bool
+
 	frag Fragment
 	// boxes holds the top-level boxes of the last fragment, in order, and spareBoxes the storage for the next.
 	boxes, spareBoxes []Box
@@ -29,6 +35,28 @@ type FragmentDecoder struct {
 	// earlier fragments that the last one did not have, such as the styp that only the first fragment of a segment
 	// has. Each is reused at most once per fragment, by type. spareCands is the storage for the next list.
 	cands, spareCands []boxDecoderInto
+	// clock is the per-track continuous clock, used only when ContinuousClock is set.
+	clock *continuousClock
+}
+
+// ResetClocks clears the continuous clocks of every track of the decoder. The next fragment of each track then
+// starts again from zero, unless its traf has a tfdt, which anchors it. It has no effect in the default mode.
+func (d *FragmentDecoder) ResetClocks() {
+	if d.clock != nil {
+		d.clock.Reset()
+	}
+}
+
+// trexMap returns the trex boxes of the init segment keyed by track ID, or nil when there is no moov or mvex.
+func (d *FragmentDecoder) trexMap() map[uint32]*TrexBox {
+	if d.Moov == nil || d.Moov.Mvex == nil {
+		return nil
+	}
+	trexs := make(map[uint32]*TrexBox, len(d.Moov.Mvex.Trexs))
+	for _, trex := range d.Moov.Mvex.Trexs {
+		trexs[trex.TrackID] = trex
+	}
+	return trexs
 }
 
 // maxReusedBoxes bounds the number of top-level boxes kept for reuse.
@@ -136,6 +164,20 @@ func (d *FragmentDecoder) DecodeSR(sr bits.SliceReader, startPos uint64) (*Fragm
 		}
 	}
 	f.StartPos = moof.StartPos
+	if d.ContinuousClock {
+		// All tracks are parsed and checked before any clock moves, so an error here leaves every clock at
+		// its last successful fragment. The fragment keeps the result, so reading its samples more than once
+		// does not advance the clock again.
+		if d.clock == nil {
+			d.clock = newContinuousClock()
+		}
+		fc, err := d.clock.prepare(moof, d.trexMap())
+		if err != nil {
+			return nil, err
+		}
+		fc.commit()
+		f.clock = fc
+	}
 	return f, nil
 }
 
