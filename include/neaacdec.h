@@ -244,6 +244,15 @@ NEAACDECAPI void* NeAACDecDecode2(NeAACDecHandle hDecoder,
                                   void **sample_buffer,
                                   unsigned long sample_buffer_size);
 
+/* Synthesize one missing 1024-sample access unit from decoder history. */
+NEAACDECAPI void* NeAACDecConceal(NeAACDecHandle hDecoder,
+                                  NeAACDecFrameInfo *hInfo);
+
+NEAACDECAPI void* NeAACDecConceal2(NeAACDecHandle hDecoder,
+                                   NeAACDecFrameInfo *hInfo,
+                                   void **sample_buffer,
+                                   unsigned long sample_buffer_size);
+
 NEAACDECAPI char NeAACDecAudioSpecificConfig(unsigned char *pBuffer,
                                              unsigned long buffer_size,
                                              mp4AudioSpecificConfig *mp4ASC);

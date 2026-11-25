@@ -406,6 +406,19 @@ typedef struct
     uint32_t __r1;
     uint32_t __r2;
 
+    /* Frame-loss concealment history.  The supported profile is one
+       mono/SCE or stereo/CPE stream with 1024 coefficients per channel. */
+    uint8_t conceal_initialized;
+    uint8_t conceal_history_valid;
+    uint8_t conceal_channels;
+    uint8_t conceal_capture_mask;
+    uint8_t conceal_history_sequence[2];
+    uint8_t conceal_history_shape[2];
+    uint8_t conceal_synthesis_sequence[2];
+    uint32_t conceal_loss_count;
+    real_t conceal_spectrum[2][1024];
+    real_t conceal_work[2][1024];
+
 #ifdef SBR_DEC
     int8_t sbr_present_flag;
     int8_t forceUpSampling;

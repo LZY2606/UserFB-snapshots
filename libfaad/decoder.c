@@ -41,6 +41,7 @@
 #include "output.h"
 #include "filtbank.h"
 #include "drc.h"
+#include "conceal.h"
 #ifdef SBR_DEC
 #include "sbr_dec.h"
 #include "sbr_syntax.h"
@@ -64,7 +65,7 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
                               unsigned long buffer_size,
                               void **sample_buffer2,
                               unsigned long sample_buffer_size);
-static void create_channel_config(NeAACDecStruct *hDecoder,
+void create_channel_config(NeAACDecStruct *hDecoder,
                                   NeAACDecFrameInfo *hInfo);
 
 
@@ -275,6 +276,8 @@ long NeAACDecInit(NeAACDecHandle hpDecoder,
     adts_header adts;
     NeAACDecStruct* hDecoder = (NeAACDecStruct*)hpDecoder;
 
+    if (hDecoder != NULL)
+        conceal_reset(hDecoder);
 
     if ((hDecoder == NULL) || (samplerate == NULL) || (channels == NULL) || (buffer_size == 0))
         return -1;
@@ -396,6 +399,9 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
     int8_t rc;
     mp4AudioSpecificConfig mp4ASC;
 
+    if (hDecoder != NULL)
+        conceal_reset(hDecoder);
+
     if((hDecoder == NULL)
         || (pBuffer == NULL)
         || (SizeOfDecoderSpecificInfo < 2)
@@ -471,6 +477,7 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
         hDecoder->frameLength >>= 1;
 #endif
 
+    hDecoder->conceal_initialized = 1;
     return 0;
 }
 
@@ -577,6 +584,7 @@ void NeAACDecPostSeekReset(NeAACDecHandle hpDecoder, long frame)
     NeAACDecStruct* hDecoder = (NeAACDecStruct*)hpDecoder;
     if (hDecoder)
     {
+        conceal_invalidate(hDecoder);
         hDecoder->postSeekResetFlag = 1;
 
         if (frame != -1)
@@ -584,7 +592,7 @@ void NeAACDecPostSeekReset(NeAACDecHandle hpDecoder, long frame)
     }
 }
 
-static void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
+void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
 {
     hInfo->num_front_channels = 0;
     hInfo->num_side_channels = 0;
@@ -833,6 +841,8 @@ void* NeAACDecDecode2(NeAACDecHandle hpDecoder,
     NeAACDecStruct* hDecoder = (NeAACDecStruct*)hpDecoder;
     if ((sample_buffer_size == 0) || (sample_buffer == NULL) || (*sample_buffer == NULL))
     {
+        if (hDecoder != NULL)
+            conceal_invalidate(hDecoder);
         hInfo->error = 27;
         return NULL;
     }
@@ -906,6 +916,7 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
         }
     }
 
+    conceal_decode_begin(hDecoder);
 
     /* initialize the bitstream */
     faad_initbits(&ld, buffer, buffer_size);
@@ -1176,6 +1187,10 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
 
     sample_buffer = output_to_PCM(hDecoder, hDecoder->time_out, sample_buffer,
         output_channels, frame_len, hDecoder->config.outputFormat);
+
+    /* The complete AU has now been reconstructed and converted.  First-frame
+       suppression below still counts as a good AU for concealment history. */
+    conceal_commit(hDecoder, hInfo);
 
 
 #ifdef DRM

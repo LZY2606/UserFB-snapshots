@@ -1,0 +1,11 @@
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/faad.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/faad_drm.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/faad_fixed.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/faad_drm_fixed.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/faad_cli.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z02166/attempts/20261125T164454513654Z/repo/.task-build/asan/CMakeFiles/install/strip.dir

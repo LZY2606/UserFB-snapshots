@@ -48,6 +48,7 @@
 #include "pns.h"
 #include "tns.h"
 #include "drc.h"
+#include "conceal.h"
 #include "lt_predict.h"
 #include "ic_predict.h"
 #ifdef SSR_DEC
@@ -1059,6 +1060,8 @@ uint8_t reconstruct_single_channel(NeAACDecStruct *hDecoder, ic_stream *ics,
     }
 #endif
     /* filter bank */
+    conceal_capture_spectrum(hDecoder, sce->channel, spec_coef,
+        ics->window_sequence, ics->window_shape);
 #ifdef SSR_DEC
     if (hDecoder->object_type != SSR)
     {
@@ -1318,6 +1321,10 @@ uint8_t reconstruct_channel_pair(NeAACDecStruct *hDecoder, ic_stream *ics1, ic_s
     }
 #endif
     /* filter bank */
+    conceal_capture_spectrum(hDecoder, cpe->channel, spec_coef1,
+        ics1->window_sequence, ics1->window_shape);
+    conceal_capture_spectrum(hDecoder, cpe->paired_channel, spec_coef2,
+        ics2->window_sequence, ics2->window_shape);
 #ifdef SSR_DEC
     if (hDecoder->object_type != SSR)
     {
