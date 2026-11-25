@@ -135,6 +135,65 @@ u32 h264bsdDecodeSeqParamSet(strmData_t *pStrmData, seqParamSet_t *pSeqParamSet)
         return(HANTRO_NOK);
     }
 
+    /* High-profile parameter extension.  The supported target is deliberately
+     * narrow: High@profile_idc=100, 4:2:0/8-bit and no custom scaling lists or
+     * lossless transform bypass.  Parse the common extension first so that
+     * unsupported combinations fail as parameter-set errors instead of being
+     * interpreted as Baseline syntax. */
+    if (pSeqParamSet->profileIdc == 100 ||
+        pSeqParamSet->profileIdc == 110 ||
+        pSeqParamSet->profileIdc == 122 ||
+        pSeqParamSet->profileIdc == 244 ||
+        pSeqParamSet->profileIdc == 44  ||
+        pSeqParamSet->profileIdc == 83  ||
+        pSeqParamSet->profileIdc == 86  ||
+        pSeqParamSet->profileIdc == 118 ||
+        pSeqParamSet->profileIdc == 128 ||
+        pSeqParamSet->profileIdc == 138 ||
+        pSeqParamSet->profileIdc == 139 ||
+        pSeqParamSet->profileIdc == 134 ||
+        pSeqParamSet->profileIdc == 135)
+    {
+        pSeqParamSet->highToolSet = 1;
+        tmp = h264bsdDecodeExpGolombUnsigned(pStrmData,
+            &pSeqParamSet->chromaFormatIdc);
+        if (tmp != HANTRO_OK)
+            return(tmp);
+        if (pSeqParamSet->chromaFormatIdc == 3)
+        {
+            tmp = h264bsdGetBits(pStrmData, 1);
+            if (tmp == END_OF_STREAM)
+                return(HANTRO_NOK);
+        }
+        tmp = h264bsdDecodeExpGolombUnsigned(pStrmData,
+            &pSeqParamSet->bitDepthLumaMinus8);
+        if (tmp != HANTRO_OK)
+            return(tmp);
+        tmp = h264bsdDecodeExpGolombUnsigned(pStrmData,
+            &pSeqParamSet->bitDepthChromaMinus8);
+        if (tmp != HANTRO_OK)
+            return(tmp);
+        tmp = h264bsdGetBits(pStrmData, 1);
+        if (tmp == END_OF_STREAM)
+            return(HANTRO_NOK);
+        pSeqParamSet->qpprimeYZeroTransformBypassFlag = tmp;
+        tmp = h264bsdGetBits(pStrmData, 1);
+        if (tmp == END_OF_STREAM)
+            return(HANTRO_NOK);
+        pSeqParamSet->seqScalingMatrixPresentFlag = tmp;
+
+        if (pSeqParamSet->profileIdc != 100 ||
+            pSeqParamSet->chromaFormatIdc != 1 ||
+            pSeqParamSet->bitDepthLumaMinus8 != 0 ||
+            pSeqParamSet->bitDepthChromaMinus8 != 0 ||
+            pSeqParamSet->qpprimeYZeroTransformBypassFlag ||
+            pSeqParamSet->seqScalingMatrixPresentFlag)
+        {
+            EPRINT("unsupported high profile tool set");
+            return(HANTRO_NOK);
+        }
+    }
+
     /* log2_max_frame_num_minus4 */
     tmp = h264bsdDecodeExpGolombUnsigned(pStrmData, &value);
     if (tmp != HANTRO_OK)
@@ -157,6 +216,11 @@ u32 h264bsdDecodeSeqParamSet(strmData_t *pStrmData, seqParamSet_t *pSeqParamSet)
         return(HANTRO_NOK);
     }
     pSeqParamSet->picOrderCntType = value;
+    if (pSeqParamSet->highToolSet && value != 0 && value != 2)
+    {
+        EPRINT("unsupported high picture order count type");
+        return(HANTRO_NOK);
+    }
 
     if (pSeqParamSet->picOrderCntType == 0)
     {

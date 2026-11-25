@@ -327,6 +327,44 @@ u32 h264bsdDecodePicParamSet(strmData_t *pStrmData, picParamSet_t *pPicParamSet)
     pPicParamSet->redundantPicCntPresentFlag = (tmp == 1) ?
                                     HANTRO_TRUE : HANTRO_FALSE;
 
+    pPicParamSet->secondChromaQpIndexOffset =
+        pPicParamSet->chromaQpIndexOffset;
+
+    /* High-profile PPS extension.  A PPS without this extension remains on
+     * the established Baseline 4x4 path. */
+    if (h264bsdMoreRbspData(pStrmData))
+    {
+        tmp = h264bsdGetBits(pStrmData, 1);
+        if (tmp == END_OF_STREAM)
+            return(HANTRO_NOK);
+        pPicParamSet->transform8x8ModeFlag = tmp;
+
+        tmp = h264bsdGetBits(pStrmData, 1);
+        if (tmp == END_OF_STREAM)
+            return(HANTRO_NOK);
+        pPicParamSet->picScalingMatrixPresentFlag = tmp;
+        if (pPicParamSet->picScalingMatrixPresentFlag)
+        {
+            EPRINT("custom PPS scaling lists are unsupported");
+            return(HANTRO_NOK);
+        }
+
+        tmp = h264bsdDecodeExpGolombSigned(pStrmData, &itmp);
+        if (tmp != HANTRO_OK)
+            return(tmp);
+        if ((itmp < -12) || (itmp > 12))
+        {
+            EPRINT("second_chroma_qp_index_offset");
+            return(HANTRO_NOK);
+        }
+        pPicParamSet->secondChromaQpIndexOffset = itmp;
+        if (itmp != pPicParamSet->chromaQpIndexOffset)
+        {
+            EPRINT("chroma QP index offsets must match");
+            return(HANTRO_NOK);
+        }
+    }
+
     tmp = h264bsdRbspTrailingBits(pStrmData);
 
     /* ignore possible errors in trailing bits of parameters sets */

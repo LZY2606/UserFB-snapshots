@@ -1,0 +1,36 @@
+ERROR: unsupported high profile tool set
+ERROR: SEQ_PARAM_SET
+ERROR: unsupported high profile tool set
+ERROR: SEQ_PARAM_SET
+ERROR: unsupported high picture order count type
+ERROR: SEQ_PARAM_SET
+ERROR: custom PPS scaling lists are unsupported
+ERROR: PIC_PARAM_SET
+ERROR: custom PPS scaling lists are unsupported
+ERROR: PIC_PARAM_SET
+ERROR: Intra_8x8 is outside supported High range
+ERROR: macroblock_layer
+ERROR: SLICE_DATA
+ERROR: macroblock_layer
+ERROR: SLICE_DATA
+debug multiref r=3 frames=2
+FAIL tests/transform8_cases.c:1507 r<=H264BSD_HDRS_RDY
+CASE syntax high-sps-pps checks=4
+CASE syntax unsupported-high checks=3
+CASE syntax pps-extension-errors checks=2
+CASE syntax intra8x8-rejected checks=1
+CASE syntax partition8-modes checks=20
+CASE syntax sub8-and-cbp0 checks=10
+GROUP syntax cases=6 checks=40 COMPLETE
+CASE residual four-cavlc-groups checks=259
+CASE residual qp-boundaries checks=1040
+CASE residual zero-sign-tail checks=259
+CASE residual nc-adjacency-chain checks=515
+GROUP residual cases=4 checks=2073 COMPLETE
+CASE filter disabled-plane-and-flags checks=5
+CASE filter enabled-smoke checks=4
+CASE filter mixed-edge-model checks=556
+GROUP filter cases=3 checks=565 COMPLETE
+CASE compat public-sequence checks=5
+CASE compat reference-chain checks=9
+CASE compat multi-slice checks=516

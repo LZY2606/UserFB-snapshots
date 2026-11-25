@@ -153,6 +153,7 @@ typedef struct
 {
     mbType_e mbType;
     u32 codedBlockPattern;
+    u32 transformSize8x8Flag;
     i32 mbQpDelta;
     mbPred_t mbPred;
     subMbPred_t subMbPred;
@@ -168,6 +169,8 @@ typedef struct mbStorage
     i32 filterOffsetB;
     u32 qpY;
     i32 chromaQpIndexOffset;
+    u32 transform8x8ModeFlag;
+    u32 transform8x8Flag;
 #ifdef H264DEC_OMXDL
     u8 totalCoeff[27];
 #else

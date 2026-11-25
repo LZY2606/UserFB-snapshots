@@ -392,11 +392,27 @@ u32 InnerBoundaryStrength2(mbStorage_t *mb1, u32 ind1, u32 ind2)
             before this is called -> no intra mb conditions here.
 
 ------------------------------------------------------------------------------*/
+static u32 TransformCoeffNonZero(mbStorage_t *mb, u32 ind)
+{
+    u32 base;
+
+    if (!mb->transform8x8Flag || ind >= 16)
+        return mb->totalCoeff[ind] != 0;
+
+    /* All four CAVLC groups in one 8x8 transform share one residual block.
+     * A boundary adjacent to that transform therefore sees residual if any
+     * one of the four groups is non-zero. */
+    base = ind & ~3U;
+    return mb->totalCoeff[base] || mb->totalCoeff[base + 1] ||
+           mb->totalCoeff[base + 2] || mb->totalCoeff[base + 3];
+}
+
 u32 EdgeBoundaryStrength(mbStorage_t *mb1, mbStorage_t *mb2,
     u32 ind1, u32 ind2)
 {
 
-    if (mb1->totalCoeff[ind1] || mb2->totalCoeff[ind2])
+    if (TransformCoeffNonZero(mb1, ind1) ||
+        TransformCoeffNonZero(mb2, ind2))
     {
         return 2;
     }
@@ -1363,6 +1379,38 @@ u32 GetBoundaryStrengths(mbStorage_t *mb, bS_t *bS, u32 flags)
             bS[14].left = InnerBoundaryStrength(mb, mb4x4Index[14], mb4x4Index[13]);
             bS[15].left = InnerBoundaryStrength(mb, mb4x4Index[15], mb4x4Index[14]);
         }
+        /* An 8x8 luma transform has no transform boundary at the x=4/x=12
+         * or y=4/y=12 quarter-MB lines inside either 8x8 area.  Keep outer
+         * MB edges and the central x=8/y=8 edges; partition motion checks
+         * above have already handled any real motion boundaries. */
+        if (mb->transform8x8Flag && !IS_INTRA_MB(*mb))
+        {
+            u32 e;
+            u32 topLeft = TransformCoeffNonZero(mb, 0);
+            u32 topRight = TransformCoeffNonZero(mb, 4);
+            u32 bottomLeft = TransformCoeffNonZero(mb, 8);
+            u32 bottomRight = TransformCoeffNonZero(mb, 12);
+
+            for (e = 0; e < 4; e++)
+            {
+                bS[e*4 + 1].left = 0;
+                bS[e*4 + 3].left = 0;
+            }
+            bS[2].left = topLeft || topRight ? 2 : bS[2].left;
+            bS[6].left = topLeft || topRight ? 2 : bS[6].left;
+            bS[10].left = bottomLeft || bottomRight ? 2 : bS[10].left;
+            bS[14].left = bottomLeft || bottomRight ? 2 : bS[14].left;
+
+            for (e = 4; e < 8; e++)
+                bS[e].top = 0;
+            for (e = 12; e < 16; e++)
+                bS[e].top = 0;
+            bS[8].top = topLeft || bottomLeft ? 2 : bS[8].top;
+            bS[9].top = topLeft || bottomLeft ? 2 : bS[9].top;
+            bS[10].top = topRight || bottomRight ? 2 : bS[10].top;
+            bS[11].top = topRight || bottomRight ? 2 : bS[11].top;
+        }
+
         if (!nonZeroBs &&
             (bS[4].top || bS[5].top || bS[6].top || bS[7].top ||
              bS[8].top || bS[9].top || bS[10].top || bS[11].top ||

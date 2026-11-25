@@ -51,6 +51,12 @@ typedef struct
 {
     u32 profileIdc;
     u32 levelIdc;
+    u32 chromaFormatIdc;
+    u32 bitDepthLumaMinus8;
+    u32 bitDepthChromaMinus8;
+    u32 qpprimeYZeroTransformBypassFlag;
+    u32 seqScalingMatrixPresentFlag;
+    u32 highToolSet;
     u32 seqParameterSetId;
     u32 maxFrameNum;
     u32 picOrderCntType;

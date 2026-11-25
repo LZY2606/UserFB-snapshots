@@ -62,6 +62,9 @@ typedef struct
     u32 numRefIdxL0Active;
     u32 picInitQp;
     i32 chromaQpIndexOffset;
+    u32 transform8x8ModeFlag;
+    u32 picScalingMatrixPresentFlag;
+    i32 secondChromaQpIndexOffset;
     u32 deblockingFilterControlPresentFlag;
     u32 constrainedIntraPredFlag;
     u32 redundantPicCntPresentFlag;

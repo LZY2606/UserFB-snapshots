@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/mktemp "${TMPDIR:-/tmp}/task-target.XXXXXX"

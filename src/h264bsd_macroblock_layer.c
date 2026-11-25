@@ -221,10 +221,51 @@ u32 h264bsdDecodeMacroblockLayer(strmData_t *pStrmData,
         if ( pMbLayer->codedBlockPattern ||
              (partMode == PRED_MODE_INTRA16x16) )
         {
+            u32 transformFlagPresent = 0;
+
             tmp = h264bsdDecodeExpGolombSigned(pStrmData, &itmp);
             if (tmp != HANTRO_OK || (itmp < -26) || (itmp > 25) )
                 return(HANTRO_NOK);
             pMbLayer->mbQpDelta = itmp;
+
+            if (pMb->transform8x8ModeFlag)
+            {
+                if (pMbLayer->mbType == I_4x4)
+                {
+                    transformFlagPresent = 1;
+                }
+                else if (partMode == PRED_MODE_INTER &&
+                         (pMbLayer->codedBlockPattern & 0xF))
+                {
+                    if (pMbLayer->mbType == P_8x8 ||
+                        pMbLayer->mbType == P_8x8ref0)
+                    {
+                        transformFlagPresent =
+                            (pMbLayer->subMbPred.subMbType[0] == P_L0_8x8 &&
+                             pMbLayer->subMbPred.subMbType[1] == P_L0_8x8 &&
+                             pMbLayer->subMbPred.subMbType[2] == P_L0_8x8 &&
+                             pMbLayer->subMbPred.subMbType[3] == P_L0_8x8);
+                    }
+                    else if (pMbLayer->mbType != P_Skip)
+                    {
+                        transformFlagPresent = 1;
+                    }
+                }
+
+                if (transformFlagPresent)
+                {
+                    tmp = h264bsdGetBits(pStrmData, 1);
+                    if (tmp == END_OF_STREAM)
+                        return(HANTRO_NOK);
+                    pMbLayer->transformSize8x8Flag = tmp;
+                    pMb->transform8x8Flag = tmp;
+                    if (tmp && pMbLayer->mbType == I_4x4)
+                    {
+                        EPRINT("Intra_8x8 is outside supported High range");
+                        return(HANTRO_NOK);
+                    }
+                }
+            }
 
             tmp = DecodeResidual(pStrmData, &pMbLayer->residual, pMb,
                 pMbLayer->mbType, pMbLayer->codedBlockPattern);
@@ -717,6 +758,38 @@ u32 DecodeResidual(strmData_t *pStrmData, residual_t *pResidual,
 
     level = pResidual->level;
 
+    if (pMb->transform8x8Flag)
+    {
+        /* One coded luma 8x8 area contains four CAVLC groups of 16 scan
+         * coefficients.  Keep each group's TotalCoeff at its own blockIndex:
+         * nC for later groups and later 4x4 blocks depends on those values. */
+        for (i = 4, blockIndex = 0; i--;)
+        {
+            blockCoded = codedBlockPattern & 0x1;
+            codedBlockPattern >>= 1;
+            if (blockCoded)
+            {
+                for (j = 4; j--; blockIndex++)
+                {
+                    nc = (i32)DetermineNc(pMb, blockIndex,
+                        pResidual->totalCoeff);
+                    tmp = h264bsdDecodeResidualBlockCavlc(pStrmData,
+                        level[blockIndex], nc, 16);
+                    pResidual->coeffMap[blockIndex] = tmp >> 16;
+                    if ((tmp & 0xF) != HANTRO_OK)
+                        return(tmp);
+                    pResidual->totalCoeff[blockIndex] =
+                        (tmp >> 4) & 0xFF;
+                }
+            }
+            else
+            {
+                blockIndex += 4;
+            }
+        }
+    }
+    else
+    {
     /* luma DC is at index 24 */
     if (h264bsdMbPartPredMode(mbType) == PRED_MODE_INTRA16x16)
     {
@@ -759,6 +832,7 @@ u32 DecodeResidual(strmData_t *pStrmData, residual_t *pResidual,
         }
         else
             blockIndex += 4;
+    }
     }
 
     /* chroma DC block are at indices 25 and 26 */
@@ -1360,7 +1434,16 @@ u32 ProcessResidual(mbStorage_t *pMb, i32 residualLevel[][16], u32 *coeffMap)
 
     blockData = residualLevel;
     totalCoeff = pMb->totalCoeff;
-    if (h264bsdMbPartPredMode(pMb->mbType) == PRED_MODE_INTRA16x16)
+    if (pMb->transform8x8Flag)
+    {
+        if (h264bsdProcessLuma8x8(residualLevel, pMb->totalCoeff,
+                pMb->qpY) != HANTRO_OK)
+            return(HANTRO_NOK);
+        blockData += 16;
+        totalCoeff += 16;
+        coeffMap += 16;
+    }
+    else if (h264bsdMbPartPredMode(pMb->mbType) == PRED_MODE_INTRA16x16)
     {
         if (totalCoeff[24])
         {

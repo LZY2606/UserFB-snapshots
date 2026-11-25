@@ -48,6 +48,7 @@
 ------------------------------------------------------------------------------*/
 
 u32 h264bsdProcessBlock(i32 *data, u32 qp, u32 skip, u32 coeffMap);
+u32 h264bsdProcessLuma8x8(i32 residual[][16], const i16 *totalCoeff, u32 qp);
 void h264bsdProcessLumaDc(i32 *data, u32 qp);
 void h264bsdProcessChromaDc(i32 *data, u32 qp);
 

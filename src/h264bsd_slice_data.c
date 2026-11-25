@@ -139,6 +139,9 @@ u32 h264bsdDecodeSliceData(strmData_t *pStrmData, storage_t *pStorage,
 
         SetMbParams(pStorage->mb + currMbAddr, pSliceHeader,
             pStorage->slice->sliceId, pStorage->activePps->chromaQpIndexOffset);
+        pStorage->mb[currMbAddr].transform8x8ModeFlag =
+            pStorage->activePps->transform8x8ModeFlag;
+        pStorage->mb[currMbAddr].transform8x8Flag = 0;
 
         if (!IS_I_SLICE(pSliceHeader->sliceType))
         {

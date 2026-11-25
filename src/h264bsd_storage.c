@@ -800,6 +800,18 @@ u32 CheckPps(picParamSet_t *pps, seqParamSet_t *sps)
 
     picSize = sps->picWidthInMbs * sps->picHeightInMbs;
 
+    if (sps->profileIdc == 100 || sps->highToolSet)
+    {
+        if (sps->profileIdc != 100 || pps->numSliceGroups != 1 ||
+            pps->picScalingMatrixPresentFlag ||
+            pps->secondChromaQpIndexOffset != pps->chromaQpIndexOffset)
+        {
+            return(HANTRO_NOK);
+        }
+    }
+    if (pps->transform8x8ModeFlag && sps->profileIdc != 100)
+        return(HANTRO_NOK);
+
     /* check slice group params */
     if (pps->numSliceGroups > 1)
     {

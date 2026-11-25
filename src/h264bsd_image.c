@@ -185,7 +185,6 @@ void h264bsdWriteOutputBlocks(image_t *image, u32 mbNum, u8 *data,
     u32 x, y;
     i32 *pRes;
     i32 tmp1, tmp2, tmp3, tmp4;
-    const u8 *clp = h264bsdClip + 512;
 
 /* Code */
 
@@ -250,18 +249,18 @@ void h264bsdWriteOutputBlocks(image_t *image, u32 mbNum, u8 *data,
                 tmp1 = tmp[0];
                 tmp2 = *pRes++;
                 tmp3 = tmp[1];
-                tmp1 = clp[tmp1 + tmp2];
+                tmp1 = CLIP3(0, 255, tmp1 + tmp2);
                 tmp4 = *pRes++;
                 imageBlock[0] = (u8)tmp1;
-                tmp3 = clp[tmp3 + tmp4];
+                tmp3 = CLIP3(0, 255, tmp3 + tmp4);
                 tmp1 = tmp[2];
                 tmp2 = *pRes++;
                 imageBlock[1] = (u8)tmp3;
-                tmp1 = clp[tmp1 + tmp2];
+                tmp1 = CLIP3(0, 255, tmp1 + tmp2);
                 tmp3 = tmp[3];
                 tmp4 = *pRes++;
                 imageBlock[2] = (u8)tmp1;
-                tmp3 = clp[tmp3 + tmp4];
+                tmp3 = CLIP3(0, 255, tmp3 + tmp4);
                 tmp += 16;
                 imageBlock[3] = (u8)tmp3;
                 imageBlock += picWidth;
@@ -322,18 +321,18 @@ void h264bsdWriteOutputBlocks(image_t *image, u32 mbNum, u8 *data,
                 tmp1 = tmp[0];
                 tmp2 = *pRes++;
                 tmp3 = tmp[1];
-                tmp1 = clp[tmp1 + tmp2];
+                tmp1 = CLIP3(0, 255, tmp1 + tmp2);
                 tmp4 = *pRes++;
                 imageBlock[0] = (u8)tmp1;
-                tmp3 = clp[tmp3 + tmp4];
+                tmp3 = CLIP3(0, 255, tmp3 + tmp4);
                 tmp1 = tmp[2];
                 tmp2 = *pRes++;
                 imageBlock[1] = (u8)tmp3;
-                tmp1 = clp[tmp1 + tmp2];
+                tmp1 = CLIP3(0, 255, tmp1 + tmp2);
                 tmp3 = tmp[3];
                 tmp4 = *pRes++;
                 imageBlock[2] = (u8)tmp1;
-                tmp3 = clp[tmp3 + tmp4];
+                tmp3 = CLIP3(0, 255, tmp3 + tmp4);
                 tmp += 8;
                 imageBlock[3] = (u8)tmp3;
                 imageBlock += picWidth;
