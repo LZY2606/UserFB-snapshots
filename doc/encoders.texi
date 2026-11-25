@@ -1476,6 +1476,48 @@ Higher is better but slower.
 
 @end table
 
+@section exr
+
+OpenEXR image encoder. It accepts @code{AV_PIX_FMT_GRAYF32},
+@code{AV_PIX_FMT_GBRPF32} and @code{AV_PIX_FMT_GBRAPF32} input.
+
+@subsection Options
+
+@table @option
+@item compression
+Set the scanline compression. Accepted values are:
+@table @samp
+@item none
+Uncompressed blocks.
+@item rle
+Run-length encoding with one scanline per block.
+@item zip1
+zlib compression with one scanline per block.
+@item zip16
+zlib compression with blocks of up to 16 scanlines.
+@item piz
+PIZ wavelet/Huffman compression with blocks of up to 32 scanlines.
+@end table
+
+If a RLE, ZIP or PIZ block does not encode smaller than its packed pixel
+data, the encoder writes that block as raw pixels while keeping the chunk
+offset and size table valid.
+
+@item format
+Set the stored sample type: @samp{half} or @samp{float} (default).
+Half output uses the same float-to-half conversion as the rest of the EXR
+encoder; float samples preserve all 32 input bits.
+
+@item gamma
+Set the gamma value written to the EXR header.
+@end table
+
+PIZ keeps its bitmap, remapping LUT, Huffman tables and rearranged 16-bit
+working buffer in encoder-private storage. The large lookup tables are not
+shared between encoder instances, so differently sized or concurrently used
+contexts cannot overwrite each other's workspace. Per-block output buffers are
+grown as needed and reused for later blocks.
+
 @anchor{ffv1}
 @section ffv1
 

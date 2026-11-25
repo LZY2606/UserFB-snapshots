@@ -36,12 +36,14 @@
 #include "bytestream.h"
 #include "codec_internal.h"
 #include "encode.h"
+#include "exr_piz.h"
 
 enum ExrCompr {
     EXR_RAW,
     EXR_RLE,
     EXR_ZIP1,
     EXR_ZIP16,
+    EXR_PIZ,
     EXR_NBCOMPR,
 };
 
@@ -87,6 +89,9 @@ typedef struct EXRContext {
 
     EXRScanlineData *scanline;
 
+    /* Reused only by this encoder instance; never shared between contexts. */
+    EXRPizWork *piz_work;
+
     Float2HalfTables f2h_tables;
 } EXRContext;
 
@@ -127,13 +132,25 @@ static av_cold int encode_init(AVCodecContext *avctx)
         s->scanline_height = 16;
         s->nb_scanlines = (avctx->height + s->scanline_height - 1) / s->scanline_height;
         break;
+    case EXR_PIZ:
+        s->scanline_height = EXR_PIZ_BLOCK_SCANLINES;
+        s->nb_scanlines = (avctx->height + s->scanline_height - 1) / s->scanline_height;
+        break;
     default:
         av_assert0(0);
     }
 
+    if (s->compression == EXR_PIZ) {
+        s->piz_work = ff_exr_piz_work_alloc();
+        if (!s->piz_work)
+            return AVERROR(ENOMEM);
+    }
+
     s->scanline = av_calloc(s->nb_scanlines, sizeof(*s->scanline));
-    if (!s->scanline)
+    if (!s->scanline) {
+        ff_exr_piz_work_free(&s->piz_work);
         return AVERROR(ENOMEM);
+    }
 
     return 0;
 }
@@ -151,6 +168,7 @@ static av_cold int encode_close(AVCodecContext *avctx)
     }
 
     av_freep(&s->scanline);
+    ff_exr_piz_work_free(&s->piz_work);
 
     return 0;
 }
@@ -347,6 +365,83 @@ static int encode_scanline_zip(EXRContext *s, const AVFrame *frame)
     return 0;
 }
 
+static int encode_scanline_piz(EXRContext *s, const AVFrame *frame)
+{
+    const int64_t element_size = s->pixel_type == EXR_HALF ? 2LL : 4LL;
+    const int word_pairs = s->pixel_type == EXR_HALF ? 1 : 2;
+
+    for (int y = 0; y < s->nb_scanlines; y++) {
+        EXRScanlineData *scanline = &s->scanline[y];
+        const int scanline_height = FFMIN(s->scanline_height, frame->height - y * s->scanline_height);
+        int64_t tmp_size = element_size * s->planes * frame->width * scanline_height;
+        size_t piz_capacity = ff_exr_piz_max_block_size((size_t)tmp_size);
+        int piz_size;
+
+        av_fast_padded_malloc(&scanline->uncompressed_data, &scanline->uncompressed_size, tmp_size);
+        if (!scanline->uncompressed_data)
+            return AVERROR(ENOMEM);
+
+        /*
+         * compressed_data receives the PIZ attempt.  Its temporary capacity
+         * includes bitmap/Huffman tables; the final packet only keeps it when
+         * it is smaller than tmp_size, otherwise the raw block is swapped in.
+         */
+        av_fast_padded_malloc(&scanline->compressed_data, &scanline->compressed_size, piz_capacity);
+        if (!scanline->compressed_data)
+            return AVERROR(ENOMEM);
+
+        switch (s->pixel_type) {
+        case EXR_FLOAT:
+            for (int l = 0; l < scanline_height; l++) {
+                const int scanline_size = frame->width * 4 * s->planes;
+
+                for (int p = 0; p < s->planes; p++) {
+                    int ch = s->ch_order[p];
+
+                    memcpy(scanline->uncompressed_data + scanline_size * l + p * frame->width * 4,
+                           frame->data[ch] + (y * s->scanline_height + l) * frame->linesize[ch],
+                           frame->width * 4);
+                }
+            }
+            break;
+        case EXR_HALF:
+            for (int l = 0; l < scanline_height; l++) {
+                const int scanline_size = frame->width * 2 * s->planes;
+
+                for (int p = 0; p < s->planes; p++) {
+                    int ch = s->ch_order[p];
+                    uint16_t *dst = (uint16_t *)(scanline->uncompressed_data + scanline_size * l + p * frame->width * 2);
+                    const uint32_t *src = (const uint32_t *)(frame->data[ch] + (y * s->scanline_height + l) * frame->linesize[ch]);
+
+                    for (int x = 0; x < frame->width; x++)
+                        AV_WL16(&dst[x], float2half(src[x], &s->f2h_tables));
+                }
+            }
+            break;
+        }
+
+        piz_size = ff_exr_piz_encode(s->piz_work,
+                                     scanline->compressed_data,
+                                     piz_capacity,
+                                     scanline->uncompressed_data,
+                                     (size_t)tmp_size,
+                                     frame->width, scanline_height,
+                                     s->planes, word_pairs);
+        if (piz_size < 0)
+            return piz_size;
+
+        scanline->actual_size = piz_size;
+        if (piz_size == 0 || scanline->actual_size >= tmp_size) {
+            /* piz_size == 0 means the PIZ helper selected raw fallback. */
+            FFSWAP(uint8_t *, scanline->uncompressed_data, scanline->compressed_data);
+            FFSWAP(int, scanline->uncompressed_size, scanline->compressed_size);
+            scanline->actual_size = tmp_size;
+        }
+    }
+
+    return 0;
+}
+
 static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
                         const AVFrame *frame, int *got_packet)
 {
@@ -354,6 +449,12 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     PutByteContext *pb = &s->pb;
     int64_t offset;
     int ret;
+    /*
+     * Every compressed chunk that is not smaller than its packed block is
+     * replaced by that raw block, so chunk payloads never exceed the packed
+     * image size.  PIZ's temporary bitmap/Huffman worst case lives in
+     * EXRScanlineData.compressed_data, not in this final packet estimate.
+     */
     int64_t out_size = 2048LL + avctx->height * 16LL +
                       av_image_get_buffer_size(avctx->pix_fmt,
                                                avctx->width,
@@ -443,6 +544,9 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     case EXR_ZIP1:
         ret = encode_scanline_zip(s, frame);
         break;
+    case EXR_PIZ:
+        ret = encode_scanline_piz(s, frame);
+        break;
     default:
         av_assert0(0);
     }
@@ -490,6 +594,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         break;
     case EXR_ZIP16:
     case EXR_ZIP1:
+    case EXR_PIZ:
     case EXR_RLE:
         offset = bytestream2_tell_p(pb) + s->nb_scanlines * 8LL;
 
@@ -523,11 +628,12 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 #define OFFSET(x) offsetof(EXRContext, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-    { "compression", "set compression type", OFFSET(compression), AV_OPT_TYPE_INT,   {.i64=0}, 0, EXR_NBCOMPR-1, VE, .unit = "compr" },
+    { "compression", "set compression type (none, rle, zip1, zip16, piz)", OFFSET(compression), AV_OPT_TYPE_INT,   {.i64=0}, 0, EXR_NBCOMPR-1, VE, .unit = "compr" },
     { "none",        "none",                 0,                   AV_OPT_TYPE_CONST, {.i64=EXR_RAW}, 0, 0, VE, .unit = "compr" },
     { "rle" ,        "RLE",                  0,                   AV_OPT_TYPE_CONST, {.i64=EXR_RLE}, 0, 0, VE, .unit = "compr" },
     { "zip1",        "ZIP1",                 0,                   AV_OPT_TYPE_CONST, {.i64=EXR_ZIP1}, 0, 0, VE, .unit = "compr" },
     { "zip16",       "ZIP16",                0,                   AV_OPT_TYPE_CONST, {.i64=EXR_ZIP16}, 0, 0, VE, .unit = "compr" },
+    { "piz",         "PIZ (32 scanlines)",   0,                   AV_OPT_TYPE_CONST, {.i64=EXR_PIZ},   0, 0, VE, .unit = "compr" },
     { "format", "set pixel type", OFFSET(pixel_type), AV_OPT_TYPE_INT,   {.i64=EXR_FLOAT}, EXR_HALF, EXR_UNKNOWN-1, VE, .unit = "pixel" },
     { "half" ,       NULL,                   0,                   AV_OPT_TYPE_CONST, {.i64=EXR_HALF},  0, 0, VE, .unit = "pixel" },
     { "float",       NULL,                   0,                   AV_OPT_TYPE_CONST, {.i64=EXR_FLOAT}, 0, 0, VE, .unit = "pixel" },
