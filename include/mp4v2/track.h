@@ -388,6 +388,39 @@ MP4TrackId MP4CopyTrack(
     bool          applyEdits DEFAULT(false),
     MP4TrackId    dstHintTrackReferenceTrack DEFAULT(MP4_INVALID_TRACK_ID) );
 
+/** Copy an RTP hint track and its media track, honoring the media edit list.
+ *
+ *  MP4CopyHintedTrack finds the single media track referenced by the source
+ *  RTP hint track and creates a matching, independently playable pair of
+ *  tracks in the destination file. Media samples are copied once for every
+ *  rate=1 edit-list segment, in playback order; empty edit segments become
+ *  zero-packet hint samples with the same playback duration. The destination
+ *  media track keeps the edit list (rebased onto the freshly copied media),
+ *  while the destination hint track has no edit list. All hint packet
+ *  contents are preserved verbatim, except that media and self sample
+ *  references and packet sequence numbers are rebound to the new samples.
+ *
+ *  Unsupported or malformed structures are rejected before any destination
+ *  track is created, in which case the output ids are set to
+ *  #MP4_INVALID_TRACK_ID and the function returns <b>false</b>.
+ *
+ *  @param srcFile handle of the source file, which is only read.
+ *  @param srcHint track id of the RTP hint track in the source file.
+ *  @param dstFile handle of a writable destination file; must differ from
+ *      @p srcFile and may already contain other tracks.
+ *  @param mediaOut on success, receives the new media track id.
+ *  @param hintOut on success, receives the new hint track id.
+ *
+ *  @return <b>true</b> on success, <b>false</b> on failure.
+ */
+MP4V2_EXPORT
+bool MP4CopyHintedTrack(
+    MP4FileHandle srcFile,
+    MP4TrackId    srcHint,
+    MP4FileHandle dstFile,
+    MP4TrackId*   mediaOut,
+    MP4TrackId*   hintOut );
+
 MP4V2_EXPORT
 bool MP4DeleteTrack(
     MP4FileHandle hFile,

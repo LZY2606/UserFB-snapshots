@@ -68,6 +68,7 @@ set(HEADER_FILES
         src/descriptors.h
         src/enum.h
         src/exception.h
+        src/hinted_track.h
         src/impl.h
         src/log.h
         src/mp4array.h
@@ -187,6 +188,7 @@ set(SOURCE_FILES
         src/descriptors.cpp
         src/enum.tcc
         src/exception.cpp
+        src/hinted_track.cpp
         src/isma.cpp
         src/log.cpp
         src/mp4.cpp

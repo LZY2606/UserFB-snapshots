@@ -19,8 +19,8 @@ rm -f .task-build/required-api-output.mp4
 rm -f .task-build/example-output.mp4
 .task-build/example .task-build/paired-source.mp4 .task-build/example-output.mp4
 test -s .task-build/example-output.mp4
-  output_log=$(mktemp)
-  trap 'rm -f "$output_log"' EXIT
+  output_log=.task-build/target-output.log
+  : >"$output_log"
   set +e
   .task-build/target >"$output_log" 2>&1
   status=$?

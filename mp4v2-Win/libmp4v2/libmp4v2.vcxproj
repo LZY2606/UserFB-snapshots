@@ -229,6 +229,7 @@
     <ClInclude Include="..\..\src\descriptors.h" />
     <ClInclude Include="..\..\src\enum.h" />
     <ClInclude Include="..\..\src\exception.h" />
+    <ClInclude Include="..\..\src\hinted_track.h" />
     <ClInclude Include="..\..\src\impl.h" />
     <ClInclude Include="..\..\src\log.h" />
     <ClInclude Include="..\..\src\mp4array.h" />
@@ -344,6 +345,7 @@
     <ClCompile Include="..\..\src\cmeta.cpp" />
     <ClCompile Include="..\..\src\descriptors.cpp" />
     <ClCompile Include="..\..\src\exception.cpp" />
+    <ClCompile Include="..\..\src\hinted_track.cpp" />
     <ClCompile Include="..\..\src\isma.cpp" />
     <ClCompile Include="..\..\src\log.cpp" />
     <ClCompile Include="..\..\src\mp4.cpp" />

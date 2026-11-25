@@ -117,4 +117,8 @@ DerivedData
 .DS_Store
 xcuserdata
 
+# task harness build output
+.task-build/
+
+
 

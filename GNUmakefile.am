@@ -74,6 +74,8 @@ libmp4v2_la_SOURCES = \
     src/descriptors.h                    \
     src/exception.cpp                    \
     src/exception.h                      \
+    src/hinted_track.cpp                 \
+    src/hinted_track.h                   \
     src/enum.h                           \
     src/enum.tcc                         \
     src/impl.h                           \

@@ -137,7 +137,7 @@ am__libmp4v2_la_SOURCES_DIST = src/3gp.cpp src/atom_ac3.cpp \
 	src/atom_urn.cpp src/atom_uuid.cpp src/atom_video.cpp \
 	src/atom_vmhd.cpp src/atoms.h src/cmeta.cpp \
 	src/descriptors.cpp src/descriptors.h src/exception.cpp \
-	src/exception.h src/enum.h src/enum.tcc src/impl.h \
+	src/exception.h src/hinted_track.cpp src/hinted_track.h src/enum.h src/enum.tcc src/impl.h \
 	src/isma.cpp src/log.h src/log.cpp src/mp4.cpp src/mp4array.h \
 	src/mp4atom.cpp src/mp4atom.h src/mp4container.cpp \
 	src/mp4container.h src/mp4descriptor.cpp src/mp4descriptor.h \
@@ -492,7 +492,8 @@ libmp4v2_la_SOURCES = src/3gp.cpp src/atom_ac3.cpp src/atom_amr.cpp \
 	src/atom_udta.cpp src/atom_url.cpp src/atom_urn.cpp \
 	src/atom_uuid.cpp src/atom_video.cpp src/atom_vmhd.cpp \
 	src/atoms.h src/cmeta.cpp src/descriptors.cpp \
-	src/descriptors.h src/exception.cpp src/exception.h src/enum.h \
+	src/descriptors.h src/exception.cpp src/exception.h src/hinted_track.cpp \
+	src/hinted_track.h src/enum.h \
 	src/enum.tcc src/impl.h src/isma.cpp src/log.h src/log.cpp \
 	src/mp4.cpp src/mp4array.h src/mp4atom.cpp src/mp4atom.h \
 	src/mp4container.cpp src/mp4container.h src/mp4descriptor.cpp \

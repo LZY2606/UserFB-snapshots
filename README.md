@@ -14,3 +14,28 @@ Building the Repository -- doc/BuildRepository.txt
 
 See the COPYING file for license rights and limitations
 </pre>
+
+## Hinted track edit copying
+
+`MP4CopyHintedTrack()` (declared in `include/mp4v2/track.h`) copies an RTP
+hint track together with its single referenced video media track from one
+file into another, following the media track's edit list. Media is copied
+once per rate=1 edit segment in playback order; empty edit segments become
+zero-packet hint samples with the same playback duration. Hint packet
+contents are preserved, with media/self sample references and 16-bit RTP
+sequence numbers rebound to the newly copied samples. The source file is
+only read, the destination may already contain other tracks, and
+unsupported or malformed inputs are rejected before any destination track
+is created.
+
+A small command line front end lives in `examples/copy_hinted_edits.cpp`:
+
+```
+copy_hinted_edits <input.mp4> <output.mp4>
+```
+
+The task test suite and the example are built and run with:
+
+```
+bash task_support/run.sh target
+```
