@@ -36,6 +36,7 @@ set(
   sdf.cpp
   smoothing.cpp
   sort.cpp
+  surface_partition.cpp
   subdivision.cpp
   tree2d.cpp
 )

@@ -303,6 +303,7 @@ set(
   manifold.h
   optional_assert.h
   polygon.h
+  surface_partition.h
   vec_view.h
   cross_section.h
 )

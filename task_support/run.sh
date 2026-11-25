@@ -19,7 +19,11 @@ c++ -std=c++17 -O1 -I. -Iinclude -I.task-build/cmake/include -include include/ma
 rm -f .task-build/partition.obj
 .task-build/example .task-build/partition.obj
 test -s .task-build/partition.obj
-  output_log=$(mktemp)
+  if ! output_log=$(mktemp 2>/dev/null); then
+    # Some restricted sandboxes reject the platform user-temp location; the
+    # build directory is already writable in that case.
+    output_log=".task-build/target-output.$$.log"
+  fi
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
