@@ -82,6 +82,8 @@ reduceProtectedMemory( size_t reductionSizekB )
       slot->internalSize    = slot->userSize    = 0;
       slot->state           = DUMAST_EMPTY;
       slot->allocator       = EFA_INT_ALLOC;
+      slot->accessIdentity  = 0;
+      slot->accessToken     = 0;
       #ifndef DUMA_NO_LEAKDETECTION
       slot->fileSource      = DUMAFS_EMPTY;
         slot->filename      = 0;

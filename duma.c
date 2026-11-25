@@ -89,6 +89,8 @@
 #include "print.h"
 #include "duma_sem.h"
 #include "paging.h"
+#define DUMA_SKIP_SETUP 1
+#include "duma_access_internal.h"
 
 #if defined(WIN32) && !defined(__CYGWIN__) && !defined(__MINGW32__) && !defined(__MINGW64__)
 DUMA_EXTERN_C void StackTraceCleanup();
@@ -205,6 +207,11 @@ struct _DUMA_Slot
   size_t            internalSize;
   size_t            userSize;
 
+  /* Offline access-diagnostic identity.  The token owns one identity ref while
+   * the slot represents the current allocation/generation. */
+  uint64_t          accessIdentity;
+  void            * accessToken;
+
 #if 0
   /* just for checking compiler warnings / errors */
   enum _DUMA_SlotState        state;
@@ -291,6 +298,21 @@ _duma_allocDesc[] =
 #else
 #define IF__DUMA_INIT_DONE
 #endif
+
+static uint32_t duma_access_source_for(enum _DUMA_Allocator allocator)
+{
+  switch (allocator)
+  {
+    case EFA_MALLOC:       return DUMA_ACCESS_SOURCE_MALLOC;
+    case EFA_CALLOC:       return DUMA_ACCESS_SOURCE_CALLOC;
+    case EFA_MEMALIGN:     return DUMA_ACCESS_SOURCE_MEMALIGN;
+    case EFA_POSIX_MEMALIGN: return DUMA_ACCESS_SOURCE_POSIX_MEMALIGN;
+    case EFA_REALLOC:      return DUMA_ACCESS_SOURCE_REALLOC;
+    case EFA_VALLOC:       return DUMA_ACCESS_SOURCE_VALLOC;
+    case EFA_STRDUP:       return DUMA_ACCESS_SOURCE_STRDUP;
+    default:               return DUMA_ACCESS_SOURCE_INTERNAL;
+  }
+}
 
 
 /* Collection of all global static non const variables for DUMA */
@@ -1554,6 +1576,8 @@ void * _duma_allocate(size_t alignment, size_t userSize, int protectBelow, int f
       emptySlots[0]->internalSize   -= internalSize;
       emptySlots[0]->userAddress     = emptySlots[0]->internalAddress;
       emptySlots[0]->userSize        = emptySlots[0]->internalSize;
+      emptySlots[0]->accessIdentity  = 0;
+      emptySlots[0]->accessToken     = 0;
 
       /* adjust size of fullSlot */
       fullSlot->internalSize         = internalSize;
@@ -1632,6 +1656,16 @@ void * _duma_allocate(size_t alignment, size_t userSize, int protectBelow, int f
     fullSlot->userSize    = userSize;
     fullSlot->state       = DUMAST_IN_USE;
     fullSlot->allocator   = allocator;
+    fullSlot->accessIdentity = 0;
+    fullSlot->accessToken = 0;
+    if (DUMAAT_INTERNAL != _duma_allocDesc[allocator].type)
+    {
+      fullSlot->accessToken = duma_access_adapter_allocated(
+          (uint64_t)(DUMA_ADDR)userAddr,
+          (uint64_t)userSize,
+          duma_access_source_for(allocator),
+          &fullSlot->accessIdentity);
+    }
 
     #ifndef DUMA_NO_LEAKDETECTION
       fullSlot->fileSource  = DUMAFS_ALLOCATION;
@@ -1806,6 +1840,12 @@ void _duma_deallocate(void * address, int protectAllocList, enum _DUMA_Allocator
   /* CHECK INTEGRITY OF NO MANS LAND */
   _duma_check_slack( slot );
 
+  if (slot->accessToken)
+  {
+    duma_access_adapter_freed(slot->accessToken);
+    slot->accessToken = 0;
+  }
+
   if ( _duma_s.FREE_ACCESS )
   {
     volatile char *start = slot->userAddress;
@@ -1863,6 +1903,8 @@ void _duma_deallocate(void * address, int protectAllocList, enum _DUMA_Allocator
     slot->internalSize    = slot->userSize    = 0;
     slot->state           = DUMAST_EMPTY;
     slot->allocator       = EFA_INT_ALLOC;
+    slot->accessIdentity  = 0;
+    slot->accessToken     = 0;
 #ifndef DUMA_NO_LEAKDETECTION
     slot->fileSource      = DUMAFS_EMPTY;
     slot->filename      = 0;
@@ -1966,6 +2008,241 @@ void duma_checkAll()
     DUMA_RELEASE_SEMAPHORE(0);
 }
 
+/* ------------------------------------------------------------------ */
+/* Offline access diagnostic adapter                                   */
+/* ------------------------------------------------------------------ */
+
+duma_access_status duma_access_platform_acquire(uintptr_t user_address,
+                                                duma_access_ref **out_ref)
+{
+  struct _DUMA_Slot * slot;
+  duma_access_status status = DUMA_ACCESS_OK;
+
+  if (!out_ref)
+    return DUMA_ACCESS_EINVAL;
+  *out_ref = 0;
+  if (!_duma_g.allocList)
+    return DUMA_ACCESS_EUNAVAILABLE;
+
+  DUMA_GET_SEMAPHORE();
+  Page_AllowAccess(_duma_g.allocList, _duma_s.allocListSize);
+
+  if (0 == user_address)
+    status = DUMA_ACCESS_ENOENT;
+  else
+  {
+    slot = slotForUserAddress((void *)user_address);
+    if (!slot || DUMAST_EMPTY == slot->state)
+      status = DUMA_ACCESS_ENOENT;
+    else if (DUMAST_IN_USE != slot->state)
+      status = DUMA_ACCESS_ESTATE;
+    else if (0 == slot->userSize)
+      status = DUMA_ACCESS_EINVAL;
+    else if (DUMAAT_INTERNAL == _duma_allocDesc[slot->allocator].type)
+      status = DUMA_ACCESS_EINVAL;
+    else
+    {
+      if (!slot->accessToken)
+      {
+        slot->accessToken = duma_access_adapter_allocated(
+            (uint64_t)user_address,
+            (uint64_t)slot->userSize,
+            duma_access_source_for(slot->allocator),
+            &slot->accessIdentity);
+      }
+      status = duma_access_adapter_ref_from_token(slot->accessToken, out_ref);
+    }
+  }
+
+  Page_DenyAccess(_duma_g.allocList, _duma_s.allocListSize);
+  DUMA_RELEASE_SEMAPHORE(0);
+  return status;
+}
+
+static int duma_phys_add(duma_access_model_segment *segments,
+                         size_t capacity,
+                         size_t *count,
+                         uint64_t start,
+                         uint64_t end,
+                         uint32_t kind,
+                         uint32_t protection,
+                         uint64_t owner,
+                         uint64_t request_start,
+                         uint64_t request_end)
+{
+  duma_access_model_segment *segment;
+  if (start >= end)
+    return 0;
+  if (*count >= capacity)
+    return -1;
+  segment = &segments[(*count)++];
+  segment->start = start;
+  segment->end = end;
+  segment->kind = kind;
+  segment->protection = protection;
+  segment->owner = owner;
+  segment->request_start = request_start;
+  segment->request_end = request_end;
+  return 0;
+}
+
+duma_access_status duma_access_platform_capture(
+    duma_access_ref *ref,
+    uint64_t address,
+    uint64_t size,
+    uint32_t op,
+    duma_access_event **out_event)
+{
+  duma_access_model_segment * physical;
+  size_t capacity, count = 0, slot_index;
+  struct _DUMA_Slot * slot;
+  duma_access_status status;
+
+  if (!out_event)
+    return DUMA_ACCESS_EINVAL;
+  *out_event = 0;
+
+  /* A zero-length observation only snapshots reference lifetime. */
+  if (0 == size)
+  {
+    return duma_access_adapter_real_capture(ref, address, 0, op, 0, 0,
+                                            out_event);
+  }
+
+  if (!_duma_g.allocList)
+    return DUMA_ACCESS_EUNAVAILABLE;
+
+  capacity = _duma_s.slotCount * 8 + 32;
+  physical = (duma_access_model_segment *)
+      duma_access_raw_alloc(capacity * sizeof(*physical));
+  if (!physical)
+    return DUMA_ACCESS_ENOMEM;
+
+  DUMA_GET_SEMAPHORE();
+  Page_AllowAccess(_duma_g.allocList, _duma_s.allocListSize);
+
+  for (slot_index = 0; slot_index < _duma_s.slotCount; ++slot_index)
+  {
+    uint64_t internal_start, internal_end, user_start, user_end;
+    uint64_t prot_start;
+    int protect_below;
+    int failed = 0;
+
+    slot = &_duma_g.allocList[slot_index];
+    if (DUMAST_EMPTY == slot->state || !slot->internalAddress ||
+        !slot->internalSize)
+      continue;
+
+    internal_start = (uint64_t)(DUMA_ADDR)slot->internalAddress;
+    internal_end = internal_start + (uint64_t)slot->internalSize;
+    user_start = (uint64_t)(DUMA_ADDR)slot->userAddress;
+    user_end = user_start + (uint64_t)slot->userSize;
+    prot_start = (uint64_t)(DUMA_ADDR)slot->protAddress;
+    protect_below = slot->protAddress &&
+                    (uint64_t)(DUMA_ADDR)slot->protAddress < user_start;
+
+    if (DUMAST_FREE == slot->state)
+    {
+      failed |= duma_phys_add(physical, capacity, &count,
+          internal_start, internal_end,
+          DUMA_ACCESS_SEG_FREE_RESERVE, 0, 0, 0, 0);
+    }
+    else if (DUMAST_ALL_PROTECTED == slot->state)
+    {
+      failed |= duma_phys_add(physical, capacity, &count,
+          internal_start, internal_end,
+          DUMA_ACCESS_SEG_FREED_RESERVED, DUMA_ACCESS_PROT_NONE,
+          slot->accessIdentity, user_start, user_end);
+    }
+    else if (DUMAST_BEGIN_PROTECTED == slot->state)
+    {
+      /* internalSize was reduced to the still-mapped prefix.  The deleted
+       * tail has no slot interval and is therefore reported as unknown. */
+      failed |= duma_phys_add(physical, capacity, &count,
+          internal_start, internal_end,
+          DUMA_ACCESS_SEG_FREED_RESERVED, DUMA_ACCESS_PROT_NONE,
+          slot->accessIdentity, user_start, user_end);
+    }
+    else if (DUMAST_IN_USE == slot->state &&
+             DUMAAT_INTERNAL == _duma_allocDesc[slot->allocator].type)
+    {
+      uint32_t kind = DUMA_ACCESS_SEG_INTERNAL;
+      uint64_t list_start = (uint64_t)(DUMA_ADDR)_duma_g.allocList;
+      uint64_t list_end = list_start + (uint64_t)_duma_s.allocListSize;
+      if (list_start >= internal_start && list_start < internal_end)
+        kind = DUMA_ACCESS_SEG_SLOT_TABLE;
+      failed |= duma_phys_add(physical, capacity, &count,
+          internal_start, internal_end, kind,
+          DUMA_ACCESS_PROT_NONE, 0, 0, 0);
+      (void)list_end;
+    }
+    else if (DUMAST_IN_USE == slot->state)
+    {
+      const uint32_t rw = DUMA_ACCESS_PROT_READ | DUMA_ACCESS_PROT_WRITE;
+      const uint64_t owner = slot->accessIdentity;
+
+      failed |= duma_phys_add(physical, capacity, &count,
+          user_start, user_end, DUMA_ACCESS_SEG_REQUEST, rw,
+          owner, user_start, user_end);
+
+      if (!protect_below)
+      {
+        if (internal_start < user_start)
+          failed |= duma_phys_add(physical, capacity, &count,
+              internal_start, user_start, DUMA_ACCESS_SEG_ALIGNMENT, rw,
+              owner, user_start, user_end);
+        if (user_end < prot_start)
+          failed |= duma_phys_add(physical, capacity, &count,
+              user_end, prot_start, DUMA_ACCESS_SEG_ALIGNMENT, rw,
+              owner, user_start, user_end);
+        if (prot_start < internal_end)
+          failed |= duma_phys_add(physical, capacity, &count,
+              prot_start, internal_end, DUMA_ACCESS_SEG_GUARD,
+              DUMA_ACCESS_PROT_NONE, owner, user_start, user_end);
+      }
+      else
+      {
+        if (internal_start < user_start)
+          failed |= duma_phys_add(physical, capacity, &count,
+              internal_start, user_start, DUMA_ACCESS_SEG_GUARD,
+              DUMA_ACCESS_PROT_NONE, owner, user_start, user_end);
+        if (user_end < internal_end)
+          failed |= duma_phys_add(physical, capacity, &count,
+              user_end, internal_end, DUMA_ACCESS_SEG_ALIGNMENT, rw,
+              owner, user_start, user_end);
+      }
+    }
+
+    if (failed)
+    {
+      duma_access_raw_free(physical);
+      Page_DenyAccess(_duma_g.allocList, _duma_s.allocListSize);
+      DUMA_RELEASE_SEMAPHORE(0);
+      return DUMA_ACCESS_ENOMEM;
+    }
+  }
+
+  /* Positively identify the diagnostic module's own raw storage; it has no
+   * allocation identity and must never look like a user object. */
+  (void)duma_access_append_diagnostic_segments(
+      physical, capacity, &count, address, address + size);
+
+  status = duma_access_adapter_real_capture(ref, address, size, op,
+                                            physical, count, out_event);
+  duma_access_raw_free(physical);
+
+  Page_DenyAccess(_duma_g.allocList, _duma_s.allocListSize);
+  DUMA_RELEASE_SEMAPHORE(0);
+  return status;
+}
+
+void duma_access_allocator_counts(uint64_t *allocs, uint64_t *deallocs)
+{
+  if (allocs)
+    *allocs = (uint64_t)_duma_s.numAllocs;
+  if (deallocs)
+    *deallocs = (uint64_t)_duma_s.numDeallocs;
+}
 
 /*********************************************************/
 
@@ -2105,6 +2382,18 @@ void * _duma_realloc(void * oldBuffer, size_t newSize  DUMA_PARAMLIST_FL)
     if ( slot == 0 )
       DUMA_Abort("realloc(%a, %d): address not from malloc().",
       (DUMA_ADDR)oldBuffer, (DUMA_SIZE)newSize);
+
+    {
+      struct _DUMA_Slot * newSlot = ptr ? slotForUserAddress(ptr) : 0;
+      if (slot->accessToken)
+      {
+        duma_access_adapter_reallocated(
+            slot->accessToken,
+            newSlot ? newSlot->accessToken : 0,
+            newSlot ? newSlot->accessIdentity : 0);
+        slot->accessToken = 0;
+      }
+    }
 
     if ( newSize > slot->userSize )
     {

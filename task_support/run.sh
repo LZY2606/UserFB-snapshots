@@ -14,7 +14,7 @@ if [[ $mode == target ]]; then test -s test/access_contract.c; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   ${CC:-cc} -std=gnu99 -w -pthread -DDUMA_NO_CPP_SUPPORT -DDUMA_NO_GLOBAL_MALLOC_FREE -DDUMA_EXPLICIT_INIT -DDUMA_PREFER_GETENV -DDUMA_NO_HANG_MSG -I. task_support/driver.c test/access_contract.c .task-build/*.o -o .task-build/target
-  output_log=$(mktemp)
+  output_log=".task-build/target-output.$$.log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

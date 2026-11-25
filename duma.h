@@ -30,6 +30,7 @@
  */
 
 #include <stdlib.h>
+#include <stdint.h>
 
 /*
  * #include <stdlib.h>
@@ -349,3 +350,220 @@
 
 
 #endif /* end ifdef DUMA_NO_DUMA */
+
+#ifndef DUMA_ACCESS_API_DECLARED
+#define DUMA_ACCESS_API_DECLARED 1
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct duma_access_ref duma_access_ref;
+typedef struct duma_access_event duma_access_event;
+
+typedef enum duma_access_status
+{
+    DUMA_ACCESS_OK = 0,
+    DUMA_ACCESS_EINVAL = 22,
+    DUMA_ACCESS_ENOENT = 2,
+    DUMA_ACCESS_ESTATE = 103,
+    DUMA_ACCESS_ECONFLICT = 104,
+    DUMA_ACCESS_EOVERFLOW = 75,
+    DUMA_ACCESS_ENOMEM = 12,
+    DUMA_ACCESS_EUNAVAILABLE = 105
+} duma_access_status;
+
+typedef enum duma_access_op
+{
+    DUMA_ACCESS_READ = 1,
+    DUMA_ACCESS_WRITE = 2
+} duma_access_op;
+
+typedef enum duma_access_lifecycle
+{
+    DUMA_ACCESS_LIVE = 1,
+    DUMA_ACCESS_FREED = 2,
+    DUMA_ACCESS_REALLOCATED = 3
+} duma_access_lifecycle;
+
+typedef enum duma_access_segment_kind
+{
+    DUMA_ACCESS_SEG_UNKNOWN = 0,
+    DUMA_ACCESS_SEG_REQUEST = 1,
+    DUMA_ACCESS_SEG_ALIGNMENT = 2,
+    DUMA_ACCESS_SEG_GUARD = 3,
+    DUMA_ACCESS_SEG_FREED_RESERVED = 4,
+    DUMA_ACCESS_SEG_SLOT_TABLE = 5,
+    DUMA_ACCESS_SEG_FREE_RESERVE = 6,
+    DUMA_ACCESS_SEG_DIAGNOSTIC = 7,
+    DUMA_ACCESS_SEG_INTERNAL = 8
+} duma_access_segment_kind;
+
+typedef enum duma_access_source
+{
+    DUMA_ACCESS_SOURCE_UNKNOWN = 0,
+    DUMA_ACCESS_SOURCE_INTERNAL = 1,
+    DUMA_ACCESS_SOURCE_MALLOC = 2,
+    DUMA_ACCESS_SOURCE_CALLOC = 3,
+    DUMA_ACCESS_SOURCE_MEMALIGN = 4,
+    DUMA_ACCESS_SOURCE_POSIX_MEMALIGN = 5,
+    DUMA_ACCESS_SOURCE_REALLOC = 6,
+    DUMA_ACCESS_SOURCE_VALLOC = 7,
+    DUMA_ACCESS_SOURCE_STRDUP = 8
+} duma_access_source;
+
+#define DUMA_ACCESS_PROT_NONE  0u
+#define DUMA_ACCESS_PROT_READ  1u
+#define DUMA_ACCESS_PROT_WRITE 2u
+
+#define DUMA_ACCESS_F_VALID                 (1u << 0)
+#define DUMA_ACCESS_F_NO_ACCESS             (1u << 1)
+#define DUMA_ACCESS_F_UNASSOCIATED          (1u << 2)
+#define DUMA_ACCESS_F_OUT_OF_BOUNDS         (1u << 3)
+#define DUMA_ACCESS_F_STALE_REFERENCE       (1u << 4)
+#define DUMA_ACCESS_F_USE_AFTER_FREE        (1u << 5)
+#define DUMA_ACCESS_F_REALLOCATED_REFERENCE (1u << 6)
+#define DUMA_ACCESS_F_REUSED_BY_OTHER       (1u << 7)
+#define DUMA_ACCESS_F_GUARD_TOUCHED         (1u << 8)
+#define DUMA_ACCESS_F_FREED_RESERVED        (1u << 9)
+#define DUMA_ACCESS_F_UNKNOWN_REGION        (1u << 10)
+#define DUMA_ACCESS_F_CROSSES_OWNERSHIP     (1u << 11)
+
+typedef struct duma_access_segment
+{
+    uint64_t start;
+    uint64_t end;              /* exclusive */
+    uint32_t kind;             /* duma_access_segment_kind */
+    uint32_t protection;       /* DUMA_ACCESS_PROT_* bits */
+    uint64_t owner;            /* current allocation identity, or 0 */
+    uint64_t request_start;    /* original request range for owner */
+    uint64_t request_end;
+} duma_access_segment;
+
+typedef struct duma_access_oob_fragment
+{
+    uint64_t start;
+    uint64_t end;              /* exclusive */
+    uint32_t side;             /* 1 == before request, 2 == after request */
+    uint64_t boundary;         /* request start for before, request end for after */
+} duma_access_oob_fragment;
+
+typedef struct duma_access_report
+{
+    uint32_t version;
+    uint32_t op;               /* duma_access_op */
+    uint64_t address;
+    uint64_t size;
+    uint64_t end;
+    uint64_t event_sequence;
+
+    int associated;
+    uint64_t ref_identity;
+    uint32_t ref_state;        /* duma_access_lifecycle, or 0 when unassociated */
+    uint64_t transition_sequence;
+    uint64_t successor_identity;
+    uint32_t source;
+
+    uint32_t flags;
+    uint64_t reused_by_identity;
+
+    size_t segment_count;
+    const duma_access_segment *segments;
+
+    size_t oob_count;
+    const duma_access_oob_fragment *oob;
+
+    size_t code_count;
+    const char *const *codes;
+} duma_access_report;
+
+typedef struct duma_access_stats
+{
+    uint64_t live_identities;
+    uint64_t live_refs;
+    uint64_t live_events;
+    uint64_t mapped_bytes;
+    uint64_t sequence;
+    int unavailable;
+} duma_access_stats;
+
+/*
+ * Acquire an owning identity reference at the exact user start of a positive
+ * live DUMA allocation.  The address is an integer: this function never
+ * dereferences it.
+ */
+duma_access_status duma_access_acquire(uintptr_t user_address,
+                                       duma_access_ref **out_ref);
+
+/* Freeze all facts for one integer access description. */
+duma_access_status duma_access_capture(duma_access_ref *ref,
+                                       uintptr_t address,
+                                       size_t size,
+                                       duma_access_op op,
+                                       duma_access_event **out_event);
+
+/* The returned report is owned by the event and remains valid until release. */
+const duma_access_report *duma_access_explain(const duma_access_event *event);
+
+/* Typed and generic release entry points; releasing NULL is a no-op. */
+void duma_access_release_ref(duma_access_ref *ref);
+void duma_access_release_event(duma_access_event *event);
+void duma_access_release(void *object);
+
+void duma_access_get_stats(duma_access_stats *stats);
+const char *duma_access_status_name(duma_access_status status);
+const char *duma_access_lifecycle_name(uint32_t state);
+const char *duma_access_segment_kind_name(uint32_t kind);
+
+/* Integer-array interpreter input. */
+typedef struct duma_access_model_identity
+{
+    uint64_t identity;
+    uint64_t request_start;
+    uint64_t request_end;      /* exclusive and strictly greater than start */
+    uint32_t state;            /* duma_access_lifecycle */
+    uint64_t transition_sequence;
+    uint64_t successor;
+    uint32_t source;
+} duma_access_model_identity;
+
+typedef struct duma_access_model_segment
+{
+    uint64_t start;
+    uint64_t end;
+    uint32_t kind;
+    uint32_t protection;
+    uint64_t owner;
+    uint64_t request_start;
+    uint64_t request_end;
+} duma_access_model_segment;
+
+typedef struct duma_access_model
+{
+    uint32_t version;
+    uint32_t op;
+    uint64_t address;
+    uint64_t length;
+    uint64_t ref_identity;     /* 0 means an unassociated observation */
+
+    const duma_access_model_identity *identities;
+    size_t identity_count;
+    const duma_access_model_segment *segments;
+    size_t segment_count;
+} duma_access_model;
+
+/* Validate the integer model and run the exact same interpreter as real captures. */
+duma_access_status duma_access_model_run(const duma_access_model *model,
+                                         duma_access_event **out_event);
+
+/* Allocator bookkeeping counts, implemented by the DUMA adapter. */
+void duma_access_allocator_counts(uint64_t *allocs, uint64_t *deallocs);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* DUMA_ACCESS_API_DECLARED */

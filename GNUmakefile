@@ -289,13 +289,13 @@ endif
 
 PACKAGE_SOURCE=README.txt CHANGELOG COPYING-GPL COPYING-LGPL duma.3 Makefile gdbinit.rc \
 	duma.h dumapp.h duma_sem.h paging.h print.h duma_hlp.h noduma.h \
-	duma.c dumapp.cpp sem_inc.c print.c \
+	duma.c duma_access.c duma_access_internal.h dumapp.cpp sem_inc.c print.c \
 	dumatest.c tstheap.c thread-test.c testmt.c dumatestpp.cpp testoperators.cpp \
 	createconf.c
 
-OBJECTS=dumapp.o duma.o sem_inc.o print.o
+OBJECTS=dumapp.o duma.o duma_access.o sem_inc.o print.o
 
-SO_OBJECTS=dumapp_so.o duma_so.o sem_inc_so.o print_so.o
+SO_OBJECTS=dumapp_so.o duma_so.o duma_access_so.o sem_inc_so.o print_so.o
 
 # Make all the top-level targets the makefile knows about.
 all:	libduma.a tstheap$(EXEPOSTFIX) dumatest$(EXEPOSTFIX) thread-test$(EXEPOSTFIX) testmt$(EXEPOSTFIX) dumatestpp$(EXEPOSTFIX) testoperators$(EXEPOSTFIX) $(DUMA_DYN_DEPS)
@@ -545,6 +545,9 @@ dumapp_so.o:	dumapp.cpp duma.h duma_sem.h dumapp.h
 duma_so.o:	duma.c duma.h duma_config.h
 	$(CC) $(CFLAGS) $(DUMA_SO_OPTIONS) -c duma.c -o $@
 
+duma_access_so.o:	duma_access.c duma.h duma_access_internal.h
+	$(CC) $(CFLAGS) $(DUMA_SO_OPTIONS) -c duma_access.c -o $@
+
 sem_inc_so.o:	sem_inc.c duma_sem.h
 	$(CC) $(CFLAGS) $(DUMA_SO_OPTIONS) -c sem_inc.c -o $@
 
@@ -567,6 +570,9 @@ dumapp.o:	dumapp.cpp duma.h duma_sem.h dumapp.h
 
 duma.o:	duma.c duma.h duma_config.h
 	$(CC) $(CFLAGS) -c duma.c -o $@
+
+duma_access.o:	duma_access.c duma.h duma_access_internal.h
+	$(CC) $(CFLAGS) -c duma_access.c -o $@
 
 sem_inc.o:	sem_inc.c duma_sem.h
 	$(CC) $(CFLAGS) -c sem_inc.c -o $@
