@@ -12,10 +12,20 @@
 #ifndef __RENDER_H__
 #define __RENDER_H__
 
+#include <stddef.h>
+
+#include "lighttree.h"
 #include "type.h"
 
 void render_init(void);
 void render(void);
+
+void render_set_point_lights(const PointLight *lights,
+	size_t count,
+	double offset,
+	double abs_tol,
+	double rel_tol);
+void render_clear_point_lights(void);
 
 extern v3 global_ambient_light_intensity;
 

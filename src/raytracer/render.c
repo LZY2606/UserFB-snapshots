@@ -58,6 +58,40 @@ static enum GlobalIlluminationModel global_illumination_model = GLOBAL_ILLUMINAT
 static size_t samples_per_pixel = 1;
 static enum LightAttenuation light_attenuation = LIGHT_ATTENUATION_SQUARE;
 
+static LightTree *point_light_tree;
+static double point_light_offset = 1.0;
+static double point_light_abs_tol;
+static double point_light_rel_tol;
+
+void render_set_point_lights(const PointLight *lights,
+	const size_t count,
+	const double offset,
+	const double abs_tol,
+	const double rel_tol)
+{
+	LightTree *next_tree = lighttree_build(lights, count);
+	LightTree *old_tree;
+
+	/* The documented inputs are valid, including an empty non-NULL tree.
+	 * Keeping the old tree on an allocation/validation failure is safer than
+	 * replacing it with a silently disabled channel. */
+	if (!next_tree)
+		return;
+
+	old_tree = point_light_tree;
+	point_light_tree = next_tree;
+	point_light_offset = offset;
+	point_light_abs_tol = abs_tol;
+	point_light_rel_tol = rel_tol;
+	lighttree_free(old_tree);
+}
+
+void render_clear_point_lights(void)
+{
+	lighttree_free(point_light_tree);
+	point_light_tree = NULL;
+}
+
 void render_init(void)
 {
 	int idx;
@@ -226,6 +260,21 @@ float cast_ray(const struct Ray *ray, const v3 kr, v3 color, const uint32_t rema
 				add3v3(obj_color, diffuse, specular, obj_color);
 			}
 		}
+	}
+
+	/* Deterministic direct diffuse point-light channel.  It is evaluated
+	 * before kr and camera-distance attenuation, exactly like the inherited
+	 * direct lighting term, but has no specular/Phong component. */
+	if (is_outside && point_light_tree) {
+		v3 point_diffuse;
+		LightResult point_result;
+		size_t channel;
+
+		material->texture->get_color(material->texture, outgoing_ray.point, point_diffuse);
+		lighttree_eval(point_light_tree, outgoing_ray.point, normal, point_diffuse,
+			point_light_offset, point_light_abs_tol, point_light_rel_tol, &point_result);
+		for (channel = 0; channel < 3; ++channel)
+			obj_color[channel] += (float)point_result.color[channel];
 	}
 
 	//global illumination
