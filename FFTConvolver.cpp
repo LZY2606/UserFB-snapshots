@@ -24,23 +24,16 @@
 #include <cassert>
 #include <cmath>
 
-#if defined (FFTCONVOLVER_USE_SSE)
-  #include <xmmintrin.h>
-#endif
-
 
 namespace fftconvolver
-{  
+{
 
 FFTConvolver::FFTConvolver() :
   _blockSize(0),
   _segSize(0),
   _segCount(0),
   _fftComplexSize(0),
-  _segments(),
-  _segmentsIR(),
-  _fftBuffer(),
-  _fft(),
+  _core(),
   _preMultiplied(),
   _conv(),
   _overlap(),
@@ -50,29 +43,21 @@ FFTConvolver::FFTConvolver() :
 {
 }
 
-  
+
 FFTConvolver::~FFTConvolver()
 {
   reset();
 }
 
-  
+
 void FFTConvolver::reset()
-{  
-  for (size_t i=0; i<_segCount; ++i)
-  {
-    delete _segments[i];
-    delete _segmentsIR[i];
-  }
-  
+{
+  _core.reset();
+
   _blockSize = 0;
   _segSize = 0;
   _segCount = 0;
   _fftComplexSize = 0;
-  _segments.clear();
-  _segmentsIR.clear();
-  _fftBuffer.clear();
-  _fft.init(0);
   _preMultiplied.clear();
   _conv.clear();
   _overlap.clear();
@@ -81,7 +66,7 @@ void FFTConvolver::reset()
   _inputBufferFill = 0;
 }
 
-  
+
 bool FFTConvolver::init(size_t blockSize, const Sample* ir, size_t irLen)
 {
   reset();
@@ -90,7 +75,7 @@ bool FFTConvolver::init(size_t blockSize, const Sample* ir, size_t irLen)
   {
     return false;
   }
-  
+
   // Ignore zeros at the end of the impulse response because they only waste computation time
   while (irLen > 0 && ::fabs(ir[irLen-1]) < 0.000001f)
   {
@@ -101,45 +86,38 @@ bool FFTConvolver::init(size_t blockSize, const Sample* ir, size_t irLen)
   {
     return true;
   }
-  
+
   _blockSize = NextPowerOf2(blockSize);
   _segSize = 2 * _blockSize;
   _segCount = static_cast<size_t>(::ceil(static_cast<float>(irLen) / static_cast<float>(_blockSize)));
   _fftComplexSize = audiofft::AudioFFT::ComplexSize(_segSize);
-  
-  // FFT
-  _fft.init(_segSize);
-  _fftBuffer.resize(_segSize);
-  
-  // Prepare segments
-  for (size_t i=0; i<_segCount; ++i)
+
+  // Shared partitioned convolution engine (FFT, input ring, filter spectra)
+  if (!_core.init(_blockSize, _segCount))
   {
-    _segments.push_back(new SplitComplex(_fftComplexSize));    
+    return false;
   }
-  
-  // Prepare IR
+
+  // Prepare IR partitions
   for (size_t i=0; i<_segCount; ++i)
   {
-    SplitComplex* segment = new SplitComplex(_fftComplexSize);
     const size_t remaining = irLen - (i * _blockSize);
     const size_t sizeCopy = (remaining >= _blockSize) ? _blockSize : remaining;
-    CopyAndPad(_fftBuffer, &ir[i*_blockSize], sizeCopy);
-    _fft.fft(_fftBuffer.data(), segment->re(), segment->im());
-    _segmentsIR.push_back(segment);
+    _core.setFilterPartition(i, &ir[i*_blockSize], sizeCopy);
   }
-  
-  // Prepare convolution buffers  
+
+  // Prepare convolution buffers
   _preMultiplied.resize(_fftComplexSize);
   _conv.resize(_fftComplexSize);
   _overlap.resize(_blockSize);
-  
+
   // Prepare input buffer
   _inputBuffer.resize(_blockSize);
   _inputBufferFill = 0;
 
   // Reset current position
   _current = 0;
-  
+
   return true;
 }
 
@@ -161,8 +139,12 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
     ::memcpy(_inputBuffer.data()+inputBufferPos, input+processed, processing * sizeof(Sample));
 
     // Forward FFT
-    CopyAndPad(_fftBuffer, &_inputBuffer[0], _blockSize); 
-    _fft.fft(_fftBuffer.data(), _segments[_current]->re(), _segments[_current]->im());
+    Sample* const fftBuffer = _core.fftBuffer();
+    ::memcpy(fftBuffer, &_inputBuffer[0], _blockSize * sizeof(Sample));
+    ::memset(fftBuffer + _blockSize, 0, (_core.fftSize() - _blockSize) * sizeof(Sample));
+    _core.fft().fft(fftBuffer,
+                    _core.ringSlot(_current).re(),
+                    _core.ringSlot(_current).im());
 
     // Complex multiplication
     if (inputBufferWasEmpty)
@@ -172,17 +154,17 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
       {
         const size_t indexIr = i;
         const size_t indexAudio = (_current + i) % _segCount;
-        ComplexMultiplyAccumulate(_preMultiplied, *_segmentsIR[indexIr], *_segments[indexAudio]);
+        _core.accumulateSlotProduct(_preMultiplied, indexAudio, indexIr);
       }
     }
     _conv.copyFrom(_preMultiplied);
-    ComplexMultiplyAccumulate(_conv, *_segments[_current], *_segmentsIR[0]);
+    _core.accumulateSlotProduct(_conv, _current, 0);
 
     // Backward FFT
-    _fft.ifft(_fftBuffer.data(), _conv.re(), _conv.im());
+    _core.fft().ifft(_core.fftBuffer(), _conv.re(), _conv.im());
 
     // Add overlap
-    Sum(output+processed, _fftBuffer.data()+inputBufferPos, _overlap.data()+inputBufferPos, processing);
+    Sum(output+processed, _core.fftBuffer()+inputBufferPos, _overlap.data()+inputBufferPos, processing);
 
     // Input buffer full => Next block
     _inputBufferFill += processing;
@@ -193,7 +175,7 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
       _inputBufferFill = 0;
 
       // Save the overlap
-      ::memcpy(_overlap.data(), _fftBuffer.data()+_blockSize, _blockSize * sizeof(Sample));
+      ::memcpy(_overlap.data(), _core.fftBuffer()+_blockSize, _blockSize * sizeof(Sample));
 
       // Update current segment
       _current = (_current > 0) ? (_current - 1) : (_segCount - 1);
@@ -202,5 +184,5 @@ void FFTConvolver::process(const Sample* input, Sample* output, size_t len)
     processed += processing;
   }
 }
-  
+
 } // End of namespace fftconvolver

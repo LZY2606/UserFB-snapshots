@@ -23,13 +23,14 @@
 #define _FFTCONVOLVER_FFTCONVOLVER_H
 
 #include "AudioFFT.h"
+#include "PartitionedConvolverCore.h"
 #include "Utilities.h"
 
 #include <vector>
 
 
 namespace fftconvolver
-{ 
+{
 
 /**
 * @class FFTConvolver
@@ -51,11 +52,11 @@ namespace fftconvolver
 *   place during initialization).
 */
 class FFTConvolver
-{  
+{
 public:
-  FFTConvolver();  
+  FFTConvolver();
   virtual ~FFTConvolver();
-  
+
   /**
   * @brief Initializes the convolver
   * @param blockSize Block size internally used by the convolver (partition size)
@@ -77,16 +78,13 @@ public:
   * @brief Resets the convolver and discards the set impulse response
   */
   void reset();
-  
+
 private:
   size_t _blockSize;
   size_t _segSize;
   size_t _segCount;
   size_t _fftComplexSize;
-  std::vector<SplitComplex*> _segments;
-  std::vector<SplitComplex*> _segmentsIR;
-  SampleBuffer _fftBuffer;
-  audiofft::AudioFFT _fft;
+  PartitionedConvolverCore _core;
   SplitComplex _preMultiplied;
   SplitComplex _conv;
   SampleBuffer _overlap;
@@ -98,7 +96,7 @@ private:
   FFTConvolver(const FFTConvolver&);
   FFTConvolver& operator=(const FFTConvolver&);
 };
-  
+
 } // End of namespace fftconvolver
 
 #endif // Header guard
