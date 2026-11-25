@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/dominiksalvet/cpurast",
+  "commit": "3f466d9312a31f33a7fea3a37b8b645b65081bd8",
+  "license": "MIT",
+  "export": "Full tracked tree, original file modes, optional SDL adapter unmodified and unused"
+}
