@@ -89,6 +89,19 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
     private Matrix4f inverseModelBindMatrix = new Matrix4f();
 
     /**
+     * Whether this joint compensates for its parent's local scale when
+     * accumulating its model transform. Default is false.
+     * <p>
+     * When true, the parent's local scale is removed from this joint's
+     * orientation and scale accumulation, so the joint's appearance does not
+     * inherit the parent's stretch/shear, while the joint's local translation
+     * still gets scaled by the parent. The flag belongs to the child joint and
+     * can be set independently for each joint in an armature. Setting it on a
+     * root joint has no effect because a root has no parent.
+     */
+    private boolean segmentScaleCompensate = false;
+
+    /**
      * Instantiate a nameless Joint.
      */
     public Joint() {
@@ -122,6 +135,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      * model transform with this bone's local transform.
      */
     public final void updateModelTransforms() {
+        jointModelTransform.setSegmentScaleCompensate(segmentScaleCompensate);
         jointModelTransform.updateModelTransform(localTransform, parent);
         updateAttachNode();
     }
@@ -195,6 +209,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      * Sets the local transform with the bind transforms
      */
     public void applyBindPose() {
+        jointModelTransform.setSegmentScaleCompensate(segmentScaleCompensate);
         jointModelTransform.applyBindPose(localTransform, inverseModelBindMatrix, parent);
         updateModelTransforms();
 
@@ -208,6 +223,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      */
     protected void applyInitialPose() {
         setLocalTransform(initialTransform);
+        jointModelTransform.setSegmentScaleCompensate(segmentScaleCompensate);
         updateModelTransforms();
 
         for (Joint child : children.getArray()) {
@@ -323,6 +339,28 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      */
     public void setInverseModelBindMatrix(Matrix4f inverseModelBindMatrix) {
         this.inverseModelBindMatrix = inverseModelBindMatrix;
+    }
+
+    /**
+     * Determine whether this joint compensates for its parent's local scale.
+     * The flag belongs to this (child) joint and defaults to false.
+     *
+     * @return true if segment scale compensation is enabled
+     */
+    public boolean isSegmentScaleCompensate() {
+        return segmentScaleCompensate;
+    }
+
+    /**
+     * Enable or disable compensation for this joint's parent local scale.
+     * The flag belongs to this (child) joint and can be mixed within an
+     * armature. Enabling it on a root joint does not change any result.
+     * Changes take effect at the next armature update.
+     *
+     * @param segmentScaleCompensate the desired setting
+     */
+    public void setSegmentScaleCompensate(boolean segmentScaleCompensate) {
+        this.segmentScaleCompensate = segmentScaleCompensate;
     }
 
     /**
@@ -474,7 +512,6 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         this.initialTransform = cloner.clone(initialTransform);
         this.inverseModelBindMatrix = cloner.clone(inverseModelBindMatrix);
     }
-
     /**
      * De-serialize this Joint from the specified importer, for example when
      * loading from a J3O file.
@@ -492,6 +529,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         targetGeometry = (Geometry) input.readSavable("targetGeometry", null);
         initialTransform = (Transform) input.readSavable("initialTransform", new Transform());
         inverseModelBindMatrix = (Matrix4f) input.readSavable("inverseModelBindMatrix", inverseModelBindMatrix);
+        segmentScaleCompensate = input.readBoolean("segmentScaleCompensate", false);
 
         ArrayList<Joint> childList = input.readSavableArrayList("children", null);
         for (int i = childList.size() - 1; i >= 0; i--) {
@@ -516,6 +554,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         output.write(targetGeometry, "targetGeometry", null);
         output.write(initialTransform, "initialTransform", new Transform());
         output.write(inverseModelBindMatrix, "inverseModelBindMatrix", new Matrix4f());
+        output.write(segmentScaleCompensate, "segmentScaleCompensate", false);
         output.writeSavableArrayList(new ArrayList(children), "children", null);
     }
 

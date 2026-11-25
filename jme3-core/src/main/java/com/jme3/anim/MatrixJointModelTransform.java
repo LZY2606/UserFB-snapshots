@@ -34,6 +34,7 @@ package com.jme3.anim;
 import com.jme3.anim.util.JointModelTransform;
 import com.jme3.math.Matrix4f;
 import com.jme3.math.Transform;
+import com.jme3.math.Vector3f;
 
 /**
  * An implementation of {@link JointModelTransform} that accumulates joint transformations
@@ -44,6 +45,15 @@ import com.jme3.math.Transform;
  * <p>
  * This class maintains a single {@link Matrix4f} to represent the accumulated
  * model-space transform of the joint it's associated with.
+ * <p>
+ * When segment scale compensation is enabled on the joint, the model matrix of
+ * this joint is
+ * {@code P * T(t) * inverse(S_parent_local) * R(q) * S(s)}, where {@code P} is
+ * the parent's current model matrix and {@code t}, {@code q} and {@code s} are
+ * this joint's local translation, rotation and scale. The translation is still
+ * affected by the parent's scale, so bone lengths change, while only the
+ * parent's local scale is canceled from the orientation/scale accumulation.
+ * Shear caused by combining the rotation with non-uniform scale is preserved.
  */
 public class MatrixJointModelTransform implements JointModelTransform {
 
@@ -58,6 +68,20 @@ public class MatrixJointModelTransform implements JointModelTransform {
      * to a Transform object when {@link #getModelTransform()} is called.
      */
     private final Transform modelTransform = new Transform();
+    /**
+     * Scratch matrices reused while accumulating the transform.
+     */
+    private final Matrix4f scratchA = new Matrix4f();
+    private final Matrix4f scratchB = new Matrix4f();
+    private final Matrix4f scratchC = new Matrix4f();
+    private final Matrix4f scratchD = new Matrix4f();
+
+    private boolean segmentScaleCompensate = false;
+
+    @Override
+    public void setSegmentScaleCompensate(boolean segmentScaleCompensate) {
+        this.segmentScaleCompensate = segmentScaleCompensate;
+    }
 
     @Override
     public void updateModelTransform(Transform localTransform, Joint parent) {
@@ -66,7 +90,29 @@ public class MatrixJointModelTransform implements JointModelTransform {
         localTransform.toTransformMatrix(modelTransformMatrix);
         if (parent != null) {
             MatrixJointModelTransform transform = (MatrixJointModelTransform) parent.getJointModelTransform();
-            transform.getModelTransformMatrix().mult(modelTransformMatrix, modelTransformMatrix);
+            if (segmentScaleCompensate) {
+                // P * T(t) * inverse(S_parent_local) * R(q) * S(s)
+                Matrix4f parentMatrix = transform.getModelTransformMatrix();
+                Matrix4f translationPart = scratchA;
+                translationPart.loadIdentity();
+                translationPart.setTranslation(localTransform.getTranslation());
+                Matrix4f parentLocalScaleInverse = scratchB;
+                parentLocalScaleInverse.loadIdentity();
+                parentLocalScaleInverse.setScale(1f / parent.getLocalScale().x,
+                        1f / parent.getLocalScale().y,
+                        1f / parent.getLocalScale().z);
+                Matrix4f rotationScale = scratchC;
+                rotationScale.loadIdentity();
+                localTransform.getRotation().toTransformMatrix(rotationScale);
+                rotationScale.setScale(localTransform.getScale());
+
+                Matrix4f tmp = scratchD;
+                parentMatrix.mult(translationPart, tmp);
+                tmp.mult(parentLocalScaleInverse, tmp);
+                tmp.mult(rotationScale, modelTransformMatrix);
+            } else {
+                transform.getModelTransformMatrix().mult(modelTransformMatrix, modelTransformMatrix);
+            }
         }
     }
 
@@ -80,15 +126,38 @@ public class MatrixJointModelTransform implements JointModelTransform {
         modelTransformMatrix.set(inverseModelBindMatrix).invertLocal(); // model transform = model bind
         if (parent != null) {
             MatrixJointModelTransform transform = (MatrixJointModelTransform) parent.getJointModelTransform();
-            transform.getModelTransformMatrix().invert().mult(modelTransformMatrix, modelTransformMatrix);
+            Matrix4f parentModelInverse = transform.getModelTransformMatrix().invert(); // does not modify the parent
+            if (segmentScaleCompensate) {
+                /*
+                 * The update computed
+                 *   modelBind = P * T(t) * inv(S_parent_local) * R(q) * S(s),
+                 * so P^-1 * modelBind = T(t) * inv(S_parent_local) * R(q) * S(s).
+                 * The translation is recovered directly; the linear part is
+                 * scaled by the parent's local scale to get R(q) * S(s).
+                 */
+                Matrix4f localBind = scratchA;
+                parentModelInverse.mult(modelTransformMatrix, localBind);
+                Vector3f translation = new Vector3f(localBind.m03, localBind.m13, localBind.m23);
+                Matrix4f parentLocalScale = scratchB;
+                parentLocalScale.loadIdentity();
+                parentLocalScale.setScale(parent.getLocalScale());
+                Matrix4f rotationScale = scratchC;
+                parentLocalScale.mult(localBind, rotationScale);
+                rotationScale.setTranslation(translation);
+                JointTransformMath.fromTransformMatrix(rotationScale, localTransform);
+            } else {
+                parentModelInverse.mult(modelTransformMatrix, modelTransformMatrix);
+                localTransform.fromTransformMatrix(modelTransformMatrix);
+            }
+        } else {
+            localTransform.fromTransformMatrix(modelTransformMatrix);
         }
-        localTransform.fromTransformMatrix(modelTransformMatrix);
     }
 
     /**
      * Access the model transform.
      *
-     * @return the pre-existing instance 
+     * @return the pre-existing instance
      */
     public Matrix4f getModelTransformMatrix() {
         return modelTransformMatrix;

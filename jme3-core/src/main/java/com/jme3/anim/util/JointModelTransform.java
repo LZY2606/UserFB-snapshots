@@ -74,4 +74,14 @@ public interface JointModelTransform {
      * @return a new instance or a pre-existing one
      */
     Transform getModelTransform();
+
+    /**
+     * Configure whether the associated (child) joint compensates for its
+     * parent's local scale. The default implementation does nothing, so
+     * existing implementations remain compatible.
+     *
+     * @param segmentScaleCompensate the desired setting
+     */
+    default void setSegmentScaleCompensate(boolean segmentScaleCompensate) {
+    }
 }
