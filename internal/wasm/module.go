@@ -185,7 +185,20 @@ type Module struct {
 	// as described in https://yurydelendik.github.io/webassembly-dwarf/, though it is not specified in the Wasm
 	// specification: https://github.com/WebAssembly/debugging/issues/1
 	DWARFLines *wasmdebug.DWARFLines
+
+	// forceSourceOffsets is a wazero-internal switch making the interpreter
+	// compiler retain per-operation source offsets even without DWARF data.
+	// It is used by experimental/memanalysis to locate write instructions.
+	forceSourceOffsets bool
 }
+
+// ForceSourceOffsets enables the interpreter's per-operation source offsets
+// without DWARF sections.
+func (m *Module) ForceSourceOffsets() { m.forceSourceOffsets = true }
+
+// SourceOffsetsForced reports whether per-operation source offsets were
+// explicitly requested, independent of DWARF data.
+func (m *Module) SourceOffsetsForced() bool { return m.forceSourceOffsets }
 
 // ModuleID represents sha256 hash value uniquely assigned to Module.
 type ModuleID = [sha256.Size]byte

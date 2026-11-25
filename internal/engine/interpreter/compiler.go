@@ -316,7 +316,7 @@ func newCompiler(enabledFeatures api.CoreFeatures, callFrameStackSizeInUint64 in
 			directCalls:   make([]*signature, len(types)),
 			wasmTypes:     types,
 		},
-		needSourceOffset: module.DWARFLines != nil,
+		needSourceOffset: module.DWARFLines != nil || module.SourceOffsetsForced(),
 	}
 	return c, nil
 }

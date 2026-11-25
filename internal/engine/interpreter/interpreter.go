@@ -120,6 +120,15 @@ type callEngine struct {
 
 	// stackiterator for Listeners to walk frames and stack.
 	stackIterator stackIterator
+
+	// The ma* fields back the experimental/memanalysis instrumentation. They
+	// are nil/empty for the ordinary interpreter runtime, in which case every
+	// instrumented operation is a single nil check away from the original
+	// behavior. maTags is index-correlated with stack: each entry is the
+	// provenance of the operand at the same position.
+	ma     *MemAnalysisTracker
+	maCall uint32
+	maTags []valueTag
 }
 
 func (e *moduleEngine) newCallEngine(compiled *function) *callEngine {
@@ -587,6 +596,15 @@ func (ce *callEngine) call(ctx context.Context, params, results []uint64) (_ []u
 	}()
 
 	ce.pushValues(params)
+	// Exported-call arguments carry no origin: the sample forms sourced
+	// addresses and lengths by loading input bytes instead. Nested Wasm calls
+	// do not re-enter this function, so their arguments are already tagged on
+	// the parallel stack.
+	if ce.ma != nil {
+		for range params {
+			ce.maTags = append(ce.maTags, valueTag{})
+		}
+	}
 
 	if ce.f.parent.ensureTermination {
 		done := m.CloseModuleOnCanceledOrTimeout(ctx)
@@ -654,6 +672,7 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 
 	// Allows the reuse of CallEngine.
 	ce.stack, ce.frames = ce.stack[:0], ce.frames[:0]
+	ce.maTags = ce.maTags[:0]
 	return
 }
 
@@ -725,19 +744,30 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc = op.U1
 		case operationKindBrIf:
 			if ce.popValue() > 0 {
+				if ce.ma != nil {
+					_ = ce.maPop() // the branch condition tag is consumed
+				}
 				ce.drop(op.U3)
+				ce.maDrop(op.U3)
 				frame.pc = op.U1
 			} else {
+				if ce.ma != nil {
+					_ = ce.maPop() // the branch condition tag is consumed
+				}
 				frame.pc = op.U2
 			}
 		case operationKindBrTable:
 			v := ce.popValue()
+			if ce.ma != nil {
+				_ = ce.maPop()
+			}
 			defaultAt := uint64(len(op.Us))/2 - 1
 			if v > defaultAt {
 				v = defaultAt
 			}
 			v *= 2
 			ce.drop(op.Us[v+1])
+			ce.maDrop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
 			func() {
@@ -778,9 +808,13 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc++
 		case operationKindDrop:
 			ce.drop(op.U1)
+			ce.maDrop(op.U1)
 			frame.pc++
 		case operationKindSelect:
 			c := ce.popValue()
+			if ce.ma != nil {
+				_ = ce.maPop() // condition origin never joins the selected value
+			}
 			if op.B3 { // Target is vector.
 				x2Hi, x2Lo := ce.popValue(), ce.popValue()
 				if c == 0 {
@@ -790,15 +824,26 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				}
 			} else {
 				v2 := ce.popValue()
+				var v2Tag, v1Tag valueTag
+				if ce.ma != nil {
+					v2Tag = ce.maPop()
+					v1Tag = ce.maPop()
+				}
 				if c == 0 {
 					_ = ce.popValue()
 					ce.pushValue(v2)
+					if ce.ma != nil {
+						ce.maPush(v2Tag) // select keeps only the chosen value
+					}
+				} else if ce.ma != nil {
+					ce.maPush(v1Tag)
 				}
 			}
 			frame.pc++
 		case operationKindPick:
 			index := len(ce.stack) - 1 - int(op.U1)
 			ce.pushValue(ce.stack[index])
+			ce.maPick(op.U1)
 			if op.B3 { // V128 value target.
 				ce.pushValue(ce.stack[index+1])
 			}
@@ -812,11 +857,15 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			} else {
 				index := len(ce.stack) - 1 - int(op.U1)
 				ce.stack[index] = ce.popValue()
+				ce.maSet(op.U1)
 			}
 			frame.pc++
 		case operationKindGlobalGet:
 			g := globals[op.U1]
 			ce.pushValue(g.Val)
+			if ce.ma != nil {
+				ce.maPush(ce.ma.globalTags[op.U1].clone())
+			}
 			if g.Type.ValType == wasm.ValueTypeV128 {
 				ce.pushValue(g.ValHi)
 			}
@@ -827,8 +876,33 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				g.ValHi = ce.popValue()
 			}
 			g.Val = ce.popValue()
+			if ce.ma != nil {
+				ce.ma.globalTags[op.U1] = ce.maPop()
+			}
 			frame.pc++
 		case operationKindLoad:
+			if ce.ma != nil {
+				// The instrumented path mirrors the numeric cases below while
+				// threading the provenance of the bytes actually read.
+				switch unsignedType(op.B1) {
+				case unsignedTypeI32, unsignedTypeF32:
+					offset := ce.maLoad(op, 4)
+					if val, ok := memoryInst.ReadUint32Le(offset); !ok {
+						panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
+					} else {
+						ce.pushValue(uint64(val))
+					}
+				case unsignedTypeI64, unsignedTypeF64:
+					offset := ce.maLoad(op, 8)
+					if val, ok := memoryInst.ReadUint64Le(offset); !ok {
+						panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
+					} else {
+						ce.pushValue(val)
+					}
+				}
+				frame.pc++
+				continue
+			}
 			offset := ce.popMemoryOffset(op)
 			switch unsignedType(op.B1) {
 			case unsignedTypeI32, unsignedTypeF32:
@@ -846,6 +920,23 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLoad8:
+			if ce.ma != nil {
+				offset := ce.maLoad8(op)
+				val, ok := memoryInst.ReadByte(offset)
+				if !ok {
+					panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
+				}
+				switch signedInt(op.B1) {
+				case signedInt32:
+					ce.pushValue(uint64(uint32(int8(val))))
+				case signedInt64:
+					ce.pushValue(uint64(int8(val)))
+				case signedUint32, signedUint64:
+					ce.pushValue(uint64(val))
+				}
+				frame.pc++
+				continue
+			}
 			val, ok := memoryInst.ReadByte(ce.popMemoryOffset(op))
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -861,7 +952,23 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLoad16:
-
+			if ce.ma != nil {
+				offset := ce.maLoad16(op)
+				val, ok := memoryInst.ReadUint16Le(offset)
+				if !ok {
+					panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
+				}
+				switch signedInt(op.B1) {
+				case signedInt32:
+					ce.pushValue(uint64(uint32(int16(val))))
+				case signedInt64:
+					ce.pushValue(uint64(int16(val)))
+				case signedUint32, signedUint64:
+					ce.pushValue(uint64(val))
+				}
+				frame.pc++
+				continue
+			}
 			val, ok := memoryInst.ReadUint16Le(ce.popMemoryOffset(op))
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -877,6 +984,20 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLoad32:
+			if ce.ma != nil {
+				offset := ce.maLoad(op, 4)
+				val, ok := memoryInst.ReadUint32Le(offset)
+				if !ok {
+					panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
+				}
+				if op.B1 == 1 { // Signed
+					ce.pushValue(uint64(int32(val)))
+				} else {
+					ce.pushValue(uint64(val))
+				}
+				frame.pc++
+				continue
+			}
 			val, ok := memoryInst.ReadUint32Le(ce.popMemoryOffset(op))
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -889,6 +1010,16 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindStore:
+			if ce.ma != nil {
+				switch unsignedType(op.B1) {
+				case unsignedTypeI32, unsignedTypeF32:
+					ce.maStore(memoryInst, op, 4, frame)
+				case unsignedTypeI64, unsignedTypeF64:
+					ce.maStore(memoryInst, op, 8, frame)
+				}
+				frame.pc++
+				continue
+			}
 			val := ce.popValue()
 			offset := ce.popMemoryOffset(op)
 			switch unsignedType(op.B1) {
@@ -903,6 +1034,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindStore8:
+			if ce.ma != nil {
+				ce.maStore(memoryInst, op, 1, frame)
+				frame.pc++
+				continue
+			}
 			val := byte(ce.popValue())
 			offset := ce.popMemoryOffset(op)
 			if !memoryInst.WriteByte(offset, val) {
@@ -910,6 +1046,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindStore16:
+			if ce.ma != nil {
+				ce.maStore(memoryInst, op, 2, frame)
+				frame.pc++
+				continue
+			}
 			val := uint16(ce.popValue())
 			offset := ce.popMemoryOffset(op)
 			if !memoryInst.WriteUint16Le(offset, val) {
@@ -917,6 +1058,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindStore32:
+			if ce.ma != nil {
+				ce.maStore(memoryInst, op, 4, frame)
+				frame.pc++
+				continue
+			}
 			val := uint32(ce.popValue())
 			offset := ce.popMemoryOffset(op)
 			if !memoryInst.WriteUint32Le(offset, val) {
@@ -925,20 +1071,30 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc++
 		case operationKindMemorySize:
 			ce.pushValue(uint64(memoryInst.Pages()))
+			ce.maPush(valueTag{}) // size results have no origin
 			frame.pc++
 		case operationKindMemoryGrow:
 			n := ce.popValue()
+			if ce.ma != nil {
+				_ = ce.maPop() // the grow delta's origin does not attach to the result
+			}
 			if res, ok := memoryInst.Grow(uint32(n)); !ok {
 				ce.pushValue(uint64(0xffffffff)) // = -1 in signed 32-bit integer.
 			} else {
 				ce.pushValue(uint64(res))
 			}
+			if ce.ma != nil {
+				ce.ma.grow()
+				ce.maPush(valueTag{}) // grown bytes and the grow result have no origin
+			}
 			frame.pc++
 		case operationKindConstI32, operationKindConstI64,
 			operationKindConstF32, operationKindConstF64:
 			ce.pushValue(op.U1)
+			ce.maPush(valueTag{}) // clean constants carry no origin
 			frame.pc++
 		case operationKindEq:
+			ce.maBinary()
 			var b bool
 			switch unsignedType(op.B1) {
 			case unsignedTypeI32:
@@ -961,6 +1117,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindNe:
+			ce.maBinary()
 			var b bool
 			switch unsignedType(op.B1) {
 			case unsignedTypeI32, unsignedTypeI64:
@@ -987,6 +1144,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLt:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			var b bool
@@ -1009,6 +1167,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindGt:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			var b bool
@@ -1031,6 +1190,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLe:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			var b bool
@@ -1053,6 +1213,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindGe:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			var b bool
@@ -1075,6 +1236,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindAdd:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			switch unsignedType(op.B1) {
@@ -1091,6 +1253,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindSub:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			switch unsignedType(op.B1) {
@@ -1106,6 +1269,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindMul:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			switch unsignedType(op.B1) {
@@ -1151,6 +1315,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindDiv:
+			ce.maBinary()
 			// If an integer, check we won't divide by zero.
 			t := signedType(op.B1)
 			v2, v1 := ce.popValue(), ce.popValue()
@@ -1192,6 +1357,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindRem:
+			ce.maBinary()
 			v2, v1 := ce.popValue(), ce.popValue()
 			if v2 == 0 {
 				panic(wasmruntime.ErrRuntimeIntegerDivideByZero)
@@ -1216,6 +1382,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindAnd:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1227,6 +1394,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindOr:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1238,6 +1406,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindXor:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1249,6 +1418,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindShl:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1260,6 +1430,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindShr:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			switch signedInt(op.B1) {
@@ -1274,6 +1445,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindRotl:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1285,6 +1457,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindRotr:
+			ce.maBinary()
 			v2 := ce.popValue()
 			v1 := ce.popValue()
 			if op.B1 == 0 {
@@ -1707,6 +1880,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			dataInstances[op.U1] = nil
 			frame.pc++
 		case operationKindMemoryCopy:
+			if ce.ma != nil {
+				ce.maMemoryCopy(memoryInst, frame)
+				frame.pc++
+				continue
+			}
 			memLen := uint64(len(memoryInst.Buffer))
 			copySize := ce.popValue()
 			sourceOffset := ce.popValue()
@@ -1719,6 +1897,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindMemoryFill:
+			if ce.ma != nil {
+				ce.maMemoryFill(memoryInst, frame)
+				frame.pc++
+				continue
+			}
 			fillSize := ce.popValue()
 			value := byte(ce.popValue())
 			offset := ce.popValue()
