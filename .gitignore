@@ -1,5 +1,6 @@
 .DS_Store
 tmp/
+.task-build/
 
 # Deployment-specific build/self-test drivers. Kept OUT of this public fork because they carry
 # site-specific values (host serials, LAN camera URLs, credentials) that must never enter a public

@@ -1349,14 +1349,41 @@ Boolean MediaSubsession::createSourceObjects(int useSpecialRTPoffset) {
 					     fRTPPayloadFormat,
 					     fRTPTimestampFrequency);
       } else if (strcmp(fCodecName, "MPEG4-GENERIC") == 0) {
+	unsigned const sizeLength = attrVal_unsigned("sizelength");
+	unsigned const indexLength = attrVal_unsigned("indexlength");
+	unsigned const indexDeltaLength = attrVal_unsigned("indexdeltalength");
+	unsigned const constantDuration = attrVal_unsigned("constantduration");
+	unsigned const ctsDeltaLength = attrVal_unsigned("ctsdeltalength");
+
+	// These optional AU-header fields are deliberately not implemented.
+	// Reject a nonzero description instead of parsing their bits as later
+	// header/payload data.
+	if (attrVal_unsigned("dtsdeltalength") != 0
+	    || attrVal_unsigned("randomaccessindication") != 0
+	    || attrVal_unsigned("raplength") != 0
+	    || attrVal_unsigned("rap") != 0
+	    || attrVal_unsigned("streamstateindication") != 0
+	    || attrVal_unsigned("streamstatelength") != 0
+	    || attrVal_unsigned("streamstate") != 0) {
+	  env().setResultMsg("MPEG4-GENERIC SDP uses an unsupported DTS, RAP, "
+			     "or stream-state AU-header field");
+	  break;
+	}
+
 	fReadSource = fRTPSource
 	  = MPEG4GenericRTPSource::createNew(env(), fRTPSocket,
 					     fRTPPayloadFormat,
 					     fRTPTimestampFrequency,
 					     fMediumName, attrVal_strToLower("mode"),
-					     attrVal_unsigned("sizelength"),
-					     attrVal_unsigned("indexlength"),
-					     attrVal_unsigned("indexdeltalength"));
+					     sizeLength,
+					     indexLength,
+					     indexDeltaLength,
+					     constantDuration,
+					     ctsDeltaLength);
+	if (fRTPSource == NULL) {
+	  env().setResultMsg("MPEG4-GENERIC RTP source configuration was rejected");
+	  break;
+	}
       } else if (strcmp(fCodecName, "MPV") == 0) { // MPEG-1 or 2 video
 	fReadSource = fRTPSource
 	  = MPEG1or2VideoRTPSource::createNew(env(), fRTPSocket,

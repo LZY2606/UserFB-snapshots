@@ -29,13 +29,19 @@ class MPEG4GenericRTPSource: public MultiFramedRTPSource {
 public:
   static MPEG4GenericRTPSource*
   createNew(UsageEnvironment& env, Groupsock* RTPgs,
-	    unsigned char rtpPayloadFormat,
-	    unsigned rtpTimestampFrequency,
-	    char const* mediumName,
-	    char const* mode, unsigned sizeLength, unsigned indexLength,
-	    unsigned indexDeltaLength
-	    // add other parameters later
-	    );
+		    unsigned char rtpPayloadFormat,
+		    unsigned rtpTimestampFrequency,
+		    char const* mediumName,
+		    char const* mode, unsigned sizeLength, unsigned indexLength,
+		    unsigned indexDeltaLength,
+		    unsigned constantDuration = 0,
+		    unsigned ctsDeltaLength = 0);
+
+  // True iff all supported AU-header bit widths are in their legal range.
+  static Boolean validHeaderLengths(unsigned sizeLength,
+				    unsigned indexLength,
+				    unsigned indexDeltaLength,
+				    unsigned ctsDeltaLength);
   // mediumName is "audio", "video", or "application"
   // it *cannot* be NULL
 
@@ -46,8 +52,9 @@ protected:
 			char const* mediumName,
 			char const* mode,
 			unsigned sizeLength, unsigned indexLength,
-			unsigned indexDeltaLength
-			);
+			unsigned indexDeltaLength,
+			unsigned constantDuration = 0,
+			unsigned ctsDeltaLength = 0);
       // called only by createNew(), or by subclass constructors
   virtual ~MPEG4GenericRTPSource();
 
@@ -55,16 +62,41 @@ protected:
   // redefined virtual functions:
   virtual Boolean processSpecialHeader(BufferedPacket* packet,
                                        unsigned& resultSpecialHeaderSize);
+  virtual void doStopGettingFrames();
   virtual char const* MIMEtype() const;
+
+private:
+  void resetAUState();
+  void resetFragmentState();
+  Boolean parseAUHeaders(BufferedPacket* packet, unsigned payloadOffset,
+			 unsigned payloadSize);
+  Boolean prepareNextAU(unsigned dataSize, unsigned& frameSize,
+			Boolean& frameCompletes,
+			struct timeval& presentationTime);
+  struct timeval presentationTimeForAU(unsigned auIndex,
+				       struct timeval const& anchorTime) const;
 
 private:
   char* fMIMEType;
 
   char* fMode;
   unsigned fSizeLength, fIndexLength, fIndexDeltaLength;
+  unsigned fConstantDuration; // in RTP timestamp clock units
+  unsigned fCTSDeltaLength;
   unsigned fNumAUHeaders; // in the most recently read packet
   unsigned fNextAUHeader; // index of the next AU Header to read
   struct AUHeader* fAUHeaders;
+
+  // State for an AU spread across consecutive RTP packets.
+  Boolean fFragmentActive;
+  unsigned fFragmentFullSize;
+  unsigned fFragmentReceivedSize;
+  unsigned fFragmentFirstIndex;
+  unsigned fFragmentLogicalIndex;
+  unsigned short fFragmentNextSeqNum;
+  Boolean fFragmentIsContinuationChunk;
+  u_int32_t fFragmentRTPTimestamp;
+  struct timeval fFragmentPresentationTime;
 
   friend class MPEG4GenericBufferedPacket;
 };

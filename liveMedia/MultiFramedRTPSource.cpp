@@ -83,6 +83,16 @@ void MultiFramedRTPSource::reset() {
   fPacketReadInProgress = NULL;
   fNeedDelivery = False;
   fPacketLossInFragmentedFrame = False;
+  fSavedTo = NULL;
+  fSavedMaxSize = 0;
+}
+
+void MultiFramedRTPSource::discardPartialFrameAssembly() {
+  fTo = fSavedTo;
+  fMaxSize = fSavedMaxSize;
+  fFrameSize = 0;
+  fNumTruncatedBytes = 0;
+  fPacketLossInFragmentedFrame = False;
 }
 
 MultiFramedRTPSource::~MultiFramedRTPSource() {
@@ -146,7 +156,9 @@ void MultiFramedRTPSource::doGetNextFrame1() {
       // that needs to be processed:
       unsigned specialHeaderSize;
       if (!processSpecialHeader(nextPacket, specialHeaderSize)) {
-	// Something's wrong with the header; reject the packet:
+	// Something's wrong with the header; reject the packet.  A format
+	// that also needs to abandon a partially assembled frame can call
+	// discardPartialFrameAssembly() from its header parser.
 	fReorderingBuffer->releaseUsedPacket(nextPacket);
 	fNeedDelivery = True;
 	continue;

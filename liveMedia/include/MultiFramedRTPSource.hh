@@ -47,6 +47,10 @@ protected:
 						    unsigned packetSize);
       // The default implementation returns True, but this can be redefined
 
+  // Discard bytes already accumulated for a fragmented frame and make the
+  // client's original destination buffer current again.
+  void discardPartialFrameAssembly();
+
 protected:
   Boolean fCurrentPacketBeginsFrame;
   Boolean fCurrentPacketCompletesFrame;
@@ -108,6 +112,8 @@ public:
   BufferedPacket*& nextPacket() { return fNextPacket; }
 
   unsigned short rtpSeqNo() const { return fRTPSeqNo; }
+  unsigned rtpTimestamp() const { return fRTPTimestamp; }
+  struct timeval const& presentationTime() const { return fPresentationTime; }
   struct timeval const& timeReceived() const { return fTimeReceived; }
 
   unsigned char* data() const { return &fBuf[fHead]; }
