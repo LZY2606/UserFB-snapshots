@@ -43,6 +43,15 @@ namespace SoLoud
 		FilterInstance();
 		virtual result initParams(int aNumParams);
 		virtual void updateParams(time aTime);
+
+		// Pure delay introduced by this filter instance, counted in 48 kHz
+		// frames. A filter that emits input sample N as output sample N+D
+		// returns D here. Default implementation returns 0 (no latency).
+		// Serial filters add their latencies; the latency compensation
+		// planner queries the live instances after play() and before the
+		// first mix.
+		virtual unsigned int getLatencyFrames() const;
+
 		virtual void filter(float *aBuffer, unsigned int aSamples, unsigned int aBufferSize, unsigned int aChannels, float aSamplerate, time aTime);
 		virtual void filterChannel(float *aBuffer, unsigned int aSamples, float aSamplerate, time aTime, unsigned int aChannel, unsigned int aChannels);
 		virtual float getFilterParameter(unsigned int aAttributeId);

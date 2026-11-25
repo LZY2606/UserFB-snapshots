@@ -153,6 +153,8 @@ namespace SoLoud
 namespace SoLoud
 {
 
+	class LatencyPlan;
+
 	// Soloud core class.
 	class Soloud
 	{
@@ -455,6 +457,25 @@ namespace SoLoud
 		void mix(float *aBuffer, unsigned int aSamples);
 		// Returns mixed 16-bit signed integer samples in buffer. Called by the back-end, or user with null driver.
 		void mixSigned16(short *aBuffer, unsigned int aSamples);
+
+		// Build the optional filter latency compensation plan.
+		//
+		// Call after every voice and nested Bus has been play()ed and
+		// before the first mix(). The live FilterInstance latency values
+		// (FilterInstance::getLatencyFrames, in 48 kHz frames) are walked
+		// through the fixed Bus routing tree; at every parent merge the
+		// shorter child branches get a preallocated delay line so that
+		// corresponding source frames arrive aligned. Returns
+		// SO_NO_ERROR on success. Calling this after mixing has started,
+		// on an uninitialized engine or with an invalid routing graph
+		// returns INVALID_PARAMETER and leaves any previous plan intact
+		// (no half-prepared state is ever used by mix()).
+		result prepareFilterLatencyCompensation();
+
+		// Total latency of the root output after a successful
+		// prepareFilterLatencyCompensation(), in 48 kHz frames. Returns 0
+		// when compensation has not been prepared.
+		unsigned int getFilterLatencyCompensationFrames() const;
 	public:
 		// Mix N samples * M channels. Called by other mix_ functions.
 		void mix_internal(unsigned int aSamples, unsigned int aStride);
@@ -468,6 +489,14 @@ namespace SoLoud
 		void mapResampleBuffers_internal();
 		// Perform mixing for a specific bus
 		void mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler);
+		// Apply the prepared merge-point compensation delay line for a
+		// voice slot to its post-filter planar scratch. No-op unless
+		// prepareFilterLatencyCompensation() succeeded. All storage is
+		// preallocated by the prepare call.
+		void applyFilterLatencyCompensation_internal(unsigned int aVoiceIndex, float *aBuffer, unsigned int aSamples, unsigned int aStride);
+		// Destroy the compensation plan and reset latency state. Called
+		// from deinit() so re-init/play/prepare starts from a clean slate.
+		void discardFilterLatencyCompensation_internal();
 		// Find a free voice, stopping the oldest if no free voice is found.
 		int findFreeVoice_internal();
 		// Converts handle to voice, if the handle is valid. Returns -1 if not.
@@ -589,6 +618,16 @@ namespace SoLoud
 		unsigned int mActiveVoiceCount;
 		// Active voices list needs to be recalculated
 		bool mActiveVoiceDirty;
+
+		// Optional filter latency compensation plan; NULL until a
+		// successful prepareFilterLatencyCompensation(). Owned pointer,
+		// deleted through discardFilterLatencyCompensation_internal()
+		// where LatencyPlan is a complete type.
+		LatencyPlan *mLatencyPlan;
+		// Total prepared root latency (48 kHz frames), 0 if unprepared.
+		unsigned int mFilterLatencyCompensationFrames;
+		// Set on the first mix_internal(); prepare is rejected after.
+		bool mLatencyMixStarted;
 	};
 };
 

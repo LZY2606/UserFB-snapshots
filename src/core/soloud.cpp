@@ -168,6 +168,9 @@ namespace SoLoud
 		mHighestVoice = 0;
 		mResampleData = NULL;
 		mResampleDataOwner = NULL;
+		mLatencyPlan = NULL;
+		mFilterLatencyCompensationFrames = 0;
+		mLatencyMixStarted = false;
 		for (i = 0; i < 3 * MAX_CHANNELS; i++)
 			m3dSpeakerPosition[i] = 0;
 	}
@@ -196,6 +199,9 @@ namespace SoLoud
 		unlockAudioMutex_internal();
 		SOLOUD_ASSERT(!mInsideAudioThreadMutex);
 		stopAll();
+		// Drop any prepared latency plan so reused voice slots and a
+		// later re-init cannot observe stale delay state.
+		discardFilterLatencyCompensation_internal();
 		if (mBackendCleanupFunc)
 			mBackendCleanupFunc(this);
 		mBackendCleanupFunc = 0;
@@ -1789,7 +1795,13 @@ namespace SoLoud
 					// Move source pointer onwards (writesamples may be zero)
 					voice->mSrcOffset += writesamples * step_fixed;
 				}
-				
+
+				// Merge-point filter latency compensation: pad this child
+				// branch with its precomputed slack delay, operating on the
+				// post-filter/post-resample planar scratch before panning
+				// and accumulation into the parent buffer.
+				applyFilterLatencyCompensation_internal(mActiveVoice[i], aScratch, aSamplesToRead, aBufferSize);
+
 				// Handle panning and channel expansion (and/or shrinking)
 				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);
 
@@ -2054,6 +2066,9 @@ namespace SoLoud
 
 	void Soloud::mix_internal(unsigned int aSamples, unsigned int aStride)
 	{
+		// Any actual render marks the point after which latency
+		// compensation can no longer be (re)prepared.
+		mLatencyMixStarted = true;
 #ifdef FLOATING_POINT_DEBUG
 		// This needs to be done in the audio thread as well..
 		static int done = 0;
