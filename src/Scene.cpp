@@ -322,6 +322,19 @@ void Scene::setAmbientLight(AmbientLight* light) {
     ambientLight = light;
 }
 
+CsgError Scene::setCsgExpression(const CsgDesc& description) {
+    if (!zBuffer || lodScale != 0) return CsgError::UnsupportedFeature;
+    if (renderer && (renderer->interlacedMode || renderer->checkerboardMode ||
+                     renderer->wireframeMode))
+        return CsgError::UnsupportedBuild;
+    return csg.set(description, &objects);
+}
+
+CsgError Scene::clearCsgExpression() {
+    csg.clear();
+    return CsgError::Ok;
+}
+
 #if MAX_PICK_QUERIES > 0
 void Scene::setPickQueries(const PickQuery* queries, int count) {
     if (count < 0) count = 0;
@@ -649,6 +662,7 @@ void Scene::prepareFrame() {
     cameraMatrix[6] = (float)camM20 / FIXED_POINT_SCALE;
     cameraMatrix[7] = (float)camM21 / FIXED_POINT_SCALE;
     cameraMatrix[8] = (float)camM22 / FIXED_POINT_SCALE;
+    csg.prepareFrame(camera, screenWidth, screenHeight, cameraMatrix);
 
     // Frustum side-plane normal lengths for cullObject's quick sphere
     // test. fovFactor changes at runtime (boost FOV kick) so refresh per
@@ -682,6 +696,9 @@ void Scene::prepareFrame() {
 
     for (auto obj : objects) {
         if (!obj->enabled) continue;
+        const bool csgBoundOwner = csg.active() && csg.isBoundObject(obj);
+        // CSG leaves may contain the camera or extend beyond the ordinary
+        // far-cull cutoff; screen-space crossing evaluation needs every leaf.
         // 1) Quick sphere far-cull before the expensive 8-corner AABB test.
         //    distSq to the object centre is computed unconditionally so it
         //    is also available for the fade ramps and LOD pick below,
@@ -708,10 +725,11 @@ void Scene::prepareFrame() {
             obj->boundingBoxMax.z - obj->boundingBoxMin.z});
         {
             const int64_t farCutoff = static_cast<int64_t>(camera->farPlane) + maxExtent;
-            if (distSq > farCutoff * farCutoff) continue;
+            if (!csgBoundOwner && distSq > farCutoff * farCutoff) continue;
         }
         // 2) Object-level AABB frustum cull (all 8 corners; full rotation).
-        if (cullObject(obj, {_ocx, _ocy, _ocz}, maxExtent, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ))
+        if (!csgBoundOwner &&
+            cullObject(obj, {_ocx, _ocy, _ocz}, maxExtent, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ))
             continue;
         // 3) Per-object distance fade (two ramps, multiplied):
         //     - fadeFar > 0:   close=opaque, far=invisible (decor fade-out).
@@ -791,8 +809,13 @@ void Scene::prepareFrame() {
             }
         }
 
+        // CSG evaluates both directed sides of every closed leaf. Temporarily
+        // disable ordinary backface removal while queuing its source triangles.
+        CullingMode savedCullingMode = obj->cullingMode;
+        if (csgBoundOwner) obj->cullingMode = CullingMode::NO_CULLING;
         // 2) Transform + project + per-triangle cull, push into renderQueue
         renderObject(obj, camCosX, camSinX, camCosY, camSinY, camCosZ, camSinZ, objAlpha, meshSource);
+        if (csgBoundOwner) obj->cullingMode = savedCullingMode;
         ++drawnObjs;
     }
     lastFrameDrawnObjects   = drawnObjs;
@@ -883,6 +906,7 @@ void Scene::rasterizeBand(int yMin, int yMax, uint8_t* triangleFlags) {
     int rasterized = 0;
     for (const int32_t idx : renderOrder) {
         const RenderTri& t = renderQueue[idx];
+        if (t.csgLeafId != UINT32_MAX) continue;
         if (std::max({t.v1.position.y, t.v2.position.y, t.v3.position.y}) < yMin ||
             std::min({t.v1.position.y, t.v2.position.y, t.v3.position.y}) >= yMax) continue;
 #if MAX_PICK_QUERIES > 0
@@ -922,6 +946,112 @@ void Scene::rasterizeBand(int yMin, int yMax, uint8_t* triangleFlags) {
             if (triangleFlags) triangleFlags[idx] = 1;
         }
     }
+
+    if (csg.active()) {
+        csg.evaluateBand(yMin, yMax);
+        bandRast.csgAcceptMask = csg.maskData();
+#if MAX_PICK_QUERIES > 0
+        // CSG attribution is resolved from the selected winner below. The
+        // stock row-wide pick heuristic must not claim masked source triangles.
+        uint16_t csgDepthBefore[MAX_PICK_QUERIES] = {};
+        for (int p = 0; p < pickQueryCount && p < MAX_PICK_QUERIES; ++p) {
+            csgDepthBefore[p] = 0xFFFF;
+            const PickQuery& q = pickQueries[p];
+            if (q.x < 0 || q.y < yMin || q.y >= yMax || q.x >= screenWidth) continue;
+            csgDepthBefore[p] = zBuffer[q.y * ZBUFFER_STRIDE(screenWidth) + q.x];
+        }
+        bandRast.pickQueryCount = 0;
+#endif
+        for (const int32_t idx : renderOrder) {
+            const RenderTri& t = renderQueue[idx];
+            if (t.csgLeafId == UINT32_MAX) continue;
+            const int slot = csg.slotFor(t.csgLeafId, t.csgTriangleIndex);
+            if (slot < 0) continue;
+            const uint32_t normalToken = 2u * (uint32_t)slot + 1u;
+            const uint32_t flipToken = normalToken + 1u;
+            if (!csg.tokenUsed(normalToken) && !csg.tokenUsed(flipToken)) continue;
+            if (std::max({t.v1.position.y, t.v2.position.y, t.v3.position.y}) < yMin ||
+                std::min({t.v1.position.y, t.v2.position.y, t.v3.position.y}) >= yMax) continue;
+
+            RenderVertex a = t.v1.expand(), b = t.v2.expand(), c = t.v3.expand();
+#if LIGHTING && JET_COMPACT_QUEUE
+            if (t.normalIndex != UINT32_MAX) {
+                const auto& n = normalQueue[t.normalIndex];
+                a.normal = n.a; b.normal = n.b; c.normal = n.c;
+                a.lambertBrightness = n.brightnessA;
+                b.lambertBrightness = n.brightnessB;
+                c.lambertBrightness = n.brightnessC;
+            }
+#endif
+#if TEXTURE_MAPPING
+            if (t.uvIndex != UINT32_MAX) {
+                const TriangleUV& uv = textureQueue[t.uvIndex];
+                a.uv = uv.a; b.uv = uv.b; c.uv = uv.c;
+            }
+#endif
+#if MAX_PICK_QUERIES > 0
+            bandRast.currentPickObject        = t.sourceObject;
+            bandRast.currentPickTriangleIndex = t.sourceTriangleIndex;
+#if JET_MESH_INSTANCING
+            bandRast.currentPickMesh = t.sourceMesh;
+            bandRast.currentPickInstanceIndex = t.sourceInstanceIndex;
+#endif
+#endif
+            if (csg.tokenUsed(normalToken)) {
+                bandRast.csgAcceptToken = normalToken;
+                bandRast.drawTriangle(a, b, c, t.material,
+                                      directionalLight, ambientLight,
+                                      renderEvenLines, t.ignoreZBuffer,
+                                      t.noWriteZBuffer, (int)t.zBias,
+                                      255, false, t.avgZ);
+            }
+#if LIGHTING
+            RenderVertex fa = a, fb = b, fc = c;
+            fa.normal = {-a.normal.x, -a.normal.y, -a.normal.z};
+            fb.normal = {-b.normal.x, -b.normal.y, -b.normal.z};
+            fc.normal = {-c.normal.x, -c.normal.y, -c.normal.z};
+            fa.lambertBrightness = fb.lambertBrightness = fc.lambertBrightness = 0;
+#else
+            const RenderVertex& fa = a;
+            const RenderVertex& fb = b;
+            const RenderVertex& fc = c;
+#endif
+            if (csg.tokenUsed(flipToken)) {
+                bandRast.csgAcceptToken = flipToken;
+                bandRast.drawTriangle(fa, fb, fc, t.material,
+                                      directionalLight, ambientLight,
+                                      renderEvenLines, t.ignoreZBuffer,
+                                      t.noWriteZBuffer, (int)t.zBias,
+                                      255, false, t.avgZ);
+            }
+        }
+        bandRast.csgAcceptMask = nullptr;
+        bandRast.csgAcceptToken = 0;
+#if MAX_PICK_QUERIES > 0
+        for (int p = 0; p < pickQueryCount && p < MAX_PICK_QUERIES; ++p) {
+            const PickQuery& q = pickQueries[p];
+            if (q.x < 0 || q.y < yMin || q.y >= yMax || q.x >= screenWidth) continue;
+            const CsgWinner* winner = csg.winnerAt(q.x, q.y);
+            if (!winner) continue;
+            const uint16_t afterDepth = zBuffer[q.y * ZBUFFER_STRIDE(screenWidth) + q.x];
+            if (winner->depth16 > csgDepthBefore[p] && afterDepth != winner->depth16)
+                continue;
+            PickResult& result = pickResults[p];
+            result = PickResult{};
+            result.hit = true;
+            result.object = winner->object;
+            result.triangleIndex = winner->triangle;
+            result.depth = afterDepth;
+            result.x = (int16_t)q.x;
+            result.y = (int16_t)q.y;
+#if JET_MESH_INSTANCING
+            result.mesh = winner->mesh;
+            result.instanceIndex = winner->instance;
+#endif
+        }
+#endif
+    }
+
     if (!triangleFlags) lastFrameRasterizedTriangles = rasterized;
 }
 
@@ -1639,9 +1769,7 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
 #if TEXTURE_MAPPING
                        , const Vector2* uvA, const Vector2* uvB, const Vector2* uvC
 #endif
-#if MAX_PICK_QUERIES > 0
                        , int32_t srcTriIdx
-#endif
                        ) {
         // Inputs have been clipped to the camera's Z range. Average depth is
         // a sort/fog hint, not a visibility test for a straddling source face.
@@ -1713,6 +1841,14 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
 #if LIGHTING
         rt.brightnessPrecomputed = objectLocalLight;
 #endif
+        rt.csgTriangleIndex = srcTriIdx;
+        if (csg.active()) {
+#if JET_MESH_INSTANCING
+            rt.csgLeafId = csg.leafForDraw(obj, instance ? (int32_t)(draw - 1) : -1);
+#else
+            rt.csgLeafId = csg.leafForDraw(obj, -1);
+#endif
+        }
 #if MAX_PICK_QUERIES > 0
         rt.sourceObject        = obj;
         rt.sourceTriangleIndex = srcTriIdx;
@@ -1779,16 +1915,12 @@ void PERF_CRITICAL Scene::renderObject(Object* obj,
 #else
         #define JET_UV_ARGS(A, B, C)
 #endif
-#if MAX_PICK_QUERIES > 0
 #if JET_MESH_INSTANCING
         const int32_t srcTriIdx = (int32_t)sourceIndex;
 #else
         const int32_t srcTriIdx = (int32_t)triIdx;
 #endif // JET_MESH_INSTANCING
         #define JET_EMIT_TRI(A, B, C, M, U, V, W)  emitTri((A), (B), (C), (M) JET_UV_ARGS(U, V, W), srcTriIdx)
-#else
-        #define JET_EMIT_TRI(A, B, C, M, U, V, W)  emitTri((A), (B), (C), (M) JET_UV_ARGS(U, V, W))
-#endif
 
 #if JET_MESH_INSTANCING
         Material* replacement=overrideMat ? overrideMat :

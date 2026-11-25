@@ -99,6 +99,44 @@ for the available options.
   reflections avoid draw-order dependencies across parallel rendering bands.
 - Perspective-correct Phong normal interpolation.
 
+### Closed-mesh CSG view
+
+`Scene::setCsgExpression(const CsgDesc&)` installs a screen-space union /
+intersection / difference DAG over stable `uint32_t` leaf numbers. Use
+`Scene::clearCsgExpression()` to return to the ordinary draw path; the most
+recent setup error is available from `Scene::csgLastError()`.
+
+Each `CsgBinding` borrows an `Object` and an instance index (`-1` means the
+object's own mesh; `>= 0` selects `Object::instances[index]`). Different
+placements of one frozen shared prototype must use different leaf numbers.
+The DAG nodes and leaf map are copied and owned independently by `Scene`;
+bound objects remain caller-owned and must stay alive while the expression is
+installed. The owner and indexed instance entry must also remain in place;
+changing an instance's rigid transform between `prepareFrame()` calls is
+supported, while removing/reordering instances requires resubmitting the
+expression. A failed `setCsgExpression()` validates references, cycles,
+duplicate conflicting bindings and instance bounds before commit, so the
+previous configuration remains active.
+
+The CSG path is intentionally scoped to full-resolution, Z-buffered,
+perspective-depth desktop/task builds and closed, outward-wound,
+non-self-intersecting triangle shells. Non-convex shells and multiple
+disconnected components are supported; Jet does not repair holes or bad
+winding. Materials are limited to opaque `UNLIT`, `FLAT` and `PHONG` surfaces
+with ambient/directional lighting and ordinary textures. Custom shaders,
+transparency/alpha fades, billboards, LOD chains, depth bias/special depth
+flags, half-width/interlaced buffers and parallel band executors are outside
+the scope and are rejected.
+
+The evaluator keeps all positive-Z leaf crossings, including exits beyond
+`Camera::farPlane`, and reverse-sweeps from known-outside state at positive
+infinity. `nearPlane`/`farPlane` only reject the final selected boundary;
+crossings closer than `nearPlane` still update occupancy, and no artificial
+near-plane cap is created. Serial `rasterizeBand()` calls covering disjoint
+bands produce the same result as one full-frame call. See
+[`examples/csg.cpp`](examples/csg.cpp) for a headless shared-instance
+difference that renders and picks two frames.
+
 ### Lighting
 
 - Ambient and directional lights with Flat, Gouraud or Phong shading.

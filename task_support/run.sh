@@ -17,7 +17,7 @@ c++ -std=c++17 -O1 -Itask_support/config -Isrc -I. -include src/Csg.hpp -c src/C
 c++ -std=c++17 -O1 -Itask_support/config -Isrc -I. task_tests/csg.cpp task_support/driver.c .task-build/*.o -o .task-build/target
 c++ -std=c++17 -O1 -Itask_support/config -Isrc -I. examples/csg.cpp .task-build/*.o -o .task-build/demo
 .task-build/demo
-  output_log=$(mktemp)
+  output_log=".task-build/target-output.$$.log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

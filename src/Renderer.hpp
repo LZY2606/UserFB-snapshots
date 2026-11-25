@@ -167,6 +167,11 @@ class Rasterizer
         int32_t          currentPickTriangleIndex = -1;     ///< Source-mesh triangle index for hit attribution.
 #endif
 
+        /// CSG winner mask. When non-null, a fragment is shaded only if its
+        /// full-resolution pixel token equals csgAcceptToken.
+        const uint32_t* csgAcceptMask = nullptr;
+        uint32_t csgAcceptToken = 0;
+
         /// True when this frame uses depth testing/writes and depth clears.
         bool isDepthTestingEnabled() const {
 #if Z_BUFFERING && JET_RUNTIME_DEPTH

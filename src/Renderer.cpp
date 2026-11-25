@@ -1751,6 +1751,12 @@ namespace Renderer
                         continue;
                     }
 
+                    if (csgAcceptMask) {
+                        const int32_t csgPixelIndex = y * screenWidth + x;
+                        if (csgAcceptMask[csgPixelIndex] != csgAcceptToken)
+                            continue;
+                    }
+
     #if !HALF_WIDTH_BUFFERS
                     // Checkerboard: skip pixels that belong to the other frame's pattern.
                     // Using XOR parity: (x^y)&1 == (x+y)&1 (no carry in the lowest bit).

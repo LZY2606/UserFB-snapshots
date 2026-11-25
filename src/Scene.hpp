@@ -11,6 +11,7 @@
 #include "PostFX.hpp"
 #include "Sprite2D.hpp"
 #include "DepthBuckets.hpp"
+#include "Csg.hpp"
 
 #ifndef JET_SORT_DEPTH_BUCKETS
 #define JET_SORT_DEPTH_BUCKETS 64
@@ -91,6 +92,17 @@ public:
     void setAmbientLight(AmbientLight* light);
     /// @brief Get the active ambient light.
     AmbientLight* getAmbientLight() { return ambientLight; }
+
+    /// @brief Atomically validate and install a borrowed-object CSG DAG.
+    /// On failure the previous expression (if any) remains active. Bound
+    /// Object owners must remain alive and in this Scene while installed;
+    /// instance transforms may be moved between prepareFrame() calls.
+    CsgError setCsgExpression(const CsgDesc& description);
+    /// @brief Clear the expression and restore ordinary rendering.
+    CsgError clearCsgExpression();
+    bool csgEnabled() const { return csg.active(); }
+    CsgError csgLastError() const { return csg.lastError(); }
+    const CsgEngine* csgEngine() const { return &csg; }
 
     using RasterExecutor = void (*)(Scene&);
     /// @brief Run the full pipeline for one frame: cull, transform, rasterise, post-FX.
@@ -287,6 +299,9 @@ private:
         // Per-object alpha multiplier (255 = no per-object fade); folded
         // into the per-pixel screen-door alpha at raster time.
         uint8_t objAlpha;
+        // CSG leaf attribution, independent of the picking build switches.
+        uint32_t csgLeafId = UINT32_MAX;
+        int32_t csgTriangleIndex = -1;
 #if MAX_PICK_QUERIES > 0
 #if JET_MESH_INSTANCING
         // Owner, actual mesh and original triangle index for pick attribution.
@@ -323,6 +338,7 @@ private:
     std::vector<int32_t> renderOrder;
 
     Camera* camera;
+    CsgEngine csg;
     DirectionalLight* directionalLight;
     AmbientLight* ambientLight;
     Rasterizer* renderer = nullptr;

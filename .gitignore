@@ -1,6 +1,7 @@
 # Build outputs
 build/
 build-*/
+.task-build/
 *.user
 .vs/
 
