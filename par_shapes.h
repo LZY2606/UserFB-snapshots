@@ -58,6 +58,33 @@ typedef struct par_shapes_mesh_s {
 
 void par_shapes_free_mesh(par_shapes_mesh*);
 
+// Shells ----------------------------------------------------------------------
+
+// A shell is a solid "thickened" version of a source surface.  The source must
+// be an oriented two-manifold triangle surface (multiple components and holes
+// are supported).  The result has an outer skin in the source winding and an
+// inner skin in the opposite winding, joined only along genuine boundary
+// loops.  vertex_source and vertex_layer identify the origin of every render
+// vertex: vertex_source is a source point index and vertex_layer is 0 for the
+// inner skin / 1 for the outer skin.  Both arrays have mesh->npoints entries.
+typedef struct par_shapes_shell_s {
+    par_shapes_mesh* mesh;
+    int* vertex_source;
+    int* vertex_layer;
+} par_shapes_shell;
+
+// Create a shell whose two skins are offset by thickness/2 along each offset
+// vertex's unit direction.  If the source has normals they are normalized and
+// used; otherwise the direction is the area-weighted vertex normal computed
+// from the source triangles.  Returns NULL for invalid input, topologically
+// invalid connectivity, non-finite data, a thickness that is not positive and
+// finite, or when the offset geometry is degenerate.  The source is untouched.
+par_shapes_shell* par_shapes_create_shell(par_shapes_mesh const* source,
+    float thickness);
+
+// Free the shell's mesh and both identity arrays.
+void par_shapes_free_shell(par_shapes_shell*);
+
 // Generators ------------------------------------------------------------------
 
 // Instance a cylinder that sits on the Z=0 plane using the given tessellation
@@ -225,6 +252,7 @@ void par_shapes__connect(par_shapes_mesh* scene, par_shapes_mesh* cylinder,
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <limits.h>
 
 static float par_shapes__epsilon_welded_normals = 0.001;
 static float par_shapes__epsilon_degenerate_sphere = 0.0001;
@@ -571,6 +599,718 @@ void par_shapes_export(par_shapes_mesh const* mesh, char const* filename)
         }
     }
     fclose(objfile);
+}
+
+// Shells: topology -------------------------------------------------------------
+
+typedef struct {
+    long long key; // undirected edge key
+    int a, b;      // directed endpoints
+    int slot;      // 3 * face + corner
+} par_shapes__shell_edge;
+
+typedef struct {
+    int nv;
+    int nf;
+    double* nrm;   // 3 * nv accumulated area-weighted normals
+    int* refs;     // incident triangle count per source point
+    int* opp;      // opposite directed-edge slot per slot, or -1
+    int* bnd;      // boundary directed-edge slots
+    int nbnd;
+} par_shapes__shell_topo;
+
+static int par_shapes__shell_finite(double v)
+{
+    return v == v && v <= (double) FLT_MAX && v >= -(double) FLT_MAX;
+}
+
+static int par_shapes__shell_finite3(double const* p)
+{
+    return par_shapes__shell_finite(p[0]) && par_shapes__shell_finite(p[1]) &&
+        par_shapes__shell_finite(p[2]);
+}
+
+static int par_shapes__shell_finite3f(float const* p)
+{
+    return par_shapes__shell_finite(p[0]) && par_shapes__shell_finite(p[1]) &&
+        par_shapes__shell_finite(p[2]);
+}
+
+static void par_shapes__shell_free_topo(par_shapes__shell_topo* topo)
+{
+    if (topo) {
+        PAR_FREE(topo->nrm);
+        PAR_FREE(topo->refs);
+        PAR_FREE(topo->opp);
+        PAR_FREE(topo->bnd);
+    }
+    PAR_FREE(topo);
+}
+
+static int par_shapes__shell_cmp_edge(void const* lhs, void const* rhs)
+{
+    long long a = ((par_shapes__shell_edge const*) lhs)->key;
+    long long b = ((par_shapes__shell_edge const*) rhs)->key;
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+// Validate connectivity and accumulate area-weighted normals.  Returns null if
+// the surface is not an oriented two-manifold, has non-finite data, a zero-area
+// triangle, an invalid index, a point-touching fan, or a referenced point whose
+// area normals cancel out.
+static par_shapes__shell_topo* par_shapes__shell_build_topo(
+    par_shapes_mesh const* mesh)
+{
+    int nv = mesh->npoints;
+    int nf = mesh->ntriangles;
+    if (nv <= 0 || nf <= 0 || !mesh->points || !mesh->triangles) {
+        return 0;
+    }
+    if (nv > (INT_MAX - 8) / 6 || nf > (INT_MAX - 8) / 6) {
+        return 0;
+    }
+    for (int i = 0; i < nv * 3; i++) {
+        if (!par_shapes__shell_finite(mesh->points[i])) {
+            return 0;
+        }
+    }
+    if (mesh->normals) {
+        for (int i = 0; i < nv * 3; i++) {
+            if (!par_shapes__shell_finite(mesh->normals[i])) {
+                return 0;
+            }
+        }
+    }
+    if (mesh->tcoords) {
+        for (int i = 0; i < nv * 2; i++) {
+            if (!par_shapes__shell_finite(mesh->tcoords[i])) {
+                return 0;
+            }
+        }
+    }
+    int nedges = 3 * nf;
+    par_shapes__shell_topo* topo = PAR_CALLOC(par_shapes__shell_topo, 1);
+    if (!topo) {
+        return 0;
+    }
+    topo->nv = nv;
+    topo->nf = nf;
+    topo->nrm = PAR_CALLOC(double, 3 * nv);
+    topo->refs = PAR_CALLOC(int, nv);
+    topo->opp = PAR_MALLOC(int, nedges);
+    par_shapes__shell_edge* edges = PAR_MALLOC(par_shapes__shell_edge, nedges);
+    if (!topo->nrm || !topo->refs || !topo->opp || !edges) {
+        PAR_FREE(edges);
+        par_shapes__shell_free_topo(topo);
+        return 0;
+    }
+    for (int i = 0; i < nedges; i++) {
+        topo->opp[i] = -1;
+    }
+    int ok = 1;
+    for (int f = 0; f < nf && ok; f++) {
+        int v[3];
+        for (int k = 0; k < 3; k++) {
+            v[k] = (int) mesh->triangles[3 * f + k];
+            if (v[k] < 0 || v[k] >= nv) {
+                ok = 0;
+            }
+        }
+        if (!ok) {
+            break;
+        }
+        if (v[0] == v[1] || v[1] == v[2] || v[2] == v[0]) {
+            ok = 0;
+            break;
+        }
+        topo->refs[v[0]]++;
+        topo->refs[v[1]]++;
+        topo->refs[v[2]]++;
+        float const* p0 = mesh->points + 3 * v[0];
+        float const* p1 = mesh->points + 3 * v[1];
+        float const* p2 = mesh->points + 3 * v[2];
+        double e1[3] = {(double) p1[0] - p0[0], (double) p1[1] - p0[1],
+            (double) p1[2] - p0[2]};
+        double e2[3] = {(double) p2[0] - p0[0], (double) p2[1] - p0[1],
+            (double) p2[2] - p0[2]};
+        double cp[3] = {
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        };
+        if (!par_shapes__shell_finite3(cp) ||
+            (cp[0] == 0.0 && cp[1] == 0.0 && cp[2] == 0.0)) {
+            ok = 0;
+            break;
+        }
+        for (int k = 0; k < 3; k++) {
+            double* n = topo->nrm + 3 * v[k];
+            n[0] += cp[0];
+            n[1] += cp[1];
+            n[2] += cp[2];
+        }
+        for (int k = 0; k < 3; k++) {
+            int slot = 3 * f + k;
+            int lo = v[k] < v[(k + 1) % 3] ? v[k] : v[(k + 1) % 3];
+            int hi = v[k] < v[(k + 1) % 3] ? v[(k + 1) % 3] : v[k];
+            edges[slot].key = (long long) lo * nv + hi;
+            edges[slot].a = v[k];
+            edges[slot].b = v[(k + 1) % 3];
+            edges[slot].slot = slot;
+        }
+    }
+    // A zero-area triangle contributes nothing to its own vertices, so any
+    // referenced point with a zero accumulated normal is degenerate.
+    for (int p = 0; p < nv && ok; p++) {
+        if (topo->refs[p] > 0 && topo->nrm[3 * p] == 0.0 &&
+            topo->nrm[3 * p + 1] == 0.0 && topo->nrm[3 * p + 2] == 0.0) {
+            ok = 0;
+        }
+    }
+    if (ok) {
+        qsort(edges, nedges, sizeof(par_shapes__shell_edge),
+            par_shapes__shell_cmp_edge);
+        for (int i = 0; i < nedges;) {
+            int j = i + 1;
+            while (j < nedges && edges[j].key == edges[i].key) {
+                j++;
+            }
+            int count = j - i;
+            if (count == 2) {
+                par_shapes__shell_edge const* x = edges + i;
+                par_shapes__shell_edge const* y = edges + i + 1;
+                if (x->a != y->b || x->b != y->a) {
+                    ok = 0; // same-direction or otherwise inconsistent
+                } else {
+                    topo->opp[x->slot] = y->slot;
+                    topo->opp[y->slot] = x->slot;
+                }
+            } else if (count != 1) {
+                ok = 0; // more than two triangles on an edge
+            }
+            i = j;
+        }
+        if (ok) {
+            // Every referenced point must have one connected fan; separate
+            // sheets touching only at a point are rejected.  Rotating
+            // half-edges around each point detects exactly this.
+            int* seen = PAR_CALLOC(int, nedges);
+            if (!seen) {
+                ok = 0;
+            } else {
+                for (int p = 0; p < nv && ok; p++) {
+                    if (topo->refs[p] == 0) {
+                        continue;
+                    }
+                    int fans = 0;
+                    for (int start = 0; start < nedges && ok; start++) {
+                        if ((int) mesh->triangles[start] != p || seen[start]) {
+                            continue;
+                        }
+                        fans++;
+                        if (fans > 1) {
+                            ok = 0;
+                            break;
+                        }
+                        seen[start] = 1;
+                        for (int dir = 0; dir < 2 && ok; dir++) {
+                            int c = start;
+                            for (int step = 0; step < nedges; step++) {
+                                int next;
+                                if (dir == 0) {
+                                    // Opposite of the outgoing edge: the
+                                    // corner at p inside the neighbour.
+                                    int o = topo->opp[c];
+                                    if (o < 0) {
+                                        break;
+                                    }
+                                    next = 3 * (o / 3) + (o % 3 + 1) % 3;
+                                } else {
+                                    // Opposite of the incoming edge is itself
+                                    // a corner at p.
+                                    int prev = 3 * (c / 3) + (c % 3 + 2) % 3;
+                                    next = topo->opp[prev];
+                                    if (next < 0) {
+                                        break;
+                                    }
+                                }
+                                if (next == start) {
+                                    break;
+                                }
+                                seen[next] = 1;
+                                c = next;
+                            }
+                        }
+                    }
+                }
+                PAR_FREE(seen);
+            }
+        }
+        if (ok) {
+            topo->bnd = PAR_MALLOC(int, nedges);
+            if (!topo->bnd) {
+                ok = 0;
+            } else {
+                for (int s = 0; s < nedges; s++) {
+                    if (topo->opp[s] < 0) {
+                        topo->bnd[topo->nbnd++] = s;
+                    }
+                }
+            }
+        }
+    }
+    PAR_FREE(edges);
+    if (!ok) {
+        par_shapes__shell_free_topo(topo);
+        return 0;
+    }
+    return topo;
+}
+
+// Shells: generation -----------------------------------------------------------
+
+static int par_shapes__shell_cross(float const* a, float const* b, float const* c,
+    double* out)
+{
+    double e1[3] = {(double) b[0] - a[0], (double) b[1] - a[1],
+        (double) b[2] - a[2]};
+    double e2[3] = {(double) c[0] - a[0], (double) c[1] - a[1],
+        (double) c[2] - a[2]};
+    out[0] = e1[1] * e2[2] - e1[2] * e2[1];
+    out[1] = e1[2] * e2[0] - e1[0] * e2[2];
+    out[2] = e1[0] * e2[1] - e1[1] * e2[0];
+    return par_shapes__shell_finite3(out) &&
+        !(out[0] == 0.0 && out[1] == 0.0 && out[2] == 0.0);
+}
+
+static double par_shapes__shell_len(double x, double y, double z)
+{
+    double len = sqrt(x * x + y * y + z * z);
+    return par_shapes__shell_finite(len) ? len : -1.0;
+}
+
+static void par_shapes__shell_free_result(par_shapes_mesh* mesh, int* vsrc,
+    int* vlay)
+{
+    if (mesh) {
+        PAR_FREE(mesh->points);
+        PAR_FREE(mesh->triangles);
+        PAR_FREE(mesh->normals);
+        PAR_FREE(mesh->tcoords);
+        PAR_FREE(mesh);
+    }
+    PAR_FREE(vsrc);
+    PAR_FREE(vlay);
+}
+
+// Build the ordered boundary loops.  On success every boundary edge carries
+// its loop id and the arc length up to its start vertex; loop lengths land in
+// perim.  bystart uses a +1 sentinel because source index 0 is valid.
+static int par_shapes__shell_boundary_loops(par_shapes_mesh const* source,
+    par_shapes__shell_topo const* topo, int* bystart, int* nextedge,
+    int* loopid, double* arc, double* elen, double* perim, int* nloops)
+{
+    int nbnd = topo->nbnd;
+    for (int i = 0; i < nbnd; i++) {
+        int s = topo->bnd[i];
+        int a = (int) source->triangles[s];
+        int b = (int) source->triangles[3 * (s / 3) + (s % 3 + 1) % 3];
+        double dx = (double) source->points[3 * b + 0] -
+            source->points[3 * a + 0];
+        double dy = (double) source->points[3 * b + 1] -
+            source->points[3 * a + 1];
+        double dz = (double) source->points[3 * b + 2] -
+            source->points[3 * a + 2];
+        elen[i] = par_shapes__shell_len(dx, dy, dz);
+        if (!(elen[i] > 0) || bystart[a] != 0) {
+            return 0;
+        }
+        bystart[a] = i + 1;
+    }
+    for (int i = 0; i < nbnd; i++) {
+        int s = topo->bnd[i];
+        int b = (int) source->triangles[3 * (s / 3) + (s % 3 + 1) % 3];
+        if (bystart[b] == 0) {
+            return 0;
+        }
+        nextedge[i] = bystart[b] - 1;
+        loopid[i] = -1;
+    }
+    int loops = 0;
+    for (int i = 0; i < nbnd; i++) {
+        if (loopid[i] >= 0) {
+            continue;
+        }
+        int e = i;
+        double acc = 0;
+        int closed = 0;
+        for (int step = 0; step < nbnd; step++) {
+            loopid[e] = loops;
+            arc[e] = acc;
+            acc += elen[e];
+            e = nextedge[e];
+            if (e == i) {
+                closed = 1;
+                break;
+            }
+        }
+        if (!closed || !(acc > 0)) {
+            return 0;
+        }
+        perim[loops++] = acc;
+    }
+    for (int i = 0; i < nbnd; i++) {
+        if (loopid[i] < 0 || !(perim[loopid[i]] > 0)) {
+            return 0;
+        }
+    }
+    *nloops = loops;
+    return 1;
+}
+
+// Accumulate double facet normals for one skin (0 = inner, 1 = outer) and
+// verify that every emitted triangle has a non-zero area.
+static int par_shapes__shell_skin_normals(par_shapes_mesh const* source,
+    int nv, int nf, int layer, float const* pts, double* nrm)
+{
+    int base = layer ? nv : 0;
+    for (int f = 0; f < nf; f++) {
+        int a = (int) source->triangles[3 * f + 0];
+        int b = (int) source->triangles[3 * f + 1];
+        int c = (int) source->triangles[3 * f + 2];
+        int oa = base + (layer ? a : c);
+        int ob = base + b;
+        int oc = base + (layer ? c : a);
+        double cp[3];
+        if (!par_shapes__shell_cross(pts + 3 * oa, pts + 3 * ob, pts + 3 * oc,
+                cp)) {
+            return 0;
+        }
+        double* na = nrm + 3 * (base + a);
+        double* nb = nrm + 3 * (base + b);
+        double* nc = nrm + 3 * (base + c);
+        for (int k = 0; k < 3; k++) {
+            na[k] += cp[k];
+            nb[k] += cp[k];
+            nc[k] += cp[k];
+        }
+    }
+    return 1;
+}
+
+par_shapes_shell* par_shapes_create_shell(par_shapes_mesh const* source,
+    float thickness)
+{
+    if (!source || !par_shapes__shell_finite(thickness) || thickness <= 0) {
+        return 0;
+    }
+    par_shapes__shell_topo* topo = par_shapes__shell_build_topo(source);
+    if (!topo) {
+        return 0;
+    }
+    int nv = topo->nv;
+    int nf = topo->nf;
+    int nbnd = topo->nbnd;
+    // The largest emitted index must fit PAR_SHAPES_T; counts and their tripled
+    // products must fit int.
+    long long maxindex = (long long) ((PAR_SHAPES_T) ~(PAR_SHAPES_T) 0);
+    long long nvtx = (long long) 2 * nv + 6 * (long long) nbnd;
+    long long ntri = (long long) 2 * nf + 2 * (long long) nbnd;
+    long long limit = INT_MAX / 8;
+    if (nvtx > maxindex + 1 || nvtx > limit || ntri > limit) {
+        par_shapes__shell_free_topo(topo);
+        return 0;
+    }
+    float half = thickness * 0.5f;
+    if (!par_shapes__shell_finite(half) || half <= 0) {
+        par_shapes__shell_free_topo(topo);
+        return 0;
+    }
+    int ok = 1;
+    int* refs = topo->refs;
+    double* dir = PAR_MALLOC(double, 3 * nv);
+    float* pts = PAR_CALLOC(float, 3 * (int) nvtx);
+    PAR_SHAPES_T* tris = PAR_MALLOC(PAR_SHAPES_T, 3 * (int) ntri);
+    double* nrm = PAR_CALLOC(double, 3 * (int) nvtx);
+    float* norms = PAR_CALLOC(float, 3 * (int) nvtx);
+    float* uv = source->tcoords ? PAR_CALLOC(float, 2 * (int) nvtx) : 0;
+    int* vsrc = PAR_MALLOC(int, (int) nvtx);
+    int* vlay = PAR_CALLOC(int, (int) nvtx);
+    double* elen = nbnd ? PAR_MALLOC(double, nbnd) : 0;
+    int* bystart = nbnd ? PAR_CALLOC(int, nv) : 0;
+    int* nextedge = nbnd ? PAR_MALLOC(int, nbnd) : 0;
+    int* loopid = nbnd ? PAR_MALLOC(int, nbnd) : 0;
+    double* arc = nbnd ? PAR_MALLOC(double, nbnd) : 0;
+    double* perim = nbnd ? PAR_MALLOC(double, nbnd) : 0;
+    if (!dir || !pts || !tris || !nrm || !norms || (source->tcoords && !uv) ||
+        !vsrc || !vlay || (nbnd && (!elen || !bystart || !nextedge || !loopid ||
+        !arc || !perim))) {
+        // Free whatever exists; the arrays above may all be null here.
+        PAR_FREE(dir);
+        PAR_FREE(pts);
+        PAR_FREE(tris);
+        PAR_FREE(nrm);
+        PAR_FREE(norms);
+        PAR_FREE(uv);
+        PAR_FREE(vsrc);
+        PAR_FREE(vlay);
+        PAR_FREE(elen);
+        PAR_FREE(bystart);
+        PAR_FREE(nextedge);
+        PAR_FREE(loopid);
+        PAR_FREE(arc);
+        PAR_FREE(perim);
+        par_shapes__shell_free_topo(topo);
+        return 0;
+    }
+    // Unit offset direction per source point.  Points with no incident face
+    // carry no direction and stay put on both skins.
+    for (int p = 0; p < nv && ok; p++) {
+        dir[3 * p + 0] = 0;
+        dir[3 * p + 1] = 0;
+        dir[3 * p + 2] = 0;
+        if (topo->refs[p] == 0) {
+            // Unreferenced points only occur as degenerate parametric poles;
+            // fall back to the supplied normal so the skins stay parallel.
+            if (source->normals) {
+                double x = source->normals[3 * p + 0];
+                double y = source->normals[3 * p + 1];
+                double z = source->normals[3 * p + 2];
+                double len = par_shapes__shell_len(x, y, z);
+                if (len > 0) {
+                    dir[3 * p + 0] = x / len;
+                    dir[3 * p + 1] = y / len;
+                    dir[3 * p + 2] = z / len;
+                }
+            }
+            continue;
+        }
+        double x, y, z;
+        if (source->normals) {
+            x = source->normals[3 * p + 0];
+            y = source->normals[3 * p + 1];
+            z = source->normals[3 * p + 2];
+        } else {
+            x = topo->nrm[3 * p + 0];
+            y = topo->nrm[3 * p + 1];
+            z = topo->nrm[3 * p + 2];
+        }
+        double len = par_shapes__shell_len(x, y, z);
+        if (!(len > 0)) {
+            ok = 0;
+            break;
+        }
+        dir[3 * p + 0] = x / len;
+        dir[3 * p + 1] = y / len;
+        dir[3 * p + 2] = z / len;
+    }
+    // Skin points: layer 0 inner (offset against the normal) in [0, nv),
+    // layer 1 outer in [nv, 2*nv).
+    for (int p = 0; p < nv && ok; p++) {
+        for (int layer = 0; layer < 2; layer++) {
+            double sign = layer ? 1.0 : -1.0;
+            int dst = (layer ? nv : 0) + p;
+            for (int k = 0; k < 3; k++) {
+                pts[3 * dst + k] = (float) ((double) source->points[3 * p + k] +
+                    sign * (double) half * dir[3 * p + k]);
+            }
+            if (!par_shapes__shell_finite3f(pts + 3 * dst)) {
+                ok = 0;
+            }
+            vsrc[dst] = p;
+            vlay[dst] = layer;
+            if (uv) {
+                uv[2 * dst + 0] = source->tcoords[2 * p + 0];
+                uv[2 * dst + 1] = source->tcoords[2 * p + 1];
+            }
+        }
+    }
+    // Skin faces: outer keeps the source winding, inner is reversed.
+    int out = 0;
+    for (int f = 0; f < nf; f++) {
+        int a = (int) source->triangles[3 * f + 0];
+        int b = (int) source->triangles[3 * f + 1];
+        int c = (int) source->triangles[3 * f + 2];
+        tris[3 * out + 0] = (PAR_SHAPES_T) (nv + a);
+        tris[3 * out + 1] = (PAR_SHAPES_T) (nv + b);
+        tris[3 * out + 2] = (PAR_SHAPES_T) (nv + c);
+        out++;
+        tris[3 * out + 0] = (PAR_SHAPES_T) c;
+        tris[3 * out + 1] = (PAR_SHAPES_T) b;
+        tris[3 * out + 2] = (PAR_SHAPES_T) a;
+        out++;
+    }
+    // Skin normals from the offset triangles.
+    for (int layer = 0; layer < 2 && ok; layer++) {
+        if (!par_shapes__shell_skin_normals(source, nv, nf, layer, pts, nrm)) {
+            ok = 0;
+        }
+    }
+    // Boundary loops and rim walls: per boundary edge a quad split into two
+    // triangles, each with three independent vertices and a flat normal.
+    int nloops = 0;
+    if (ok && nbnd > 0) {
+        if (!par_shapes__shell_boundary_loops(source, topo, bystart, nextedge,
+                loopid, arc, elen, perim, &nloops)) {
+            ok = 0;
+        }
+    }
+    int wall = 2 * nv;
+    for (int i = 0; i < nbnd && ok; i++) {
+        int s = topo->bnd[i];
+        int a = (int) source->triangles[s];
+        int b = (int) source->triangles[3 * (s / 3) + (s % 3 + 1) % 3];
+        // Quad outer_b -> outer_a -> inner_a -> inner_b, split along the
+        // outer_b-inner_a diagonal.  The winding opposes the skin edges it
+        // stitches to, and the lateral edges oppose the neighbouring walls.
+        int src[6] = {b, a, a, a, b, b};
+        int lay[6] = {1, 1, 0, 0, 0, 1};
+        int atend[6] = {1, 0, 0, 0, 1, 1};
+        for (int k = 0; k < 6; k++) {
+            int v = wall + k;
+            int base = lay[k] ? nv : 0;
+            float const* from = pts + 3 * (base + src[k]);
+            pts[3 * v + 0] = from[0];
+            pts[3 * v + 1] = from[1];
+            pts[3 * v + 2] = from[2];
+            vsrc[v] = src[k];
+            vlay[v] = lay[k];
+            if (uv) {
+                double u = arc[i] + (atend[k] ? elen[i] : 0);
+                uv[2 * v + 0] = (float) (u / perim[loopid[i]]);
+                uv[2 * v + 1] = (float) lay[k];
+            }
+        }
+        tris[3 * out + 0] = (PAR_SHAPES_T) (wall + 0);
+        tris[3 * out + 1] = (PAR_SHAPES_T) (wall + 1);
+        tris[3 * out + 2] = (PAR_SHAPES_T) (wall + 2);
+        out++;
+        tris[3 * out + 0] = (PAR_SHAPES_T) (wall + 3);
+        tris[3 * out + 1] = (PAR_SHAPES_T) (wall + 4);
+        tris[3 * out + 2] = (PAR_SHAPES_T) (wall + 5);
+        out++;
+        wall += 6;
+    }
+    // Reject degenerate generated geometry: every emitted triangle must have a
+    // non-zero area, every skin point a non-zero accumulated normal, and every
+    // coordinate finite.
+    for (int i = 0; i < (int) nvtx && ok; i++) {
+        if (!par_shapes__shell_finite3f(pts + 3 * i)) {
+            ok = 0;
+        }
+    }
+    for (int i = 0; i < out && ok; i++) {
+        int a = (int) tris[3 * i + 0];
+        int b = (int) tris[3 * i + 1];
+        int c = (int) tris[3 * i + 2];
+        double cp[3];
+        if (!par_shapes__shell_cross(pts + 3 * a, pts + 3 * b, pts + 3 * c,
+                cp)) {
+            ok = 0;
+            break;
+        }
+        if (i >= 2 * nf) {
+            // Wall triangles own all three of their vertices, so each gets a
+            // flat normal from its own cross product.
+            double len = par_shapes__shell_len(cp[0], cp[1], cp[2]);
+            if (!(len > 0)) {
+                ok = 0;
+                break;
+            }
+            int vids[3] = {a, b, c};
+            for (int k = 0; k < 3; k++) {
+                norms[3 * vids[k] + 0] = (float) (cp[0] / len);
+                norms[3 * vids[k] + 1] = (float) (cp[1] / len);
+                norms[3 * vids[k] + 2] = (float) (cp[2] / len);
+            }
+        }
+    }
+    // Normalize the freshly accumulated skin normals.  Every referenced skin
+    // point must see a non-zero accumulated area normal on both skins.
+    if (ok) {
+        for (int layer = 0; layer < 2 && ok; layer++) {
+            int base = layer ? nv : 0;
+            for (int p = 0; p < nv; p++) {
+                int at = base + p;
+                double len = par_shapes__shell_len(nrm[3 * at + 0],
+                    nrm[3 * at + 1], nrm[3 * at + 2]);
+                if (!(len > 0)) {
+                    // Only referenced points are required to have a usable
+                    // normal.  For unreferenced points fall back to the offset
+                    // direction when one exists and leave zero otherwise.
+                    if (refs[p] != 0) {
+                        ok = 0;
+                        break;
+                    }
+                    if (par_shapes__shell_len(dir[3 * p + 0],
+                            dir[3 * p + 1], dir[3 * p + 2]) > 0) {
+                        for (int k = 0; k < 3; k++) {
+                            norms[3 * at + k] = (float) dir[3 * p + k];
+                        }
+                    }
+                    continue;
+                }
+                for (int k = 0; k < 3; k++) {
+                    norms[3 * at + k] = (float) (nrm[3 * at + k] / len);
+                }
+            }
+        }
+        for (int i = 0; i < (int) nvtx && ok; i++) {
+            if (!par_shapes__shell_finite3f(norms + 3 * i)) {
+                ok = 0;
+            }
+        }
+    }
+    PAR_FREE(dir);
+    PAR_FREE(nrm);
+    PAR_FREE(bystart);
+    PAR_FREE(nextedge);
+    PAR_FREE(loopid);
+    PAR_FREE(arc);
+    PAR_FREE(perim);
+    PAR_FREE(elen);
+    par_shapes__shell_free_topo(topo);
+    if (!ok) {
+        par_shapes__shell_free_result(0, vsrc, vlay);
+        PAR_FREE(pts);
+        PAR_FREE(tris);
+        PAR_FREE(norms);
+        PAR_FREE(uv);
+        return 0;
+    }
+    par_shapes_shell* shell = PAR_CALLOC(par_shapes_shell, 1);
+    par_shapes_mesh* mesh = PAR_CALLOC(par_shapes_mesh, 1);
+    if (!shell || !mesh) {
+        PAR_FREE(shell);
+        par_shapes__shell_free_result(mesh, vsrc, vlay);
+        PAR_FREE(pts);
+        PAR_FREE(tris);
+        PAR_FREE(norms);
+        PAR_FREE(uv);
+        return 0;
+    }
+    mesh->points = pts;
+    mesh->npoints = (int) nvtx;
+    mesh->triangles = tris;
+    mesh->ntriangles = out;
+    mesh->normals = norms;
+    mesh->tcoords = uv;
+    shell->mesh = mesh;
+    shell->vertex_source = vsrc;
+    shell->vertex_layer = vlay;
+    return shell;
+}
+
+void par_shapes_free_shell(par_shapes_shell* shell)
+{
+    if (shell) {
+        if (shell->mesh) {
+            par_shapes_free_mesh(shell->mesh);
+        }
+        PAR_FREE(shell->vertex_source);
+        PAR_FREE(shell->vertex_layer);
+        PAR_FREE(shell);
+    }
 }
 
 static void par_shapes__sphere(float const* uv, float* xyz, void* userdata)

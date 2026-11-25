@@ -16,6 +16,46 @@ library    | description  | link
 
 There are more libraries too but they're probably less useful; scroll to the bottom of this README.
 
+## shells in par_shapes
+
+`par_shapes_create_shell(source, thickness)` turns an oriented, two-manifold
+triangle surface into a solid shell by offsetting it by `thickness / 2` along
+each vertex's unit normal.  It is meant for thin-walled models, not for large
+offsets: the caller must keep the thickness small enough that the two skins and
+their rims do not self-intersect.
+
+The result is a `par_shapes_shell` owning a `par_shapes_mesh` plus two
+`int` arrays of `mesh->npoints` entries.  `vertex_source` maps every render
+vertex back to a source point and `vertex_layer` is `0` for the inner skin and
+`1` for the outer skin.  These pairs are the topological identity of the shell:
+merging render copies that share a `(vertex_source, vertex_layer)` pair yields
+a closed, edge-manifold surface.  Render copies are deliberately duplicated
+where normals or UVs differ (at rims), so do not weld by position.
+
+The outer skin keeps the source winding and the inner skin reverses it.  Rims
+are added only along genuine boundary loops, including holes; a closed source
+yields two disconnected skins.  Skins copy their source points and UVs, while
+all normals are recomputed from the offset triangles and rim facets use flat
+per-triangle normals.  `par_shapes_free_shell` releases the whole result, and
+the source mesh is never modified.
+
+The input must be an oriented two-manifold with finite coordinates: zero-area
+triangles, invalid indices, same-direction or over-shared edges, point-touching
+face fans, a non-positive or non-finite thickness, and offset geometry that
+degenerates are all rejected by returning `NULL`.  If the source has normals
+they define the offset direction (normalized); otherwise the area-weighted
+vertex normals are used.  A skin or rim triangle that collapses to zero area
+after offsetting, or a referenced skin point whose offset normals cancel out,
+is likewise rejected rather than silently producing a broken shell.
+
+```c
+par_shapes_mesh* surface = par_shapes_create_plane(4, 4);
+par_shapes_shell* shell = par_shapes_create_shell(surface, 0.1f);
+par_shapes_export(shell->mesh, "thick.obj");
+par_shapes_free_shell(shell);
+par_shapes_free_mesh(surface);
+```
+
 ## tests
 
 To run tests, you need CMake and pkg-config.  On macOS, these can be installed with homebrew:
