@@ -7,7 +7,7 @@ use crate::camera::Camera;
 use crate::color::Color;
 use crate::light::Light;
 use crate::material::Material;
-use crate::object::Object;
+use crate::mirrors::MirrorTransport;
 use crate::scene::Scene;
 use crate::shape::{HitRecord, Ray};
 
@@ -39,6 +39,14 @@ pub struct Renderer<'a> {
 
     /// Number of random paths traced per pixel
     pub num_samples: u32,
+
+    /// Optional mirror transport with ideal planar mirror panels
+    ///
+    /// When set, the panels act as real geometry for eye rays and shadow
+    /// rays, and point lights are connected to shaded points through
+    /// deterministic mirror reflection sequences. When unset, the renderer
+    /// behaves exactly as before, including its random number sequence.
+    pub mirror_transport: Option<&'a MirrorTransport>,
 }
 
 impl<'a> Renderer<'a> {
@@ -53,6 +61,7 @@ impl<'a> Renderer<'a> {
             filter: Filter::default(),
             max_bounces: 0,
             num_samples: 1,
+            mirror_transport: None,
         }
     }
 
@@ -89,6 +98,12 @@ impl<'a> Renderer<'a> {
     /// Set the number of random paths traced per pixel
     pub fn num_samples(mut self, num_samples: u32) -> Self {
         self.num_samples = num_samples;
+        self
+    }
+
+    /// Set the mirror transport used for ideal planar mirror panels
+    pub fn mirror_transport(mut self, mirror_transport: &'a MirrorTransport) -> Self {
+        self.mirror_transport = Some(mirror_transport);
         self
     }
 
@@ -141,35 +156,75 @@ impl<'a> Renderer<'a> {
         color / f64::from(iterations) * 2.0_f64.powf(self.exposure_value)
     }
 
+    /// Trace a single ray with a deterministic random seed
+    ///
+    /// This delegates to the real path tracing code used for rendering and
+    /// returns the linear color, before any tone mapping or exposure.
+    pub fn trace_ray_seeded(&self, ray: Ray, seed: u64) -> Color {
+        let mut rng = StdRng::seed_from_u64(seed);
+        self.trace_ray(ray, 0, &mut rng)
+    }
+
     /// Trace a ray, obtaining a Monte Carlo estimate of the luminance
     fn trace_ray(&self, ray: Ray, num_bounces: u32, rng: &mut StdRng) -> Color {
-        match self.get_closest_hit(ray) {
-            None => self.scene.environment.get_color(&ray.dir),
-            Some((h, object)) => {
-                let world_pos = ray.at(h.time);
-                let material = object.material;
-                let wo = -glm::normalize(&ray.dir);
-
-                let mut color = material.emittance * material.color;
-                color += self.sample_lights(&material, &world_pos, &h.normal, &wo, rng);
-                if num_bounces < self.max_bounces {
-                    if let Some((wi, pdf)) = material.sample_f(&h.normal, &wo, rng) {
-                        let f = material.bsdf(&h.normal, &wo, &wi);
-                        let ray = Ray {
-                            origin: world_pos,
-                            dir: wi,
-                        };
-                        let indirect = 1.0 / pdf
-                            * f.component_mul(&self.trace_ray(ray, num_bounces + 1, rng))
-                            * wi.dot(&h.normal).abs();
-                        color.x += indirect.x.min(FIREFLY_CLAMP);
-                        color.y += indirect.y.min(FIREFLY_CLAMP);
-                        color.z += indirect.z.min(FIREFLY_CLAMP);
-                    }
+        let mut throughput = glm::vec3(1.0, 1.0, 1.0);
+        let mut ray = ray;
+        let mut num_bounces = num_bounces;
+        loop {
+            let mut h = HitRecord::new();
+            let mut hit_object = None;
+            for object in &self.scene.objects {
+                if object.shape.intersect(&ray, EPSILON, &mut h) {
+                    hit_object = Some(object);
                 }
-
-                color
             }
+            if let Some(mirror_transport) = self.mirror_transport {
+                if let Some((index, time)) = mirror_transport.raycast(&ray, EPSILON, h.time) {
+                    // A mirror panel is the closest hit: reflect the ray off
+                    // the panel, consuming one bounce, and continue the path.
+                    if num_bounces >= self.max_bounces {
+                        return glm::vec3(0.0, 0.0, 0.0);
+                    }
+                    let panel = &mirror_transport.panels()[index];
+                    throughput = throughput.component_mul(&panel.reflectance);
+                    let dir = glm::reflect_vec(&ray.dir, &panel.normal()).normalize();
+                    ray = Ray {
+                        origin: ray.at(time),
+                        dir,
+                    };
+                    num_bounces += 1;
+                    continue;
+                }
+            }
+            return match hit_object {
+                None => throughput.component_mul(&self.scene.environment.get_color(&ray.dir)),
+                Some(object) => {
+                    let world_pos = ray.at(h.time);
+                    let material = object.material;
+                    let wo = -glm::normalize(&ray.dir);
+
+                    let mut color = material.emittance * material.color;
+                    color +=
+                        self.sample_lights(&material, &world_pos, &h.normal, &wo, num_bounces, rng);
+                    if num_bounces < self.max_bounces {
+                        if let Some((wi, pdf)) = material.sample_f(&h.normal, &wo, rng) {
+                            let f = material.bsdf(&h.normal, &wo, &wi);
+                            let ray = Ray {
+                                origin: world_pos,
+                                dir: wi,
+                            };
+                            let indirect = 1.0 / pdf
+                                * f.component_mul(&self.trace_ray(ray, num_bounces + 1, rng))
+                                * wi.dot(&h.normal).abs();
+                            color.x += indirect.x.min(FIREFLY_CLAMP);
+                            color.y += indirect.y.min(FIREFLY_CLAMP);
+                            color.z += indirect.z.min(FIREFLY_CLAMP);
+                        }
+                    }
+
+                    throughput.component_mul(&color)
+                }
+            };
         }
     }
 
@@ -180,6 +235,7 @@ impl<'a> Renderer<'a> {
         pos: &glm::DVec3,
         n: &glm::DVec3,
         wo: &glm::DVec3,
+        num_bounces: u32,
         rng: &mut StdRng,
     ) -> Color {
         let mut color = glm::vec3(0.0, 0.0, 0.0);
@@ -188,34 +244,60 @@ impl<'a> Renderer<'a> {
                 color += ambient_color.component_mul(&material.color);
             } else {
                 let (intensity, wi, dist_to_light) = light.illuminate(pos, rng);
-                let closest_hit = self
-                    .get_closest_hit(Ray {
-                        origin: *pos,
-                        dir: wi,
-                    })
-                    .map(|(r, _)| r.time);
+                let closest_hit = self.closest_hit_time(&Ray {
+                    origin: *pos,
+                    dir: wi,
+                });
                 if closest_hit.is_none() || closest_hit.unwrap() > dist_to_light {
                     let f = material.bsdf(n, wo, &wi);
                     color += f.component_mul(&intensity) * wi.dot(n);
+                }
+                // Deterministic connections through mirror panels, sharing
+                // the remaining bounce budget with the eye path.
+                if let (Some(mirror_transport), Light::Point(light_color, location)) =
+                    (self.mirror_transport, light)
+                {
+                    let budget = self.max_bounces.saturating_sub(num_bounces) as usize;
+                    for connection in
+                        mirror_transport.find_connections(self.scene, pos, location, budget)
+                    {
+                        let wi = (*connection.points.last().unwrap() - pos).normalize();
+                        let cosine = wi.dot(n);
+                        if cosine <= 0.0 {
+                            continue;
+                        }
+                        let f = material.bsdf(n, wo, &wi);
+                        let connection_intensity = light_color
+                            .component_mul(&connection.reflectance)
+                            / (connection.total_length * connection.total_length);
+                        color += f.component_mul(&connection_intensity) * cosine;
+                    }
                 }
             }
         }
         color
     }
 
-    /// Loop through all objects in the scene to find the closest hit.
-    ///
-    /// Note that we intentionally do not use a `KdTree` to accelerate this computation.
-    /// The reason is that some objects, like planes, have infinite extent, so it would
-    /// not be appropriate to put them indiscriminately into a kd-tree.
-    fn get_closest_hit(&self, ray: Ray) -> Option<(HitRecord, &'_ Object)> {
+    /// Closest hit time along a ray, considering both scene objects and
+    /// mirror panels
+    fn closest_hit_time(&self, ray: &Ray) -> Option<f64> {
         let mut h = HitRecord::new();
-        let mut hit = None;
+        let mut hit = false;
         for object in &self.scene.objects {
-            if object.shape.intersect(&ray, EPSILON, &mut h) {
-                hit = Some(object);
+            if object.shape.intersect(ray, EPSILON, &mut h) {
+                hit = true;
             }
         }
-        Some((h, hit?))
+        if let Some(mirror_transport) = self.mirror_transport {
+            if let Some((_, time)) = mirror_transport.raycast(ray, EPSILON, h.time) {
+                h.time = time;
+                hit = true;
+            }
+        }
+        if hit {
+            Some(h.time)
+        } else {
+            None
+        }
     }
 }

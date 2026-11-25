@@ -20,6 +20,8 @@ pub use renderer::*;
 pub use scene::*;
 pub use shape::*;
 
+pub mod mirrors;
+
 mod buffer;
 mod camera;
 mod color;
