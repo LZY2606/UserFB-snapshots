@@ -83,15 +83,17 @@ TinyMPG/
     encoder/
       mpg_bitwriter.h              # MSB-first bit writer + VLC/byte-alignment/start-code helpers - write-side mirror of decoder/mpg_bitreader.h
       mpg_fdct.h                    # 8x8 forward DCT - orthogonal adjoint of decoder/mpg_idct.h's idct8x8()
-      mpg_macroblock_encode.h       # forward quantization (DC/AC) + differential-DC/run-level-AC VLC write - intra-only, write-side mirror of decoder/mpg_macroblock.h
+      mpg_macroblock_encode.h       # forward quantization (DC/AC) + differential-DC/run-level-AC VLC write - intra blocks, write-side mirror of decoder/mpg_macroblock.h
+      mpg_inter_encode.h/.cpp       # optional zero-motion P mode: non-intra quantize/run-level write + decoder-identical reconstruction (the encoder's one non-header source file)
       mpg_headers_write.h           # sequence_header/group_of_pictures_header/picture_header writing
-      mpg_encoder.h                 # top-level Encoder: no Allocator/Frame - intra-only needs no picture buffer, see docs/scope.md
+      mpg_encoder.h                 # top-level Encoder: self-contained I pictures by default; inter mode adds two Frame<Allocator> reconstruction buffers, see docs/scope.md
     TinyMPGDecoder.h            # public-facing push-data/get-callback API
-    TinyMPGEncoder.h            # public-facing encodeFrame() API
+    TinyMPGEncoder.h            # public-facing encodeFrame() API (+ setInterMode()/resetSequence())
   examples/
     DecodeFromProgmem/          # decode a tiny embedded I-frame-only clip, print per-frame stats - no extra hardware needed
     DecodeToDisplay/            # decode + push to an ILI9341 SPI TFT via TinyGPU, band by band
     EncodeSyntheticFrame/       # encode a synthetic gradient, print per-frame stats - no extra hardware needed
+    EncodeInterSequence/        # encode an I + zero-motion P sequence (setInterMode), incl. a short-buffer retry
   test/
     native/
       CMakeLists.txt            # explicit list of test executables (not a glob), same pattern as TinyH264
@@ -104,9 +106,10 @@ is shared between Phase B (P-frames) and Phase C (B-frames, forward/
 backward/bidirectional motion compensation, two-reference management and
 display-order output reordering) - see [Scope](scope.md) for what each
 phase adds. `src/encoder/` holds the intra-only encoder (Phase 1, see
-[Scope](scope.md)'s Encoder section) - a proper sibling directory to
-`src/decoder/`, not (yet) a from-scratch full encoder implementing motion
-estimation/P- or B-picture encoding.
+[Scope](scope.md)'s Encoder section) plus its optional zero-motion
+P-picture mode - a proper sibling directory to `src/decoder/`, though
+still not a from-scratch full encoder with motion search or B-picture
+encoding.
 
 ## Integration contract with `DemuxerMPG` (arduino-audio-tools)
 

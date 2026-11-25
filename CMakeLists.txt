@@ -10,6 +10,7 @@
 # generic CMake code if special IDF-specific logic is required."
 if(ESP_PLATFORM)
     idf_component_register(
+        SRCS "src/encoder/mpg_inter_encode.cpp"
         INCLUDE_DIRS "src" "src/common" "src/decoder" "src/encoder"
     )
     return()
@@ -18,30 +19,37 @@ endif()
 cmake_minimum_required(VERSION 3.14)
 project(TinyMPG CXX)
 
-# TinyMPG is header-only (see src/) - the primary distribution mechanism is
-# the Arduino Library Manager (library.properties), not CMake. This file
-# exists for three things CMake is actually useful for: (1) letting a
-# non-Arduino CMake-based project consume the library via
-# add_subdirectory() + target_link_libraries(), (2) building/running the
-# desktop native test suite (test/native/) - this project's correctness
-# oracle, and (3) - handled by the ESP_PLATFORM branch above - being
-# consumed as an ESP-IDF component. None of this is needed for, or affects,
-# the Arduino/arduino-cli workflow.
+# TinyMPG is almost entirely header-only (see src/) - the single
+# exception is the optional inter encoder's one non-template translation
+# unit, src/encoder/mpg_inter_encode.cpp, which this CMake target compiles
+# (and the Arduino/ESP-IDF builds pick up by glob/SRCS). The primary
+# distribution mechanism is the Arduino Library Manager
+# (library.properties), not CMake. This file exists for three things CMake
+# is actually useful for: (1) letting a non-Arduino CMake-based project
+# consume the library via add_subdirectory() + target_link_libraries(),
+# (2) building/running the desktop native test suite (test/native/) - this
+# project's correctness oracle, and (3) - handled by the ESP_PLATFORM
+# branch above - being consumed as an ESP-IDF component. None of this is
+# needed for, or affects, the Arduino/arduino-cli workflow.
 #
 # Structure mirrors the sibling TinyH264 project (same author, same
-# constrained-microcontroller target, same header-only/no-hot-path-
-# allocation approach) - src/encoder/ holds the intra-only encoder
-# (Phase 1, see docs/scope.md's Encoder section).
+# constrained-microcontroller target, same no-hot-path-allocation
+# approach) - src/encoder/ holds the intra-only encoder plus the optional
+# zero-motion P mode (see docs/scope.md's Encoder section).
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Header-only library target: no .cpp files of its own, so this is an
-# INTERFACE target - it only contributes an include path and a C++17
-# requirement to whatever links against it.
-add_library(TinyMPG INTERFACE)
+# TinyMPG is header-only apart from the optional inter encoder's one
+# non-template translation unit (src/encoder/mpg_inter_encode.cpp - the
+# rest of the codec stays header-only inline/templates), so the CMake
+# target is a small static library carrying that one source while still
+# propagating the include paths and C++17 requirement to everything that
+# links it. The Arduino/ESP-IDF builds compile that same .cpp directly
+# (Arduino globs src/, the ESP_PLATFORM branch above names it in SRCS).
+add_library(TinyMPG STATIC src/encoder/mpg_inter_encode.cpp)
 add_library(TinyMPG::TinyMPG ALIAS TinyMPG)
-target_include_directories(TinyMPG INTERFACE
+target_include_directories(TinyMPG PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/common
     ${CMAKE_CURRENT_SOURCE_DIR}/src/decoder
@@ -51,7 +59,7 @@ target_include_directories(TinyMPG INTERFACE
 # just this build of it), so a project linking against TinyMPG without
 # C++17 enabled should fail to configure rather than fail with confusing
 # compiler errors deep inside a header.
-target_compile_features(TinyMPG INTERFACE cxx_std_17)
+target_compile_features(TinyMPG PUBLIC cxx_std_17)
 
 # Only build the test suite when this is the top-level CMake project (i.e.
 # not when some other project add_subdirectory()s this one just to get the

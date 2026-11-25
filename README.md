@@ -48,8 +48,9 @@ for exactly how the two projects' framing assumptions line up.
   and the integration contract with `DemuxerMPG`.
 - [Scope](docs/scope.md) — what's implemented/validated (Phase A: I-frame
   decode, Phase B: P-frame decode, Phase C: B-frame decode, Phase 1:
-  intra-only encode) vs. planned (motion-compensated encoding) vs.
-  explicitly out of scope.
+  intra-only encode plus an optional zero-motion P-picture mode) vs.
+  planned (general motion-compensated encoding) vs. explicitly out of
+  scope.
 - [Memory budget](docs/memory-budget.md) — static/heap RAM cost (TBD until
   measured on real hardware, same rule TinyH264 follows: no fabricated
   benchmark numbers).

@@ -6,10 +6,15 @@
 #endif
 
 /*
- * TinyMPGEncoder: a minimal, header-only intra-only MPEG-1 (ISO/IEC
- * 11172-2) video encoder for microcontrollers, Phase 1 (I-picture only,
- * see docs/scope.md's Encoder section - no motion estimation, a
- * deliberate scope decision). This is the public-facing API, in the same
+ * TinyMPGEncoder: a minimal, header-only MPEG-1 (ISO/IEC 11172-2) video
+ * encoder for microcontrollers. By default it stays the original
+ * intra-only encoder (every call emits one independently-decodable
+ * I-picture - no motion estimation, see docs/scope.md's Encoder
+ * section). setInterMode(true) optionally switches it to a zero-motion
+ * P-picture sequence mode (first picture I, later ones zero-displacement
+ * P pictures predicted from the previous reconstructed picture - no
+ * motion search, B-pictures, or rate control; see
+ * encoder/mpg_inter_encode.h). This is the public-facing API, in the same
  * `tinympg` namespace as everything under encoder/mpg_*.h.
  *
  * Usage:
@@ -18,24 +23,23 @@
  *   TinyMPGEncoder<> encoder;
  *   encoder.setSize(176, 144);  // must be a multiple of 16
  *   encoder.setQp(8);           // 1-31, lower = higher quality/larger output
+ *   encoder.setInterMode(true); // optional: I then zero-motion P pictures
  *   uint8_t bitstream[65536];
  *   size_t n = encoder.encodeFrame(y, u, v, bitstream, sizeof(bitstream));
  *   if (n == 0) { ... }  // see encoder.lastStatus() for why
- *   // bitstream[0..n) is a complete, independently-decodable MPEG-1
- *   // elementary stream picture (sequence_header + group_of_pictures_
- *   // header + picture_header + slices) - decodable by TinyMPGDecoder,
- *   // ffmpeg, or any conformant MPEG-1 decoder.
  *
  * The Allocator template parameter (default StdAllocator<uint8_t>, see
- * StdAllocator.h) is only used for the small YUV 4:2:0 scratch buffers
- * the encodeFrameRgb888()/encodeFrameRgb666()/encodeFrameRgb565()/
- * encodeFrameYuv422() convenience overloads convert into before encoding -
- * encodeFrame()/encodeFrameExplicit() themselves still never allocate
- * (see encoder/mpg_encoder.h's file comment), matching this library's
- * decode-side hot-path philosophy for the plain YUV-in path. Pass a
- * custom allocator (e.g. PSRAMAllocatorESP32<uint8_t> on ESP32) to place
- * those scratch planes in PSRAM instead of the default heap, the same
- * way TinyMPGDecoder's own Allocator parameter works.
+ * StdAllocator.h) is used for the small YUV 4:2:0 scratch buffers the
+ * encodeFrameRgb888()/encodeFrameRgb666()/encodeFrameRgb565()/
+ * encodeFrameYuv422() convenience overloads convert into before encoding,
+ * and - once inter mode is enabled - for the two reconstructed-picture
+ * Frame buffers the P-picture reference chain needs (see
+ * encoder/mpg_inter_encode.h). The plain YUV encodeFrame()/
+ * encodeFrameExplicit() path in the default intra-only mode still never
+ * allocates. Pass a custom allocator (e.g.
+ * PSRAMAllocatorESP32<uint8_t> on ESP32) to place those buffers in PSRAM
+ * instead of the default heap, the same way TinyMPGDecoder's own
+ * Allocator parameter works.
  */
 
 namespace tinympg {
@@ -47,8 +51,6 @@ namespace tinympg {
  * `dst` in that case) rather than exposing EncodeStatus directly on the
  * hot path - lastStatus() is there for callers that want the specific
  * reason.
- * @note: the Allocator template parameter is unused in this intra-only encoder,
- * but is kept for API symmetry with TinyMPGDecoder and future expansion
  */
 template <typename Allocator = StdAllocator<uint8_t>>
 class TinyMPGEncoder {
@@ -71,6 +73,28 @@ class TinyMPGEncoder {
   /// See Encoder::setQp() - must be called (successfully) before encodeFrame().
   bool setQp(int qscale) { return encoder_.setQp(qscale); }
   int qp() const { return encoder_.qp(); }
+
+  /**
+   * Enables/disables the optional zero-motion P-picture (inter) mode - off
+   * by default, and with it off the API and byte output are the original
+   * intra-only behavior unchanged. See Encoder::setInterMode()
+   * (encoder/mpg_encoder.h) for the full sequence semantics: the first
+   * successful picture is I, later ones are zero-motion P pictures
+   * referencing the last reconstructed picture; toggling the mode,
+   * resetSequence(), or a successful size change restarts the sequence at
+   * I. All encode entry points (YUV, RGB888/666/565, YUYV) share the one
+   * sequence state held by the internal Encoder.
+   */
+  void setInterMode(bool active) { encoder_.setInterMode(active); }
+  bool interMode() const { return encoder_.interMode(); }
+
+  /**
+   * Ends the current inter-mode sequence - the next successful encode
+   * call starts again from an I-picture (sequence/GOP headers resent,
+   * temporal_reference restarted, held reference discarded). See
+   * Encoder::resetSequence().
+   */
+  void resetSequence() { encoder_.resetSequence(); }
 
   /// See Encoder::setFrameRate().
   void setFrameRate(int fps) { encoder_.setFrameRate(fps); }

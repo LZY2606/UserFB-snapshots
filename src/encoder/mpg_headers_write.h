@@ -16,13 +16,14 @@
  * isn't confused by a value that looks like a real (but wrong) claim
  * about this encoder's output bitrate.
  *
- * This encoder emits one self-contained sequence_header + a single-
- * picture group_of_pictures_header + picture_header ahead of every
- * encoded picture (see encoder/mpg_encoder.h) rather than only resending
- * them on the first call/a resolution change - the simplest structure
- * that makes every encoded picture independently decodable on its own,
- * matching this library's "compression of a single image" use case
- * (README.md) as well as a real video sequence.
+ * This encoder's default intra-only mode emits one self-contained
+ * sequence_header + a single-picture group_of_pictures_header +
+ * picture_header ahead of every encoded picture (see
+ * encoder/mpg_encoder.h), making each call independently decodable. The
+ * optional inter mode (setInterMode()) instead writes the
+ * sequence_header/GOP once, only before a sequence's first I-picture, and
+ * then emits one picture_header per I/P picture with a running
+ * temporal_reference - the two cases are selected in encodePicture().
  */
 
 namespace tinympg {
@@ -85,21 +86,29 @@ inline void writeGroupOfPicturesHeader(BitWriter& bw) {
 }
 
 /**
- * Writes picture_header() for an I-picture (picture_coding_type always 1
- * - this encoder never writes anything else, see docs/scope.md's Encoder
- * section). `temporalReference` is always 0 here (every GOP holds exactly
- * one picture - see writeGroupOfPicturesHeader()'s own comment - so
- * there's never a second picture in the same GOP to distinguish). No
- * full_pel_forward_vector/forward_f_code follow (P/B-picture-only
- * fields, clause 2.4.3.6). `vbv_delay` 0xFFFF is the spec's own
+ * Writes picture_header() (clause 2.4.3.6). `temporalReference` is the
+ * picture's temporal_reference (10 bits) - always 0 in the default
+ * one-self-contained-I-picture-per-call mode (see mpg_encoder.h), and the
+ * running per-sequence counter once inter mode is enabled.
+ * `pictureCodingType` selects I (1) or P (2) - this encoder never writes
+ * B/D pictures (see docs/scope.md). `vbv_delay` 0xFFFF is the spec's own
  * "unspecified" escape value, the picture-level counterpart of
- * writeSequenceHeader()'s bit_rate_value placeholder.
+ * writeSequenceHeader()'s bit_rate_value placeholder. For a P-picture,
+ * the P-only forward fields follow: full_pel_forward_vector = 0 (half-pel
+ * units, irrelevant to a zero-displacement vector but the conventional
+ * value) and forward_f_code = 1 (the smallest legal range - f_code 0 is
+ * forbidden for P, clause 2.4.3.6; with f_code 1 the encoder's (0,0)
+ * motion_code pair encodes the zero vector directly).
  */
-inline void writePictureHeader(BitWriter& bw) {
+inline void writePictureHeader(BitWriter& bw, int temporalReference, int pictureCodingType) {
   bw.startCode(detail::kEncStartCodePicture);
-  bw.u(0, 10);      // temporal_reference
-  bw.u(1, 3);       // picture_coding_type = I
-  bw.u(0xFFFF, 16); // vbv_delay: "unspecified" escape
+  bw.u((uint32_t)(temporalReference & 0x3FF), 10);
+  bw.u((uint32_t)pictureCodingType, 3);  // 1 = I, 2 = P
+  bw.u(0xFFFF, 16);                      // vbv_delay: "unspecified" escape
+  if (pictureCodingType == 2) {          // P-picture-only forward parameters
+    bw.flag(false);                      // full_pel_forward_vector: half-pel units
+    bw.u(1, 3);                          // forward_f_code = 1
+  }
 }
 
 }  // namespace tinympg

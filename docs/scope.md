@@ -130,7 +130,7 @@ for each phase; check back (or `git log`) for what else has landed since.
   `mpg_decoder.h`; regression-gated by
   `test/native/test_decode_resumed_input.cpp`.
 
-## Encoder (`TinyMPGEncoder`, implemented) — intra-only, Phase 1
+## Encoder (`TinyMPGEncoder`, implemented) — intra-only baseline + optional zero-motion P mode
 
 This session's library research found no realistic full-motion-estimation
 MPEG-1 encoder that's portable to constrained microcontrollers (see
@@ -190,9 +190,61 @@ most constrained targets.
   that a caller only looping while status stayed `kOk` would never make.
   Fixed in `decoder/mpg_decoder.h`.
 - No custom quantizer matrices, no per-macroblock quantizer_scale
-  adaptation, no rate control beyond a fixed `setQp()`, and (as with the
-  decoder) no motion estimation/P- or B-picture encoding - all explicitly
-  deferred future work, not silently assumed away.
+  adaptation, no rate control beyond a fixed/per-picture `setQp()`, and
+  no B-picture encoding - all explicitly deferred future work, not
+  silently assumed away.
+
+### Optional zero-motion P-picture mode (`setInterMode`)
+
+The intra-only design above stays the default, but `setInterMode(true)`
+adds an opt-in inter mode for low-motion content, deliberately narrower
+than a general MPEG-1 encoder (see `encoder/mpg_inter_encode.h`):
+
+- **No motion search.** Every non-skipped P macroblock predicts from the
+  same macroblock position in the previous picture with a coded
+  zero-displacement forward vector (`full_pel_forward_vector = 0`,
+  `forward_f_code = 1`). No motion-compensated (nonzero-vector) or
+  bidirectional prediction, and a P-picture never contains an intra
+  macroblock - the P header is only ever paired with non-intra syntax.
+- The residual is the *signed* difference between the source block and
+  the reference block, forward-DCT'd and quantized with the **non-intra**
+  default matrix through the same "simulate the decoder's exact
+  dequantization" neighborhood search as the intra quantizer
+  (`dequantInterMagnitude()` mirrors `decodeInterBlock()`'s
+  `(2*level+1)`-weighted `>>4`-plus-oddification formula). The first
+  coefficient uses `decodeInterBlock()`'s `'1'`+sign shortcut; everything
+  else goes through the shared run/level (with escape) writer, and a
+  real six-bit `coded_block_pattern` gates which of the six blocks are
+  present.
+- **The reference is always a reconstruction, never the raw source.**
+  Both the I-picture and every P residual are reconstructed with the
+  decoder's own dequantize → `idct8x8()` → `clip255()` path
+  (`encodeIntraBlockRecon()`/`reconstructInterBlock()`), so a
+  TinyMPGDecoder (and ffmpeg, verified) reconstructs exactly the picture
+  the next P predicted from. Two `Frame<Allocator>` buffers hold the
+  committed reference and the in-progress reconstruction, swapped only
+  after a fully successful encode.
+- **Slice/macroblock syntax.** One slice per macroblock row as before.
+  The first and last macroblock of each row are always explicit (a
+  zero-residual edge uses the explicit-`(0,0)`-MV/no-CBP macroblock
+  type); zero-residual macroblocks between coded ones are skipped via
+  `macroblock_address_increment` (with macroblock_escape for gaps over
+  33), which the decoder fills from the inherited zero vector. This keeps
+  every slice non-empty and makes an all-zero-residual P (including its
+  final block) legal.
+- **Sequence state.** `sequence_header`/GOP header precede only the
+  sequence's first I-picture; `temporal_reference` counts successful
+  pictures mod 1024. The sequence restarts at I on `resetSequence()`, a
+  real mode change, or a successful dimension-changing `setSize()` - a
+  rejected `setSize()` doesn't disturb it. A failed encode (short output
+  buffer or frame allocation failure) writes nothing, advances no frame
+  number, and doesn't touch the committed reference; a retry is
+  byte-identical to a never-failed instance.
+- **Scope boundary.** This is still no motion *estimation*: a scene with
+  real movement gets little benefit because most blocks residual-code
+  anyway. General motion-compensated P and any B-picture encoding remain
+  the deferred work listed above.
+
 
 ## Out of scope indefinitely
 

@@ -80,18 +80,28 @@ does.
 
 ## Encoder (`TinyMPGEncoder`)
 
-Zero heap allocation, and no static footprint beyond the tables above
-(reused as-is, not duplicated - `encoder/mpg_macroblock_encode.h` includes
+Zero heap allocation on the plain YUV intra-only encode path, and no
+static footprint beyond the tables above (reused as-is, not duplicated -
+`encoder/mpg_macroblock_encode.h` includes
 `common/mpg_tables.h`/`common/mpg_vlc_tables.h` directly rather than
-carrying its own copies). `Encoder` (`encoder/mpg_encoder.h`) holds only a
-handful of `int`s (width/height/qscale/frame-rate-code state) - no
-`Frame<Allocator>`, no `Allocator` template parameter at all, since an
-intra-only encoder needs no reconstructed-picture buffer (see
-[Scope](scope.md)'s Encoder section for why that's structural, not
-deferred). `BitWriter` (`encoder/mpg_bitwriter.h`) writes directly into
+carrying its own copies). In the default mode `Encoder`
+(`encoder/mpg_encoder.h`) holds only a handful of `int`s
+(width/height/qscale/frame-rate-code state) - a self-contained I-picture
+has no spatial prediction, so that path needs no reconstructed-picture
+buffer (see [Scope](scope.md)'s Encoder section for why that's
+structural). `BitWriter` (`encoder/mpg_bitwriter.h`) writes directly into
 the caller-provided `dst` buffer passed to `encodeFrame()` - same
 never-allocate-in-the-hot-path discipline the decoder follows, just with
 even less resident state to account for.
+
+The opt-in inter mode (`setInterMode(true)`, see
+[Encoding](encoding.md)) is the one exception: it lazily allocates two
+full YUV420 `Frame<Allocator>` buffers through the class's `Allocator`
+template parameter - the committed reference picture and the
+in-progress reconstruction - i.e. twice the per-frame size quoted for the
+decoder's own `Frame` above (one luma + two chroma planes each), released
+again on `resetSequence()`/a size change. The packed RGB/YUYV overloads
+also allocate one set of scratch YUV420 planes regardless of mode.
 
 ## Performance (measured, real hardware)
 
@@ -272,11 +282,14 @@ machine's numbers rather than assuming these transfer.
 Both benchmarks above measure **I-frame-only** streams, which is the
 worst case for this codec, not a representative one:
 
-- `examples/EncodeSyntheticFrame` can only ever produce I-frames -
-  `TinyMPGEncoder` is Phase 1 (intra-only, see
-  [Scope](scope.md)'s Encoder section); there's no motion estimation or
-  P/B-frame encoding implemented yet, so this number can't currently be
-  anything but the I-frame figure.
+- `examples/EncodeSyntheticFrame` only ever produces I-frames - it leaves
+  the encoder at its intra-only default (it doesn't call
+  `setInterMode(true)`, see [Encoding](encoding.md)). The optional
+  zero-motion P mode (`examples/EncodeInterSequence`) can make a
+  low-motion frame far cheaper than an I-frame (skipped/copied
+  macroblocks carry few or no coefficients), but it is not a
+  general motion-search encoder, so the all-I figure below remains the
+  conservative worst case to budget for.
 - `examples/DecodeFromProgmem`'s embedded clip is also all I-frames -
   not a deliberate choice to test the worst case, just an artifact of
   its flat-gray test content giving `ffmpeg` no residual worth coding as

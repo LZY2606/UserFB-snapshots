@@ -132,3 +132,19 @@ without a manual re-configure):
   dimensions, matching decode across a QP sweep including near-lossless
   `qscale=1`, and a synthetic high-frequency stress pattern exercising the
   AC coefficient escape-coding path) - see [Encoding](encoding.md).
+- `test_encode_inter_task` - the task-style (no `main()`, registered via
+  `task_support/check.h`'s `task_cases`/`TASK_CHECK`) gate for the
+  optional zero-motion P-picture mode, run through
+  `bash task_support/run.sh target` (which also rebuilds and runs the
+  I-frame baseline above). Three groups: `syntax` (independent bitstream
+  inspection of picture types, `temporal_reference`, sequence/GOP header
+  placement, P forward parameters, and per-slice address increments /
+  macroblock types / CBP/skips), `reference` (the real `TinyMPGDecoder`
+  path across all three planes, chroma-only changes, per-frame QP, and
+  multi-generation zero-residual references), and `sequence` (I-then-P
+  ordering, reset/mode-toggle/size-change restarts, short-buffer and
+  allocation-failure retry with byte-identical output, RGB/YUYV entry
+  points, the >1024-frame temporal wrap, and default-off
+  backward compatibility). The emitted I/P streams were additionally
+  cross-checked with real `ffmpeg`/`ffprobe` (one I then P pictures,
+  pixels matching within the IDCT tolerance) - see [Encoding](encoding.md).

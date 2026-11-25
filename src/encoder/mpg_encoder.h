@@ -1,9 +1,11 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <utility>
 #include "mpg_bitwriter.h"
 #include "mpg_color_convert.h"
 #include "mpg_headers_write.h"
+#include "mpg_inter_encode.h"
 #include "mpg_macroblock_encode.h"
 #include "../common/mpg_frame.h"
 #include "../common/mpg_tables.h"
@@ -11,31 +13,33 @@
 #include "../StdAllocator.h"
 
 /*
- * Header-only. Top-level intra-only MPEG-1 encoder: sequence_header +
+ * Header-only (templates) plus mpg_inter_encode.cpp's non-template inter
+ * helpers. Top-level MPEG-1 encoder: sequence_header +
  * group_of_pictures_header + picture_header + one slice per macroblock
  * row, ISO/IEC 11172-2 clause 2.4.3. See docs/scope.md's Encoder section
- * for why this is intra-only at all (no motion estimation - a deliberate,
- * documented scope decision, not a missing feature).
+ * for the scope decisions (intra-only baseline, plus an optional
+ * zero-motion P mode, no general motion search - a deliberate scope line).
  *
- * Unlike Decoder<Allocator> (decoder/mpg_decoder.h), this class holds *no*
- * reconstructed picture buffer: MPEG-1 intra macroblocks have no spatial
- * prediction (docs/scope.md's Phase A section) and this encoder never
- * reconstructs a picture to predict a later one from (there is no later
- * one to predict, and no rate-control feedback loop yet either - see the
- * same section's "open decisions"). Every macroblock is encoded directly
- * from the caller's own source planes into the output bitstream, with
- * only a few bytes of per-slice state (the three DC predictors) threaded
- * through - no heap allocation in encodePicture() itself, matching this
- * library's decode-side hot-path philosophy even more literally than the
- * decoder itself needs to. The Allocator template parameter is only used
- * for the small YUV 4:2:0 scratch buffers the encodeFrameRgb888()/
- * encodeFrameRgb666()/encodeFrameRgb565()/encodeFrameYuv422() convenience
- * overloads convert into before handing off to encodePicture().
+ * Two modes share this one class. The default (inter mode off,
+ * setInterMode()) is the original intra-only Phase-1 behavior: every
+ * encodePicture() writes a complete, independently-decodable I-picture
+ * (its own sequence/GOP/picture headers), and that path still allocates
+ * nothing. setInterMode(true) adds the optional zero-motion P-picture
+ * sequence mode: the first successful picture is I and the rest are
+ * zero-displacement P pictures predicted from the previous
+ * *reconstructed* picture (see mpg_inter_encode.h). That mode holds two
+ * Frame<Allocator> picture buffers (the committed reference and the
+ * in-progress reconstruction, swapped only on a fully successful encode)
+ * allocated through the same Allocator template the RGB/YUYV scratch
+ * planes use - the first real picture storage this encoder ever owned,
+ * since intra-only MPEG-1 has no spatial prediction to keep a
+ * reconstruction for.
  *
- * Every encodePicture() call writes a complete, independently-decodable
- * unit (its own sequence_header/group_of_pictures_header/picture_header,
- * not just resent on the first call) - see mpg_headers_write.h's file
- * comment for why.
+ * In the default mode every encodePicture() writes a complete,
+ * independently-decodable unit; in inter mode the
+ * sequence_header/group_of_pictures_header are written once, only before
+ * the sequence's first I-picture (see mpg_headers_write.h's file comment
+ * for both cases).
  */
 
 namespace tinympg {
@@ -46,18 +50,21 @@ enum class EncodeStatus {
   kInvalidSize,   ///< width/height weren't set, aren't multiples of 16, or exceed maxWidth()/maxHeight()
   kInvalidQp,     ///< quantizer_scale wasn't set (via setQp()) or is out of MPEG-1's 1..31 range
   kBufferTooSmall,  ///< dst didn't have room for the encoded picture
+  kAllocationError,  ///< inter mode's reconstructed/reference Frame allocation failed (out of memory, see StdAllocator.h)
 };
 
 /**
- * Intra-only MPEG-1 (Phase 1 encoder, see docs/scope.md) encoder: call
- * setSize()/setQp() once, then encodePicture() once per picture (or once
- * total, for the "compress a single image" use case README.md mentions).
- * `Allocator` (default StdAllocator<uint8_t>, see StdAllocator.h) is only
- * used for the small YUV 4:2:0 scratch buffers the encodeFrameRgb888()/
- * encodeFrameRgb666()/encodeFrameRgb565()/encodeFrameYuv422() convenience
- * overloads convert into before handing off to encodePicture() - plain
- * encodePicture() itself still never allocates (see this file's own
- * comment above), matching this library's decode-side hot-path
+ * MPEG-1 encoder: call setSize()/setQp() once, then encodePicture() once
+ * per picture (or once total, for the "compress a single image" use case
+ * README.md mentions). Intra-only by default; setInterMode(true) opts
+ * into the zero-motion I/P sequence mode (see this file's top comment and
+ * mpg_inter_encode.h). `Allocator` (default StdAllocator<uint8_t>, see
+ * StdAllocator.h) backs the small YUV 4:2:0 scratch buffers the
+ * encodeFrameRgb888()/encodeFrameRgb666()/encodeFrameRgb565()/
+ * encodeFrameYuv422() convenience overloads convert into, and - in inter
+ * mode only - the two reconstructed-picture Frames the P reference chain
+ * needs. The plain YUV encodePicture() path in the default intra-only
+ * mode still never allocates, matching the decode-side hot-path
  * philosophy for the codec-only path.
  */
 template <typename Allocator = StdAllocator<uint8_t>>
@@ -68,16 +75,23 @@ class Encoder {
    * uses. Must each be a multiple of 16 (no edge-padding/cropping support
    * yet, matching TinyH264Encoder's own first-cut restriction) and not
    * exceed maxWidth()/maxHeight(). Returns false (and leaves the previous
-   * size, if any, in effect) if either check fails.
+   * size, if any, in effect) if either check fails. A *rejected* setSize()
+   * changes nothing, including the inter-mode sequence state (it doesn't
+   * interrupt a sequence in progress); a successful call whose dimensions
+   * actually differ from the current ones ends the current sequence, so
+   * the next successful picture starts again from an I-picture (its own
+   * sequence_header/GOP header) - see setInterMode()/resetSequence().
    */
   bool setSize(int width, int height) {
     if (width <= 0 || height <= 0) return false;
     if ((width % 16) != 0 || (height % 16) != 0) return false;
     if (width > maxWidth_ || height > maxHeight_) return false;
+    bool changed = (width != width_ || height != height_);
     width_ = width;
     height_ = height;
     mbWidth_ = width / 16;
     mbHeight_ = height / 16;
+    if (changed) resetSequence();
     return true;
   }
   int width() const { return width_; }
@@ -146,6 +160,46 @@ class Encoder {
    */
   void setPackedStride(int stride) { packedStride_ = stride; }
   int packedStride() const { return packedStride_; }
+
+  /**
+   * Enables/disables the optional zero-motion inter (P-picture) mode -
+   * off by default, in which case every encodePicture() call keeps the
+   * original, fully self-contained I-picture output (identical bytes, see
+   * this file's top comment). When enabled, the first *successful* picture
+   * of each sequence is an I-picture and every subsequent successful
+   * picture is a P-picture, predicted at zero displacement from the most
+   * recently *reconstructed* picture (never the caller's raw source - see
+   * encoder/mpg_inter_encode.h); sequence_header/group_of_pictures_header
+   * are written once, only before the sequence's first I-picture, and
+   * picture temporal_reference counts successful pictures from 0, modulo
+   * 1024. Toggling the mode actually changes it, calling
+   * resetSequence(), or a successful dimension-changing setSize() all end
+   * the current sequence (the next successful picture restarts from I);
+   * a rejected setSize() does not. No motion search/B-pictures/rate
+   * control - see docs/scope.md.
+   */
+  void setInterMode(bool active) {
+    if (interMode_ == active) return;
+    interMode_ = active;
+    resetSequence();
+  }
+  bool interMode() const { return interMode_; }
+
+  /**
+   * Ends the current picture sequence: the next successful encodePicture()
+   * call starts a fresh sequence with an I-picture (and, in inter mode,
+   * resends sequence_header/group_of_pictures_header and restarts
+   * temporal_reference at 0), discarding any previously committed
+   * reference picture. Harmless (a no-op beyond resetting the counters)
+   * with inter mode off, where every picture is already independent.
+   */
+  void resetSequence() {
+    sequenceStarted_ = false;
+    haveReference_ = false;
+    temporalReference_ = 0;
+    refFrame_.release();
+    reconFrame_.release();
+  }
 
   /**
    * Encodes one picture from RGB888 source data (3 bytes/pixel, R/G/B
@@ -221,7 +275,7 @@ class Encoder {
   }
 
   /**
-   * Encodes one I-picture from raw YUV 4:2:0 planar source data (three
+   * Encodes one picture from raw YUV 4:2:0 planar source data (three
    * separate planes/strides, matching TinyMPGDecoder's own y()/u()/v()
    * convention) into `dst`. Requires a prior successful setSize()/setQp()
    * call. Returns kOk (with the encoded byte count in `*bytesWritten`) or
@@ -229,6 +283,17 @@ class Encoder {
    * treated as valid/usable on anything but kOk, the same "nothing usable
    * on failure" convention TinyH264Encoder's 0-return uses, just spelled
    * out as an enum instead of overloading a size_t.
+   *
+   * With inter mode off (the default) this is unchanged Phase-1 behavior:
+   * every call writes its own sequence_header/GOP/picture header and an
+   * all-intra picture, independently decodable. With inter mode on, the
+   * first successful picture of a sequence is I (with the sequence/GOP
+   * headers), later ones are zero-motion P-pictures referencing the last
+   * successful picture's reconstruction; a failure (undersized dst, or an
+   * inter-picture allocation failure) writes nothing usable, consumes no
+   * temporal_reference, and leaves the committed reference untouched -
+   * retrying with a bigger buffer produces byte-identical output to an
+   * instance that never failed.
    */
   EncodeStatus encodePicture(const uint8_t* srcY, int srcStrideY, const uint8_t* srcU,
                               const uint8_t* srcV, int srcStrideC, uint8_t* dst,
@@ -237,11 +302,67 @@ class Encoder {
     if (width_ <= 0 || height_ <= 0) return EncodeStatus::kInvalidSize;
     if (qscale_ <= 0) return EncodeStatus::kInvalidQp;
 
-    BitWriter bw(dst, dstCapacity);
-    writeSequenceHeader(bw, width_, height_, aspectRatioCode_, frameRateCode_);
-    writeGroupOfPicturesHeader(bw);
-    writePictureHeader(bw);
+    bool isInter = interMode_ && sequenceStarted_ && haveReference_;
+    if (interMode_ && !ensureInterFrames()) return EncodeStatus::kAllocationError;
 
+    BitWriter bw(dst, dstCapacity);
+    if (!interMode_ || !sequenceStarted_) {
+      // sequence_header/GOP only ever precede a sequence's first I-picture.
+      writeSequenceHeader(bw, width_, height_, aspectRatioCode_, frameRateCode_);
+      writeGroupOfPicturesHeader(bw);
+    }
+    writePictureHeader(bw, temporalReference_, isInter ? 2 : 1);
+
+    EncodeStatus st = isInter
+                          ? encodePSlices(bw, srcY, srcStrideY, srcU, srcV, srcStrideC)
+                          : encodeISlices(bw, srcY, srcStrideY, srcU, srcV, srcStrideC);
+    if (st != EncodeStatus::kOk) return st;
+    bw.byteAlign();
+    if (bw.error()) return EncodeStatus::kBufferTooSmall;
+
+    // Commit only after the whole picture encoded without error: the
+    // temporal counter advances and the reference swaps only on success,
+    // so a failed call leaves the sequence state exactly as it was.
+    if (interMode_) {
+      std::swap(refFrame_, reconFrame_);  // this picture's reconstruction is the next reference
+      haveReference_ = true;
+      sequenceStarted_ = true;
+      temporalReference_ = (temporalReference_ + 1) & 0x3FF;  // mod 1024, inter mode only
+    }
+    *bytesWritten = bw.bytesWritten();
+    return EncodeStatus::kOk;
+  }
+
+ private:
+  /**
+   * Allocates (once per current size) the two inter-mode Frame<Allocator>
+   * picture buffers: refFrame_ holds the most recently committed
+   * reconstruction and reconFrame_ the picture currently being built.
+   * Sized via Frame::setSize() at the coded (== display here, sizes are
+   * 16-multiples) dimensions; returns false on an allocator failure,
+   * leaving any previously committed reference untouched (Frame::setSize()
+   * only fails inside ensureAllocated(), before any write).
+   */
+  bool ensureInterFrames() {
+    if (!refFrame_.dataY.empty() && !reconFrame_.dataY.empty()) return true;
+    refFrame_.release();
+    reconFrame_.release();
+    // Honor this Encoder's own setMaxDimension() ceiling (Frame defaults to
+    // the MPG_MAX_* compile-time bounds, see common/mpg_frame.h).
+    refFrame_.setMaxDimension(maxWidth_, maxHeight_);
+    reconFrame_.setMaxDimension(maxWidth_, maxHeight_);
+    bool ok = refFrame_.setSize(width_, height_, width_, height_) &&
+              reconFrame_.setSize(width_, height_, width_, height_);
+    if (!ok) {
+      refFrame_.release();
+      reconFrame_.release();
+    }
+    return ok;
+  }
+
+  /// All-intra slice loop, inter mode off: every macroblock explicit, no skips.
+  EncodeStatus encodeISlices(BitWriter& bw, const uint8_t* srcY, int srcStrideY,
+                              const uint8_t* srcU, const uint8_t* srcV, int srcStrideC) {
     for (int mbY = 0; mbY < mbHeight_; mbY++) {
       bw.startCode((uint8_t)(1 + mbY));  // slice_start_code: one slice per macroblock row
       bw.u((uint32_t)qscale_, 5);        // quantizer_scale
@@ -251,14 +372,60 @@ class Encoder {
       for (int mbX = 0; mbX < mbWidth_; mbX++) {
         bw.writeVlc(kMbAddrIncCode[0], kMbAddrIncBits[0]);  // macroblock_address_increment = 1 (no gap)
         bw.flag(true);  // macroblock_type: intra, no quant change (fixed qscale for the whole picture)
-        encodeIntraMacroblock(bw, srcY, srcStrideY, srcU, srcV, srcStrideC, mbX, mbY,
-                               lastDc, kDefaultIntraMatrix, qscale_);
+        if (interMode_) {
+          // Inter-mode I-picture: reconstruct into reconFrame_ so the P
+          // pictures that follow reference a decoder-identical picture.
+          encodeIntraMacroblockRecon(bw, srcY, srcStrideY, srcU, srcV, srcStrideC, mbX, mbY,
+                                      lastDc, kDefaultIntraMatrix, qscale_, reconFrame_);
+        } else {
+          encodeIntraMacroblock(bw, srcY, srcStrideY, srcU, srcV, srcStrideC, mbX, mbY,
+                                 lastDc, kDefaultIntraMatrix, qscale_);
+        }
       }
+      if (bw.error()) return EncodeStatus::kBufferTooSmall;
     }
-    bw.byteAlign();
+    return EncodeStatus::kOk;
+  }
 
-    if (bw.error()) return EncodeStatus::kBufferTooSmall;
-    *bytesWritten = bw.bytesWritten();
+  /**
+   * Zero-motion P-picture slice loop (one slice per macroblock row). The
+   * row's first and last macroblock positions are always coded explicitly
+   * (a no-residual position there uses the explicit-(0,0)-MV, no-CBP
+   * macroblock_type rather than a skip, so a slice never starts or ends on
+   * an implicit skip and even an all-zero-residual final block closes the
+   * slice legally); zero-residual macroblocks in between are skipped by a
+   * macroblock_address_increment gap, which the decoder reconstructs from
+   * the inherited (0,0) motion vector. Nonzero blocks carry their real CBP
+   * and inter coefficients (see encoder/mpg_inter_encode.h).
+   */
+  EncodeStatus encodePSlices(BitWriter& bw, const uint8_t* srcY, int srcStrideY,
+                              const uint8_t* srcU, const uint8_t* srcV, int srcStrideC) {
+    for (int mbY = 0; mbY < mbHeight_; mbY++) {
+      bw.startCode((uint8_t)(1 + mbY));
+      bw.u((uint32_t)qscale_, 5);
+      bw.flag(false);  // extra_bit_slice: none
+
+      int pendingSkip = 0;  // zero-CBP macroblocks accumulated since the last explicit one
+      for (int mbX = 0; mbX < mbWidth_; mbX++) {
+        int32_t levels[6][64];
+        int cbp = computeInterMacroblock(srcY, srcStrideY, srcU, srcV, srcStrideC, refFrame_,
+                                          reconFrame_, mbX, mbY, qscale_, levels);
+        bool isRowEdge = (mbX == 0 || mbX == mbWidth_ - 1);
+        if (cbp == 0 && !isRowEdge) {
+          pendingSkip++;  // middle of the row: leave it for an address increment
+          continue;
+        }
+
+        writeMbAddrIncrement(bw, pendingSkip + 1);  // gap skips + this explicit macroblock
+        pendingSkip = 0;
+        if (cbp == 0) {
+          writeInterMotionOnlyMacroblock(bw);  // explicit zero MV, no residual
+        } else {
+          writeInterMacroblockSyntax(bw, cbp, levels);
+        }
+      }
+      if (bw.error()) return EncodeStatus::kBufferTooSmall;
+    }
     return EncodeStatus::kOk;
   }
 
@@ -309,6 +476,16 @@ class Encoder {
   uint8_t aspectRatioCode_ = 1;  // square pixels, no aspect correction
   uint8_t frameRateCode_ = 3;    // 25fps default, see setFrameRate()
   int packedStride_ = 0;         // 0 = use each overload's own tightly-packed default
+
+  // Optional zero-motion inter mode (setInterMode()) - see
+  // encoder/mpg_inter_encode.h. All stay at their fresh-sequence defaults
+  // while inter mode is off, which then never touches the two Frames.
+  bool interMode_ = false;
+  bool sequenceStarted_ = false;  // a sequence's first I-picture has been committed
+  bool haveReference_ = false;    // refFrame_ holds a committed reconstruction
+  int temporalReference_ = 0;     // successful-picture counter, mod 1024
+  Frame<Allocator> refFrame_;     // most recently committed reconstructed picture
+  Frame<Allocator> reconFrame_;   // picture currently being reconstructed (swapped in on success)
 
   Buffer<Allocator> scratchY_, scratchU_, scratchV_;
   int scratchWidth_ = 0, scratchHeight_ = 0;
