@@ -32,6 +32,7 @@
 #include "dyn_bits.h"
 #include "channel_map.h"
 #include "memalign.h"
+#include "pns.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -327,6 +328,10 @@ Word16 QCMain(QC_STATE* hQC,
     Flag   constraintsFulfilled;
     Word32 iter;
     iter = 0;
+
+    qcOutChannel[ch].sectionData.pnsFlag = psyOutChannel[ch].pnsFlag;
+    qcOutChannel[ch].sectionData.pnsNoiseExp = psyOutChannel[ch].pnsNoiseExp;
+
     do {
       constraintsFulfilled = 1;
 
@@ -347,6 +352,8 @@ Word16 QCMain(QC_STATE* hQC,
                             qcOutChannel[ch].maxValueInSfb) > MAX_QUANT) {
         constraintsFulfilled = 0;
       }
+
+      PNS_ClearQuantizedBands(&psyOutChannel[ch], &qcOutChannel[ch]);
 
       chDynBits = dynBitCount(qcOutChannel[ch].quantSpec,
                               qcOutChannel[ch].maxValueInSfb,

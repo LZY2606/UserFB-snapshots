@@ -71,6 +71,15 @@ typedef struct {
   Word16 prevScfNext[MAX_GROUPED_SFB];
   Word16 deltaPeLast[MAX_GROUPED_SFB];
   TNS_INFO tnsInfo;
+
+  /* Optional PNS decisions. pnsFlag is indexed in grouped SFB order. */
+  Word16 pnsEnable;
+  Word16 pnsFlag[MAX_GROUPED_SFB];
+  Word16 pnsNoiseExp[MAX_GROUPED_SFB];
+  Word16 pnsPhysOk[TRANS_FAC][MAX_SFB_SHORT];
+  double pnsPhysEnergy[TRANS_FAC][MAX_SFB_SHORT];
+  double pnsBandEnergy[MAX_GROUPED_SFB];
+  Word32 pnsObsSpectrum[FRAME_LEN_LONG];
 } PSY_OUT_CHANNEL; /* Word16 size: 14 + 60(MAX_GROUPED_SFB) + 112(TNS_INFO) = 186 */
 
 typedef struct {

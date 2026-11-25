@@ -85,6 +85,7 @@ typedef struct
   Word16          groupingMask;
   SECTION_DATA    sectionData;
   Word16          windowShape;
+  Word16          pnsNrg[MAX_GROUPED_SFB];
 } QC_OUT_CHANNEL;
 
 typedef struct

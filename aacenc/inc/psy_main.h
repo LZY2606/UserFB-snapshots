@@ -64,6 +64,7 @@ Word16 psyMain(Word16                   nChannels,   /*!< total number of channe
                PSY_OUT_CHANNEL          psyOutChannel[MAX_CHANNELS],
                PSY_OUT_ELEMENT          *psyOutElement,
                Word32                   *pScratchTns,
-			   Word32					sampleRate);
+			   Word32					sampleRate,
+			   Word16                   pnsEnable);
 
 #endif /* _PSYMAIN_H */

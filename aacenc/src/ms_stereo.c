@@ -49,7 +49,9 @@ void MsStereoProcessing(Word32       *sfbEnergyLeft,
                         const Word16  sfbCnt,
                         const Word16  sfbPerGroup,
                         const Word16  maxSfbPerGroup,
-                        const Word16 *sfbOffset) {
+                        const Word16 *sfbOffset,
+                        const Word16 *pnsFlagLeft,
+                        const Word16 *pnsFlagRight) {
   Word32 sfb,sfboffs, j;
   Word32 msMaskTrueSomewhere = 0;
   Word32 msMaskFalseSomewhere = 0;
@@ -97,7 +99,9 @@ void MsStereoProcessing(Word32       *sfbEnergyLeft,
       temp = (pnlr + 1) / ((pnms >> 8) + 1);
 
       temp = pnms - pnlr;
-      if( temp > 0 ){
+      if( temp > 0 &&
+          !(pnsFlagLeft && pnsFlagLeft[idx]) &&
+          !(pnsFlagRight && pnsFlagRight[idx]) ){
 
         msMask[idx] = 1;
         msMaskTrueSomewhere = 1;

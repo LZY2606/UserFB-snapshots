@@ -1,7 +1,76 @@
 VisualOn AAC encoder library
+============================
 
 This library contains an encoder implementation of the Advanced Audio
 Coding (AAC) audio codec. The library is based on a codec implementation
-by VisualOn as part of the Stagefright framework from the Google
-Android project.
+by VisualOn as part of the Stagefright framework from the Google Android
+project.
 
+Optional AAC-LC PNS
+-------------------
+
+`VO_PID_AAC_PNS` (`VO_PID_AAC_Mdoule | 0x0042`) enables optional Perceptual
+Noise Substitution for 44.1/48 kHz, 1024-sample mono and ordinary stereo
+streams. The parameter is a pointer to `VO_S32`:
+
+* `0`: disable PNS (the default, preserving the original bitstream);
+* `1`: enable PNS.
+
+`SetParam` returns `VO_ERR_INVALID_ARG` for a null pointer or any value other
+than 0 or 1 and leaves the last legal request unchanged. `GetParam` returns
+the currently effective value. A legal change is pending until the next
+complete PCM frame actually starts encoding; a partial frame supplied through
+the buffer API does not make the change effective early. Changing the switch
+does not reopen the encoder core or reset MDCT overlap, window-switching
+state, cached PCM, or bit-reservoir state.
+
+PNS candidates are chosen from the physical MDCT spectrum after the transform
+and before TNS/MS processing. A physical scalefactor band must start at or
+above 4 kHz, contain at least eight lines, have positive energy, and satisfy
+`n * max(x*x) <= 8 * sum(x*x)` using overflow-safe integer arithmetic. All
+physical windows in a short-window group must pass. PNS bands are written with
+section codebook 13, the 9-bit initial noise preamble and the independent AAC
+noise differential scalefactor chain. When PNS is active, TNS is not used; MS
+continues only on ordinary bands and is disabled for a band where either side
+uses PNS.
+
+PNS is most useful for low-bitrate recordings with steady high-frequency
+noise, tape/hiss, or noisy live recordings. It spends fewer bits reproducing
+unpredictable high-frequency components and can make such material sound
+smoother and less "warbly". Tonal high-frequency content and peak-like bands
+remain ordinary spectral coding. At high bitrates or for bright, detailed
+material, PNS can reduce air/detail or make cymbals and fricatives sound
+slightly more synthetic; A/B listening at the target bitrate is recommended.
+Leave it off for maximum transparency when the reservoir already has enough
+bits for the high bands.
+
+The C example `examples/pns_adts.c` writes a continuous sequence of ADTS
+frames with PNS enabled:
+
+```sh
+bash task_support/build.sh
+cc -std=c99 -O2 -I. -Iaacenc/inc -Icommon/include \
+   examples/pns_adts.c .task-build/libcodec.a -lm -o pns_adts
+./pns_adts pns_adts.aac 100 1
+```
+
+Raw AAC is selected by setting `AACENC_PARAM.adtsUsed` to 0; the PNS parameter
+and frame rules are otherwise the same.
+
+Tests
+-----
+
+`tests/pns_encode.c` registers `selection`, `syntax`, and `streaming` cases
+through `task_support/check.h`. Run:
+
+```sh
+bash task_support/run.sh target
+```
+
+The tests generate fixed broadband-noise, narrow-band-tone and transient
+signals, parse codebooks/sections/both scalefactor chains/spectral boundaries
+from real AAC packets, and compare those results with read-only spectrum
+observations. They also check whole-frame versus irregular even-byte chunk
+input, interleaved instances, parameter timing/errors, and default-off byte
+compatibility. `bash task_support/run.sh baseline` encodes the supplied fixed
+PCM baseline.

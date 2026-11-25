@@ -60,7 +60,10 @@ typedef struct
   Word16 sideInfoBits;             /* sectioning bits       */
   Word16 huffmanBits;              /* huffman    coded bits */
   Word16 scalefacBits;             /* scalefac   coded bits */
+  Word16 pnsBits;                  /* PNS first/differential bits */
   Word16 firstScf;                 /* first scf to be coded */
+  const Word16 *pnsFlag;
+  const Word16 *pnsNoiseExp;
   Word16 bitLookUp[MAX_SFB_LONG*(CODE_BOOK_ESC_NDX+1)];
   Word16 mergeGainLookUp[MAX_SFB_LONG];
 }

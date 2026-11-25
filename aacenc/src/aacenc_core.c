@@ -30,6 +30,7 @@
 #include "psy_main.h"
 #include "channel_map.h"
 #include "aac_rom.h"
+#include "pns.h"
 
 /********************************************************************************
 *
@@ -154,6 +155,9 @@ Word16 AacEncEncode(AAC_ENCODER *aacEnc,		/*!< an encoder handle */
 
   ancDataBytes = ancDataBytesLeft = *numAncBytes;
 
+  /* This function is entered only with a complete 1024-sample frame. */
+  aacEnc->pnsActive = aacEnc->pnsRequested ? 1 : 0;
+
   /* init output aac data buffer and length */
   aacEnc->hBitStream = CreateBitBuffer(&aacEnc->bitStream, outBytes, *numOutBytes);
 
@@ -168,7 +172,8 @@ Word16 AacEncEncode(AAC_ENCODER *aacEnc,		/*!< an encoder handle */
           &aacEnc->psyOut.psyOutChannel[elInfo->ChannelIndex[0]],
           &aacEnc->psyOut.psyOutElement,
           aacEnc->psyKernel.pScratchTns,
-		  aacEnc->config.sampleRate);
+		  aacEnc->config.sampleRate,
+		  aacEnc->pnsActive);
 
   /* adjust bitrate and frame length */
   AdjustBitrate(&aacEnc->qcKernel,
@@ -191,6 +196,16 @@ Word16 AacEncEncode(AAC_ENCODER *aacEnc,		/*!< an encoder handle */
   globUsedBits = FinalizeBitConsumption(&aacEnc->qcKernel,
                          &aacEnc->qcOut);
 
+  {
+    Word16 ch;
+    for (ch = 0; ch < elInfo->nChannelsInEl; ch++) {
+      Word16 idx = elInfo->ChannelIndex[ch];
+      PNS_FinalizeBitstreamChannel(&aacEnc->psyOut.psyOutChannel[idx],
+                                   &aacEnc->qcOut.qcChannel[idx]);
+    }
+  }
+
+  /* write bitstream process */
   /* write bitstream process */
   WriteBitstream(aacEnc->hBitStream,
                  *elInfo,

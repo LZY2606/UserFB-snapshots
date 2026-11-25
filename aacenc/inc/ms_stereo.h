@@ -39,7 +39,9 @@ void MsStereoProcessing(Word32       *sfbEnergyLeft,
                         const Word16  sfbCnt,
                         const Word16  sfbPerGroup,
                         const Word16  maxSfbPerGroup,
-                        const Word16 *sfbOffset);
+                        const Word16 *sfbOffset,
+                        const Word16 *pnsFlagLeft,
+                        const Word16 *pnsFlagRight);
 
 
 #endif

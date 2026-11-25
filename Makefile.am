@@ -43,6 +43,7 @@ libvo_aacenc_la_SOURCES = \
     $(ENC_SRC)/line_pe.c \
     $(ENC_SRC)/memalign.c \
     $(ENC_SRC)/ms_stereo.c \
+    $(ENC_SRC)/pns.c \
     $(ENC_SRC)/pre_echo_control.c \
     $(ENC_SRC)/psy_configuration.c \
     $(ENC_SRC)/psy_main.c \
@@ -87,6 +88,7 @@ endif
 
 
 EXTRA_DIST = $(top_srcdir)/NOTICE \
+             examples/pns_adts.c \
              $(top_srcdir)/vo-aacenc.sym \
              $(top_srcdir)/aacenc/NOTICE \
              $(top_srcdir)/aacenc/MODULE_LICENSE_APACHE2 \

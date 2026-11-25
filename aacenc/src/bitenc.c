@@ -180,17 +180,36 @@ static Word32 encodeSectionData(SECTION_DATA *sectionData,
 static Word32 encodeScaleFactorData(UWord16        *maxValueInSfb,
                                     SECTION_DATA   *sectionData,
                                     Word16         *scalefac,
+                                    Word16         *pnsNrg,
                                     HANDLE_BIT_BUF  hBitStream)
 {
   Word16 i,j,lastValScf,deltaScf;
   Word16 dbgVal = GetBitsAvail(hBitStream);
   SECTION_INFO* psectioninfo;
+  Word32 firstPns = 1;
+  Word16 lastPnsNrg = 0;
 
   lastValScf=scalefac[sectionData->firstScf];
 
   for(i=0;i<sectionData->noOfSections;i++){
     psectioninfo = &(sectionData->sectionInfo[i]);
-    if (psectioninfo->codeBook != CODE_BOOK_ZERO_NO){
+    if (psectioninfo->codeBook == CODE_BOOK_PNS_NO) {
+      for (j=psectioninfo->sfbStart;
+           j<psectioninfo->sfbStart+psectioninfo->sfbCnt; j++) {
+        Word16 noiseNrg = pnsNrg ? pnsNrg[j] : 0;
+
+        if (firstPns) {
+          WriteBits(hBitStream, noiseNrg + 256, 9);
+          firstPns = 0;
+        } else {
+          Word16 deltaPns = noiseNrg - lastPnsNrg;
+          if (codeScalefactorDelta(deltaPns, hBitStream))
+            return 1;
+        }
+        lastPnsNrg = noiseNrg;
+      }
+    }
+    else if (psectioninfo->codeBook != CODE_BOOK_ZERO_NO){
       for (j=psectioninfo->sfbStart;
            j<psectioninfo->sfbStart+psectioninfo->sfbCnt; j++){
 
@@ -385,6 +404,7 @@ writeIndividualChannelStream(Flag   commonWindow,
                              Word16 groupingMask,
                              Word16 *sfbOffset,
                              Word16 scf[],
+                             Word16 *pnsNrg,
                              UWord16 *maxValueInSfb,
                              Word16 globalGain,
                              Word16 quantSpec[],
@@ -408,6 +428,7 @@ writeIndividualChannelStream(Flag   commonWindow,
   encodeScaleFactorData(maxValueInSfb,
                         sectionData,
                         scf,
+                        pnsNrg,
                         hBitStream);
 
   encodePulseData(hBitStream);
@@ -444,6 +465,7 @@ static Word16 writeSingleChannelElement(Word16 instanceTag,
                                qcOutChannel->groupingMask,
                                sfbOffset,
                                qcOutChannel->scf,
+                               qcOutChannel->pnsNrg,
                                qcOutChannel->maxValueInSfb,
                                qcOutChannel->globalGain,
                                qcOutChannel->quantSpec,
@@ -494,6 +516,7 @@ static Word16 writeChannelPairElement(Word16 instanceTag,
                                qcOutChannel[0].groupingMask,
                                sfbOffset[0],
                                qcOutChannel[0].scf,
+                               qcOutChannel[0].pnsNrg,
                                qcOutChannel[0].maxValueInSfb,
                                qcOutChannel[0].globalGain,
                                qcOutChannel[0].quantSpec,
@@ -507,6 +530,7 @@ static Word16 writeChannelPairElement(Word16 instanceTag,
                                qcOutChannel[1].groupingMask,
                                sfbOffset[1],
                                qcOutChannel[1].scf,
+                               qcOutChannel[1].pnsNrg,
                                qcOutChannel[1].maxValueInSfb,
                                qcOutChannel[1].globalGain,
                                qcOutChannel[1].quantSpec,

@@ -87,6 +87,9 @@ VO_U32 VO_API voAACEncInit(VO_HANDLE * phCodec,VO_AUDIO_CODINGTYPE vType, VO_COD
 
 	if(!error)
 	{
+		hAacEnc->pnsRequested = 0;
+		hAacEnc->pnsActive = 0;
+
 		/* init the aac encoder intra memory */
 		hAacEnc->intbuf = (short *)mem_malloc(pMemOP, AACENC_BLOCKSIZE*MAX_CHANNELS*sizeof(short), 32, VO_INDEX_ENC_AAC);
 		if(NULL == hAacEnc->intbuf)
@@ -328,6 +331,18 @@ VO_U32 VO_API voAACEncSetParam(VO_HANDLE hCodec, VO_S32 uParamID, VO_PTR pData)
 
 	switch(uParamID)
 	{
+	case VO_PID_AAC_PNS:
+		if(NULL == hAacEnc || NULL == pData)
+			return VO_ERR_INVALID_ARG;
+		{
+			VO_S32 enable = *(VO_S32 *)pData;
+			if(enable != 0 && enable != 1)
+				return VO_ERR_INVALID_ARG;
+			/* Record the last legal request.  It becomes active only when
+			   the next complete PCM frame actually starts encoding. */
+			hAacEnc->pnsRequested = (int)enable;
+		}
+		break;
 	case VO_PID_AAC_ENCPARAM:  /* init aac encoder parameter*/
 		AacInitDefaultConfig(&config);
 		if(pData == NULL)
@@ -477,9 +492,19 @@ VO_U32 VO_API voAACEncSetParam(VO_HANDLE hCodec, VO_S32 uParamID, VO_PTR pData)
 */
 VO_U32 VO_API voAACEncGetParam(VO_HANDLE hCodec, VO_S32 uParamID, VO_PTR pData)
 {
-        UNUSED(hCodec);
-        UNUSED(uParamID);
-        UNUSED(pData);
+	AAC_ENCODER* hAacEnc = (AAC_ENCODER*)hCodec;
+
+	if(uParamID == VO_PID_AAC_PNS)
+	{
+		if(NULL == hAacEnc || NULL == pData)
+			return VO_ERR_INVALID_ARG;
+		*(VO_S32 *)pData = hAacEnc->pnsActive ? 1 : 0;
+		return VO_ERR_NONE;
+	}
+
+	UNUSED(hAacEnc);
+	UNUSED(uParamID);
+	UNUSED(pData);
 
 	return VO_ERR_NONE;
 }

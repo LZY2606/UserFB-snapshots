@@ -37,6 +37,9 @@
 #include "grp_data.h"
 #include "tns_func.h"
 #include "memalign.h"
+#include "pns.h"
+
+#include <string.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -52,7 +55,9 @@ static Word16 advancePsychLong(PSY_DATA* psyData,
                                PSY_OUT_CHANNEL* psyOutChannel,
                                Word32 *pScratchTns,
                                const TNS_DATA *tnsData2,
-                               const Word16 ch);
+                               const Word16 ch,
+                               Word32 sampleRate,
+                               Word16 pnsEnable);
 
 static Word16 advancePsychLongMS (PSY_DATA  psyData[MAX_CHANNELS],
                                   const PSY_CONFIGURATION_LONG *hPsyConfLong);
@@ -63,7 +68,9 @@ static Word16 advancePsychShort(PSY_DATA* psyData,
                                 PSY_OUT_CHANNEL* psyOutChannel,
                                 Word32 *pScratchTns,
                                 const TNS_DATA *tnsData2,
-                                const Word16 ch);
+                                const Word16 ch,
+                                Word32 sampleRate,
+                                Word16 pnsEnable);
 
 static Word16 advancePsychShortMS (PSY_DATA  psyData[MAX_CHANNELS],
                                    const PSY_CONFIGURATION_SHORT *hPsyConfShort);
@@ -253,7 +260,8 @@ Word16 psyMain(Word16                   nChannels,
                PSY_OUT_CHANNEL          psyOutChannel[MAX_CHANNELS],
                PSY_OUT_ELEMENT         *psyOutElement,
                Word32                  *pScratchTns,
-			   Word32				   sampleRate)
+			   Word32				   sampleRate,
+			   Word16                  pnsEnable)
 {
   Word16 maxSfbPerGroup[MAX_CHANNELS];
   Word16 mdctScalingArray[MAX_CHANNELS];
@@ -266,6 +274,10 @@ Word16 psyMain(Word16                   nChannels,
 
   channels = elemInfo->nChannelsInEl;
   maxScale = 0;
+
+  for (ch = 0; ch < channels; ch++) {
+    PNS_ResetChannel(&psyOutChannel[ch], pnsEnable);
+  }
 
   /* block switching */
   for(ch = 0; ch < channels; ch++) {
@@ -316,7 +328,9 @@ Word16 psyMain(Word16                   nChannels,
                        &psyOutChannel[ch],
                        pScratchTns,
                        &tnsData[1 - ch],
-                       ch);
+                       ch,
+                       sampleRate,
+                       pnsEnable);
 
       /* determine maxSfb */
       for (sfb=hPsyConfLong->sfbCnt-1; sfb>=0; sfb--) {
@@ -341,7 +355,9 @@ Word16 psyMain(Word16                   nChannels,
                         &psyOutChannel[ch],
                         pScratchTns,
                         &tnsData[1 - ch],
-                        ch);
+                        ch,
+                        sampleRate,
+                        pnsEnable);
 
       /* Calc bandwise energies for mid and side channel
          Do it only if 2 channels exist */
@@ -398,7 +414,9 @@ Word16 psyMain(Word16                   nChannels,
                          hPsyConfLong->sfbCnt,
                          hPsyConfLong->sfbCnt,
                          maxSfbPerGroup[0],
-                         (const Word16*)hPsyConfLong->sfbOffset);
+                         (const Word16*)hPsyConfLong->sfbOffset,
+                         psyOutChannel[0].pnsFlag,
+                         psyOutChannel[1].pnsFlag);
       else
         MsStereoProcessing(psyData[0].sfbEnergy.sfbLong,
                            psyData[1].sfbEnergy.sfbLong,
@@ -415,7 +433,9 @@ Word16 psyMain(Word16                   nChannels,
                            psyData[0].blockSwitchingControl.noOfGroups*hPsyConfShort->sfbCnt,
                            hPsyConfShort->sfbCnt,
                            maxSfbPerGroup[0],
-                           (const Word16*)psyOutElement->groupedSfbOffset[0]);
+                           (const Word16*)psyOutElement->groupedSfbOffset[0],
+                           psyOutChannel[0].pnsFlag,
+                           psyOutChannel[1].pnsFlag);
   }
 
 #endif /* (MAX_CHANNELS>1) */
@@ -477,7 +497,9 @@ static Word16 advancePsychLong(PSY_DATA* psyData,
                                PSY_OUT_CHANNEL* psyOutChannel,
                                Word32 *pScratchTns,
                                const TNS_DATA* tnsData2,
-                               const Word16 ch)
+                               const Word16 ch,
+                               Word32 sampleRate,
+                               Word16 pnsEnable)
 {
   Word32 i;
   Word32 normEnergyShift = (psyData->mdctScale + 1) << 1; /* in reference code, mdct spectrum must be multipied with 2, so +1 */
@@ -497,9 +519,17 @@ static Word16 advancePsychLong(PSY_DATA* psyData,
                   psyData->sfbEnergy.sfbLong,
                   &psyData->sfbEnergySum.sfbLong);
 
+  PNS_SelectLong(psyData->mdctSpectrum,
+                 hPsyConfLong->sfbOffset,
+                 hPsyConfLong->sfbCnt,
+                 sampleRate,
+                 psyData->mdctScale,
+                 psyOutChannel);
+
   /*
     TNS detect
   */
+  if (!pnsEnable) {
   TnsDetect(tnsData,
             hPsyConfLong->tnsConf,
             pScratchTns,
@@ -527,6 +557,10 @@ static Word16 advancePsychLong(PSY_DATA* psyData,
             psyData->mdctSpectrum,
             0,
             psyData->blockSwitchingControl.windowSequence);
+  }
+  else {
+    memset(&psyOutChannel->tnsInfo, 0, sizeof(psyOutChannel->tnsInfo));
+  }
 
   /* first part of threshold calculation */
   data0 = psyData->sfbEnergy.sfbLong;
@@ -617,6 +651,9 @@ static Word16 advancePsychLong(PSY_DATA* psyData,
                hPsyConfLong->sfbMaskHighFactorSprEn,
                psyData->sfbSpreadedEnergy.sfbLong);
 
+  if (pnsEnable)
+    PNS_ResolveDeltas(psyOutChannel, hPsyConfLong->sfbCnt);
+
   return 0;
 }
 
@@ -656,7 +693,9 @@ static Word16 advancePsychShort(PSY_DATA* psyData,
                                 PSY_OUT_CHANNEL* psyOutChannel,
                                 Word32 *pScratchTns,
                                 const TNS_DATA *tnsData2,
-                                const Word16 ch)
+                                const Word16 ch,
+                                Word32 sampleRate,
+                                Word16 pnsEnable)
 {
   Word32 w;
   Word32 normEnergyShift = (psyData->mdctScale + 1) << 1; /* in reference code, mdct spectrum must be multipied with 2, so +1 */
@@ -680,9 +719,18 @@ static Word16 advancePsychShort(PSY_DATA* psyData,
                     hPsyConfShort->sfbActive,
                     psyData->sfbEnergy.sfbShort[w],
                     &psyData->sfbEnergySum.sfbShort[w]);
+
+    PNS_EvaluateShortWindow(psyData->mdctSpectrum+wOffset,
+                            hPsyConfShort->sfbOffset,
+                            hPsyConfShort->sfbCnt,
+                            sampleRate,
+                            psyData->mdctScale,
+                            (Word16)w,
+                            psyOutChannel);
     /*
        TNS
     */
+    if (!pnsEnable) {
     TnsDetect(tnsData,
               hPsyConfShort->tnsConf,
               pScratchTns,
@@ -709,6 +757,7 @@ static Word16 advancePsychShort(PSY_DATA* psyData,
               psyData->mdctSpectrum+wOffset,
               w,
               psyData->blockSwitchingControl.windowSequence);
+    }
 
     /* first part of threshold calculation */
     data0 = psyData->sfbThreshold.sfbShort[w];
@@ -781,6 +830,18 @@ static Word16 advancePsychShort(PSY_DATA* psyData,
 
     wOffset += FRAME_LEN_SHORT;
   } /* for TRANS_FAC */
+
+  if (pnsEnable) {
+    PNS_BuildShortGroups(psyData->blockSwitchingControl.noOfGroups,
+                         psyData->blockSwitchingControl.groupLen,
+                         hPsyConfShort->sfbCnt,
+                         psyData->mdctScale,
+                         psyOutChannel);
+    PNS_ResolveDeltas(psyOutChannel,
+                      psyData->blockSwitchingControl.noOfGroups *
+                      hPsyConfShort->sfbCnt);
+    memset(&psyOutChannel->tnsInfo, 0, sizeof(psyOutChannel->tnsInfo));
+  }
 
   psyData->mdctScalenm1 = psyData->mdctScale;
 

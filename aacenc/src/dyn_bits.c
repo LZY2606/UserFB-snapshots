@@ -36,6 +36,7 @@ buildBitLookUp(const Word16 *quantSpectrum,
                const Word16 maxSfb,
                const Word16 *sfbOffset,
                const UWord16 *sfbMax,
+               const Word16 *pnsFlag,
                Word16 bitLookUp[MAX_SFB_LONG][CODE_BOOK_ESC_NDX + 1],
                SECTION_INFO * sectionInfo)
 {
@@ -43,6 +44,7 @@ buildBitLookUp(const Word16 *quantSpectrum,
 
   for (i=0; i<maxSfb; i++) {
     Word16 sfbWidth, maxVal;
+    Word32 book;
 
     sectionInfo[i].sfbCnt = 1;
     sectionInfo[i].sfbStart = i;
@@ -51,6 +53,13 @@ buildBitLookUp(const Word16 *quantSpectrum,
     sfbWidth = sfbOffset[i + 1] - sfbOffset[i];
     maxVal = sfbMax[i];
     bitCount(quantSpectrum + sfbOffset[i], sfbWidth, maxVal, bitLookUp[i]);
+
+    if (pnsFlag && pnsFlag[i]) {
+      sectionInfo[i].codeBook = CODE_BOOK_PNS_NO;
+      sectionInfo[i].sectionBits = 0;
+      for (book = 0; book <= CODE_BOOK_ESC_NDX; book++)
+        bitLookUp[i][book] = INVALID_BITCOUNT;
+    }
   }
 }
 
@@ -312,12 +321,16 @@ noiselessCounter(SECTION_DATA *sectionData,
   */
   for (grpNdx=0; grpNdx<sectionData->sfbCnt; grpNdx+=sectionData->sfbPerGroup) {
 
+    const Word16 *pnsGroupFlag =
+      sectionData->pnsFlag ? sectionData->pnsFlag + grpNdx : NULL;
+
     sectionInfo = sectionData->sectionInfo + sectionData->noOfSections;
 
     buildBitLookUp(quantSpectrum,
                    sectionData->maxSfbPerGroup,
                    sfbOffset + grpNdx,
                    maxValueInSfb + grpNdx,
+                   sectionData->pnsFlag ? sectionData->pnsFlag + grpNdx : NULL,
                    bitLookUp,
                    sectionInfo);
 
@@ -346,7 +359,10 @@ noiselessCounter(SECTION_DATA *sectionData,
        compress output, calculate total huff and side bits
     */
     for (i=0; i<sectionData->maxSfbPerGroup; i+=sectionInfo[i].sfbCnt) {
-      findBestBook(bitLookUp[i], &(sectionInfo[i].codeBook));
+      if (pnsGroupFlag && pnsGroupFlag[i])
+        sectionInfo[i].codeBook = CODE_BOOK_PNS_NO;
+      else
+        findBestBook(bitLookUp[i], &(sectionInfo[i].codeBook));
       sectionInfo[i].sfbStart = sectionInfo[i].sfbStart + grpNdx;
 
       sectionData->huffmanBits = (sectionData->huffmanBits +
@@ -389,6 +405,7 @@ static void scfCount(const Word16 *scalefacGain,
 
 
   sectionData->scalefacBits = 0;
+  sectionData->pnsBits = 0;
 
 
   if (scalefacGain == NULL) {
@@ -401,7 +418,8 @@ static void scfCount(const Word16 *scalefacGain,
   psectionInfo = sectionData->sectionInfo;
   for (i=0; i<sectionData->noOfSections; i++) {
 
-    if (psectionInfo->codeBook != CODE_BOOK_ZERO_NO) {
+    if (psectionInfo->codeBook != CODE_BOOK_ZERO_NO &&
+        psectionInfo->codeBook != CODE_BOOK_PNS_NO) {
       sectionData->firstScf = psectionInfo->sfbStart;
       lastValScf = scalefacGain[sectionData->firstScf];
       break;
@@ -498,6 +516,33 @@ static void scfCount(const Word16 *scalefacGain,
         sectionData->scalefacBits += bitCountScalefactorDelta(deltaScf);
       }
     }
+  }
+
+  /* PNS has its own differential chain: one 9-bit preamble and then
+     ordinary scalefactor Huffman deltas between noise values. */
+  if (sectionData->pnsNoiseExp) {
+    Word32 firstPns = 1;
+    Word32 lastPnsExp = 0;
+
+    psectionInfo = sectionData->sectionInfo;
+    for (i = 0; i < sectionData->noOfSections; i++, psectionInfo++) {
+      if (psectionInfo->codeBook != CODE_BOOK_PNS_NO)
+        continue;
+
+      for (j = psectionInfo->sfbStart;
+           j < psectionInfo->sfbStart + psectionInfo->sfbCnt; j++) {
+        if (firstPns) {
+          sectionData->pnsBits += 9;
+          firstPns = 0;
+        } else {
+          Word32 deltaPns =
+            (Word32)sectionData->pnsNoiseExp[j] - lastPnsExp;
+          sectionData->pnsBits += bitCountScalefactorDelta((Word16)deltaPns);
+        }
+        lastPnsExp = sectionData->pnsNoiseExp[j];
+      }
+    }
+    sectionData->scalefacBits += sectionData->pnsBits;
   }
 }
 

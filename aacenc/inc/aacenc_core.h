@@ -71,6 +71,9 @@ typedef struct {
   int			intlen;
   int			uselength;
 
+  int             pnsRequested;
+  int             pnsActive;
+
   void			*hCheck;
   VO_MEM_OPERATOR *voMemop;
   VO_MEM_OPERATOR voMemoprator;
