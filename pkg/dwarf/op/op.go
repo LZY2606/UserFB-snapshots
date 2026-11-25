@@ -19,6 +19,9 @@ type Opcode byte
 
 type stackfn func(Opcode, *context) error
 
+// ReadMemoryFunc reads into buf at addr and returns the number of bytes
+// read. Location dereferences and write-plan reads treat a short read as an
+// error.
 type ReadMemoryFunc func([]byte, uint64) (int, error)
 
 type context struct {
@@ -26,7 +29,14 @@ type context struct {
 	prog    []byte
 	stack   []int64
 	pieces  []Piece
+	locs    []locationFragment
 	ptrSize int
+
+	// planMode enables bit-piece evaluation and offset-annotated expression
+	// errors for LocationWritePlan. The legacy ExecuteStackProgram path leaves
+	// it false.
+	planMode bool
+	opOffset int
 
 	DwarfRegisters
 	readMemory ReadMemoryFunc
@@ -61,38 +71,70 @@ const arbitraryExecutionLimitFactor = 10
 // either an address (int64), or a slice of Pieces for location expressions
 // that don't evaluate to an address (such as register and composite expressions).
 func ExecuteStackProgram(regs DwarfRegisters, instructions []byte, ptrSize int, readMemory ReadMemoryFunc) (int64, []Piece, error) {
-	ctxt := &context{
+	ctxt, err := runStackProgram(regs, instructions, ptrSize, readMemory, false)
+	if err != nil {
+		return 0, nil, err
+	}
+	return ctxt.result()
+}
+
+func runStackProgram(regs DwarfRegisters, instructions []byte, ptrSize int, readMemory ReadMemoryFunc, planMode bool) (ctxt *context, err error) {
+	ctxt = &context{
 		buf:            bytes.NewBuffer(instructions),
 		prog:           instructions,
 		stack:          make([]int64, 0, 3),
 		DwarfRegisters: regs,
 		ptrSize:        ptrSize,
 		readMemory:     readMemory,
+		planMode:       planMode,
 	}
 
-	for tick := 0; tick < len(instructions)*arbitraryExecutionLimitFactor; tick++ {
-		opcodeByte, err := ctxt.buf.ReadByte()
-		if err != nil {
+	defer func() {
+		if r := recover(); r != nil {
+			if !planMode {
+				panic(r)
+			}
+			err = ctxt.exprError(ctxt.opOffset, fmt.Errorf("corrupt DWARF expression: %v", r))
+		}
+	}()
+
+	stepLimit := len(instructions) * arbitraryExecutionLimitFactor
+	tick := 0
+	for ; tick < stepLimit; tick++ {
+		opOffset := len(ctxt.prog) - ctxt.buf.Len()
+		opcodeByte, readErr := ctxt.buf.ReadByte()
+		if readErr != nil {
 			break
 		}
 		opcode := Opcode(opcodeByte)
+		ctxt.opOffset = opOffset
 		if opcode == DW_OP_nop {
 			continue
 		}
 		fn, ok := oplut[opcode]
 		if !ok {
-			return 0, nil, fmt.Errorf("invalid instruction %#v", opcode)
+			execErr := fmt.Errorf("invalid instruction %#v", opcode)
+			return ctxt, ctxt.wrapExecError(execErr, opOffset)
 		}
 
-		err = fn(opcode, ctxt)
-		if err != nil {
-			return 0, nil, err
+		execErr := fn(opcode, ctxt)
+		if execErr != nil {
+			return ctxt, ctxt.wrapExecError(execErr, opOffset)
 		}
 	}
 
+	if planMode && tick >= stepLimit && ctxt.buf.Len() > 0 {
+		offset := len(ctxt.prog) - ctxt.buf.Len()
+		return ctxt, ctxt.exprError(offset, ErrExpressionStepsExhausted)
+	}
+
+	return ctxt, nil
+}
+
+func (ctxt *context) result() (int64, []Piece, error) {
 	if ctxt.pieces != nil {
 		if len(ctxt.pieces) == 1 && ctxt.pieces[0].Kind == RegPiece {
-			return int64(regs.Uint64Val(ctxt.pieces[0].Val)), ctxt.pieces, nil
+			return int64(ctxt.Uint64Val(ctxt.pieces[0].Val)), ctxt.pieces, nil
 		}
 		return 0, ctxt.pieces, nil
 	}
@@ -102,6 +144,27 @@ func ExecuteStackProgram(regs DwarfRegisters, instructions []byte, ptrSize int, 
 	}
 
 	return ctxt.stack[len(ctxt.stack)-1], nil, nil
+}
+
+func (ctxt *context) wrapExecError(err error, offset int) error {
+	if err == nil || !ctxt.planMode {
+		return err
+	}
+	var exprErr *ExpressionError
+	if errors.As(err, &exprErr) {
+		return err
+	}
+	return ctxt.exprError(offset, err)
+}
+
+func (ctxt *context) exprError(offset int, err error) error {
+	return &ExpressionError{Offset: offset, Err: err}
+}
+
+func (ctxt *context) appendLocation(piece Piece, loc locationFragment) {
+	loc.piece = piece
+	ctxt.pieces = append(ctxt.pieces, piece)
+	ctxt.locs = append(ctxt.locs, loc)
 }
 
 // PrettyPrint prints the DWARF stack program instructions to `out`.
@@ -175,7 +238,7 @@ func PrettyPrint(out io.Writer, instructions []byte, regnumToName func(uint64) s
 // opcode is DW_OP_piece or DW_OP_bit_piece and processes them.
 func (ctxt *context) closeLoc(opcode0 Opcode, piece Piece) error {
 	if ctxt.buf.Len() == 0 {
-		ctxt.pieces = append(ctxt.pieces, piece)
+		ctxt.appendLocation(piece, locationFragment{explicit: false, offset: ctxt.opOffset})
 		return nil
 	}
 
@@ -183,6 +246,7 @@ func (ctxt *context) closeLoc(opcode0 Opcode, piece Piece) error {
 	// location expression, resetting it here.
 	ctxt.stack = ctxt.stack[:0]
 
+	terminatorOffset := len(ctxt.prog) - ctxt.buf.Len()
 	b, err := ctxt.buf.ReadByte()
 	if err != nil {
 		return err
@@ -191,17 +255,77 @@ func (ctxt *context) closeLoc(opcode0 Opcode, piece Piece) error {
 
 	switch opcode {
 	case DW_OP_piece:
-		sz, _ := leb128.DecodeUnsigned(ctxt.buf)
+		sz, err := ctxt.decodeULEBLength()
+		if err != nil {
+			return ctxt.wrapLengthError(err, terminatorOffset)
+		}
+		bitLength, err := bytePieceBitLength(sz)
+		if err != nil {
+			return ctxt.wrapLengthError(err, terminatorOffset)
+		}
 		piece.Size = int(sz)
-		ctxt.pieces = append(ctxt.pieces, piece)
+		ctxt.appendLocation(piece, locationFragment{
+			explicit:  true,
+			bitLength: bitLength,
+			offset:    terminatorOffset,
+		})
 		return nil
 
 	case DW_OP_bit_piece:
-		// not supported
-		return fmt.Errorf("invalid instruction %#v", opcode)
+		if !ctxt.planMode {
+			return fmt.Errorf("%w at expression offset %d", ErrBitPieceUnsupported, terminatorOffset)
+		}
+		bitLength, sourceBitOffset, err := ctxt.decodeBitPieceOperands()
+		if err != nil {
+			return ctxt.wrapLengthError(err, terminatorOffset)
+		}
+		piece.Size = 0
+		ctxt.appendLocation(piece, locationFragment{
+			explicit:        true,
+			bitLength:       bitLength,
+			sourceBitOffset: sourceBitOffset,
+			offset:          terminatorOffset,
+		})
+		return nil
 	default:
-		return fmt.Errorf("invalid instruction %#v after %#v", opcode, opcode0)
+		err := fmt.Errorf("invalid instruction %#v after %#v", opcode, opcode0)
+		if ctxt.planMode {
+			return ctxt.exprError(terminatorOffset, err)
+		}
+		return err
 	}
+}
+
+func (ctxt *context) decodeULEBLength() (uint64, error) {
+	if ctxt.planMode {
+		v, _, err := decodeULEB128Checked(ctxt.buf)
+		return v, err
+	}
+	sz, _ := leb128.DecodeUnsigned(ctxt.buf)
+	return sz, nil
+}
+
+func (ctxt *context) decodeBitPieceOperands() (bitLength, sourceBitOffset uint64, err error) {
+	bitLength, _, err = decodeULEB128Checked(ctxt.buf)
+	if err != nil {
+		return 0, 0, fmt.Errorf("truncated DW_OP_bit_piece size: %w", err)
+	}
+	sourceBitOffset, _, err = decodeULEB128Checked(ctxt.buf)
+	if err != nil {
+		return 0, 0, fmt.Errorf("truncated DW_OP_bit_piece source offset: %w", err)
+	}
+	return bitLength, sourceBitOffset, nil
+}
+
+func (ctxt *context) wrapLengthError(err error, offset int) error {
+	if !ctxt.planMode {
+		return err
+	}
+	var exprErr *ExpressionError
+	if errors.As(err, &exprErr) {
+		return err
+	}
+	return ctxt.exprError(offset, err)
 }
 
 func callframecfa(opcode Opcode, ctxt *context) error {
@@ -267,17 +391,69 @@ func bregister(opcode Opcode, ctxt *context) error {
 }
 
 func piece(opcode Opcode, ctxt *context) error {
-	sz, _ := leb128.DecodeUnsigned(ctxt.buf)
+	sz, err := ctxt.decodeULEBLength()
+	if err != nil {
+		return fmt.Errorf("invalid DW_OP_piece length: %w", err)
+	}
+	bitLength, err := bytePieceBitLength(sz)
+	if err != nil {
+		return err
+	}
 
 	if len(ctxt.stack) == 0 {
 		// nothing on the stack means this piece is unavailable (padding,
 		// optimized away...), see DWARFv4 sec. 2.6.1.3 page 30.
-		ctxt.pieces = append(ctxt.pieces, Piece{Size: int(sz), Kind: ImmPiece, Val: 0})
+		piece := Piece{Size: int(sz), Kind: ImmPiece, Val: 0}
+		ctxt.appendLocation(piece, locationFragment{
+			unavailable: true,
+			explicit:    true,
+			bitLength:   bitLength,
+			offset:      ctxt.opOffset,
+		})
 		return nil
 	}
 
 	addr := ctxt.stack[len(ctxt.stack)-1]
-	ctxt.pieces = append(ctxt.pieces, Piece{Size: int(sz), Kind: AddrPiece, Val: uint64(addr)})
+	piece := Piece{Size: int(sz), Kind: AddrPiece, Val: uint64(addr)}
+	ctxt.appendLocation(piece, locationFragment{
+		explicit:  true,
+		bitLength: bitLength,
+		offset:    ctxt.opOffset,
+	})
+	ctxt.stack = ctxt.stack[:0]
+	return nil
+}
+
+func bitpiece(opcode Opcode, ctxt *context) error {
+	if !ctxt.planMode {
+		return ErrBitPieceUnsupported
+	}
+
+	bitLength, sourceBitOffset, err := ctxt.decodeBitPieceOperands()
+	if err != nil {
+		return err
+	}
+
+	if len(ctxt.stack) == 0 {
+		piece := Piece{Kind: ImmPiece, Val: 0}
+		ctxt.appendLocation(piece, locationFragment{
+			unavailable:     true,
+			explicit:        true,
+			bitLength:       bitLength,
+			sourceBitOffset: sourceBitOffset,
+			offset:          ctxt.opOffset,
+		})
+		return nil
+	}
+
+	addr := ctxt.stack[len(ctxt.stack)-1]
+	piece := Piece{Kind: AddrPiece, Val: uint64(addr)}
+	ctxt.appendLocation(piece, locationFragment{
+		explicit:        true,
+		bitLength:       bitLength,
+		sourceBitOffset: sourceBitOffset,
+		offset:          ctxt.opOffset,
+	})
 	ctxt.stack = ctxt.stack[:0]
 	return nil
 }
@@ -489,13 +665,17 @@ func (ctxt *context) jump(n int16) error {
 
 func skip(_ Opcode, ctxt *context) error {
 	var n int16
-	binary.Read(ctxt.buf, binary.LittleEndian, &n)
+	if err := binary.Read(ctxt.buf, binary.LittleEndian, &n); err != nil {
+		return fmt.Errorf("truncated DW_OP_skip offset: %w", err)
+	}
 	return ctxt.jump(n)
 }
 
 func bra(_ Opcode, ctxt *context) error {
 	var n int16
-	binary.Read(ctxt.buf, binary.LittleEndian, &n)
+	if err := binary.Read(ctxt.buf, binary.LittleEndian, &n); err != nil {
+		return fmt.Errorf("truncated DW_OP_bra offset: %w", err)
+	}
 
 	if len(ctxt.stack) < 1 {
 		return ErrStackUnderflow
@@ -518,11 +698,20 @@ func stackvalue(_ Opcode, ctxt *context) error {
 }
 
 func implicitvalue(_ Opcode, ctxt *context) error {
-	sz, _ := leb128.DecodeUnsigned(ctxt.buf)
-	block := make([]byte, sz)
-	n, _ := ctxt.buf.Read(block)
-	if uint64(n) != sz {
-		return fmt.Errorf("insufficient bytes read while reading DW_OP_implicit_value's block %d (expected: %d)", n, sz)
+	sz, err := ctxt.decodeULEBLength()
+	if err != nil {
+		return fmt.Errorf("invalid DW_OP_implicit_value length: %w", err)
+	}
+	if _, err := bytePieceBitLength(sz); err != nil {
+		return err
+	}
+	if sz > uint64(ctxt.buf.Len()) {
+		return fmt.Errorf("insufficient bytes read while reading DW_OP_implicit_value's block (expected: %d)", sz)
+	}
+	block := make([]byte, int(sz))
+	n, err := io.ReadFull(ctxt.buf, block)
+	if err != nil || uint64(n) != sz {
+		return fmt.Errorf("insufficient bytes read while reading DW_OP_implicit_value's block %d (expected: %d): %w", n, sz, err)
 	}
 	return ctxt.closeLoc(DW_OP_implicit_value, Piece{Kind: ImmPiece, Bytes: block, Size: int(sz)})
 }
@@ -557,9 +746,12 @@ func deref(op Opcode, ctxt *context) error {
 	}
 
 	buf := make([]byte, sz)
-	_, err := ctxt.readMemory(buf, uint64(addr))
+	n, err := ctxt.readMemory(buf, uint64(addr))
 	if err != nil {
 		return err
+	}
+	if n != sz {
+		return fmt.Errorf("DW_OP_deref short read at %#x: read %d bytes, wanted %d", uint64(addr), n, sz)
 	}
 
 	x, err := dwarf.ReadUintRaw(bytes.NewReader(buf), binary.LittleEndian, sz)

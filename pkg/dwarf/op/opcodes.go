@@ -615,6 +615,7 @@ var oplut = map[Opcode]stackfn{
 	DW_OP_fbreg:          framebase,
 	DW_OP_bregx:          bregister,
 	DW_OP_piece:          piece,
+	DW_OP_bit_piece:      bitpiece,
 	DW_OP_deref_size:     deref,
 	DW_OP_xderef_size:    deref,
 	DW_OP_call_frame_cfa: callframecfa,
