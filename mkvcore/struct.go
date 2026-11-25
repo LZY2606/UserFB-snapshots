@@ -71,20 +71,22 @@ type flexHeader struct {
 
 // TrackEntry is a TrackEntry struct with all mandatory elements and commonly used elements.
 type TrackEntry struct {
-	TrackNumber        uint64
-	TrackUID           uint64
-	TrackType          uint8
-	FlagEnabled        uint8
-	FlagDefault        uint8
-	FlagForced         uint8
-	FlagLacing         uint8
-	MinCache           uint64
-	DefaultDuration    uint64
-	MaxBlockAdditionID uint64
-	Name               string
-	Language           string
-	LanguageIETF       string
-	CodecID            string
-	CodecDecodeAll     uint8
-	SeekPreRoll        uint64
+	TrackNumber         uint64
+	TrackUID            uint64
+	TrackType           uint8
+	FlagEnabled         uint8
+	FlagDefault         uint8
+	FlagForced          uint8
+	FlagLacing          uint8
+	MinCache            uint64
+	DefaultDuration     uint64
+	MaxBlockAdditionID  uint64
+	Name                string
+	Language            string
+	LanguageIETF        string
+	CodecID             string
+	CodecDecodeAll      uint8
+	SeekPreRoll         uint64
+	CodecDelay          uint64
+	TrackTimestampScale float64
 }
