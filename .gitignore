@@ -82,3 +82,7 @@ tests/granulepos_theoraenc
 tests/noop
 tests/noop_theora
 tests/noop_theoraenc
+
+# Task test build artifacts and scratch temp dirs
+.task-build/
+.task-tmp/

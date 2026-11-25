@@ -27,6 +27,57 @@
 # include <cairo.h>
 #endif
 
+/*Test-only observation hooks for the independent residual regression test.
+  They are compiled in only when OC_TASK_OBSERVE is defined (the dedicated test
+   build); the normal build never defines it and exports no debug interface.
+  The hooks expose raw intermediate decoder state, and are never used to derive
+   the independent expectations.*/
+#if defined(OC_TASK_OBSERVE)
+typedef struct oc_task_obs oc_task_obs;
+struct oc_task_obs{
+  /*Called after one coded fragment's DC prediction has been reversed.
+    _diff:     The quantized DC differential read from the packet.
+    _pred:     The predictor value added to the differential.
+    _recon_dc: The prediction-corrected quantized DC.*/
+  void (*dc_hook)(ptrdiff_t _fragi,int _pli,int _refi,int _diff,int _pred,
+   int _recon_dc);
+  /*Called with the pre-transform coefficient buffer (natural order, AC already
+     dequantized) immediately before fragment reconstruction.*/
+  void (*coeff_hook)(ptrdiff_t _fragi,int _pli,int _last_zzi,
+   const ogg_int16_t _coeffs[64]);
+  /*Called with the reconstructed, still-unfiltered pixels of one fragment.*/
+  void (*pixel_hook)(ptrdiff_t _fragi,int _pli,const unsigned char *_dst,
+   int _ystride);
+  void *ctx;
+};
+extern oc_task_obs oc_task_obs_hook;
+oc_task_obs oc_task_obs_hook;
+# define OC_TASK_DC_HOOK(_fragi,_pli,_refi,_diff,_pred,_recon) \
+  do{ \
+    if(oc_task_obs_hook.dc_hook!=NULL) \
+      oc_task_obs_hook.dc_hook((_fragi),(_pli),(_refi),(_diff),(_pred), \
+       (_recon)); \
+  }while(0)
+# define OC_TASK_COEFF_HOOK(_fragi,_pli,_last_zzi,_coeffs) \
+  do{ \
+    if(oc_task_obs_hook.coeff_hook!=NULL) \
+      oc_task_obs_hook.coeff_hook((_fragi),(_pli),(_last_zzi),(_coeffs)); \
+  }while(0)
+# define OC_TASK_PIXEL_HOOK(_state,_fragi,_pli) \
+  do{ \
+    if(oc_task_obs_hook.pixel_hook!=NULL){ \
+      const unsigned char *_task_dst= \
+       (_state)->ref_frame_data[OC_FRAME_SELF]+ \
+       (_state)->frag_buf_offs[_fragi]; \
+      oc_task_obs_hook.pixel_hook((_fragi),(_pli),_task_dst, \
+       (_state)->ref_ystride[_pli]); \
+    } \
+  }while(0)
+#else
+# define OC_TASK_DC_HOOK(_fragi,_pli,_refi,_diff,_pred,_recon) do{}while(0)
+# define OC_TASK_COEFF_HOOK(_fragi,_pli,_last_zzi,_coeffs) do{}while(0)
+# define OC_TASK_PIXEL_HOOK(_state,_fragi,_pli) do{}while(0)
+#endif
 
 /*No post-processing.*/
 #define OC_PP_LEVEL_DISABLED  (0)
@@ -1418,8 +1469,13 @@ void oc_dec_dc_unpredict_mcu_plane_c(oc_dec_ctx *_dec,
       for(fragx=0;fragx<nhfrags;fragx++,fragi++){
         if(frags[fragi].coded){
           int refi;
+          int diff;
+          int pred;
           refi=frags[fragi].refi;
+          diff=frags[fragi].dc;
+          pred=pred_last[refi];
           pred_last[refi]=frags[fragi].dc+=pred_last[refi];
+          OC_TASK_DC_HOOK(fragi,_pli,refi,diff,pred,frags[fragi].dc);
           ncoded_fragis++;
         }
       }
@@ -1440,7 +1496,9 @@ void oc_dec_dc_unpredict_mcu_plane_c(oc_dec_ctx *_dec,
         if(frags[fragi].coded){
           int pred;
           int refi;
+          int diff;
           refi=frags[fragi].refi;
+          diff=frags[fragi].dc;
           /*We break out a separate case based on which of our neighbors use
              the same reference frames.
             This is somewhat faster than trying to make a generic case which
@@ -1484,6 +1542,7 @@ void oc_dec_dc_unpredict_mcu_plane_c(oc_dec_ctx *_dec,
             }break;
           }
           pred_last[refi]=frags[fragi].dc+=pred;
+          OC_TASK_DC_HOOK(fragi,_pli,refi,diff,pred,frags[fragi].dc);
           ncoded_fragis++;
           l_ref=refi;
         }
@@ -1579,10 +1638,12 @@ static void oc_dec_frags_recon_mcu_plane(oc_dec_ctx *_dec,
       If it's not, we should report some kind of warning.*/
     zzi=OC_MINI(zzi,64);
     _pipe->dct_coeffs[0]=(ogg_int16_t)frags[fragi].dc;
+    OC_TASK_COEFF_HOOK(fragi,_pli,last_zzi,_pipe->dct_coeffs);
     /*last_zzi is always initialized.
       If your compiler thinks otherwise, it is dumb.*/
     oc_state_frag_recon(&_dec->state,fragi,_pli,
      _pipe->dct_coeffs,last_zzi,dc_quant[qti]);
+    OC_TASK_PIXEL_HOOK(&_dec->state,fragi,_pli);
   }
   _pipe->coded_fragis[_pli]+=ncoded_fragis;
   /*Right now the reconstructed MCU has only the coded blocks in it.*/

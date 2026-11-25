@@ -1,0 +1,6 @@
+FAIL tests/residual_reference.c:1305 got->pred==ex[i].pred
+CASE dc_neighbors first_row_history checks=124
+CASE dc_neighbors mixed_refs_grid checks=124
+CASE dc_neighbors nonsquare_444_fallbacks checks=101
+GROUP dc_neighbors cases=3 checks=349 COMPLETE
+CASE stripe_state multi_mcu_and_reset checks=367

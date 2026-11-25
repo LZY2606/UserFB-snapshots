@@ -1,0 +1,9 @@
+FAIL tests/residual_reference.c:1409 r->coeffs[k]==(ogg_int16_t)(raw*(int)q)
+CASE dc_neighbors first_row_history checks=124
+CASE dc_neighbors mixed_refs_grid checks=124
+CASE dc_neighbors nonsquare_444_fallbacks checks=101
+GROUP dc_neighbors cases=3 checks=349 COMPLETE
+CASE stripe_state multi_mcu_and_reset checks=367
+CASE stripe_state mcu_history_carries checks=178
+CASE stripe_state empty_frame_keeps_history checks=77
+GROUP stripe_state cases=3 checks=622 COMPLETE

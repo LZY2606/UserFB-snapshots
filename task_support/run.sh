@@ -3,7 +3,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mode=${1:-baseline}
 if [[ $mode == target ]]; then test -s tests/residual_reference.c; fi
-bash repro/build.sh
+if [[ $mode == target ]]; then
+  TASK_OBSERVE=1 bash repro/build.sh
+else
+  bash repro/build.sh
+fi
 if [[ $mode == target ]]; then
   cc -std=c99 -O2 -UNDEBUG -I. -Iinclude -Ilib -Ithird_party/ogg/include task_support/driver.c tests/residual_reference.c .task-build/libcodec.a -lm -o .task-build/target
   output_log=$(mktemp)
