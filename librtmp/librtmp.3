@@ -189,6 +189,57 @@ An example character string suitable for use with
 .nf
   "rtmp://flashserver:1935/ondemand/thefile swfUrl=http://flashserver/player.swf swfVfy=1"
 .fi
+.SH "QUEUED NON-BLOCKING WRITES"
+For plaintext publishing inside a single-threaded event loop, the
+library offers a queued alternative to
+.BR RTMP_SendPacket ()
+that survives socket backpressure instead of closing the connection on
+.BR EAGAIN .
+.TP
+.B "int RTMP_QueuePacket(RTMP *r, const RTMPPacket *packet)"
+Take an independent snapshot of an audio, video or INFO
+.B ( RTMP_PACKET_TYPE_INFO ,
+AMF0 metadata) packet and append it to an internal FIFO.  Returns
+.B RTMP_QUEUE_OK
+on success or
+.B RTMP_QUEUE_ERROR
+for an unsupported packet type, an invalid argument or an allocation
+failure; no half packet is queued on failure.  The caller may reuse or
+free the packet and its body immediately, and its
+.I m_headerType
+and body bytes are never modified.
+.TP
+.B "int RTMP_WriteQueue(RTMP *r)"
+Write queued snapshots with a non-blocking
+.BR send ().
+Returns
+.B RTMP_QUEUE_DRAINED
+when the FIFO is empty,
+.B RTMP_QUEUE_WOULDBLOCK
+on
+.B EAGAIN / EWOULDBLOCK
+(data stays queued, the connection is kept open and the call does not
+busy wait), or
+.B RTMP_QUEUE_FAILED
+on any other error after running the normal close handling.
+.B EINTR
+is retried internally and short writes resume at the exact next byte,
+even inside a basic header, an extended timestamp or a media fragment.
+.TP
+.B "int RTMP_HasQueuedPackets(RTMP *r)"
+Returns non-zero while snapshots remain queued.
+.B RTMP_Close ()
+releases every unsent snapshot.
+.PP
+Both write entry points share one chunk serializer, so the wire format is
+identical.  While the queue is in use do not change
+.I m_outChunkSize
+and do not interleave
+.BR RTMP_SendPacket ();
+RTMPT, TLS/RTMPS/RTMPE and remote-method invocation queues are not
+covered.  See
+.I QUEUED_WRITE.md
+for the full constraints and a writable-event-loop example.
 .SH ENVIRONMENT
 .TP
 .B HOME

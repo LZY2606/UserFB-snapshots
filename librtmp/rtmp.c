@@ -73,6 +73,81 @@ static const int packetSize[] = { 12, 8, 4, 1 };
 
 int RTMP_ctrlC;
 
+/* Test hook: when non-NULL it replaces the plaintext socket send in
+ * WriteN(), so tests can script short writes, EINTR and EAGAIN without
+ * touching real socket buffers.  Mirrors RTMPSockBuf_Send() semantics. */
+RTMPDebugSend *RTMP_debugSend = NULL;
+
+void
+RTMP_SetDebugSend(RTMPDebugSend fn)
+{
+  RTMP_debugSend = fn;
+}
+
+/* One entry of the queued-send FIFO: a fully serialized chunk stream
+ * (basic/message headers, extended timestamps and fmt-3 continuation
+ * headers included) that the library owns independently of the
+ * RTMPPacket handed in by the caller. */
+struct RTMPPacketQueue
+{
+  char *q_data;		/* serialized wire bytes */
+  uint32_t q_size;	/* bytes in q_data */
+  uint32_t q_sent;	/* bytes already written to the socket */
+  struct RTMPPacketQueue *q_next;
+};
+
+/* Growable byte buffer fed by the shared chunk serializer; the queued
+ * API turns the finished buffer into a FIFO entry instead of touching
+ * the socket. */
+typedef struct RTMPWireSink
+{
+  char *ws_buf;
+  uint32_t ws_len;
+  uint32_t ws_cap;
+} RTMPWireSink;
+
+static int
+RTMP_WireSinkAppend(RTMPWireSink *sink, const char *data, uint32_t len)
+{
+  if (len == 0)
+    return TRUE;
+  if (len > UINT32_MAX - sink->ws_len)
+    return FALSE;
+  if (sink->ws_len + len > sink->ws_cap)
+    {
+      uint32_t ncap = sink->ws_cap ? sink->ws_cap : 64;
+      char *nbuf;
+      while (ncap < sink->ws_len + len)
+	{
+	  if (ncap > UINT32_MAX / 2)
+	    return FALSE;
+	  ncap *= 2;
+	}
+      nbuf = realloc(sink->ws_buf, ncap);
+      if (!nbuf)
+	return FALSE;
+      sink->ws_buf = nbuf;
+      sink->ws_cap = ncap;
+    }
+  memcpy(sink->ws_buf + sink->ws_len, data, len);
+  sink->ws_len += len;
+  return TRUE;
+}
+
+static void
+RTMP_FreePacketQueue(RTMP *r)
+{
+  RTMPPacketQueue *q = r->m_packetQueue;
+  while (q)
+    {
+      RTMPPacketQueue *next = q->q_next;
+      free(q->q_data);
+      free(q);
+      q = next;
+    }
+  r->m_packetQueue = NULL;
+}
+
 const char RTMPProtocolStrings[][7] = {
   "RTMP",
   "RTMPT",
@@ -1523,6 +1598,8 @@ WriteN(RTMP *r, const char *buffer, int n)
 
       if (r->Link.protocol & RTMP_FEATURE_HTTP)
         nBytes = HTTP_Post(r, RTMPT_SEND, ptr, n);
+      else if (RTMP_debugSend)
+        nBytes = RTMP_debugSend(&r->m_sb, ptr, n);
       else
         nBytes = RTMPSockBuf_Send(&r->m_sb, ptr, n);
       /*RTMP_Log(RTMP_LOGDEBUG, "%s: %d\n", __FUNCTION__, nBytes); */
@@ -3892,8 +3969,16 @@ RTMP_SendChunk(RTMP *r, RTMPChunk *chunk)
   return wrote;
 }
 
-int
-RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
+/* Shared chunk serializer for the synchronous socket path and the
+ * queued snapshot API.  With sink == NULL the chunks are written
+ * immediately through WriteN(), preserving the original RTMPT
+ * batching behavior; with a non-NULL sink every produced wire byte is
+ * appended to it and the socket is never touched.  On success the
+ * per-channel compression history (m_vecChannelsOut) is advanced.
+ * packet may be a private working copy -- queued mode must never
+ * mutate the caller's RTMPPacket. */
+static int
+SerializePacket(RTMP *r, RTMPPacket *packet, int queue, RTMPWireSink *sink)
 {
   const RTMPPacket *prevPacket;
   uint32_t last = 0;
@@ -4020,7 +4105,7 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
   RTMP_Log(RTMP_LOGDEBUG2, "%s: fd=%d, size=%d", __FUNCTION__, r->m_sb.sb_socket,
       nSize);
   /* send all chunks in one HTTP request */
-  if (r->Link.protocol & RTMP_FEATURE_HTTP)
+  if (!sink && (r->Link.protocol & RTMP_FEATURE_HTTP))
     {
       int chunks = (nSize+nChunkSize-1) / nChunkSize;
       if (chunks > 1)
@@ -4045,6 +4130,14 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
         {
 	  memcpy(toff, header, nChunkSize + hSize);
 	  toff += nChunkSize + hSize;
+	}
+      else if (sink)
+        {
+	  /* queued mode: keep the exact bytes the socket path would
+	   * emit, but store them in the owned snapshot */
+	  if (!RTMP_WireSinkAppend(sink, header, hSize)
+	      || !RTMP_WireSinkAppend(sink, buffer, nChunkSize))
+	    return FALSE;
 	}
       else
         {
@@ -4118,6 +4211,179 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
 }
 
 int
+RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
+{
+  return SerializePacket(r, packet, queue, NULL);
+}
+
+int
+RTMP_QueuePacket(RTMP *r, const RTMPPacket *packet)
+{
+  RTMPPacket local;
+  RTMPWireSink sink = { 0, 0, 0 };
+  RTMPPacketQueue *entry, *tail;
+  char *copy = NULL;
+
+  if (!r || !packet)
+    return RTMP_QUEUE_ERROR;
+
+  /* only publish media and AMF0 metadata; control messages, invokes
+   * and everything else keep going through the synchronous entry */
+  switch (packet->m_packetType)
+    {
+    case RTMP_PACKET_TYPE_AUDIO:
+    case RTMP_PACKET_TYPE_VIDEO:
+    case RTMP_PACKET_TYPE_INFO:
+      break;
+    default:
+      return RTMP_QUEUE_ERROR;
+    }
+
+  if (packet->m_headerType > 3
+      || packet->m_nChannel < 0 || packet->m_nChannel >= RTMP_CHANNELS
+      || (packet->m_nBodySize > 0 && !packet->m_body))
+    return RTMP_QUEUE_ERROR;
+
+  /* Allocate the FIFO entry up front.  A later serialization failure
+   * frees it together with the partial sink and the private body copy,
+   * so no half-queued packet can remain and the compression history is
+   * not advanced on error. */
+  entry = malloc(sizeof(RTMPPacketQueue));
+  if (!entry)
+    return RTMP_QUEUE_ERROR;
+
+  /* Private working copy of the body plus the 18-byte header scratch
+   * area.  The shared serializer builds message headers directly in
+   * the bytes before m_body and writes fmt-3 continuation headers in
+   * the gap before each chunk (overwriting body positions); doing that
+   * on this copy keeps the caller's m_headerType, body bytes and
+   * reserved header memory untouched. */
+  if (packet->m_nBodySize > 0)
+    {
+      /* size_t promotion makes the body + header-space sum safe */
+      copy = malloc((size_t)packet->m_nBodySize + RTMP_MAX_HEADER_SIZE);
+      if (!copy)
+	{
+	  free(entry);
+	  return RTMP_QUEUE_ERROR;
+	}
+      memset(copy, 0, RTMP_MAX_HEADER_SIZE);
+      memcpy(copy + RTMP_MAX_HEADER_SIZE, packet->m_body,
+	     packet->m_nBodySize);
+    }
+
+  local = *packet;
+  if (copy)
+    local.m_body = copy + RTMP_MAX_HEADER_SIZE;
+
+  if (!SerializePacket(r, &local, FALSE, &sink))
+    {
+      free(sink.ws_buf);
+      free(copy);
+      free(entry);
+      return RTMP_QUEUE_ERROR;
+    }
+  free(copy);	/* serialization is done; sink owns the wire snapshot */
+
+  entry->q_data = sink.ws_buf;
+  entry->q_size = sink.ws_len;
+  entry->q_sent = 0;
+  entry->q_next = NULL;
+
+  tail = r->m_packetQueue;
+  if (!tail)
+    r->m_packetQueue = entry;
+  else
+    {
+      while (tail->q_next)
+	tail = tail->q_next;
+      tail->q_next = entry;
+    }
+  return RTMP_QUEUE_OK;
+}
+
+int
+RTMP_WriteQueue(RTMP *r)
+{
+  RTMPPacketQueue *q;
+
+  if (!r)
+    return RTMP_QUEUE_FAILED;
+
+  q = r->m_packetQueue;
+  if (!q)
+    return RTMP_QUEUE_DRAINED;
+
+  while (q)
+    {
+      while (q->q_sent < q->q_size)
+	{
+	  int n;
+
+	  if (RTMP_debugSend)
+	    n = RTMP_debugSend(&r->m_sb, q->q_data + q->q_sent,
+			       q->q_size - q->q_sent);
+	  else
+	    n = RTMPSockBuf_Send(&r->m_sb, q->q_data + q->q_sent,
+				 q->q_size - q->q_sent);
+
+	  if (n > 0)
+	    {
+	      /* a short write consumes exactly these bytes; every byte
+	       * is sent at most once, including splits inside a basic
+	       * header, an extended timestamp or a media chunk */
+	      q->q_sent += n;
+	      continue;
+	    }
+
+	  if (n == 0)
+	    {
+	      /* a stream socket only reports zero once the peer has
+	       * shut the connection down: run the normal close path */
+	      RTMP_Log(RTMP_LOGERROR,
+		  "%s, RTMP peer closed the connection", __FUNCTION__);
+	      RTMP_FreePacketQueue(r);
+	      RTMP_Close(r);
+	      return RTMP_QUEUE_FAILED;
+	    }
+
+	  {
+	    int sockerr = GetSockError();
+
+	    if (sockerr == EINTR && !RTMP_ctrlC)
+	      continue;		/* retry the same bytes */
+
+	    if (
+#ifdef EAGAIN
+		sockerr == EAGAIN ||
+#endif
+		sockerr == EWOULDBLOCK)
+	      return RTMP_QUEUE_WOULDBLOCK;	/* no close, no busy loop */
+
+	    RTMP_Log(RTMP_LOGERROR,
+		"%s, RTMP send error %d", __FUNCTION__, sockerr);
+	    RTMP_FreePacketQueue(r);
+	    RTMP_Close(r);
+	    return RTMP_QUEUE_FAILED;
+	  }
+	}
+
+      r->m_packetQueue = q->q_next;
+      free(q->q_data);
+      free(q);
+      q = r->m_packetQueue;
+    }
+
+  return RTMP_QUEUE_DRAINED;
+}
+
+int
+RTMP_HasQueuedPackets(RTMP *r)
+{
+  return r && r->m_packetQueue != NULL;
+}
+
+int
 RTMP_Serve(RTMP *r)
 {
   return SHandShake(r);
@@ -4133,6 +4399,11 @@ static void
 CloseInternal(RTMP *r, int reconnect)
 {
   int i;
+
+  /* drop every snapshot that never made it onto the wire; after the
+   * following reset (or a fresh RTMP_Init) no old queued byte can leak
+   * into the next connection */
+  RTMP_FreePacketQueue(r);
 
   if (RTMP_IsConnected(r))
     {

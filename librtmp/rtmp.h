@@ -134,6 +134,10 @@ extern "C"
     void *sb_ssl;
   } RTMPSockBuf;
 
+  /* FIFO of serialized chunk snapshots owned by the library while they
+   * wait to be written; see RTMP_QueuePacket(). */
+  typedef struct RTMPPacketQueue RTMPPacketQueue;
+
   void RTMPPacket_Reset(RTMPPacket *p);
   void RTMPPacket_Dump(RTMPPacket *p);
   int RTMPPacket_Alloc(RTMPPacket *p, uint32_t nSize);
@@ -280,6 +284,10 @@ extern "C"
     RTMPPacket m_write;
     RTMPSockBuf m_sb;
     RTMP_LNK Link;
+
+    /* private: packets serialized but not yet written by
+     * RTMP_WriteQueue(); NULL when the queue is empty */
+    RTMPPacketQueue *m_packetQueue;
   } RTMP;
 
   int RTMP_ParseURL(const char *url, int *protocol, AVal *host,
@@ -319,6 +327,41 @@ extern "C"
   int RTMP_ReadPacket(RTMP *r, RTMPPacket *packet);
   int RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue);
   int RTMP_SendChunk(RTMP *r, RTMPChunk *chunk);
+
+  /* ---- queued, non-blocking publish API ----
+   *
+   * These functions serialize packets into an internal FIFO and flush
+   * that FIFO from a writable-event callback, so that EAGAIN no longer
+   * tears the connection down.  They only apply to plaintext RTMP after
+   * the handshake has completed; RTMPT, TLS/RTMPE and the remote method
+   * call queue are not covered.  Do not change m_outChunkSize, and do
+   * not mix RTMP_SendPacket() into the stream, while the queue is in
+   * use. */
+  typedef enum
+  {
+    RTMP_QUEUE_OK = 0,		/* packet snapshot queued */
+    RTMP_QUEUE_ERROR = -1	/* invalid argument or allocation failure */
+  } RTMPQueueResult;
+
+  typedef enum
+  {
+    RTMP_QUEUE_DRAINED = 0,	/* every queued byte has been written */
+    RTMP_QUEUE_WOULDBLOCK = 1,	/* EAGAIN/EWOULDBLOCK, data remains queued */
+    RTMP_QUEUE_FAILED = -1	/* socket error; the connection has been closed */
+  } RTMPQueueWriteResult;
+
+  /* Take an independent snapshot of packet and append it to the send
+   * queue, using the same chunk serialization as RTMP_SendPacket().
+   * Only AUDIO, VIDEO and INFO packets are accepted.  The caller may
+   * reuse or free packet and its body immediately afterwards. */
+  int RTMP_QueuePacket(RTMP *r, const RTMPPacket *packet);
+
+  /* Write as many queued bytes as the socket currently accepts. */
+  int RTMP_WriteQueue(RTMP *r);
+
+  /* TRUE while snapshots remain queued, FALSE once the FIFO is empty. */
+  int RTMP_HasQueuedPackets(RTMP *r);
+
   int RTMP_IsConnected(RTMP *r);
   int RTMP_Socket(RTMP *r);
   int RTMP_IsTimedout(RTMP *r);
@@ -358,6 +401,14 @@ extern "C"
   int RTMPSockBuf_Fill(RTMPSockBuf *sb);
   int RTMPSockBuf_Send(RTMPSockBuf *sb, const char *buf, int len);
   int RTMPSockBuf_Close(RTMPSockBuf *sb);
+
+  /* Optional replacement for the plaintext send() used by both the
+   * synchronous and queued write paths.  Return values follow send():
+   * positive bytes written, 0, or -1 with errno set (EINTR/EAGAIN...).
+   * Intended for tests that script short writes and backpressure; pass
+   * NULL to restore the real socket send. */
+  typedef int (RTMPDebugSend)(RTMPSockBuf *sb, const char *buf, int len);
+  void RTMP_SetDebugSend(RTMPDebugSend *fn);
 
   int RTMP_SendCreateStream(RTMP *r);
   int RTMP_SendSeek(RTMP *r, int dTime);
