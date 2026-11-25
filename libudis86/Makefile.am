@@ -12,18 +12,21 @@ lib_LTLIBRARIES = libudis86.la
 libudis86_la_SOURCES = \
 	itab.c \
 	decode.c \
+	frame.c \
 	syn.c \
 	syn-intel.c \
 	syn-att.c \
 	udis86.c \
 	udint.h \
 	syn.h \
-	decode.h
+	decode.h \
+	frame.h
 
 include_ladir = ${includedir}/libudis86
 include_la_HEADERS = \
 	types.h \
 	extern.h \
+	frame.h \
 	itab.h
 
 
