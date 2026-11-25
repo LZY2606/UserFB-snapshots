@@ -7,7 +7,7 @@ mkdir -p .task-build
 cc -std=c99 -O2 -I. -Isrc -c src/cmixer.c -o .task-build/cmixer.o
 if [[ $mode == target ]]; then
   cc -std=c99 -O2 -I. -Isrc task_support/driver.c tests/aux_contract.c .task-build/cmixer.o -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/cmixer-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

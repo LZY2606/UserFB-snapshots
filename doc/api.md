@@ -21,6 +21,65 @@ used from multiple threads. See *[events](#events)*.
 Sets the master gain — this is the overall volume of the resultant audio
 outputted by `cm_process()`. This is `1` by default.
 
+##### cm_Bus\* cm_master_bus(void)
+Returns the permanent master sink bus. Sources use it by default, and bus
+edges may connect into it, but it cannot be destroyed or used as the source of
+an edge.
+
+##### cm_Bus\* cm_new_bus(void)
+Creates an ordinary stereo summing bus. Its raw output for each block is the
+sum of source contributions and incoming edge contributions.
+
+##### cm_Bus\* cm_new_delay_bus(int delay_frames, double feedback)
+Creates a stereo delay bus. `delay_frames` is the positive delay D in master
+sample-rate frames. Each channel independently computes
+`y[n] = x[n-D] + feedback * y[n-D]`, with negative indices treated as zero.
+`feedback` must be finite and in `[0, 1)`.
+
+##### int cm_destroy_bus(cm_Bus \*bus)
+Destroys a user bus and returns `CM_OK`. If the bus is the master, still has
+source references, or still has incoming or outgoing edges, it returns
+`CM_ERROR` and leaves the bus and graph unchanged.
+
+##### int cm_set_bus_gain(cm_Bus \*bus, double gain)
+Sets the finite gain applied after the ordinary sum or delay equation. The
+gain is not part of delay feedback state.
+
+##### int cm_set_delay_feedback(cm_Bus \*bus, double feedback)
+Changes a delay bus feedback coefficient; the value must be finite and in
+`[0, 1)`.
+
+##### int cm_clear_delay_history(cm_Bus \*bus)
+Clears only the left and right delay history and ring position of one delay
+bus. Source positions and all other bus states remain unchanged.
+
+##### int cm_set_source_bus(cm_Source \*src, cm_Bus \*bus)
+Routes a source's post-resampling, post-pan and post-source-gain stereo
+contribution to `bus`. Passing `NULL` uses the master bus. The source is still
+decoded and advanced once per output block.
+
+##### int cm_use_master_bus(cm_Source \*src)
+Restores the permanent default target for a source.
+
+##### cm_Bus\* cm_get_source_bus(cm_Source \*src)
+Returns the source's current target bus.
+
+##### int cm_connect_bus(cm_Bus \*from, cm_Bus \*to, double gain)
+Adds a gained directed edge `from -> to` and returns `CM_OK`. If the pair is
+already connected, its gain is updated. Non-finite gain, an edge starting at
+the master, or an edge that would create a graph cycle causes `CM_ERROR`; the
+existing graph is preserved.
+
+##### int cm_set_edge_gain(cm_Bus \*from, cm_Bus \*to, double gain)
+Changes an existing directed edge gain. The gain must be finite.
+
+##### int cm_get_edge_gain(cm_Bus \*from, cm_Bus \*to, double \*gain)
+Stores an existing directed edge's gain in `*gain` and returns `CM_OK`.
+
+##### int cm_disconnect_bus(cm_Bus \*from, cm_Bus \*to)
+Removes an existing directed edge. Delay history is not cleared. A disconnected
+delay bus still advances its internal effect state during `cm_process()`.
+
 ##### void cm_process(cm_Int16 \*dst, int len)
 Processes and mixes all the current streams and outputs the result to `dst`.
 This function always outputs signed 16bit stereo interlaced. `len` is the number

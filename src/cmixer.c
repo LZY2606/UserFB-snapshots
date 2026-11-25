@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
+#include <math.h>
 
 #include "cmixer.h"
 
@@ -57,8 +59,36 @@ struct cm_Source {
   int loop;             /* Whether the source will loop when `end` is reached */
   int rewind;           /* Whether the source will rewind before playing */
   int active;           /* Whether the source is part of `sources` list */
+  cm_Bus *target;       /* Bus that receives the final stereo contribution */
   double gain;          /* Gain set by `cm_set_gain()` */
   double pan;           /* Pan set by `cm_set_pan()` */
+};
+
+
+typedef struct cm_Edge {
+  cm_Bus *to;
+  double gain;
+} cm_Edge;
+
+
+struct cm_Bus {
+  int type;
+  int is_master;
+  double gain;
+  double feedback;
+  int delay;
+  int cursor;
+  int topo_indegree;
+  unsigned mark;
+  int incoming;
+  int source_refs;
+  cm_Edge *edges;
+  int edge_count;
+  int edge_capacity;
+  double *delay_x;
+  double *delay_y;
+  double input[BUFFER_SIZE];
+  double output[BUFFER_SIZE];
 };
 
 
@@ -69,6 +99,13 @@ static struct {
   cm_Int32 buffer[BUFFER_SIZE]; /* Internal master buffer */
   int samplerate;               /* Master samplerate */
   int gain;                     /* Master gain (fixed point) */
+  cm_Bus master;                /* Permanent final sink */
+  cm_Bus **buses;               /* User-created buses */
+  int bus_count;
+  int bus_capacity;
+  cm_Bus **order;               /* Cached topological render order */
+  int order_count;
+  unsigned visit_serial;
 } cmixer;
 
 
@@ -104,11 +141,29 @@ static const char* error(const char *msg) {
 }
 
 
+static int fixed_from_double(double value) {
+  double scaled = value * FX_UNIT;
+  if (scaled >= (double) INT_MAX) {
+    return INT_MAX;
+  }
+  if (scaled <= (double) INT_MIN) {
+    return INT_MIN;
+  }
+  return (int) scaled;
+}
+
+
 void cm_init(int samplerate) {
   cmixer.samplerate = samplerate;
   cmixer.lock = dummy_handler;
   cmixer.sources = NULL;
   cmixer.gain = FX_UNIT;
+  cmixer.bus_count = 0;
+  cmixer.visit_serial = 0;
+  memset(&cmixer.master, 0, sizeof(cmixer.master));
+  cmixer.master.type = CM_BUS_NORMAL;
+  cmixer.master.is_master = 1;
+  cmixer.master.gain = 1.0;
 }
 
 
@@ -118,7 +173,12 @@ void cm_set_lock(cm_EventHandler lock) {
 
 
 void cm_set_master_gain(double gain) {
-  cmixer.gain = FX_FROM_FLOAT(gain);
+  if (!isfinite(gain)) {
+    error("gain must be finite");
+    return;
+  }
+  cmixer.gain = fixed_from_double(gain);
+  cmixer.master.gain = gain;
 }
 
 
@@ -144,10 +204,9 @@ static void fill_source_buffer(cm_Source *src, int offset, int length) {
 }
 
 
-static void process_source(cm_Source *src, int len) {
+static void process_source(cm_Source *src, int len, cm_Int32 *dst) {
   int i, n, a, b, p;
   int frame, count;
-  cm_Int32 *dst = cmixer.buffer;
 
   /* Do rewind if flag is set */
   if (src->rewind) {
@@ -223,16 +282,9 @@ static void process_source(cm_Source *src, int len) {
 }
 
 
-void cm_process(cm_Int16 *dst, int len) {
+static void cm_process_legacy(cm_Int16 *dst, int len) {
   int i;
   cm_Source **s;
-
-  /* Process in chunks of BUFFER_SIZE if `len` is larger than BUFFER_SIZE */
-  while (len > BUFFER_SIZE) {
-    cm_process(dst, BUFFER_SIZE);
-    dst += BUFFER_SIZE;
-    len -= BUFFER_SIZE;
-  }
 
   /* Zeroset internal buffer */
   memset(cmixer.buffer, 0, len * sizeof(cmixer.buffer[0]));
@@ -241,7 +293,7 @@ void cm_process(cm_Int16 *dst, int len) {
   lock();
   s = &cmixer.sources;
   while (*s) {
-    process_source(*s, len);
+    process_source(*s, len, cmixer.buffer);
     /* Remove source from list if it is no longer playing */
     if ((*s)->state != CM_STATE_PLAYING) {
       (*s)->active = 0;
@@ -260,6 +312,174 @@ void cm_process(cm_Int16 *dst, int len) {
 }
 
 
+static void rebuild_bus_order(void) {
+  int i, head, tail;
+
+  cmixer.order_count = 0;
+  tail = 0;
+
+  for (i = 0; i < cmixer.bus_count; i++) {
+    cm_Bus *bus = cmixer.buses[i];
+    bus->topo_indegree = bus->incoming;
+    if (bus->topo_indegree == 0) {
+      cmixer.order[tail++] = bus;
+    }
+  }
+
+  head = 0;
+  while (head < tail) {
+    int j;
+    cm_Bus *bus = cmixer.order[head++];
+    for (j = 0; j < bus->edge_count; j++) {
+      cm_Bus *to = bus->edges[j].to;
+      if (to->is_master) {
+        continue;
+      }
+      to->topo_indegree--;
+      if (to->topo_indegree == 0) {
+        cmixer.order[tail++] = to;
+      }
+    }
+  }
+
+  cmixer.order_count = tail;
+}
+
+
+static cm_Edge* find_bus_edge(cm_Bus *from, cm_Bus *to, int *index) {
+  int i;
+  for (i = 0; i < from->edge_count; i++) {
+    if (from->edges[i].to == to) {
+      if (index) {
+        *index = i;
+      }
+      return &from->edges[i];
+    }
+  }
+  return NULL;
+}
+
+
+static void add_source_contributions(int len) {
+  cm_Source **s;
+  /* One source block is small enough for the fixed mixer chunk. */
+  cm_Int32 source_buffer[BUFFER_SIZE];
+
+  lock();
+  s = &cmixer.sources;
+  while (*s) {
+    int i;
+    cm_Bus *target = (*s)->target ? (*s)->target : &cmixer.master;
+
+    memset(source_buffer, 0, len * sizeof(source_buffer[0]));
+    process_source(*s, len, source_buffer);
+
+    for (i = 0; i < len; i++) {
+      target->input[i] += (double) source_buffer[i];
+    }
+
+    /* Remove source from list if it is no longer playing */
+    if ((*s)->state != CM_STATE_PLAYING) {
+      (*s)->active = 0;
+      *s = (*s)->next;
+    } else {
+      s = &(*s)->next;
+    }
+  }
+  unlock();
+}
+
+
+static void process_bus(cm_Bus *bus, int len) {
+  int i;
+
+  if (bus->type == CM_BUS_DELAY) {
+    int frame, frames = len / 2;
+    for (frame = 0; frame < frames; frame++) {
+      int channel;
+      int slot = bus->cursor * 2;
+      for (channel = 0; channel < 2; channel++) {
+        int idx = slot + channel;
+        double x = bus->input[frame * 2 + channel];
+        double delayed_x = bus->delay_x[idx];
+        double delayed_y = bus->delay_y[idx];
+        double y = delayed_x + bus->feedback * delayed_y;
+        bus->delay_x[idx] = x;
+        bus->delay_y[idx] = y;
+        bus->output[frame * 2 + channel] = y * bus->gain;
+      }
+      bus->cursor++;
+      if (bus->cursor == bus->delay) {
+        bus->cursor = 0;
+      }
+    }
+    /* Keep the final sample defined if a caller ever passes an odd length. */
+    if (len & 1) {
+      bus->output[len - 1] = bus->input[len - 1] * bus->gain;
+    }
+  } else {
+    for (i = 0; i < len; i++) {
+      bus->output[i] = bus->input[i] * bus->gain;
+    }
+  }
+
+  for (i = 0; i < bus->edge_count; i++) {
+    int sample;
+    cm_Edge *edge = &bus->edges[i];
+    cm_Bus *to = edge->to;
+    for (sample = 0; sample < len; sample++) {
+      to->input[sample] += bus->output[sample] * edge->gain;
+    }
+  }
+}
+
+
+static void cm_process_graph(cm_Int16 *dst, int len) {
+  int i;
+
+  memset(cmixer.master.input, 0, len * sizeof(double));
+  for (i = 0; i < cmixer.bus_count; i++) {
+    memset(cmixer.buses[i]->input, 0, len * sizeof(double));
+  }
+
+  add_source_contributions(len);
+
+  for (i = 0; i < cmixer.order_count; i++) {
+    process_bus(cmixer.order[i], len);
+  }
+
+  for (i = 0; i < len; i++) {
+    double value = floor(cmixer.master.input[i] *
+                         (double) cmixer.gain / FX_UNIT);
+    if (!isfinite(value)) {
+      dst[i] = value > 0.0 ? 32767 : (value < 0.0 ? -32768 : 0);
+    } else if (value >= 32767.0) {
+      dst[i] = 32767;
+    } else if (value <= -32768.0) {
+      dst[i] = -32768;
+    } else {
+      dst[i] = (cm_Int16) value;
+    }
+  }
+}
+
+
+void cm_process(cm_Int16 *dst, int len) {
+  /* Process in chunks of BUFFER_SIZE if `len` is larger than BUFFER_SIZE */
+  while (len > BUFFER_SIZE) {
+    cm_process(dst, BUFFER_SIZE);
+    dst += BUFFER_SIZE;
+    len -= BUFFER_SIZE;
+  }
+
+  if (cmixer.bus_count == 0) {
+    cm_process_legacy(dst, len);
+  } else {
+    cm_process_graph(dst, len);
+  }
+}
+
+
 cm_Source* cm_new_source(const cm_SourceInfo *info) {
   cm_Source *src = calloc(1, sizeof(*src));
   if (!src) {
@@ -270,6 +490,8 @@ cm_Source* cm_new_source(const cm_SourceInfo *info) {
   src->length = info->length;
   src->samplerate = info->samplerate;
   src->udata = info->udata;
+  src->target = &cmixer.master;
+  cmixer.master.source_refs++;
   cm_set_gain(src, 1);
   cm_set_pan(src, 0);
   cm_set_pitch(src, 1);
@@ -392,6 +614,9 @@ void cm_destroy_source(cm_Source *src) {
     }
   }
   unlock();
+  if (src->target) {
+    src->target->source_refs--;
+  }
   e.type = CM_EVENT_DESTROY;
   e.udata = src->udata;
   src->handler(&e);
@@ -419,18 +644,26 @@ static void recalc_source_gains(cm_Source *src) {
   double pan = src->pan;
   l = src->gain * (pan <= 0. ? 1. : 1. - pan);
   r = src->gain * (pan >= 0. ? 1. : 1. + pan);
-  src->lgain = FX_FROM_FLOAT(l);
-  src->rgain = FX_FROM_FLOAT(r);
+  src->lgain = fixed_from_double(l);
+  src->rgain = fixed_from_double(r);
 }
 
 
 void cm_set_gain(cm_Source *src, double gain) {
+  if (!src || !isfinite(gain)) {
+    error("gain must be finite");
+    return;
+  }
   src->gain = gain;
   recalc_source_gains(src);
 }
 
 
 void cm_set_pan(cm_Source *src, double pan) {
+  if (!src || !isfinite(pan)) {
+    error("pan must be finite");
+    return;
+  }
   src->pan = CLAMP(pan, -1.0, 1.0);
   recalc_source_gains(src);
 }
@@ -443,7 +676,7 @@ void cm_set_pitch(cm_Source *src, double pitch) {
   } else {
     rate = 0.001;
   }
-  src->rate = FX_FROM_FLOAT(rate);
+  src->rate = fixed_from_double(rate);
 }
 
 
@@ -472,6 +705,389 @@ void cm_pause(cm_Source *src) {
 void cm_stop(cm_Source *src) {
   src->state = CM_STATE_STOPPED;
   src->rewind = 1;
+}
+
+
+/*============================================================================
+** Auxiliary buses and routing graph
+**============================================================================*/
+
+cm_Bus* cm_master_bus(void) {
+  return &cmixer.master;
+}
+
+
+static int ensure_bus_capacity(void) {
+  int new_capacity;
+  cm_Bus **new_buses;
+  cm_Bus **new_order;
+
+  if (cmixer.bus_count < cmixer.bus_capacity) {
+    return 1;
+  }
+  if (cmixer.bus_capacity > 0 && cmixer.bus_capacity > INT_MAX / 2) {
+    error("too many buses");
+    return 0;
+  }
+
+  new_capacity = cmixer.bus_capacity ? cmixer.bus_capacity * 2 : 8;
+
+  /* Grow the render-order array first; failure leaves the old allocation
+  ** and capacity valid. */
+  new_order = realloc(cmixer.order,
+                      (size_t) new_capacity * sizeof(*new_order));
+  if (!new_order) {
+    error("allocation failed");
+    return 0;
+  }
+
+  new_buses = realloc(cmixer.buses,
+                      (size_t) new_capacity * sizeof(*new_buses));
+  if (!new_buses) {
+    cmixer.order = new_order;
+    error("allocation failed");
+    return 0;
+  }
+
+  cmixer.order = new_order;
+  cmixer.buses = new_buses;
+  cmixer.bus_capacity = new_capacity;
+  return 1;
+}
+
+
+static cm_Bus* allocate_bus(int type) {
+  cm_Bus *bus;
+
+  if (!ensure_bus_capacity()) {
+    return NULL;
+  }
+
+  bus = calloc(1, sizeof(*bus));
+  if (!bus) {
+    error("allocation failed");
+    return NULL;
+  }
+
+  bus->type = type;
+  bus->gain = 1.0;
+  cmixer.buses[cmixer.bus_count++] = bus;
+  rebuild_bus_order();
+  return bus;
+}
+
+
+cm_Bus* cm_new_bus(void) {
+  return allocate_bus(CM_BUS_NORMAL);
+}
+
+
+cm_Bus* cm_new_delay_bus(int delay_frames, double feedback) {
+  cm_Bus *bus;
+  size_t state_count;
+
+  if (delay_frames <= 0) {
+    error("delay must be a positive number of frames");
+    return NULL;
+  }
+  if (!isfinite(feedback) || feedback < 0.0 || feedback >= 1.0) {
+    error("feedback must be finite and in [0, 1)");
+    return NULL;
+  }
+
+  bus = calloc(1, sizeof(*bus));
+  if (!bus) {
+    error("allocation failed");
+    return NULL;
+  }
+  bus->type = CM_BUS_DELAY;
+  bus->gain = 1.0;
+  bus->feedback = feedback;
+  bus->delay = delay_frames;
+
+  state_count = (size_t) delay_frames * 2;
+  bus->delay_x = calloc(state_count, sizeof(*bus->delay_x));
+  bus->delay_y = calloc(state_count, sizeof(*bus->delay_y));
+  if (!bus->delay_x || !bus->delay_y) {
+    free(bus->delay_x);
+    free(bus->delay_y);
+    free(bus);
+    error("allocation failed");
+    return NULL;
+  }
+
+  if (!ensure_bus_capacity()) {
+    free(bus->delay_x);
+    free(bus->delay_y);
+    free(bus);
+    return NULL;
+  }
+
+  cmixer.buses[cmixer.bus_count++] = bus;
+  rebuild_bus_order();
+  return bus;
+}
+
+
+int cm_destroy_bus(cm_Bus *bus) {
+  int i;
+
+  if (!bus || bus->is_master) {
+    error("invalid bus");
+    return CM_ERROR;
+  }
+  if (bus->source_refs != 0 || bus->edge_count != 0 || bus->incoming != 0) {
+    error("bus still has source references or edges");
+    return CM_ERROR;
+  }
+
+  for (i = 0; i < cmixer.bus_count; i++) {
+    if (cmixer.buses[i] == bus) {
+      cmixer.buses[i] = cmixer.buses[--cmixer.bus_count];
+      rebuild_bus_order();
+      free(bus->delay_x);
+      free(bus->delay_y);
+      free(bus->edges);
+      free(bus);
+      return CM_OK;
+    }
+  }
+
+  error("unknown bus");
+  return CM_ERROR;
+}
+
+
+int cm_set_bus_gain(cm_Bus *bus, double gain) {
+  if (!bus || !isfinite(gain)) {
+    error("invalid bus gain");
+    return CM_ERROR;
+  }
+  bus->gain = gain;
+  if (bus->is_master) {
+    cmixer.gain = fixed_from_double(gain);
+  }
+  return CM_OK;
+}
+
+
+int cm_get_bus_gain(cm_Bus *bus, double *gain) {
+  if (!bus || !gain) {
+    error("invalid bus gain output");
+    return CM_ERROR;
+  }
+  *gain = bus->gain;
+  return CM_OK;
+}
+
+
+int cm_set_delay_feedback(cm_Bus *bus, double feedback) {
+  if (!bus || bus->type != CM_BUS_DELAY) {
+    error("invalid delay bus");
+    return CM_ERROR;
+  }
+  if (!isfinite(feedback) || feedback < 0.0 || feedback >= 1.0) {
+    error("feedback must be finite and in [0, 1)");
+    return CM_ERROR;
+  }
+  bus->feedback = feedback;
+  return CM_OK;
+}
+
+
+int cm_clear_delay_history(cm_Bus *bus) {
+  if (!bus || bus->type != CM_BUS_DELAY) {
+    error("invalid delay bus");
+    return CM_ERROR;
+  }
+  memset(bus->delay_x, 0, (size_t) bus->delay * 2 * sizeof(*bus->delay_x));
+  memset(bus->delay_y, 0, (size_t) bus->delay * 2 * sizeof(*bus->delay_y));
+  bus->cursor = 0;
+  return CM_OK;
+}
+
+
+int cm_set_source_bus(cm_Source *src, cm_Bus *bus) {
+  if (!src) {
+    error("invalid source");
+    return CM_ERROR;
+  }
+  if (!bus) {
+    bus = &cmixer.master;
+  }
+  if (src->target == bus) {
+    return CM_OK;
+  }
+  src->target->source_refs--;
+  src->target = bus;
+  bus->source_refs++;
+  return CM_OK;
+}
+
+
+int cm_use_master_bus(cm_Source *src) {
+  return cm_set_source_bus(src, &cmixer.master);
+}
+
+
+cm_Bus* cm_get_source_bus(cm_Source *src) {
+  return src ? src->target : NULL;
+}
+
+
+/* Returns 1 when goal is reachable from start, 0 when not, -1 on failure. */
+static int bus_reaches(cm_Bus *start, cm_Bus *goal) {
+  cm_Bus **stack;
+  int capacity = cmixer.bus_count + 1;
+  int sp = 0;
+  unsigned serial;
+
+  stack = malloc((size_t) capacity * sizeof(*stack));
+  if (!stack) {
+    error("allocation failed");
+    return -1;
+  }
+
+  cmixer.visit_serial++;
+  if (cmixer.visit_serial == 0) {
+    int i;
+    cmixer.master.mark = 0;
+    for (i = 0; i < cmixer.bus_count; i++) {
+      cmixer.buses[i]->mark = 0;
+    }
+    cmixer.visit_serial = 1;
+  }
+  serial = cmixer.visit_serial;
+
+  stack[sp++] = start;
+  start->mark = serial;
+
+  while (sp > 0) {
+    int i;
+    cm_Bus *bus = stack[--sp];
+    if (bus == goal) {
+      free(stack);
+      return 1;
+    }
+    for (i = 0; i < bus->edge_count; i++) {
+      cm_Bus *next = bus->edges[i].to;
+      if (next->mark != serial) {
+        next->mark = serial;
+        stack[sp++] = next;
+      }
+    }
+  }
+
+  free(stack);
+  return 0;
+}
+
+
+int cm_connect_bus(cm_Bus *from, cm_Bus *to, double gain) {
+  cm_Edge *edge;
+  int reaches;
+
+  if (!from || !to || from->is_master) {
+    error("invalid bus connection");
+    return CM_ERROR;
+  }
+  if (!isfinite(gain)) {
+    error("edge gain must be finite");
+    return CM_ERROR;
+  }
+
+  edge = find_bus_edge(from, to, NULL);
+  if (edge) {
+    edge->gain = gain;
+    return CM_OK;
+  }
+
+  if (from == to) {
+    error("bus connection would create a cycle");
+    return CM_ERROR;
+  }
+  reaches = bus_reaches(to, from);
+  if (reaches < 0) {
+    return CM_ERROR;
+  }
+  if (reaches) {
+    error("bus connection would create a cycle");
+    return CM_ERROR;
+  }
+
+  if (from->edge_count == from->edge_capacity) {
+    int new_capacity = from->edge_capacity ? from->edge_capacity * 2 : 4;
+    cm_Edge *new_edges = realloc(from->edges,
+                                 (size_t) new_capacity * sizeof(*new_edges));
+    if (!new_edges) {
+      error("allocation failed");
+      return CM_ERROR;
+    }
+    from->edges = new_edges;
+    from->edge_capacity = new_capacity;
+  }
+
+  from->edges[from->edge_count].to = to;
+  from->edges[from->edge_count].gain = gain;
+  from->edge_count++;
+  to->incoming++;
+  rebuild_bus_order();
+  return CM_OK;
+}
+
+
+int cm_set_edge_gain(cm_Bus *from, cm_Bus *to, double gain) {
+  cm_Edge *edge;
+
+  if (!from || !to || !isfinite(gain)) {
+    error("invalid edge gain");
+    return CM_ERROR;
+  }
+  edge = find_bus_edge(from, to, NULL);
+  if (!edge) {
+    error("bus edge does not exist");
+    return CM_ERROR;
+  }
+  edge->gain = gain;
+  return CM_OK;
+}
+
+
+int cm_get_edge_gain(cm_Bus *from, cm_Bus *to, double *gain) {
+  cm_Edge *edge;
+
+  if (!from || !to || !gain) {
+    error("invalid bus edge");
+    return CM_ERROR;
+  }
+  edge = find_bus_edge(from, to, NULL);
+  if (!edge) {
+    error("bus edge does not exist");
+    return CM_ERROR;
+  }
+  *gain = edge->gain;
+  return CM_OK;
+}
+
+
+int cm_disconnect_bus(cm_Bus *from, cm_Bus *to) {
+  int index;
+  cm_Edge *edge;
+
+  if (!from || !to) {
+    error("invalid bus disconnection");
+    return CM_ERROR;
+  }
+  edge = find_bus_edge(from, to, &index);
+  if (!edge) {
+    error("bus edge does not exist");
+    return CM_ERROR;
+  }
+
+  *edge = from->edges[--from->edge_count];
+  to->incoming--;
+  rebuild_bus_order();
+  return CM_OK;
 }
 
 

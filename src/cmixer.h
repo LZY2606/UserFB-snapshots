@@ -18,6 +18,17 @@ typedef unsigned short  cm_UInt16;
 typedef unsigned        cm_UInt32;
 
 typedef struct cm_Source cm_Source;
+typedef struct cm_Bus cm_Bus;
+
+enum {
+  CM_BUS_NORMAL,
+  CM_BUS_DELAY
+};
+
+enum {
+  CM_OK = 0,
+  CM_ERROR = -1
+};
 
 typedef struct {
   int type;
@@ -72,5 +83,23 @@ void cm_set_loop(cm_Source *src, int loop);
 void cm_play(cm_Source *src);
 void cm_pause(cm_Source *src);
 void cm_stop(cm_Source *src);
+
+cm_Bus* cm_master_bus(void);
+cm_Bus* cm_new_bus(void);
+cm_Bus* cm_new_delay_bus(int delay_frames, double feedback);
+int cm_destroy_bus(cm_Bus *bus);
+int cm_set_bus_gain(cm_Bus *bus, double gain);
+int cm_get_bus_gain(cm_Bus *bus, double *gain);
+int cm_set_delay_feedback(cm_Bus *bus, double feedback);
+int cm_clear_delay_history(cm_Bus *bus);
+
+int cm_set_source_bus(cm_Source *src, cm_Bus *bus);
+int cm_use_master_bus(cm_Source *src);
+cm_Bus* cm_get_source_bus(cm_Source *src);
+
+int cm_connect_bus(cm_Bus *from, cm_Bus *to, double gain);
+int cm_set_edge_gain(cm_Bus *from, cm_Bus *to, double gain);
+int cm_get_edge_gain(cm_Bus *from, cm_Bus *to, double *gain);
+int cm_disconnect_bus(cm_Bus *from, cm_Bus *to);
 
 #endif
