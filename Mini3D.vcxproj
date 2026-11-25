@@ -75,6 +75,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="mini3d.c" />
+    <ClCompile Include="radiosity.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="mini3d.h" />
+    <ClInclude Include="radiosity.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

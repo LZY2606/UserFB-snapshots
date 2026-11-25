@@ -40,6 +40,45 @@
 增加光照和二次线性插值（朋友给 Mini3D 增加的光照效果截图）
 ![](https://raw.githubusercontent.com/skywind3000/mini3d/master/images/mini_3.png)
 
+## 渐进辐射度（Radiosity）
+
+在原固定管线之上增加了一个离线的漫反射间接光模块：
+
+* `mini3d.h`：把原 `mini3d.c` 的核心类型（`matrix_t`/`vertex_t`/`device_t` 等）和函数暴露出来，`mini3d.c` 自己也包含它，声明和定义不会漂移；头文件用 `extern "C"` 包裹，可以被 C++ 直接使用。
+* `radiosity.h` / `radiosity.c`：C99 接口，实现了半立方体可见性驱动的渐进辐射度。每个面（`radiosity_patch`）是世界空间三角形，绕序决定朝外的法线。`radiosity_create` 深拷贝几何并用 `offset` 把半立方体放到各面面积质心之外，然后遍历五个 90° 视图，复用原来的矩阵、梯形拆分和扫描线链路，把可见性积分成传输矩阵 `F`。之后用“发射”（shooting）方式反复把 `Aᵢ₍Uᵣ+U_g+U_b₎` 最大的面的能量分给其它面，直到能量耗尽。
+
+核心接口：
+
+```c
+radiosity_scene *radiosity_create(const radiosity_patch *patches,
+                                  size_t count, int resolution, float offset);
+void   radiosity_destroy(radiosity_scene *scene);
+float  radiosity_factor(const radiosity_scene *scene, size_t i, size_t j);
+size_t radiosity_step(radiosity_scene *scene, size_t shots);
+int    radiosity_get(const radiosity_scene *scene, size_t i,
+                     color_t *B, color_t *U, float *area);
+size_t radiosity_last_shooter(const radiosity_scene *scene);
+void   radiosity_reset(radiosity_scene *scene);
+void   radiosity_draw(const radiosity_scene *scene, device_t *device,
+                      float exposure);
+```
+
+`radiosity_draw` 把当前累计辐射度 `B × exposure` 当作每个面的恒定顶点色，走原来的三角形绘制管线写进设备，只在最终字节颜色上截断；绘制期间使用场景自己的世界坐标，结束后恢复调用方的 `world`/`render_state` 等状态，不清空调用方已有的颜色和深度缓冲。
+
+### 完全用 C 构造的离线示例
+
+`examples/radiosity_demo.c` 不依赖窗口库或外部素材：一块发光的顶面把能量传给一块地板和一面背墙（两块接收面），中间悬着一块遮挡片投下阴影。程序分别走 1 次和多次发射，各输出一张 PPM：
+
+```bash
+cc -std=c99 -O2 -DMINI3D_HEADLESS -I. \
+   examples/radiosity_demo.c radiosity.c mini3d.c -lm -o radiosity_demo
+./radiosity_demo       # 生成 radiosity_1bounce.ppm 与 radiosity_nbounce.ppm
+```
+
+一次发射时只有直接光加第一跳，房间偏暗、阴影硬；多次发射后接收面自身也参与发射，间接光填满房间、彩色面之间互相串色、阴影变软。
+
+模块自带测试放在 `tests/radiosity_target.c`，通过 `bash task_support/run.sh target` 运行（会编译新模块与测试，跑 visibility / transport / integration 三组，再跑原固定管线对照）。
+
 ## 基础作业
 
 * 增加背面剔除

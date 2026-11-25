@@ -38,6 +38,45 @@ Wireframe Rendering：RENDER_STATE_WIREFRAME
 Added Lighting and Bicubic Interpolation (screenshot of lighting effect added by a friend to Mini3D)
 ![](https://raw.githubusercontent.com/skywind3000/mini3d/master/images/mini_3.png)
 
+## Progressive Radiosity
+
+An offline diffuse indirect-lighting module sits on top of the original fixed pipeline:
+
+* `mini3d.h` exposes the core types (`matrix_t`/`vertex_t`/`device_t`, ...) and functions implemented in `mini3d.c`. `mini3d.c` includes it too, so declarations cannot drift from the definitions; the header is wrapped in `extern "C"` and can be consumed directly from C++.
+* `radiosity.h` / `radiosity.c` is a C99 interface implementing hemicube-visibility-driven progressive radiosity. Each patch (`radiosity_patch`) is a world-space triangle whose winding defines the outward normal. `radiosity_create` deep-copies the geometry, places a hemicube at the area centroid of every patch offset by `offset`, and walks the five 90-degree views, reusing the original matrix, trapezoid-split and scanline chain to integrate visibility into a transfer matrix `F`. It then repeatedly shoots the energy of the patch with the largest `Aᵢ₍Uᵣ+U_g+U_b₎` into the others until no energy remains.
+
+Core API:
+
+```c
+radiosity_scene *radiosity_create(const radiosity_patch *patches,
+                                  size_t count, int resolution, float offset);
+void   radiosity_destroy(radiosity_scene *scene);
+float  radiosity_factor(const radiosity_scene *scene, size_t i, size_t j);
+size_t radiosity_step(radiosity_scene *scene, size_t shots);
+int    radiosity_get(const radiosity_scene *scene, size_t i,
+                     color_t *B, color_t *U, float *area);
+size_t radiosity_last_shooter(const radiosity_scene *scene);
+void   radiosity_reset(radiosity_scene *scene);
+void   radiosity_draw(const radiosity_scene *scene, device_t *device,
+                      float exposure);
+```
+
+`radiosity_draw` feeds the current accumulated radiosity `B × exposure` as a constant vertex colour per patch through the original triangle pipeline, clamping only at the final byte colour. It uses the scene's own world coordinates while drawing, restores the caller's `world`/`render_state` and other transform state afterwards, and never clears the caller's existing colour or depth buffers.
+
+### A fully C-constructed offline example
+
+`examples/radiosity_demo.c` needs no window library and no external assets: an emissive top panel sends energy to a floor and a back wall (two receivers) while an opaque plate hangs in between and casts a shadow. It runs one shot and many shots, writing a PPM for each:
+
+```bash
+cc -std=c99 -O2 -DMINI3D_HEADLESS -I. \
+   examples/radiosity_demo.c radiosity.c mini3d.c -lm -o radiosity_demo
+./radiosity_demo       # writes radiosity_1bounce.ppm and radiosity_nbounce.ppm
+```
+
+With a single shot only direct light and the first bounce are present, so the room stays dark and the shadow is hard; with many shots the receivers themselves emit, indirect light fills the room, the coloured surfaces bleed into each other and the shadow softens.
+
+The module's tests live in `tests/radiosity_target.c` and run through `bash task_support/run.sh target` (it builds the new module and tests, runs the visibility / transport / integration groups, then the original fixed-pipeline comparison).
+
 ## Basic TO-DO:
 
 * Add backface culling
