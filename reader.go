@@ -163,10 +163,36 @@ func (p *MediaPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 	if state.tagWV {
 		p.WV = wv
 	}
+	p.finishTail(state)
 	if strict && !state.m3u {
 		return errors.New("#EXTM3U absent")
 	}
 	return nil
+}
+
+// finishTail moves the declarations and parts that were read after the
+// last complete segment into the playlist tail.
+func (p *MediaPlaylist) finishTail(state *decodingState) {
+	if len(state.parts) > 0 {
+		p.Parts = state.parts
+		state.parts = nil
+		seq := p.TailSequence()
+		for _, part := range p.Parts {
+			part.SeqId = seq
+		}
+	}
+	if state.tagKey && state.xkey != nil {
+		p.TailKey = state.xkey
+		state.tagKey = false
+	}
+	if state.tagMap && state.xmap != nil {
+		p.TailMap = state.xmap
+		state.tagMap = false
+	}
+	if state.tagDiscontinuity {
+		p.TailDiscontinuity = true
+		state.tagDiscontinuity = false
+	}
 }
 
 // Decode detects type of playlist and decodes it. It accepts bytes
@@ -258,6 +284,9 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 	}
 	if state.listType == MEDIA && state.tagWV {
 		media.WV = wv
+	}
+	if state.listType == MEDIA {
+		media.finishTail(state)
 	}
 
 	if strict && !state.m3u {
@@ -529,6 +558,16 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 			// Check err for first or subsequent Append()
 			if err != nil {
 				return err
+			}
+			// Parts that appeared after the previous segment declarations and
+			// before EXTINF belong to this segment.
+			if len(state.parts) > 0 {
+				seg := p.Segments[p.last()]
+				seg.Parts = append([]*Part(nil), state.parts...)
+				for _, part := range seg.Parts {
+					part.SeqId = seg.SeqId
+				}
+				state.parts = nil
 			}
 			state.tagInf = false
 		}
@@ -846,10 +885,143 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		if err == nil {
 			state.tagWV = true
 		}
+	case strings.HasPrefix(line, "#EXT-X-PART-INF:"):
+		state.listType = MEDIA
+		for k, v := range decodeParamsLine(line[16:]) {
+			switch k {
+			case "PART-TARGET":
+				if p.PartTarget, err = strconv.ParseFloat(v, 64); strict && err != nil {
+					return fmt.Errorf("Part target parsing error: %s", err)
+				}
+			}
+		}
+	case strings.HasPrefix(line, "#EXT-X-PART:"):
+		state.listType = MEDIA
+		part := new(Part)
+		var hasRange, hasOffset bool
+		var rawLimit int64
+		var rawOffset int64
+		for k, v := range decodeParamsLine(line[12:]) {
+			switch k {
+			case "URI":
+				part.URI = v
+			case "DURATION":
+				if part.Duration, err = strconv.ParseFloat(v, 64); strict && err != nil {
+					return fmt.Errorf("Part duration parsing error: %s", err)
+				}
+			case "INDEPENDENT":
+				if strings.ToUpper(v) == "YES" {
+					part.Independent = true
+				}
+			case "GAP":
+				if strings.ToUpper(v) == "YES" {
+					part.Gap = true
+				}
+			case "BYTERANGE":
+				hasRange = true
+				rawLimit, rawOffset, hasOffset, err = parseByteRangeValue(v)
+				if strict && err != nil {
+					return err
+				}
+			}
+		}
+		if part.URI == "" {
+			if strict {
+				return errors.New("EXT-X-PART without URI")
+			}
+			break
+		}
+		if hasRange {
+			br := &ByteRange{Limit: rawLimit, Offset: rawOffset, HasOffset: hasOffset}
+			if !hasOffset {
+				prev := lastPartForURI(state.parts, part.URI)
+				if prev == nil || prev.ByteRange == nil {
+					// An offset-less range can only continue a known range of
+					// the same URI within the same media sequence.
+					return fmt.Errorf("EXT-X-PART %q byterange without offset requires a previous part with a known range", part.URI)
+				}
+				br.Offset = prev.ByteRange.Offset + prev.ByteRange.Limit
+			}
+			part.ByteRange = br
+		}
+		part.SeqId = p.TailSequence()
+		state.parts = append(state.parts, part)
+	case strings.HasPrefix(line, "#EXT-X-PRELOAD-HINT:"):
+		state.listType = MEDIA
+		hint := new(PreloadHint)
+		var hasRange, hasOffset bool
+		var rawLimit int64
+		var rawOffset int64
+		for k, v := range decodeParamsLine(line[20:]) {
+			switch k {
+			case "TYPE":
+				hint.Type = v
+			case "URI":
+				hint.URI = v
+			case "BYTERANGE":
+				hasRange = true
+				rawLimit, rawOffset, hasOffset, err = parseByteRangeValue(v)
+				if strict && err != nil {
+					return err
+				}
+			}
+		}
+		if hasRange {
+			if hint.ByteRange, err = resolveHintByteRange(hint.URI, rawLimit, rawOffset, hasOffset, state.parts); err != nil {
+				return err
+			}
+		}
+		if hint.Type != "" && hint.Type != "PART" {
+			break // only PART preload hints are modelled
+		}
+		// A hint is never a completed part and does not become one on a
+		// later commit.
+		p.PreloadHint = hint
 	case strings.HasPrefix(line, "#"):
 		// comments are ignored
 	}
 	return err
+}
+
+// parseByteRangeValue parses an <n>[@<o>] byterange value.
+func parseByteRangeValue(v string) (limit, offset int64, hasOffset bool, err error) {
+	params := strings.SplitN(v, "@", 2)
+	if limit, err = strconv.ParseInt(params[0], 10, 64); err != nil {
+		return 0, 0, false, fmt.Errorf("Byterange sub-range length value parsing error: %s", err)
+	}
+	if len(params) > 1 {
+		if offset, err = strconv.ParseInt(params[1], 10, 64); err != nil {
+			return 0, 0, false, fmt.Errorf("Byterange sub-range offset value parsing error: %s", err)
+		}
+		hasOffset = true
+	}
+	return limit, offset, hasOffset, nil
+}
+
+// lastPartForURI returns the last part with the given URI in the given
+// list.
+func lastPartForURI(parts []*Part, uri string) *Part {
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i].URI == uri {
+			return parts[i]
+		}
+	}
+	return nil
+}
+
+// resolveHintByteRange resolves the byterange of a preload hint against
+// the parts already published. An omitted offset continues the range of
+// a previous part with the same URI.
+func resolveHintByteRange(uri string, limit, offset int64, hasOffset bool, parts []*Part) (*ByteRange, error) {
+	br := &ByteRange{Limit: limit, Offset: offset, HasOffset: hasOffset}
+	if !hasOffset {
+		prev := lastPartForURI(parts, uri)
+		if prev == nil || prev.ByteRange == nil {
+			return nil, fmt.Errorf("EXT-X-PRELOAD-HINT %q byterange without offset requires a previous part with a known range", uri)
+		}
+		br.Offset = prev.ByteRange.Offset + prev.ByteRange.Limit
+	}
+	return br, nil
 }
 
 // StrictTimeParse implements RFC3339 with Nanoseconds accuracy.

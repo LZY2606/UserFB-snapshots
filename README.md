@@ -102,6 +102,54 @@ Custom Tags
 
 M3U8 supports parsing and writing of custom tags. You must implement both the `CustomTag` and `CustomDecoder` interface for each custom tag that may be encountered in the playlist. Look at the template files in `example/template/` for examples on parsing custom playlist and segment tags.
 
+Low-Latency HLS parts
+---------------------
+
+Low-latency media playlists can publish partial segments (`EXT-X-PART`) at
+the tail of the playlist before their complete segment is ready. Parts that
+appear before an `EXTINF` belong to that complete segment when the playlist is
+read back; parts at the end without a following `EXTINF` stay in the tail.
+The same structures are used when writing a playlist, no custom decoders or
+string concatenation are required.
+
+```go
+	p, e := m3u8.NewMediaPlaylist(3, 5) // sliding window of 3 complete segments
+	if e != nil {
+		panic(fmt.Sprintf("Creating of media playlist failed: %s", e))
+	}
+	e = p.SetPartTarget(0.5) // EXT-X-PART-INF:PART-TARGET=0.5
+	if e != nil {
+		panic(e)
+	}
+	for i := 0; i < 2; i++ {
+		e = p.Append(fmt.Sprintf("video%d.ts", i), 6.0, "")
+		if e != nil {
+			panic(e)
+		}
+	}
+	// Publish two parts of the next segment, then let clients preload one more.
+	e = p.AppendPart(&m3u8.Part{URI: "part0.m4s", Duration: 0.5, Independent: true})
+	if e != nil {
+		panic(e)
+	}
+	e = p.AppendPart(&m3u8.Part{URI: "part1.m4s", Duration: 0.5})
+	if e != nil {
+		panic(e)
+	}
+	e = p.SetPartPreloadHint(&m3u8.PreloadHint{Type: "PART", URI: "part2.m4s"})
+	if e != nil {
+		panic(e)
+	}
+	// Once the segment is finished, commit the tail as a complete segment.
+	// Its duration is provided by the caller and need not equal the sum of
+	// the part durations.
+	e = p.CommitParts("video2.ts", 6.0, "")
+	if e != nil {
+		panic(e)
+	}
+	fmt.Println(p.Encode().String())
+```
+
 Library structure
 -----------------
 

@@ -24,6 +24,15 @@ import (
 // ErrPlaylistFull declares the playlist error.
 var ErrPlaylistFull = errors.New("playlist is full")
 
+// ErrNoParts declares the error returned when there are no tail parts
+// to commit into a complete segment.
+var ErrNoParts = errors.New("no parts to commit")
+
+// validPartDuration reports whether d is a positive finite duration.
+func validPartDuration(d float64) bool {
+	return d > 0 && !math.IsInf(d, 0) && !math.IsNaN(d)
+}
+
 // Set version of the playlist accordingly with section 7
 func version(ver *uint8, newver uint8) {
 	if *ver < newver {
@@ -334,17 +343,31 @@ func (p *MediaPlaylist) last() uint {
 	return p.tail - 1
 }
 
+// refreshTailSeq keeps the tail parts on the media sequence number that
+// follows the complete segments.
+func (p *MediaPlaylist) refreshTailSeq() {
+	seq := p.TailSequence()
+	for _, part := range p.Parts {
+		part.SeqId = seq
+	}
+}
+
 // Remove current segment from the head of chunk slice form a media playlist. Useful for sliding playlists.
+// Parts attached to the removed segment leave the playlist with it.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) Remove() (err error) {
 	if p.count == 0 {
 		return errors.New("playlist is empty")
 	}
+	// Clearing the slot keeps parts that belonged to the removed segment
+	// from resurfacing when the ring buffer wraps around.
+	p.Segments[p.head] = nil
 	p.head = (p.head + 1) % p.capacity
 	p.count--
 	if !p.Closed {
 		p.SeqNo++
 	}
+	p.refreshTailSeq()
 	p.buf.Reset()
 	return nil
 }
@@ -372,6 +395,7 @@ func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
 	p.Segments[p.tail] = seg
 	p.tail = (p.tail + 1) % p.capacity
 	p.count++
+	p.refreshTailSeq()
 	if p.TargetDuration < seg.Duration {
 		p.TargetDuration = math.Ceil(seg.Duration)
 	}
@@ -382,7 +406,9 @@ func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
 // Slide combines two operations: firstly it removes one chunk from
 // the head of chunk slice and move pointer to next chunk. Secondly it
 // appends one chunk to the tail of chunk slice. Useful for sliding
-// playlists.  This operation does reset cache.
+// playlists. The tail parts are not a complete segment and never count
+// towards the window, so they are preserved while complete segments
+// slide out. This operation does reset cache.
 func (p *MediaPlaylist) Slide(uri string, duration float64, title string) {
 	if !p.Closed && p.count >= p.winsize {
 		p.Remove()
@@ -472,6 +498,11 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 	p.buf.WriteString("#EXT-X-TARGETDURATION:")
 	p.buf.WriteString(strconv.FormatInt(int64(math.Ceil(p.TargetDuration)), 10)) // due section 3.4.2 of M3U8 specs EXT-X-TARGETDURATION must be integer
 	p.buf.WriteRune('\n')
+	if p.PartTarget > 0 {
+		p.buf.WriteString("#EXT-X-PART-INF:PART-TARGET=")
+		p.buf.WriteString(formatPartDuration(p.PartTarget))
+		p.buf.WriteRune('\n')
+	}
 	if p.StartTime > 0.0 {
 		p.buf.WriteString("#EXT-X-START:TIME-OFFSET=")
 		p.buf.WriteString(strconv.FormatFloat(p.StartTime, 'f', -1, 64))
@@ -682,6 +713,10 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 			}
 		}
 
+		for _, part := range seg.Parts {
+			writePartTag(&p.buf, part)
+		}
+
 		p.buf.WriteString("#EXTINF:")
 		if str, ok := durationCache[seg.Duration]; ok {
 			p.buf.WriteString(str)
@@ -705,10 +740,117 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		}
 		p.buf.WriteRune('\n')
 	}
+	// The tail parts and their declarations are written after the
+	// complete segments even if the playlist is closed.
+	if len(p.Parts) > 0 || p.PreloadHint != nil || p.TailKey != nil || p.TailMap != nil || p.TailDiscontinuity {
+		p.writeTail()
+	}
 	if p.Closed {
 		p.buf.WriteString("#EXT-X-ENDLIST\n")
 	}
 	return &p.buf
+}
+
+// writePartTag writes one EXT-X-PART tag. Byte ranges are always written
+// with an explicit offset so that reading the playlist back does not
+// change the byte range that is actually downloaded.
+func writePartTag(buf *bytes.Buffer, part *Part) {
+	buf.WriteString("#EXT-X-PART:DURATION=")
+	buf.WriteString(formatPartDuration(part.Duration))
+	buf.WriteString(",URI=\"")
+	buf.WriteString(part.URI)
+	buf.WriteRune('"')
+	if part.ByteRange != nil {
+		buf.WriteString(",BYTERANGE=")
+		buf.WriteString(formatByteRange(part.ByteRange))
+	}
+	if part.Independent {
+		buf.WriteString(",INDEPENDENT=YES")
+	}
+	if part.Gap {
+		buf.WriteString(",GAP=YES")
+	}
+	buf.WriteRune('\n')
+}
+
+// formatByteRange formats a byte range as length@offset with an
+// explicit offset.
+func formatByteRange(br *ByteRange) string {
+	return strconv.FormatInt(br.Limit, 10) + "@" + strconv.FormatInt(br.Offset, 10)
+}
+
+// formatPartDuration formats a part duration without trailing zeros.
+func formatPartDuration(d float64) string {
+	return strconv.FormatFloat(d, 'f', -1, 64)
+}
+
+// writeTail writes the parts, preload hint and declarations of the not
+// yet completed segment at the end of the playlist.
+func (p *MediaPlaylist) writeTail() {
+	if p.TailKey != nil {
+		writeKeyTag(&p.buf, p.TailKey)
+	}
+	if p.TailDiscontinuity {
+		p.buf.WriteString("#EXT-X-DISCONTINUITY\n")
+	}
+	// The tail map applies to the next segment, so it is written even if
+	// the playlist has a default map.
+	if p.TailMap != nil {
+		writeMapTag(&p.buf, p.TailMap)
+	}
+	for _, part := range p.Parts {
+		writePartTag(&p.buf, part)
+	}
+	if p.PreloadHint != nil {
+		p.buf.WriteString("#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"")
+		p.buf.WriteString(p.PreloadHint.URI)
+		p.buf.WriteRune('"')
+		if p.PreloadHint.ByteRange != nil {
+			p.buf.WriteString(",BYTERANGE=")
+			p.buf.WriteString(formatByteRange(p.PreloadHint.ByteRange))
+		}
+		p.buf.WriteRune('\n')
+	}
+}
+
+func writeKeyTag(buf *bytes.Buffer, key *Key) {
+	buf.WriteString("#EXT-X-KEY:")
+	buf.WriteString("METHOD=")
+	buf.WriteString(key.Method)
+	if key.Method != "NONE" {
+		buf.WriteString(",URI=\"")
+		buf.WriteString(key.URI)
+		buf.WriteRune('"')
+		if key.IV != "" {
+			buf.WriteString(",IV=")
+			buf.WriteString(key.IV)
+		}
+		if key.Keyformat != "" {
+			buf.WriteString(",KEYFORMAT=\"")
+			buf.WriteString(key.Keyformat)
+			buf.WriteRune('"')
+		}
+		if key.Keyformatversions != "" {
+			buf.WriteString(",KEYFORMATVERSIONS=\"")
+			buf.WriteString(key.Keyformatversions)
+			buf.WriteRune('"')
+		}
+	}
+	buf.WriteRune('\n')
+}
+
+func writeMapTag(buf *bytes.Buffer, m *Map) {
+	buf.WriteString("#EXT-X-MAP:")
+	buf.WriteString("URI=\"")
+	buf.WriteString(m.URI)
+	buf.WriteRune('"')
+	if m.Limit > 0 {
+		buf.WriteString(",BYTERANGE=")
+		buf.WriteString(strconv.FormatInt(m.Limit, 10))
+		buf.WriteRune('@')
+		buf.WriteString(strconv.FormatInt(m.Offset, 10))
+	}
+	buf.WriteRune('\n')
 }
 
 // String here for compatibility with Stringer interface For example
@@ -885,6 +1027,194 @@ func (p *MediaPlaylist) SetCustomSegmentTag(tag CustomTag) error {
 // Version returns the current playlist version number
 func (p *MediaPlaylist) Version() uint8 {
 	return p.ver
+}
+
+// SetPartTarget sets the EXT-X-PART-INF part target duration. It must
+// be a positive finite number of seconds.
+func (p *MediaPlaylist) SetPartTarget(duration float64) error {
+	if !validPartDuration(duration) {
+		return errors.New("part target duration must be a positive finite number")
+	}
+	p.PartTarget = duration
+	version(&p.ver, 9) // LL-HLS tags require protocol version 9
+	p.buf.Reset()
+	return nil
+}
+
+// AppendPart appends a partial segment to the tail of the playlist.
+// The part belongs to the media sequence number following the
+// currently published complete segments (see TailSequence). The part
+// is copied, so the caller may reuse the value after the call.
+func (p *MediaPlaylist) AppendPart(part *Part) error {
+	if part == nil {
+		return errors.New("part is nil")
+	}
+	if part.URI == "" {
+		return errors.New("part URI is empty")
+	}
+	if !validPartDuration(part.Duration) {
+		return errors.New("part duration must be a positive finite number")
+	}
+	if part.ByteRange != nil && part.ByteRange.Limit < 0 {
+		return errors.New("part byte range length must not be negative")
+	}
+	copied := copyPart(part)
+	if copied.ByteRange != nil && !copied.ByteRange.HasOffset {
+		prev := lastPartForURI(p.Parts, copied.URI)
+		if prev == nil || prev.ByteRange == nil {
+			return errors.New("part byte range without offset requires a previous part with a known range")
+		}
+		copied.ByteRange.Offset = prev.ByteRange.Offset + prev.ByteRange.Limit
+		copied.ByteRange.HasOffset = true
+	}
+	copied.SeqId = p.TailSequence()
+	p.Parts = append(p.Parts, copied)
+	version(&p.ver, 9) // LL-HLS tags require protocol version 9
+	p.buf.Reset()
+	return nil
+}
+
+// SetPartPreloadHint sets the EXT-X-PRELOAD-HINT of type PART at the
+// tail of the playlist. The hint is copied, so the caller may reuse
+// the value after the call. A nil hint or an empty URI clears the hint.
+func (p *MediaPlaylist) SetPartPreloadHint(hint *PreloadHint) error {
+	if hint == nil || hint.URI == "" {
+		return p.ClearPartPreloadHint()
+	}
+	if hint.Type != "" && hint.Type != "PART" {
+		return errors.New("preload hint type must be PART")
+	}
+	if hint.ByteRange != nil && hint.ByteRange.Limit < 0 {
+		return errors.New("preload hint byte range length must not be negative")
+	}
+	copied := *hint
+	copied.Type = "PART"
+	copied.ByteRange = copyByteRange(hint.ByteRange)
+	if copied.ByteRange != nil && !copied.ByteRange.HasOffset {
+		prev := lastPartForURI(p.Parts, copied.URI)
+		if prev == nil || prev.ByteRange == nil {
+			return errors.New("preload hint byte range without offset requires a previous part with a known range")
+		}
+		copied.ByteRange.Offset = prev.ByteRange.Offset + prev.ByteRange.Limit
+		copied.ByteRange.HasOffset = true
+	}
+	p.PreloadHint = &copied
+	version(&p.ver, 9)
+	p.buf.Reset()
+	return nil
+}
+
+// ClearPartPreloadHint removes the tail EXT-X-PRELOAD-HINT.
+func (p *MediaPlaylist) ClearPartPreloadHint() error {
+	p.PreloadHint = nil
+	p.buf.Reset()
+	return nil
+}
+
+// SetTailKey sets the EXT-X-KEY declaration that applies to the not
+// yet completed segment described by the tail parts. The declaration
+// moves onto the next complete segment when CommitParts is called.
+func (p *MediaPlaylist) SetTailKey(method, uri, iv, keyformat, keyformatversions string) error {
+	if keyformat != "" || keyformatversions != "" {
+		version(&p.ver, 5)
+	}
+	p.TailKey = &Key{method, uri, iv, keyformat, keyformatversions}
+	p.buf.Reset()
+	return nil
+}
+
+// ClearTailKey removes the tail EXT-X-KEY declaration.
+func (p *MediaPlaylist) ClearTailKey() {
+	p.TailKey = nil
+	p.buf.Reset()
+}
+
+// SetTailMap sets the EXT-X-MAP declaration that applies to the not
+// yet completed segment described by the tail parts. The declaration
+// moves onto the next complete segment when CommitParts is called.
+func (p *MediaPlaylist) SetTailMap(uri string, limit, offset int64) {
+	version(&p.ver, 5) // due section 4
+	p.TailMap = &Map{uri, limit, offset}
+	p.buf.Reset()
+}
+
+// ClearTailMap removes the tail EXT-X-MAP declaration.
+func (p *MediaPlaylist) ClearTailMap() {
+	p.TailMap = nil
+	p.buf.Reset()
+}
+
+// SetTailDiscontinuity marks an encoding discontinuity before the not
+// yet completed segment described by the tail parts. The tag moves
+// onto the next complete segment when CommitParts is called.
+func (p *MediaPlaylist) SetTailDiscontinuity() {
+	p.TailDiscontinuity = true
+	p.buf.Reset()
+}
+
+// ClearTailDiscontinuity removes the tail EXT-X-DISCONTINUITY marker.
+func (p *MediaPlaylist) ClearTailDiscontinuity() {
+	p.TailDiscontinuity = false
+	p.buf.Reset()
+}
+
+// CommitParts turns the tail parts into a new complete media segment
+// with the given URI and duration. The duration is provided by the
+// caller and is independent from the sum of the part durations. On
+// success the tail is cleared, the preload hint is removed and the
+// next part belongs to the following media sequence number. On failure
+// the tail and hint are left untouched.
+func (p *MediaPlaylist) CommitParts(uri string, duration float64, title string) error {
+	if len(p.Parts) == 0 {
+		return ErrNoParts
+	}
+	if uri == "" {
+		return errors.New("segment URI is empty")
+	}
+	if !validPartDuration(duration) {
+		return errors.New("segment duration must be a positive finite number")
+	}
+	if p.head == p.tail && p.count > 0 {
+		// The tail is not a complete segment and never occupies a segment
+		// slot: when the buffer is full the commit fails and the tail
+		// (and its preload hint) stay published.
+		return ErrPlaylistFull
+	}
+	seg := new(MediaSegment)
+	seg.URI = uri
+	seg.Duration = duration
+	seg.Title = title
+	seg.Parts = make([]*Part, len(p.Parts))
+	for i, part := range p.Parts {
+		seg.Parts[i] = copyPart(part)
+	}
+	seg.Key = p.TailKey
+	seg.Map = p.TailMap
+	seg.Discontinuity = p.TailDiscontinuity
+	if err := p.AppendSegment(seg); err != nil {
+		return err
+	}
+	p.Parts = nil
+	p.PreloadHint = nil
+	p.TailKey = nil
+	p.TailMap = nil
+	p.TailDiscontinuity = false
+	p.buf.Reset()
+	return nil
+}
+
+func copyPart(part *Part) *Part {
+	copied := *part
+	copied.ByteRange = copyByteRange(part.ByteRange)
+	return &copied
+}
+
+func copyByteRange(br *ByteRange) *ByteRange {
+	if br == nil {
+		return nil
+	}
+	copied := *br
+	return &copied
 }
 
 // SetVersion sets the playlist version number, note the version maybe changed

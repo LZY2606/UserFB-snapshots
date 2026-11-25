@@ -116,20 +116,37 @@ type MediaPlaylist struct {
 	DiscontinuitySeq uint64 // EXT-X-DISCONTINUITY-SEQUENCE
 	StartTime        float64
 	StartTimePrecise bool
-	durationAsInt    bool // output durations as integers of floats?
-	keyformat        int
-	winsize          uint // max number of segments displayed in an encoded playlist; need set to zero for VOD playlists
-	capacity         uint // total capacity of slice used for the playlist
-	head             uint // head of FIFO, we add segments to head
-	tail             uint // tail of FIFO, we remove segments from tail
-	count            uint // number of segments added to the playlist
-	buf              bytes.Buffer
-	ver              uint8
-	Key              *Key // EXT-X-KEY is optional encryption key displayed before any segments (default key for the playlist)
-	Map              *Map // EXT-X-MAP is optional tag specifies how to obtain the Media Initialization Section (default map for the playlist)
-	WV               *WV  // Widevine related tags outside of M3U8 specs
-	Custom           map[string]CustomTag
-	customDecoders   []CustomDecoder
+
+	// PartTarget is the part target duration (EXT-X-PART-INF:PART-TARGET).
+	PartTarget float64
+	// Parts are the partial segments at the tail of the playlist. They
+	// belong to the media sequence number following the last complete
+	// segment (see TailSequence). CommitParts turns them into a complete
+	// MediaSegment.
+	Parts []*Part
+	// PreloadHint is the EXT-X-PRELOAD-HINT tag at the tail of the playlist.
+	PreloadHint *PreloadHint
+	// TailKey, TailMap and TailDiscontinuity are declarations that apply
+	// to the not yet completed segment described by the tail parts. They
+	// are moved onto the next complete segment by CommitParts.
+	TailKey           *Key
+	TailMap           *Map
+	TailDiscontinuity bool
+
+	durationAsInt  bool // output durations as integers of floats?
+	keyformat      int
+	winsize        uint // max number of segments displayed in an encoded playlist; need set to zero for VOD playlists
+	capacity       uint // total capacity of slice used for the playlist
+	head           uint // head of FIFO, we add segments to head
+	tail           uint // tail of FIFO, we remove segments from tail
+	count          uint // number of segments added to the playlist
+	buf            bytes.Buffer
+	ver            uint8
+	Key            *Key // EXT-X-KEY is optional encryption key displayed before any segments (default key for the playlist)
+	Map            *Map // EXT-X-MAP is optional tag specifies how to obtain the Media Initialization Section (default map for the playlist)
+	WV             *WV  // Widevine related tags outside of M3U8 specs
+	Custom         map[string]CustomTag
+	customDecoders []CustomDecoder
 }
 
 // MasterPlaylist structure represents a master playlist which
@@ -214,7 +231,50 @@ type MediaSegment struct {
 	Discontinuity   bool      // EXT-X-DISCONTINUITY indicates an encoding discontinuity between the media segment that follows it and the one that preceded it (i.e. file format, number and type of tracks, encoding parameters, encoding sequence, timestamp sequence)
 	SCTE            *SCTE     // SCTE-35 used for Ad signaling in HLS
 	ProgramDateTime time.Time // EXT-X-PROGRAM-DATE-TIME tag associates the first sample of a media segment with an absolute date and/or time
-	Custom          map[string]CustomTag
+	// Parts are the partial segments that belong to this complete
+	// segment. They are encoded after the segment declarations and
+	// before EXTINF.
+	Parts  []*Part
+	Custom map[string]CustomTag
+}
+
+// Part structure represents a partial segment (EXT-X-PART tag) used
+// by low-latency HLS. Parts are published at the tail of a media
+// playlist before the segment that contains them is complete.
+type Part struct {
+	URI         string
+	Duration    float64
+	Independent bool
+	Gap         bool
+	// ByteRange is the optional EXT-X-BYTERANGE of the part. Its
+	// HasOffset flag distinguishes an omitted offset from an explicit
+	// offset of zero.
+	ByteRange *ByteRange
+	// SeqId is the media sequence number this part belongs to.
+	SeqId uint64
+}
+
+// PreloadHint structure represents the EXT-X-PRELOAD-HINT tag. Type is
+// "PART" for part preload hints.
+type PreloadHint struct {
+	Type      string
+	URI       string
+	ByteRange *ByteRange
+}
+
+// ByteRange structure represents an EXT-X-BYTERANGE (length@offset)
+// value. Offset is left at zero when it was not provided; HasOffset
+// tells an explicit zero offset from an omitted one.
+type ByteRange struct {
+	Limit     int64
+	Offset    int64
+	HasOffset bool
+}
+
+// TailSequence returns the media sequence number that the tail parts
+// belong to: the sequence number of the next complete segment.
+func (p *MediaPlaylist) TailSequence() uint64 {
+	return p.SeqNo + uint64(p.count)
 }
 
 // SCTE holds custom, non EXT-X-DATERANGE, SCTE-35 tags
@@ -326,6 +386,7 @@ type decodingState struct {
 	offset             int64
 	duration           float64
 	title              string
+	parts              []*Part
 	variant            *Variant
 	alternatives       []*Alternative
 	xkey               *Key
