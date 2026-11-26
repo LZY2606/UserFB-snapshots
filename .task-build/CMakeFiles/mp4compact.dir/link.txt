@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -mmacosx-version-min=10.12 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/mp4compact.dir/Source/C++/Apps/Mp4Compact/Mp4Compact.cpp.o -o mp4compact  libap4.a

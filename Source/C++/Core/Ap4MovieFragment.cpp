@@ -75,7 +75,7 @@ AP4_MovieFragment::GetTrackIds(AP4_Array<AP4_UI32>& ids)
 {
     ids.Clear();
     ids.EnsureCapacity(m_MoofAtom->GetChildren().ItemCount());
-    
+
     for (AP4_List<AP4_Atom>::Item* item = m_MoofAtom->GetChildren().FirstItem();
                                    item;
                                    item = item->GetNext()) {
@@ -84,12 +84,49 @@ AP4_MovieFragment::GetTrackIds(AP4_Array<AP4_UI32>& ids)
             AP4_ContainerAtom* traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, atom);
             if (traf) {
                 AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
-                if (tfhd) ids.Append(tfhd->GetTrackId());
+                if (tfhd) {
+                    // a track may be represented by more than one 'traf' in
+                    // this 'moof': report each track ID only once, in the
+                    // order in which it first appears
+                    bool already_present = false;
+                    for (unsigned int i=0; i<ids.ItemCount(); i++) {
+                        if (ids[i] == tfhd->GetTrackId()) {
+                            already_present = true;
+                            break;
+                        }
+                    }
+                    if (!already_present) ids.Append(tfhd->GetTrackId());
+                }
             }
         }
     }
-    
+
     return AP4_SUCCESS;
+}
+
+/*----------------------------------------------------------------------
+|   AP4_MovieFragment::GetTrafAtoms
++---------------------------------------------------------------------*/
+static AP4_Result
+GetTrafAtoms(AP4_ContainerAtom* moof, AP4_UI32 track_id, AP4_Array<AP4_ContainerAtom*>& trafs)
+{
+    trafs.Clear();
+    for (AP4_List<AP4_Atom>::Item* item = moof->GetChildren().FirstItem();
+                                   item;
+                                   item = item->GetNext()) {
+        AP4_Atom* atom = item->GetData();
+        if (atom->GetType() == AP4_ATOM_TYPE_TRAF) {
+            AP4_ContainerAtom* traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, atom);
+            if (traf) {
+                AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
+                if (tfhd && tfhd->GetTrackId() == track_id) {
+                    trafs.Append(traf);
+                }
+            }
+        }
+    }
+
+    return trafs.ItemCount() ? AP4_SUCCESS : AP4_ERROR_NO_SUCH_ITEM;
 }
 
 /*----------------------------------------------------------------------
@@ -151,18 +188,20 @@ AP4_MovieFragment::CreateSampleTable(AP4_MoovAtom*             moov,
             }
         }
     }
-    AP4_ContainerAtom* traf = NULL;
-    if (AP4_SUCCEEDED(GetTrafAtom(track_id, traf))) {
-        sample_table = new AP4_FragmentSampleTable(traf, 
-                                                   trex, 
-                                                   sample_stream,
-                                                   moof_offset,
-                                                   mdat_payload_offset,
-                                                   dts_origin);
-        return AP4_SUCCESS;
+    // gather all the 'traf' atoms of this track, in the order in which they
+    // appear in the 'moof' (there is normally just one, but a track may be
+    // split into several 'traf' atoms when its sample description changes)
+    AP4_Array<AP4_ContainerAtom*> trafs;
+    if (AP4_FAILED(GetTrafAtoms(m_MoofAtom, track_id, trafs))) {
+        return AP4_ERROR_NO_SUCH_ITEM;
     }
-    
-    return AP4_ERROR_NO_SUCH_ITEM;
+    sample_table = new AP4_FragmentSampleTable(trafs,
+                                               trex,
+                                               sample_stream,
+                                               moof_offset,
+                                               mdat_payload_offset,
+                                               dts_origin);
+    return AP4_SUCCESS;
 }
 
 /*----------------------------------------------------------------------

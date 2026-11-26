@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -mmacosx-version-min=10.12 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/mp4rtphintinfo.dir/Source/C++/Apps/Mp4RtpHintInfo/Mp4RtpHintInfo.cpp.o -o mp4rtphintinfo  libap4.a

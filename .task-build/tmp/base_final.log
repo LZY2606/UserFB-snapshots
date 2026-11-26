@@ -1,0 +1,21 @@
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/.task-build
+[ 98%] Built target ap4
+[ 98%] Building CXX object task_support/CMakeFiles/task_fixture.dir/fixture.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/task_support/fixture.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/Source/C++/Core/Ap4.h:232:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/Source/C++/Core/Ap4Utils.h:178:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/stdio.h:93:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[100%] Linking CXX executable task_fixture
+[100%] Built target task_fixture
+[ 98%] Built target ap4
+[100%] Built target mp4fragment
+BENTO_FIXTURE_WRITTEN samples=4 descriptions=2
+BENTO_INPUT_OK input=0,0,1,0 samples=4
+BENTO_DESCRIPTION_BASELINE_OK output=0,0,0,0 samples=4

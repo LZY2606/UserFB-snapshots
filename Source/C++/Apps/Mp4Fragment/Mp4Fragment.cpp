@@ -34,6 +34,7 @@
 #include <time.h>
 
 #include "Ap4.h"
+#include "Ap4SubtitleDescriptionRuns.h"
 
 /*----------------------------------------------------------------------
 |   constants
@@ -67,6 +68,7 @@ struct _Options {
     unsigned int  sequence_number_start;
     ForceSyncMode force_i_frame_sync;
     bool          no_zero_elst;
+    bool          subtitle_description_runs;
 } Options;
 
 /*----------------------------------------------------------------------
@@ -95,6 +97,8 @@ PrintUsageAndExit()
             "  --copy-udta copy the moov/udta atom from input to output\n"
             "  --no-zero-elst don't set the last edit list entry to 0 duration\n"
             "  --trun-version-zero set the 'trun' box version to zero (default version: 1)\n"
+            "  --subtitle-description-runs split subtitle fragments into one 'traf' per\n"
+            "    maximal run of identical sample description index (stpp only)\n"
             );
     exit(1);
 }
@@ -291,6 +295,48 @@ public:
 };
 
 /*----------------------------------------------------------------------
+|   CursorSampleProvider
++---------------------------------------------------------------------*/
+class CursorSampleProvider : public AP4_SubtitleRunSampleProvider {
+public:
+    CursorSampleProvider(SampleArray& samples) : m_Samples(samples) {}
+    virtual AP4_Result GetSample(AP4_Ordinal index, AP4_Sample& sample) {
+        return m_Samples.GetSample(index, sample);
+    }
+private:
+    SampleArray& m_Samples;
+};
+
+/*----------------------------------------------------------------------
+|   RunContext - one 'traf' worth of samples (one description run)
++---------------------------------------------------------------------*/
+struct RunContext {
+    RunContext() :
+        m_Traf(NULL),
+        m_Tfhd(NULL),
+        m_Trun(NULL),
+        m_TfhdFlags(0),
+        m_TrunFlags(0),
+        m_ConstantSampleDuration(0),
+        m_AllSampleDurationsEqual(true),
+        m_AllSamplesAreSync(true),
+        m_OnlyFirstSampleIsSync(true),
+        m_PayloadSize(0) {}
+
+    AP4_ContainerAtom*          m_Traf;
+    AP4_TfhdAtom*               m_Tfhd;
+    AP4_TrunAtom*               m_Trun;
+    AP4_UI32                    m_TfhdFlags;
+    AP4_UI32                    m_TrunFlags;
+    AP4_Array<AP4_TrunAtom::Entry> m_TrunEntries;
+    AP4_UI32                    m_ConstantSampleDuration;
+    bool                        m_AllSampleDurationsEqual;
+    bool                        m_AllSamplesAreSync;
+    bool                        m_OnlyFirstSampleIsSync;
+    AP4_UI32                    m_PayloadSize;
+};
+
+/*----------------------------------------------------------------------
 |   IndexSegmentInfo
 +---------------------------------------------------------------------*/
 class IndexedSegmentInfo {
@@ -303,7 +349,7 @@ public:
 /*----------------------------------------------------------------------
 |   Fragment
 +---------------------------------------------------------------------*/
-static void
+static AP4_Result
 Fragment(AP4_File&                input_file,
          AP4_ByteStream&          output_stream,
          AP4_Array<TrackCursor*>& cursors,
@@ -322,7 +368,7 @@ Fragment(AP4_File&                input_file,
     AP4_Movie* input_movie = input_file.GetMovie();
     if (input_movie == NULL) {
         fprintf(stderr, "ERROR: no moov found in the input file\n");
-        return;
+        return AP4_ERROR_NO_SUCH_ITEM;
     }
 
     // create the output file object
@@ -346,7 +392,7 @@ Fragment(AP4_File&                input_file,
         result = cursors[i]->Init();
         if (AP4_FAILED(result)) {
             fprintf(stderr, "ERROR: failed to init sample cursor (%d), skipping track %d\n", result, track->GetId());
-            return;
+            return result;
         }
 
         // create a sample table (with no samples) to hold the sample description
@@ -461,7 +507,7 @@ Fragment(AP4_File&                input_file,
     if (anchor_cursor == NULL) {
         // this should never happen
         fprintf(stderr, "ERROR: no anchor track\n");
-        return;
+        return AP4_FAILURE;
     }
     if (Options.debug) {
         printf("Using track ID %d as anchor\n", anchor_cursor->m_Track->GetId());
@@ -564,7 +610,7 @@ Fragment(AP4_File&                input_file,
                 result = cursor->m_Samples->GetSample(i, sample);
                 if (AP4_FAILED(result)) {
                     fprintf(stderr, "ERROR: failed to get sample %d (%d)\n", i, result);
-                    return;
+                    return result;
                 }
                 if (!sample.IsSync()) continue; // only look for sync samples
                 dts = sample.GetDts();
@@ -572,7 +618,7 @@ Fragment(AP4_File&                input_file,
                 result = cursor->m_Samples->GetSample(i-1, sample);
                 if (AP4_FAILED(result)) {
                     fprintf(stderr, "ERROR: failed to get sample %d (%d)\n", i-1, result);
-                    return;
+                    return result;
                 }
                 dts = sample.GetDts()+sample.GetDuration();
             }
@@ -610,13 +656,7 @@ Fragment(AP4_File&                input_file,
             printf("fragment: track ID %d\n", cursor->m_Track->GetId());
         }
 
-        // decide which sample description index to use
-        // (this is not very sophisticated, we only look at the sample description
-        // index of the first sample in the group, which may not be correct. This
-        // should be fixed later)
-        unsigned int sample_desc_index = cursor->m_Sample.GetDescriptionIndex();
-
-        // set initial flag values
+        // set initial flag values (shared by all the 'traf' atoms of this fragment)
         AP4_UI32 tfhd_flags = AP4_TFHD_FLAG_DEFAULT_BASE_IS_MOOF | AP4_TFHD_FLAG_SAMPLE_DESCRIPTION_INDEX_PRESENT;
         AP4_UI32 trun_flags = AP4_TRUN_FLAG_DATA_OFFSET_PRESENT |
                               AP4_TRUN_FLAG_SAMPLE_SIZE_PRESENT;
@@ -628,56 +668,110 @@ Fragment(AP4_File&                input_file,
             non_sync_sample_flags |= 0x1000000; // sample_depends_on=1 (not I frame)
             sync_sample_flags     |= 0x2000000; // sample_depends_on=2 (I frame)
         }
-        
-        // setup the moof structure
+
+        // split the selected samples into maximal runs of identical sample
+        // description index. Without the option (or for non-subtitle tracks),
+        // there is a single run covering the whole fragment, which preserves
+        // the legacy single-'traf' behavior. No empty run is ever produced.
+        AP4_Array<AP4_SubtitleDescriptionRun> desc_runs;
+        bool use_description_runs = Options.subtitle_description_runs &&
+                                    cursor->m_Track->GetType() == AP4_Track::TYPE_SUBTITLES;
+        if (use_description_runs) {
+            AP4_Result validate_result = AP4_SubtitleDescriptionRuns::ValidateTrack(*cursor->m_Track);
+            if (AP4_FAILED(validate_result)) {
+                fprintf(stderr,
+                        "ERROR: --subtitle-description-runs only supports 'stpp' subtitle sample descriptions (track ID %d, error %d)\n",
+                        cursor->m_Track->GetId(), validate_result);
+                return validate_result;
+            }
+            CursorSampleProvider provider(*cursor->m_Samples);
+            validate_result = AP4_SubtitleDescriptionRuns::ComputeRuns(provider,
+                                                                        cursor->m_Track->GetSampleDescriptionCount(),
+                                                                        cursor->m_SampleIndex,
+                                                                        end_sample_index-cursor->m_SampleIndex,
+                                                                        desc_runs);
+            if (AP4_FAILED(validate_result)) {
+                fprintf(stderr,
+                        "ERROR: invalid sample description index in subtitles track ID %d (error %d)\n",
+                        cursor->m_Track->GetId(), validate_result);
+                return validate_result;
+            }
+        } else {
+            AP4_SubtitleDescriptionRun single_run;
+            single_run.m_FirstSampleIndex = cursor->m_SampleIndex;
+            single_run.m_SampleCount      = end_sample_index-cursor->m_SampleIndex;
+            single_run.m_DescriptionIndex = cursor->m_Sample.GetDescriptionIndex();
+            desc_runs.Append(single_run);
+        }
+
+        // setup the moof structure: one mfhd per moof, one 'traf' per run
         AP4_ContainerAtom* moof = new AP4_ContainerAtom(AP4_ATOM_TYPE_MOOF);
         AP4_MfhdAtom* mfhd = new AP4_MfhdAtom(sequence_number++);
         moof->AddChild(mfhd);
-        AP4_ContainerAtom* traf = new AP4_ContainerAtom(AP4_ATOM_TYPE_TRAF);
-        AP4_TfhdAtom* tfhd = new AP4_TfhdAtom(tfhd_flags,
-                                              cursor->m_Track->GetId(),
-                                              0,
-                                              sample_desc_index+1,
-                                              0,
-                                              0,
-                                              0);
-        traf->AddChild(tfhd);
-        if (!Options.no_tfdt) {
-            AP4_TfdtAtom* tfdt = new AP4_TfdtAtom(1, cursor->m_Timestamp + (AP4_UI64)(Options.tfdt_start * (double)cursor->m_Track->GetMediaTimeScale()));
-            traf->AddChild(tfdt);
-        }
-                                              
-        // create the `trun` and `traf` atoms
-        AP4_TrunAtom* trun = new AP4_TrunAtom(trun_flags, 0, 0);
-        unsigned int initial_offset = 0;
-        if (trun_version_one) {
-            trun->SetVersion(1);
-            initial_offset = cursor->m_Sample.GetCtsDelta();
-        }
-        traf->AddChild(trun);
-        moof->AddChild(traf);
-        
+
         // create a new FragmentInfo object to store the fragment details
         FragmentInfo* fragment = new FragmentInfo(cursor->m_Samples, cursor->m_Tfra, cursor->m_Timestamp, moof);
         fragments.Add(fragment);
-        
-        // add samples to the fragment
-        unsigned int sample_count = 0;
-        AP4_Array<AP4_TrunAtom::Entry> trun_entries;
         fragment->m_MdatSize = AP4_ATOM_HEADER_SIZE;
-        AP4_UI32 constant_sample_duration = 0;
-        bool all_sample_durations_equal = true;
-        bool all_samples_are_sync = true;
-        bool only_first_sample_is_sync = true;
+
+        // create the shell of one 'traf' (tfhd only) per run; the 'tfdt' and
+        // 'trun' atoms are added when the first sample of the run is reached
+        AP4_Array<RunContext*> run_contexts;
+        for (unsigned int r=0; r<desc_runs.ItemCount(); r++) {
+            RunContext* run_context = new RunContext();
+            run_contexts.Append(run_context);
+            run_context->m_TfhdFlags = tfhd_flags;
+            run_context->m_TrunFlags = trun_flags;
+            run_context->m_Traf = new AP4_ContainerAtom(AP4_ATOM_TYPE_TRAF);
+            run_context->m_Tfhd = new AP4_TfhdAtom(run_context->m_TfhdFlags,
+                                                   cursor->m_Track->GetId(),
+                                                   0,
+                                                   desc_runs[r].m_DescriptionIndex+1,
+                                                   0,
+                                                   0,
+                                                   0);
+            run_context->m_Traf->AddChild(run_context->m_Tfhd);
+            moof->AddChild(run_context->m_Traf);
+        }
+
+        // add samples to the fragment, dispatching each one to its run
+        unsigned int sample_count       = 0;
+        unsigned int current_run_index  = 0;
+        RunContext* run_context         = run_contexts[0];
+        unsigned int initial_offset     = 0;
         for (;;) {
+            // move to the run that owns this sample
+            while (current_run_index < desc_runs.ItemCount() &&
+                   cursor->m_SampleIndex >=
+                       desc_runs[current_run_index].m_FirstSampleIndex+
+                       desc_runs[current_run_index].m_SampleCount) {
+                ++current_run_index;
+            }
+            run_context = run_contexts[current_run_index];
+
+            // create the 'tfdt' and 'trun' of this run at its first sample
+            if (run_context->m_Trun == NULL) {
+                if (!Options.no_tfdt) {
+                    AP4_TfdtAtom* tfdt = new AP4_TfdtAtom(1, cursor->m_Timestamp + (AP4_UI64)(Options.tfdt_start * (double)cursor->m_Track->GetMediaTimeScale()));
+                    run_context->m_Traf->AddChild(tfdt);
+                }
+                run_context->m_Trun = new AP4_TrunAtom(run_context->m_TrunFlags, 0, 0);
+                if (trun_version_one) {
+                    run_context->m_Trun->SetVersion(1);
+                    initial_offset = cursor->m_Sample.GetCtsDelta();
+                }
+                run_context->m_Traf->AddChild(run_context->m_Trun);
+            }
+
             // if we have one non-zero CTS delta, we'll need to express it
             if (cursor->m_Sample.GetCtsDelta()) {
-                trun_flags |= AP4_TRUN_FLAG_SAMPLE_COMPOSITION_TIME_OFFSET_PRESENT;
+                run_context->m_TrunFlags |= AP4_TRUN_FLAG_SAMPLE_COMPOSITION_TIME_OFFSET_PRESENT;
             }
-            
+
             // add one sample
-            trun_entries.SetItemCount(sample_count+1);
-            AP4_TrunAtom::Entry& trun_entry = trun_entries[sample_count];
+            unsigned int run_sample_count = run_context->m_TrunEntries.ItemCount();
+            run_context->m_TrunEntries.SetItemCount(run_sample_count+1);
+            AP4_TrunAtom::Entry& trun_entry = run_context->m_TrunEntries[run_sample_count];
             AP4_UI64 next_unscaled_timestamp = cursor->m_UnscaledTimestamp+cursor->m_Sample.GetDuration();
             AP4_UI64 next_scaled_timestamp   = timescale?
                                                AP4_ConvertTime(next_unscaled_timestamp,
@@ -692,42 +786,43 @@ Fragment(AP4_File&                input_file,
                                                                                   cursor->m_Track->GetMediaTimeScale(),
                                                                                   timescale):
                                                         cursor->m_Sample.GetCtsDelta();
-                        
-            if (trun->GetVersion() == 1) {
+
+            if (run_context->m_Trun->GetVersion() == 1) {
                 trun_entry.sample_composition_time_offset -= initial_offset;
             }
             fragment->m_SampleIndexes.SetItemCount(sample_count+1);
             fragment->m_SampleIndexes[sample_count] = cursor->m_SampleIndex;
             fragment->m_MdatSize += trun_entry.sample_size;
             fragment->m_Duration += trun_entry.sample_duration;
-            
-            // check if the durations are all the same
-            if (all_sample_durations_equal) {
-                if (constant_sample_duration == 0) {
-                    constant_sample_duration = trun_entry.sample_duration;
+            run_context->m_PayloadSize += trun_entry.sample_size;
+
+            // check if the durations are all the same (per run)
+            if (run_context->m_AllSampleDurationsEqual) {
+                if (run_context->m_ConstantSampleDuration == 0) {
+                    run_context->m_ConstantSampleDuration = trun_entry.sample_duration;
                 } else {
-                    if (constant_sample_duration != trun_entry.sample_duration) {
-                        all_sample_durations_equal = false;
+                    if (run_context->m_ConstantSampleDuration != trun_entry.sample_duration) {
+                        run_context->m_AllSampleDurationsEqual = false;
                     }
                 }
             }
-            
-            // update flag metadata
+
+            // update flag metadata (per run)
             if (cursor->m_Sample.IsSync()) {
-                if (sample_count) {
-                    only_first_sample_is_sync = false;
+                if (run_sample_count) {
+                    run_context->m_OnlyFirstSampleIsSync = false;
                 }
             } else {
-                all_samples_are_sync = false;
+                run_context->m_AllSamplesAreSync = false;
             }
-            
+
             // next sample
             cursor->m_UnscaledTimestamp = next_unscaled_timestamp;
             cursor->m_Timestamp         = next_scaled_timestamp;
             result = cursor->SetSampleIndex(cursor->m_SampleIndex+1);
             if (AP4_FAILED(result)) {
                 fprintf(stderr, "ERROR: failed to get sample %d (%d)\n", cursor->m_SampleIndex+1, result);
-                return;
+                return result;
             }
             sample_count++;
             if (cursor->m_Eos) {
@@ -741,39 +836,54 @@ Fragment(AP4_File&                input_file,
             }
         }
         if (Options.verbosity > 2) {
-            printf(" %d samples\n", sample_count);
-            printf(" constant sample duration: %s\n", all_sample_durations_equal?"yes":"no");
-        }
-        
-        // update the flags
-        if (only_first_sample_is_sync) {
-            trun_flags |= AP4_TRUN_FLAG_FIRST_SAMPLE_FLAGS_PRESENT;
-            trun->SetFirstSampleFlags(sync_sample_flags);
-            tfhd_flags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_FLAGS_PRESENT;
-            tfhd->SetDefaultSampleFlags(non_sync_sample_flags);
-        } else {
-            if (all_samples_are_sync) {
-                tfhd_flags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_FLAGS_PRESENT;
-                tfhd->SetDefaultSampleFlags(0);
-            } else {
-                trun_flags |= AP4_TRUN_FLAG_SAMPLE_FLAGS_PRESENT;
-            }
+            printf(" %d samples in %u traf(s)\n", sample_count, run_contexts.ItemCount());
         }
 
-        if (all_sample_durations_equal) {
-            tfhd_flags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_DURATION_PRESENT;
-            tfhd->SetDefaultSampleDuration(constant_sample_duration);
-        } else {
-            trun_flags |= AP4_TRUN_FLAG_SAMPLE_DURATION_PRESENT;
+        // finalize the flags and entries of each run
+        for (unsigned int r=0; r<run_contexts.ItemCount(); r++) {
+            RunContext* c = run_contexts[r];
+            if (c->m_Trun == NULL) continue; // defensive: no empty traf is emitted
+
+            if (c->m_OnlyFirstSampleIsSync) {
+                c->m_TrunFlags |= AP4_TRUN_FLAG_FIRST_SAMPLE_FLAGS_PRESENT;
+                c->m_Trun->SetFirstSampleFlags(sync_sample_flags);
+                c->m_TfhdFlags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_FLAGS_PRESENT;
+                c->m_Tfhd->SetDefaultSampleFlags(non_sync_sample_flags);
+            } else {
+                if (c->m_AllSamplesAreSync) {
+                    c->m_TfhdFlags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_FLAGS_PRESENT;
+                    c->m_Tfhd->SetDefaultSampleFlags(0);
+                } else {
+                    c->m_TrunFlags |= AP4_TRUN_FLAG_SAMPLE_FLAGS_PRESENT;
+                }
+            }
+
+            if (c->m_AllSampleDurationsEqual) {
+                c->m_TfhdFlags |= AP4_TFHD_FLAG_DEFAULT_SAMPLE_DURATION_PRESENT;
+                c->m_Tfhd->SetDefaultSampleDuration(c->m_ConstantSampleDuration);
+            } else {
+                c->m_TrunFlags |= AP4_TRUN_FLAG_SAMPLE_DURATION_PRESENT;
+            }
+
+            c->m_Tfhd->UpdateFlags(c->m_TfhdFlags);
+            c->m_Trun->UpdateFlags(c->m_TrunFlags);
+            c->m_Trun->SetEntries(c->m_TrunEntries);
         }
-        
-        tfhd->UpdateFlags(tfhd_flags);
-        trun->UpdateFlags(trun_flags);
-        
-        // update moof and children
-        trun->SetEntries(trun_entries);
-        trun->SetDataOffset((AP4_UI32)moof->GetSize()+AP4_ATOM_HEADER_SIZE);
-        
+
+        // each 'trun' data offset is measured from the start of the moof to
+        // the first byte of its own payload: later runs reach across the
+        // variable-length payloads of the earlier runs
+        AP4_Position run_payload_offset = moof->GetSize()+AP4_ATOM_HEADER_SIZE;
+        for (unsigned int r=0; r<run_contexts.ItemCount(); r++) {
+            RunContext* c = run_contexts[r];
+            if (c->m_Trun == NULL) continue;
+            c->m_Trun->SetDataOffset((AP4_UI32)run_payload_offset);
+            run_payload_offset += c->m_PayloadSize;
+        }
+        for (unsigned int r=0; r<run_contexts.ItemCount(); r++) {
+            delete run_contexts[r];
+        }
+
         // keep track of fragments that will be part of the index
         if (cursor == anchor_cursor) {
             // start a new segment
@@ -862,21 +972,21 @@ Fragment(AP4_File&                input_file,
             result = fragment->m_Samples->GetSample(fragment->m_SampleIndexes[i], sample);
             if (AP4_FAILED(result)) {
                 fprintf(stderr, "ERROR: failed to get sample %d (%d)\n", fragment->m_SampleIndexes[i], result);
-                return;
+                return result;
             }
 
             // read the sample data
             result = sample.ReadData(sample_data);
             if (AP4_FAILED(result)) {
                 fprintf(stderr, "ERROR: failed to read sample data for sample %d (%d)\n", fragment->m_SampleIndexes[i], result);
-                return;
+                return result;
             }
-            
+
             // write the sample data
             result = output_stream.Write(sample_data.GetData(), sample_data.GetDataSize());
             if (AP4_FAILED(result)) {
                 fprintf(stderr, "ERROR: failed to write sample data (%d)\n", result);
-                return;
+                return result;
             }
         }
     }
@@ -916,7 +1026,7 @@ Fragment(AP4_File&                input_file,
     result = mfra.Write(output_stream);
     if (AP4_FAILED(result)) {
         fprintf(stderr, "ERROR: failed to write 'mfra' (%d)\n", result);
-        return;
+        return result;
     }
     
     // cleanup
@@ -932,6 +1042,8 @@ Fragment(AP4_File&                input_file,
     fragments.DeleteReferences();
     indexed_segments.DeleteReferences();
     delete output_movie;
+
+    return AP4_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
@@ -1147,6 +1259,7 @@ main(int argc, char** argv)
     Options.tfdt_start            = 0.0;
     Options.sequence_number_start = 1;
     Options.force_i_frame_sync    = AP4_FRAGMENTER_FORCE_SYNC_MODE_NONE;
+    Options.subtitle_description_runs = false;
     
     // parse the command line
     argv++;
@@ -1224,6 +1337,8 @@ main(int argc, char** argv)
             copy_udta = true;
         } else if (!strcmp(arg, "--no-zero-elst")) {
             Options.no_zero_elst = true;
+        } else if (!strcmp(arg, "--subtitle-description-runs")) {
+            Options.subtitle_description_runs = true;
         } else {
             if (input_filename == NULL) {
                 input_filename = arg;
@@ -1472,8 +1587,16 @@ main(int argc, char** argv)
     } else {
         tracks_to_fragment = cursors;
     }
-    Fragment(input_file, *output_stream, tracks_to_fragment, fragment_duration, timescale, create_segment_index, copy_udta, trun_version_one);
-    
+    result = Fragment(input_file, *output_stream, tracks_to_fragment, fragment_duration, timescale, create_segment_index, copy_udta, trun_version_one);
+    if (AP4_FAILED(result)) {
+        fprintf(stderr, "ERROR: fragmentation failed (%d)\n", result);
+        output_stream->Release();
+        output_stream = NULL;
+        remove(output_filename); // discard the partial output
+        if (input_stream) input_stream->Release();
+        return 1;
+    }
+
     // cleanup and exit
     if (input_stream)  input_stream->Release();
     if (output_stream) output_stream->Release();

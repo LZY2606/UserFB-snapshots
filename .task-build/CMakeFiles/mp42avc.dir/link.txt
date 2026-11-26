@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -mmacosx-version-min=10.12 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/mp42avc.dir/Source/C++/Apps/Mp42Avc/Mp42Avc.cpp.o -o mp42avc  libap4.a

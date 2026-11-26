@@ -172,13 +172,36 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
         AP4_ContainerAtom* moof = AP4_DYNAMIC_CAST(AP4_ContainerAtom, atom);
         AP4_MovieFragment* fragment = new AP4_MovieFragment(moof);
 
-        // process all the traf atoms
+        // enumerate the tracks represented in this moof, in the order in
+        // which they first appear (a single track may be represented by
+        // several 'traf' atoms, e.g. when its sample description changes)
+        AP4_Array<AP4_UI32> track_ids;
+        fragment->GetTrackIds(track_ids);
+
+        // process all the traf atoms, grouped by track
         AP4_Array<AP4_Processor::FragmentHandler*> handlers;
-        AP4_Array<AP4_FragmentSampleTable*> sample_tables;
-        for (;AP4_Atom* child = moof->GetChild(AP4_ATOM_TYPE_TRAF, handlers.ItemCount());) {
-            AP4_ContainerAtom* traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, child);
+        AP4_Array<AP4_FragmentSampleTable*>        sample_tables;
+        AP4_Array<AP4_ContainerAtom*>              track_trafs;
+        for (unsigned int track_index=0; track_index<track_ids.ItemCount(); track_index++) {
+            AP4_UI32 track_id = track_ids[track_index];
+
+            // gather all the 'traf' atoms of this track, in moof order
+            AP4_Array<AP4_ContainerAtom*> trafs;
+            for (AP4_List<AP4_Atom>::Item* traf_item = moof->GetChildren().FirstItem();
+                                          traf_item;
+                                          traf_item = traf_item->GetNext()) {
+                if (traf_item->GetData()->GetType() != AP4_ATOM_TYPE_TRAF) continue;
+                AP4_ContainerAtom* traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, traf_item->GetData());
+                if (traf == NULL) continue;
+                AP4_TfhdAtom* tfhd_in_traf = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
+                if (tfhd_in_traf && tfhd_in_traf->GetTrackId() == track_id) {
+                    trafs.Append(traf);
+                }
+            }
+            if (trafs.ItemCount() == 0) continue;
+            AP4_ContainerAtom* traf = trafs[0];
             AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
-            
+
             // find the 'trak' for this track
             AP4_TrakAtom* trak = NULL;
             for (AP4_List<AP4_Atom>::Item* child_item = moov->GetChildren().FirstItem();
@@ -189,14 +212,14 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
                     trak = AP4_DYNAMIC_CAST(AP4_TrakAtom, child_atom);
                     if (trak) {
                         AP4_TkhdAtom* tkhd = AP4_DYNAMIC_CAST(AP4_TkhdAtom, trak->GetChild(AP4_ATOM_TYPE_TKHD));
-                        if (tkhd && tkhd->GetTrackId() == tfhd->GetTrackId()) {
+                        if (tkhd && tkhd->GetTrackId() == track_id) {
                             break;
                         }
                     }
                     trak = NULL;
                 }
             }
-            
+
             // find the 'trex' for this track
             AP4_ContainerAtom* mvex = NULL;
             AP4_TrexAtom*      trex = NULL;
@@ -208,7 +231,7 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
                     AP4_Atom* child_atom = child_item->GetData();
                     if (child_atom->GetType() == AP4_ATOM_TYPE_TREX) {
                         trex = AP4_DYNAMIC_CAST(AP4_TrexAtom, child_atom);
-                        if (trex && trex->GetTrackId() == tfhd->GetTrackId()) {
+                        if (trex && trex->GetTrackId() == track_id) {
                             break;
                         }
                         trex = NULL;
@@ -216,20 +239,22 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
                 }
             }
 
-            // create the handler for this traf
+            // create the handler for this track (based on its first 'traf')
             AP4_Processor::FragmentHandler* handler = CreateFragmentHandler(trak, trex, traf, input, atom_offset);
             if (handler) {
                 result = handler->ProcessFragment();
                 if (AP4_FAILED(result)) return result;
             }
             handlers.Append(handler);
-            
-            // create a sample table object so we can read the sample data
+
+            // create one sample table aggregating all the 'traf' atoms of
+            // this track, so the samples can be read in moof order
             AP4_FragmentSampleTable* sample_table = NULL;
-            result = fragment->CreateSampleTable(moov, tfhd->GetTrackId(), &input, atom_offset, mdat_payload_offset, 0, sample_table);
+            result = fragment->CreateSampleTable(moov, track_id, &input, atom_offset, mdat_payload_offset, 0, sample_table);
             if (AP4_FAILED(result)) return result;
             sample_tables.Append(sample_table);
-            
+            track_trafs.Append(traf);
+
             // let the handler look at the samples before we process them
             if (handler) result = handler->PrepareForSamples(sample_table);
             if (AP4_FAILED(result)) return result;
@@ -251,59 +276,90 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
         output.WriteUI32(0);
         output.WriteUI32(AP4_ATOM_TYPE_MDAT);
 
-        // process all track runs
+        // process all track runs (one entry per track, a track may own
+        // several 'traf' atoms, each with one or more 'trun' atoms)
         for (unsigned int i=0; i<handlers.ItemCount(); i++) {
             AP4_Processor::FragmentHandler* handler = handlers[i];
 
-            // get the track ID
-            AP4_ContainerAtom* traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, moof->GetChild(AP4_ATOM_TYPE_TRAF, i));
-            if (traf == NULL) continue;
-            AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
-            
-            // compute the base data offset
-            AP4_UI64 base_data_offset;
-            if (tfhd->GetFlags() & AP4_TFHD_FLAG_BASE_DATA_OFFSET_PRESENT) {
-                base_data_offset = mdat_out_start+AP4_ATOM_HEADER_SIZE;
-            } else {
-                base_data_offset = moof_out_start;
+            // gather all the 'traf' atoms of this track and, within each of
+            // them, all the 'trun' atoms, preserving the moof order
+            AP4_Array<AP4_ContainerAtom*> trafs;
+            for (AP4_List<AP4_Atom>::Item* traf_item = moof->GetChildren().FirstItem();
+                                          traf_item;
+                                          traf_item = traf_item->GetNext()) {
+                if (traf_item->GetData()->GetType() != AP4_ATOM_TYPE_TRAF) continue;
+                AP4_ContainerAtom* other_traf = AP4_DYNAMIC_CAST(AP4_ContainerAtom, traf_item->GetData());
+                if (other_traf == NULL) continue;
+                AP4_TfhdAtom* other_tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, other_traf->GetChild(AP4_ATOM_TYPE_TFHD));
+                AP4_TfhdAtom* first_tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, track_trafs[i]->GetChild(AP4_ATOM_TYPE_TFHD));
+                if (other_tfhd && first_tfhd && other_tfhd->GetTrackId() == first_tfhd->GetTrackId()) {
+                    trafs.Append(other_traf);
+                }
             }
-            
-            // build a list of all trun atoms
-            AP4_Array<AP4_TrunAtom*> truns;
-            for (AP4_List<AP4_Atom>::Item* child_item = traf->GetChildren().FirstItem();
-                                           child_item;
-                                           child_item = child_item->GetNext()) {
-                AP4_Atom* child_atom = child_item->GetData();
-                if (child_atom->GetType() == AP4_ATOM_TYPE_TRUN) {
-                    AP4_TrunAtom* trun = AP4_DYNAMIC_CAST(AP4_TrunAtom, child_atom);
-                    if (trun) {
-                        truns.Append(trun);
+            if (trafs.ItemCount() == 0) continue;
+
+            struct TrunInfo {
+                AP4_TrunAtom* m_Trun;
+                AP4_TfhdAtom* m_Tfhd;
+            };
+            AP4_Array<TrunInfo> truns;
+            for (unsigned int t=0; t<trafs.ItemCount(); t++) {
+                AP4_TfhdAtom* traf_tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, trafs[t]->GetChild(AP4_ATOM_TYPE_TFHD));
+                for (AP4_List<AP4_Atom>::Item* child_item = trafs[t]->GetChildren().FirstItem();
+                                               child_item;
+                                               child_item = child_item->GetNext()) {
+                    AP4_Atom* child_atom = child_item->GetData();
+                    if (child_atom->GetType() == AP4_ATOM_TYPE_TRUN) {
+                        AP4_TrunAtom* trun = AP4_DYNAMIC_CAST(AP4_TrunAtom, child_atom);
+                        if (trun) {
+                            TrunInfo info;
+                            info.m_Trun = trun;
+                            info.m_Tfhd = traf_tfhd;
+                            truns.Append(info);
+                        }
                     }
                 }
             }
             if (!truns.ItemCount()) {
                 continue;
             }
+
             AP4_Ordinal   trun_index        = 0;
             AP4_Ordinal   trun_sample_index = 0;
-            AP4_TrunAtom* trun = truns[0];
-            trun->SetDataOffset((AP4_SI32)((mdat_out_start+mdat_size)-base_data_offset));
-            
-            // write the mdat
+
+            // compute the base data offset of the first 'trun'
+            AP4_UI64 base_data_offset;
+            if (truns[0].m_Tfhd->GetFlags() & AP4_TFHD_FLAG_BASE_DATA_OFFSET_PRESENT) {
+                base_data_offset = mdat_out_start+AP4_ATOM_HEADER_SIZE;
+            } else {
+                base_data_offset = moof_out_start;
+            }
+            truns[0].m_Trun->SetDataOffset((AP4_SI32)((mdat_out_start+mdat_size)-base_data_offset));
+
+            // write the mdat, consuming the aggregate sample table (which
+            // holds, in moof order, the samples of all the track's 'traf's)
             AP4_UI32 default_sample_size = 0;
             for (unsigned int j=0; j<sample_tables[i]->GetSampleCount(); j++, trun_sample_index++) {
                 // advance the trun index if necessary
-                if (trun_sample_index >= trun->GetEntries().ItemCount()) {
-                    trun = truns[++trun_index];
-                    trun->SetDataOffset((AP4_SI32)((mdat_out_start+mdat_size)-base_data_offset));
+                if (trun_sample_index >= truns[trun_index].m_Trun->GetEntries().ItemCount()) {
+                    ++trun_index;
                     trun_sample_index = 0;
+                    if (trun_index >= truns.ItemCount()) return AP4_ERROR_INVALID_FORMAT;
+                    AP4_TfhdAtom* next_tfhd = truns[trun_index].m_Tfhd;
+                    if (next_tfhd->GetFlags() & AP4_TFHD_FLAG_BASE_DATA_OFFSET_PRESENT) {
+                        base_data_offset = mdat_out_start+AP4_ATOM_HEADER_SIZE;
+                    } else {
+                        base_data_offset = moof_out_start;
+                    }
+                    truns[trun_index].m_Trun->SetDataOffset((AP4_SI32)((mdat_out_start+mdat_size)-base_data_offset));
                 }
-                
+                AP4_TrunAtom* trun = truns[trun_index].m_Trun;
+
                 // get the next sample
                 result = sample_tables[i]->GetSample(j, sample);
                 if (AP4_FAILED(result)) return result;
                 sample.ReadData(sample_data_in);
-                
+
                 // process the sample data
                 if (handler) {
                     result = handler->ProcessSample(sample_data_in, sample_data_out);
@@ -315,7 +371,7 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
 
                     // update the mdat size
                     mdat_size += sample_data_out.GetDataSize();
-                    
+
                     // update the trun entry
                     trun->UseEntries()[trun_sample_index].sample_size = sample_data_out.GetDataSize();
 
@@ -336,16 +392,20 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
             }
 
             if (handler) {
-                // update the tfhd header
-                if (tfhd->GetFlags() & AP4_TFHD_FLAG_BASE_DATA_OFFSET_PRESENT) {
-                    tfhd->SetBaseDataOffset(mdat_out_start+AP4_ATOM_HEADER_SIZE);
-                }
-                if (tfhd->GetFlags() & AP4_TFHD_FLAG_DEFAULT_SAMPLE_SIZE_PRESENT) {
-                    if (default_sample_size) {
-                        tfhd->SetDefaultSampleSize(default_sample_size);
+                // update the tfhd headers of all this track's 'traf's
+                for (unsigned int t=0; t<trafs.ItemCount(); t++) {
+                    AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, trafs[t]->GetChild(AP4_ATOM_TYPE_TFHD));
+                    if (tfhd == NULL) continue;
+                    if (tfhd->GetFlags() & AP4_TFHD_FLAG_BASE_DATA_OFFSET_PRESENT) {
+                        tfhd->SetBaseDataOffset(mdat_out_start+AP4_ATOM_HEADER_SIZE);
+                    }
+                    if (tfhd->GetFlags() & AP4_TFHD_FLAG_DEFAULT_SAMPLE_SIZE_PRESENT) {
+                        if (default_sample_size) {
+                            tfhd->SetDefaultSampleSize(default_sample_size);
+                        }
                     }
                 }
-                
+
                 // give the handler a chance to update the atoms
                 handler->FinishFragment();
             }

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -mmacosx-version-min=10.12 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/aac2mp4.dir/Source/C++/Apps/Aac2Mp4/Aac2Mp4.cpp.o -o aac2mp4  libap4.a

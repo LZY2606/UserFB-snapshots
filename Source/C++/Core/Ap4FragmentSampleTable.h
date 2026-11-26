@@ -52,7 +52,18 @@ class AP4_FragmentSampleTable : public AP4_SampleTable
 {
  public:
     // methods
-             AP4_FragmentSampleTable(AP4_ContainerAtom* traf, 
+             AP4_FragmentSampleTable(AP4_ContainerAtom* traf,
+                                     AP4_TrexAtom*      trex,
+                                     AP4_ByteStream*    sample_stream,
+                                     AP4_Position       moof_offset,
+                                     AP4_Position       mdat_payload_offset, // hack because MS doesn't implement the spec correctly
+                                     AP4_UI64           dts_origin=0);
+
+             // aggregate all the 'traf' atoms of a track (in moof order) into
+             // one sample table: a track may be represented by several 'traf'
+             // atoms in the same 'moof' (for example when the sample
+             // description changes in the middle of a fragment)
+             AP4_FragmentSampleTable(AP4_Array<AP4_ContainerAtom*>& trafs,
                                      AP4_TrexAtom*      trex,
                                      AP4_ByteStream*    sample_stream,
                                      AP4_Position       moof_offset,
@@ -78,11 +89,19 @@ private:
     // members
     AP4_Array<AP4_Sample> m_Samples;
     AP4_UI64              m_Duration;
-    
+
     // methods
-    AP4_Result AddTrun(AP4_TrunAtom*   trun, 
-                       AP4_TfhdAtom*   tfhd, 
-                       AP4_TrexAtom*   trex, 
+    AP4_Result ProcessTraf(AP4_ContainerAtom* traf,
+                           AP4_TrexAtom*      trex,
+                           AP4_ByteStream*    sample_stream,
+                           AP4_Position       moof_offset,
+                           AP4_Position       mdat_payload_offset,
+                           AP4_Position&      payload_offset,
+                           AP4_UI64&          dts_origin);
+
+    AP4_Result AddTrun(AP4_TrunAtom*   trun,
+                       AP4_TfhdAtom*   tfhd,
+                       AP4_TrexAtom*   trex,
                        AP4_ByteStream* sample_stream,
                        AP4_Position    moof_offset,
                        AP4_Position&   payload_offset,

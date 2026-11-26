@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -mmacosx-version-min=10.12 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/mp4pssh.dir/Source/C++/Apps/Mp4Pssh/Mp4Pssh.cpp.o -o mp4pssh  libap4.a

@@ -1,0 +1,43 @@
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/.task-build
+[ 98%] Built target ap4
+[100%] Linking CXX executable task_fixture
+[100%] Built target task_fixture
+[ 98%] Built target ap4
+[100%] Built target mp4fragment
+[ 97%] Built target ap4
+[ 98%] Building CXX object task_support/CMakeFiles/task_target.dir/description_runs_test.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/task_support/description_runs_test.cpp:14:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/Source/C++/Core/Ap4.h:232:
+In file included from /Users/lzy/pro/UserFB/workspace/Z02188/attempts/20261126T161302265423Z/repo/Source/C++/Core/Ap4Utils.h:178:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/stdio.h:93:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[100%] Linking CXX executable ../target
+[100%] Built target task_target
+CASE layout cli_fixture_layout checks=37
+CASE layout hand_built_layout checks=41
+CASE layout aba_across_fragments checks=42
+CASE layout timescale_conversion checks=21
+CASE layout index_ranges checks=18
+CASE layout single_description_legacy checks=13
+GROUP layout cases=6 checks=172 COMPLETE
+CASE reader reader_fixture checks=50
+CASE reader reader_hand_built checks=74
+CASE reader movie_fragment_api checks=46
+CASE reader addressing_modes checks=20
+GROUP reader cases=4 checks=190 COMPLETE
+CASE compat processor_roundtrip checks=41
+CASE compat repackage_and_refragment checks=20
+CASE compat invalid_desc_index_cli checks=4
+CASE compat unsupported_description_cli checks=3
+CASE compat stsd_and_payload_unchanged checks=15
+GROUP compat cases=5 checks=83 COMPLETE
+TARGET_COMPLETE cases=15
+BENTO_FIXTURE_WRITTEN samples=4 descriptions=2
+BENTO_INPUT_OK input=0,0,1,0 samples=4
+BENTO_DESCRIPTION_BASELINE_OK output=0,0,0,0 samples=4

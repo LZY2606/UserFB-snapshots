@@ -42,7 +42,7 @@
 /*----------------------------------------------------------------------
 |   AP4_FragmentSampleTable::AP4_FragmentSampleTable
 +---------------------------------------------------------------------*/
-AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_ContainerAtom* traf, 
+AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_ContainerAtom* traf,
                                                  AP4_TrexAtom*      trex,
                                                  AP4_ByteStream*    sample_stream,
                                                  AP4_Position       moof_offset,
@@ -50,9 +50,50 @@ AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_ContainerAtom* traf,
                                                  AP4_UI64           dts_origin) :
     m_Duration(0)
 {
+    if (traf) {
+        AP4_Position payload_offset = mdat_payload_offset;
+        ProcessTraf(traf, trex, sample_stream, moof_offset, mdat_payload_offset,
+                    payload_offset, dts_origin);
+    }
+}
+
+/*----------------------------------------------------------------------
+|   AP4_FragmentSampleTable::AP4_FragmentSampleTable
++---------------------------------------------------------------------*/
+AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_Array<AP4_ContainerAtom*>& trafs,
+                                                 AP4_TrexAtom*                 trex,
+                                                 AP4_ByteStream*               sample_stream,
+                                                 AP4_Position                  moof_offset,
+                                                 AP4_Position                  mdat_payload_offset,
+                                                 AP4_UI64                      dts_origin) :
+    m_Duration(0)
+{
+    // a single payload cursor and decode-time clock are shared by all the
+    // 'traf' atoms of the same track, so that a 'traf' without an explicit
+    // base data offset or 'tfdt' continues where the previous one ended
+    AP4_Position payload_offset = mdat_payload_offset;
+    for (unsigned int i=0; i<trafs.ItemCount(); i++) {
+        AP4_Result result = ProcessTraf(trafs[i], trex, sample_stream, moof_offset,
+                                        mdat_payload_offset, payload_offset, dts_origin);
+        if (AP4_FAILED(result)) return;
+    }
+}
+
+/*----------------------------------------------------------------------
+|   AP4_FragmentSampleTable::ProcessTraf
++---------------------------------------------------------------------*/
+AP4_Result
+AP4_FragmentSampleTable::ProcessTraf(AP4_ContainerAtom* traf,
+                                     AP4_TrexAtom*      trex,
+                                     AP4_ByteStream*    sample_stream,
+                                     AP4_Position       moof_offset,
+                                     AP4_Position       mdat_payload_offset,
+                                     AP4_Position&      payload_offset,
+                                     AP4_UI64&          dts_origin)
+{
     AP4_TfhdAtom* tfhd = AP4_DYNAMIC_CAST(AP4_TfhdAtom, traf->GetChild(AP4_ATOM_TYPE_TFHD));
-    if (tfhd == NULL) return;
-    
+    if (tfhd == NULL) return AP4_ERROR_INVALID_FORMAT;
+
     // count all the samples and reserve space for them
     unsigned int sample_count = 0;
     for (AP4_List<AP4_Atom>::Item* item = traf->GetChildren().FirstItem();
@@ -63,15 +104,15 @@ AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_ContainerAtom* traf,
             AP4_TrunAtom* trun = AP4_DYNAMIC_CAST(AP4_TrunAtom, atom);
             if (trun) sample_count += trun->GetEntries().ItemCount();
         }
-    }    
-    m_Samples.EnsureCapacity(sample_count);
-    
+    }
+    m_Samples.EnsureCapacity(m_Samples.ItemCount()+sample_count);
+
     // check if we have a timecode base
     AP4_TfdtAtom* tfdt = AP4_DYNAMIC_CAST(AP4_TfdtAtom, traf->GetChild(AP4_ATOM_TYPE_TFDT));
     if (tfdt) {
         dts_origin = tfdt->GetBaseMediaDecodeTime();
     }
-    
+
     // process all the trun atoms
     for (AP4_List<AP4_Atom>::Item* item = traf->GetChildren().FirstItem();
                                    item;
@@ -80,17 +121,19 @@ AP4_FragmentSampleTable::AP4_FragmentSampleTable(AP4_ContainerAtom* traf,
         if (atom->GetType() == AP4_ATOM_TYPE_TRUN) {
             AP4_TrunAtom* trun = AP4_DYNAMIC_CAST(AP4_TrunAtom, atom);
             if (trun) {
-                AP4_Result result = AddTrun(trun, 
-                                            tfhd, 
-                                            trex, 
-                                            sample_stream, 
+                AP4_Result result = AddTrun(trun,
+                                            tfhd,
+                                            trex,
+                                            sample_stream,
                                             moof_offset,
-                                            mdat_payload_offset,
+                                            payload_offset,
                                             dts_origin);
-                if (AP4_FAILED(result)) return;
+                if (AP4_FAILED(result)) return result;
             }
         }
-    }    
+    }
+
+    return AP4_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
