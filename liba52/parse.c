@@ -60,6 +60,8 @@ a52_state_t * a52_init (uint32_t mm_accel)
     if (state == NULL)
 	return NULL;
 
+    memset (state, 0, sizeof (a52_state_t));
+
     state->samples = memalign (16, 256 * 12 * sizeof (sample_t));
     if (state->samples == NULL) {
 	free (state);
@@ -154,6 +156,14 @@ int a52_frame (a52_state_t * state, uint8_t * buf, int * flags,
 
     state->lfeon = bitstream_get (state, 1);
 
+    if (state->matrix_mode) {
+	/* matrix monitoring only supports the 3F2R source layout */
+	if (acmod != A52_3F2R)
+	    return 1;
+	a52_matrix_commit (state);
+	state->output = (state->matrix_rows == 1) ? A52_MONO : A52_STEREO;
+	*flags = state->output;
+    } else {
     state->output = a52_downmix_init (acmod, *flags, level,
 				      state->clev, state->slev);
     if (state->output < 0)
@@ -161,6 +171,8 @@ int a52_frame (a52_state_t * state, uint8_t * buf, int * flags,
     if (state->lfeon && (*flags & A52_LFE))
 	state->output |= A52_LFE;
     *flags = state->output;
+    }
+    state->frame_seen = 1;
     /* the 2* compensates for differences in imdct */
     state->dynrng = state->level = 2 * *level;
     state->bias = bias;
@@ -756,6 +768,56 @@ int a52_block (a52_state_t * state)
 	i = bitstream_get (state, 9);	/* skipl */
 	while (i--)
 	    bitstream_get (state, 8);
+    }
+
+    if (state->matrix_mode) {
+	int j;
+
+	/*
+	 * Matrix mode: extract the 3F2R full-bandwidth spectra and the
+	 * optional LFE into the source planes (samples + 1536 ...), scaled
+	 * by the caller's level and the block DRC exactly like the normal
+	 * full-channel path, then let matrix.c project and transform them.
+	 */
+	samples = state->samples + 1536;
+
+	for (i = 0; i < nfchans; i++)
+	    coeff[i] = state->dynrng;
+
+	quantizer.q1_ptr = quantizer.q2_ptr = quantizer.q4_ptr = -1;
+	done_cpl = 0;
+
+	for (i = 0; i < nfchans; i++) {
+	    coeff_get (state, samples + 256 * i, state->fbw_expbap +i,
+		       &quantizer, coeff[i], dithflag[i],
+		       state->endmant[i]);
+
+	    if ((state->chincpl >> i) & 1) {
+		if (!done_cpl) {
+		    done_cpl = 1;
+		    coeff_get_coupling (state, nfchans, coeff,
+					(sample_t (*)[256])samples, &quantizer,
+					dithflag);
+		}
+		j = state->cplendmant;
+	    } else
+		j = state->endmant[i];
+	    do
+		(samples + 256 * i)[j] = 0;
+	    while (++j < 256);
+	}
+
+	if (state->lfeon) {
+	    coeff_get (state, samples + 1280, &state->lfe_expbap, &quantizer,
+		       state->dynrng, 0, 7);
+	    for (i = 7; i < 256; i++)
+		(samples + 1280)[i] = 0;
+	} else {
+	    /* no LFE source: the sixth matrix column multiplies zero */
+	    memset (samples + 1280, 0, 256 * sizeof (sample_t));
+	}
+
+	return a52_matrix_block (state, blksw);
     }
 
     samples = state->samples;

@@ -59,4 +59,31 @@ void a52_dynrng (a52_state_t * state,
 int a52_block (a52_state_t * state);
 void a52_free (a52_state_t * state);
 
+/*
+ * Matrix monitoring mode.
+ *
+ * Puts the decoder in matrix mode, where the 3F2R full-bandwidth source
+ * channels (L, C, R, Ls, Rs) plus the optional LFE are projected onto one
+ * or two monitoring outputs through a caller supplied matrix. The matrix
+ * is stored row-major, each row having exactly 6 coefficients in the fixed
+ * order L, C, R, Ls, Rs, LFE. Coefficients may be negative; they must be
+ * finite and their absolute value must not exceed 2. A missing LFE source
+ * channel is treated as if its (sixth) column was zero.
+ *
+ * rows must be 1 or 2. On success, the matrix is copied internally and 0
+ * is returned; later changes to the caller array do not affect the
+ * instance. On invalid arguments, 1 is returned and neither the queued
+ * matrix nor the one currently in use is modified.
+ *
+ * Matrix mode can only be enabled before the first frame is decoded on
+ * the instance; enabling it after a frame has been decoded returns 1.
+ * Once enabled, the instance stays in matrix mode until it is destroyed.
+ * A matrix update is queued and takes effect at the next a52_frame();
+ * all six blocks of a frame use the same matrix version. In matrix mode,
+ * a52_frame() reports A52_MONO (1 row) or A52_STEREO (2 rows) and the
+ * output samples are laid out as rows planes of 256 samples each.
+ */
+int a52_set_matrix (a52_state_t * state, const sample_t * matrix,
+		    unsigned rows);
+
 #endif /* A52_H */

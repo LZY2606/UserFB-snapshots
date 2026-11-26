@@ -206,3 +206,69 @@ loop on input bytes:
       for i = 1 ... 6:
         a52_block (state, samples)
         convert samples to integer and queue to soundcard
+
+
+Matrix monitoring mode
+----------------------
+
+int a52_set_matrix (a52_state_t * state, const sample_t * matrix,
+                    unsigned rows);
+
+For monitoring applications that need to re-map a single 5.1 (3F2R, with or
+without LFE) track onto one or two listening outputs and to change that
+mapping from frame to frame, liba52 offers a matrix mode. Instead of the
+fixed standardized downmix, the caller supplies an arbitrary projection
+matrix.
+
+matrix is stored row-major and contains rows * 6 coefficients. Every row
+has exactly six columns, in the fixed order L, C, R, Ls, Rs, LFE. A
+coefficient may be negative, but it must be finite and its absolute value
+must not exceed 2. rows must be 1 or 2. If the stream has no LFE channel,
+the sixth column is simply multiplied by zero and has no effect.
+
+On success, a52_set_matrix() copies the matrix into the instance and
+returns 0; the caller may then reuse or free its own array without
+affecting the decoder. On any invalid argument (a null state or matrix, a
+row count other than 1 or 2, or a non-finite coefficient or one whose
+absolute value exceeds 2) it returns 1 and leaves both the matrix
+currently in use and any queued matrix untouched.
+
+Matrix mode can only be enabled before the first frame is decoded on the
+instance. Calling a52_set_matrix() after a52_frame() has already succeeded
+returns 1 and the instance keeps decoding normally. Once enabled, matrix
+mode stays active for the whole lifetime of the instance; there is no way
+to switch back to the fixed downmix.
+
+Matrix updates are queued, not immediate. An update made between frames
+takes effect at the next a52_frame(); an update made while the six blocks
+of a frame are being decoded is only applied at the following frame, so
+all six blocks of a frame always use the same matrix version.
+
+In matrix mode:
+
+  - a52_frame() accepts only 3F2R source streams (other acmod values are
+    rejected) and reports A52_MONO for one matrix row or A52_STEREO for
+    two rows, never with A52_LFE attached.
+  - The sample buffer returned by a52_samples() is laid out as rows
+    planes of 256 samples each.
+  - The level value given to a52_frame() is used verbatim; the automatic
+    anti-clipping gain adjustment of the fixed downmix is never applied,
+    and clev/slev are never implicitly multiplied in.
+  - The bias given to a52_frame() is added exactly once to each final
+    output sample.
+  - The dynamic range compression switch and callback keep working
+    exactly as in normal mode: they act on the source channels, before
+    the matrix projection.
+
+Implementation notes: the source spectra are projected in the frequency
+domain. Full-bandwidth channels with the same block-switch type are
+combined before the transform, so each output row only goes through one
+long (512-point) and, when needed, one short (256-point) IMDCT per block;
+the LFE always uses the long transform. With a stable matrix and all-long
+blocks this is at most one IMDCT per output row per block. When the matrix
+or the block grouping changes, the overlap-add delay lines are rebuilt
+from the previous block's retained source spectra, so no transform
+history is discarded and the previous block's level/DRC scaling is never
+re-applied. Per-instance extra storage is bounded by the channel count
+and a single block size; it does not grow with playback duration.
+

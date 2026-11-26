@@ -85,7 +85,66 @@ struct a52_state_s {
 
     sample_t * samples;
     int downmixed;
+    uint8_t frame_seen;		/* a52_frame has successfully run once */
+
+    /* matrix monitoring mode state */
+    uint8_t matrix_mode;	/* a52_set_matrix has enabled matrix mode */
+    uint8_t matrix_rows;	/* rows of the matrix currently in use */
+    uint8_t matrix_new_rows;	/* rows of the queued matrix */
+    uint8_t matrix_pending;	/* a new matrix is queued for a52_frame */
+    uint8_t matrix_have_prev;	/* previous-block history is valid */
+    sample_t matrix_cur[2][6];	/* matrix in use for the current frame */
+    sample_t matrix_new[2][6];	/* queued matrix, applied at next frame */
+    sample_t matrix_used[2][6];/* matrix used by the previous block */
+
+    /*
+     * Previous block's already-scaled source spectra and block switch
+     * flags. They let the overlap delay lines be rebuilt when the matrix
+     * or the block grouping changes; the previous level/DRC scaling is
+     * baked into the spectra and is never applied a second time.
+     * fbw covers the five 3F2R full-bandwidth channels, lfe the LFE.
+     */
+    sample_t matrix_prev_spec[5][256];
+    sample_t matrix_prev_lfe[256];
+    uint8_t matrix_prev_blksw[5];
+    uint8_t matrix_prev_lfeon;
+
+    /*
+     * Persistent overlap-add delay lines, one per output row and transform
+     * family. The LFE is always a long block and is folded into the long
+     * projection. Total per-instance storage is fixed at channel/block size
+     * and does not grow with the decoded duration.
+     */
+    sample_t matrix_delay_long[2][256];
+    sample_t matrix_delay_short[2][256];
+
+#ifdef A52_MATRIX_TEST
+    unsigned test_imdct_256;
+    unsigned test_imdct_512;
+    int test_inject_armed;	/* one-shot spectrum injection */
+    sample_t test_inject_spec[6][256];
+    uint8_t test_inject_blksw[5];
+    int test_inject_lfeon;
+#endif
 };
+
+/* matrix mode support (matrix.c) */
+int a52_set_matrix (a52_state_t * state, const sample_t * matrix,
+		    unsigned rows);
+void a52_matrix_commit (a52_state_t * state);
+int a52_matrix_block (a52_state_t * state, uint8_t blksw[5]);
+
+#ifdef A52_MATRIX_TEST
+/* test-only observation hooks; absent from ordinary builds */
+unsigned a52_test_imdct_calls (a52_state_t * state);
+unsigned a52_test_imdct_256_calls (a52_state_t * state);
+unsigned a52_test_imdct_512_calls (a52_state_t * state);
+const sample_t * a52_test_prev_spectrum (a52_state_t * state, int channel);
+const sample_t * a52_test_lfe_spectrum (a52_state_t * state);
+const uint8_t * a52_test_prev_blksw (a52_state_t * state);
+void a52_test_inject (a52_state_t * state, const sample_t * spec,
+		      const int * blksw, int lfeon);
+#endif
 
 #define LEVEL_PLUS6DB 2.0
 #define LEVEL_PLUS3DB 1.4142135623730951
