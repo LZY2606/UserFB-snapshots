@@ -48,6 +48,61 @@ Features:
 * [client-codec-mpeg4audio-save-to-disk](examples/client-codec-mpeg4audio-save-to-disk/main.go)
 * [muxer](examples/muxer/main.go)
 
+### Encrypted HLS (AES-128)
+
+The same `Client` entry point plays traditional AES-128 encrypted MPEG-TS and fMP4 playlists. `EXT-X-KEY:METHOD=AES-128` keys are fetched with the configured `HTTPClient`, request context and `OnRequest` callback; segments and fMP4 initialization sections are decrypted before track discovery, timestamp conversion or data callbacks run.
+
+Supported scope:
+
+* complete MPEG-TS segments and complete fMP4 segments, including `EXT-X-MAP`;
+* `KEYFORMAT` absent or `identity`, and `KEYFORMATVERSIONS` absent or `1`;
+* explicit `IV=0x...`, or the segment's real media sequence number when `IV` is absent;
+* A/B key URI rotation and `METHOD=NONE`;
+* at most one `EXT-X-MAP` per media playlist.
+
+Low-latency parts, `SAMPLE-AES`, DRM/non-identity key formats, runtime MAP changes and discontinuous timelines are outside this change. Unsupported encryption methods, key formats and versions return an error instead of passing ciphertext to the MPEG-TS or fMP4 processors.
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/bluenviron/gohlslib/v2"
+	"github.com/bluenviron/gohlslib/v2/pkg/codecs"
+)
+
+func main() {
+	client := &gohlslib.Client{
+		URI: "https://example.com/live/index.m3u8",
+		OnRequest: func(req *http.Request) {
+			req.Header.Set("Authorization", "Bearer token")
+		},
+	}
+
+	client.OnTracks = func(tracks []*gohlslib.Track) error {
+		for _, track := range tracks {
+			if _, ok := track.Codec.(*codecs.H264); ok {
+				client.OnDataH26x(track, func(pts, dts int64, au [][]byte) {
+					log.Printf("H264 access unit: pts=%d dts=%d nalus=%d", pts, dts, len(au))
+				})
+			}
+		}
+		return nil
+	}
+
+	if err := client.Start(); err != nil {
+		panic(err)
+	}
+	defer client.Close()
+
+	if err := client.Wait2(); err != nil {
+		log.Printf("client stopped: %v", err)
+	}
+}
+```
+
 ## API Documentation
 
 [Click to open the API Documentation](https://pkg.go.dev/github.com/bluenviron/gohlslib#pkg-index)

@@ -103,6 +103,14 @@ func (t MediaKey) marshal() string {
 	return ret
 }
 
+func (t *MediaKey) clone() *MediaKey {
+	if t == nil {
+		return nil
+	}
+	ret := *t
+	return &ret
+}
+
 // Equal checks if two MediaKey objects are equal.
 func (t *MediaKey) Equal(key *MediaKey) bool {
 	if t == key {

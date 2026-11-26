@@ -212,6 +212,7 @@ func (m *Media) Unmarshal(buf []byte) error {
 			if err != nil {
 				return err
 			}
+			m.Map.Key = curKey.clone()
 
 		case strings.HasPrefix(line, "#EXT-X-KEY:"):
 			line = line[len("#EXT-X-KEY:"):]
@@ -287,7 +288,7 @@ func (m *Media) Unmarshal(buf []byte) error {
 				curSegment.Title = ""
 			}
 
-			curSegment.Key = curKey
+			curSegment.Key = curKey.clone()
 
 		case strings.HasPrefix(line, "#EXT-X-BYTERANGE:"):
 			line = line[len("#EXT-X-BYTERANGE:"):]
@@ -400,7 +401,12 @@ func (m Media) Marshal() ([]byte, error) {
 		ret.WriteString("#EXT-X-PLAYLIST-TYPE:" + string(*m.PlaylistType) + "\n")
 	}
 
+	var prevKey *MediaKey
 	if m.Map != nil {
+		if m.Map.Key != nil {
+			ret.WriteString(m.Map.Key.marshal())
+			prevKey = m.Map.Key
+		}
 		ret.WriteString(m.Map.marshal())
 	}
 
@@ -412,11 +418,16 @@ func (m Media) Marshal() ([]byte, error) {
 		ret.WriteString(m.Skip.marshal())
 	}
 
-	var prevKey *MediaKey
 	for _, seg := range m.Segments {
-		if seg.Key != nil && (prevKey == nil || !seg.Key.Equal(prevKey)) {
-			ret.WriteString(seg.Key.marshal())
+		if seg.Key != nil {
+			if prevKey == nil || !seg.Key.Equal(prevKey) {
+				ret.WriteString(seg.Key.marshal())
+			}
 			prevKey = seg.Key
+		} else if prevKey != nil && prevKey.Method != MediaKeyMethodNone {
+			noneKey := &MediaKey{Method: MediaKeyMethodNone}
+			ret.WriteString(noneKey.marshal())
+			prevKey = noneKey
 		}
 
 		ret.WriteString(seg.marshal())

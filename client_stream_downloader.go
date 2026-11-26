@@ -109,6 +109,11 @@ func (d *clientStreamDownloader) run(ctx context.Context) error {
 			return err
 		}
 
+		initFile, err = d.decryptMediaObject(ctx, d.firstPlaylist.Map.Key, initFile, 0, true)
+		if err != nil {
+			return err
+		}
+
 		proc := &clientStreamProcessorFMP4{
 			ctx:              ctx,
 			isLeading:        d.isLeading,
@@ -356,9 +361,15 @@ func (d *clientStreamDownloader) downloadNextSegment(
 		}
 	}
 
-	d.curSegmentID = ptrOf(pl.MediaSequence + segPos)
+	segmentSequence := pl.MediaSequence + segPos
+	d.curSegmentID = ptrOf(segmentSequence)
 
 	byts, err := d.downloadSegment(ctx, seg.URI, seg.ByteRangeStart, seg.ByteRangeLength)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	byts, err = d.decryptMediaObject(ctx, seg.Key, byts, segmentSequence, false)
 	if err != nil {
 		return nil, nil, err
 	}

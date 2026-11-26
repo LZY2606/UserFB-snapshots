@@ -248,6 +248,9 @@ func (d *clientPrimaryDownloader) run(ctx context.Context) error {
 		case streamTracks := <-stream.chTracks:
 			tracks = append(tracks, streamTracks...)
 
+		case err = <-stream.chProcessorError:
+			return err
+
 		case <-ctx.Done():
 			return fmt.Errorf("terminated")
 		}
