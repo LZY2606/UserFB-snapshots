@@ -34,6 +34,19 @@ POSSIBILITY OF SUCH DAMAGE.
 
 Void h261_encode_gobs( h261_context_t *ps_ctx )
 {
+	if( ps_ctx->ps_gob_budget != NULL )
+	{
+		h261_gob_budget_encode_gobs( ps_ctx );
+	}
+	else
+	{
+		h261_encode_gobs_plain( ps_ctx );
+	}
+}
+
+
+Void h261_encode_gobs_plain( h261_context_t *ps_ctx )
+{
 	Int32 i_idx;
 	Int32 i_gob_idx, i_offset_x, i_offset_y;
 
@@ -86,6 +99,8 @@ Void h261_encode_gobs( h261_context_t *ps_ctx )
 
 Void h261_encode_gob( h261_context_t *ps_ctx, Int32 i_gob_index, Int32 i_offset_x, Int32 i_offset_y )
 {
+	ps_ctx->i_gob_encode_entries++;
+
 	Int32 i_mb_stride, i_mb_height, i_mb_idx, i_mb_addr;
 	Int32 i_mb_x, i_mb_y;
 

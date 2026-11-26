@@ -38,6 +38,7 @@ unsigned fixture_encode(h261_context_t *c,int frame,FILE *out){
  return bits;
 }
 void fixture_free(h261_context_t *c){
+ h261_gob_budget_destroy(c);
  h261_frame_t *frames[]={&c->s_current_frame,&c->s_reference_frame,&c->s_reconstructed_frame};
  for(int i=0;i<3;i++){free(frames[i]->pui8_Y);free(frames[i]->pui8_Cb);free(frames[i]->pui8_Cr);}
  free(c->ps_mb_cache);h261_bitstream_deinit(&c->s_bitstream);

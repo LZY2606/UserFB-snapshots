@@ -218,6 +218,12 @@ typedef struct {
 
 	h261_mb_cache_t *ps_mb_cache;
 
+	/* Optional GOB budget mode workspace (NULL when disabled). */
+	struct h261_gob_budget_state_s *ps_gob_budget;
+
+	/* Number of real entries into h261_encode_gob on this instance. */
+	Int64 i_gob_encode_entries;
+
 } h261_context_t;
 
 

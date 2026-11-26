@@ -37,6 +37,8 @@ Void h261_init_picture( h261_context_t *ps_ctx, h261_picture_parameters_t *ps_pa
 	h261_picture_t *ps_picture;
 	ps_picture = &ps_ctx->s_picture;
 
+	h261_gob_budget_capture_frame_num( ps_ctx, ps_parameters->i_frame_num );
+
 	ps_picture->i_temporal_reference = ps_parameters->i_frame_num & 0x1f;
 
 	ps_picture->i_spare_bit = 1;
@@ -67,6 +69,7 @@ Void h261_init_picture( h261_context_t *ps_ctx, h261_picture_parameters_t *ps_pa
 Void h261_write_picture_header( h261_context_t *ps_ctx )
 {
 	Int32 i_idx;
+	Int32 i_hdr_bits_before;
 	h261_frame_t *ps_current_frame, *ps_reference_frame;
 	h261_picture_t *ps_picture;
 	h261_bitstream_t *ps_bitstream;
@@ -75,6 +78,8 @@ Void h261_write_picture_header( h261_context_t *ps_ctx )
 	ps_reference_frame = &ps_ctx->s_reference_frame;
 	ps_bitstream = &ps_ctx->s_bitstream;
 	ps_picture = &ps_ctx->s_picture;
+
+	i_hdr_bits_before = h261_bitstream_bits( ps_bitstream );
 
 	/* startcode + frame counter */
 	h261_bitstream_write( ps_bitstream, H261_PICTURE_START_CODE, H261_PICTURE_START_CODE_LENGTH );
@@ -96,6 +101,7 @@ Void h261_write_picture_header( h261_context_t *ps_ctx )
 	}
 	h261_bitstream_write( ps_bitstream, 0, 1 );
 
+	h261_gob_budget_record_picture_header( ps_ctx, i_hdr_bits_before, h261_bitstream_bits( ps_bitstream ) );
 
 }
 
