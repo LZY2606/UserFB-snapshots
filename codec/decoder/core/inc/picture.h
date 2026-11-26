@@ -63,6 +63,11 @@ struct SPicture {
   /*from sps*/
   int32_t         iWidthInPixel;  // picture width in pixel
   int32_t         iHeightInPixel;// picture height in pixel
+  uint8_t         uiChromaFormatIdc; // SPS chroma_format_idc used to allocate/decode this picture
+  int32_t         iCropLeft;
+  int32_t         iCropRight;
+  int32_t         iCropTop;
+  int32_t         iCropBottom;
   /*from slice header*/
   int32_t         iFramePoc;              // frame POC
 
@@ -96,7 +101,7 @@ struct SPicture {
   int32_t iMbNum;
 
   bool*    pMbCorrectlyDecodedFlag;
-  int8_t (*pNzc)[24];
+  int8_t (*pNzc)[32];
   uint32_t*  pMbType; // mb type used for direct mode
   int16_t (*pMv[LIST_A])[MB_BLOCK4x4_NUM][MV_A]; // used for direct mode
   int8_t (*pRefIndex[LIST_A])[MB_BLOCK4x4_NUM]; //used for direct mode

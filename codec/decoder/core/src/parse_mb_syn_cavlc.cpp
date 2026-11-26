@@ -728,6 +728,88 @@ static int32_t CavlcGetTrailingOnesAndTotalCoeff (uint8_t& uiTotalCoeff, uint8_t
   return iUsedBits;
 }
 
+static const uint8_t g_kuiChroma422DcTokenLen[9][4] = {
+  {1,  0,  0, 0},
+  {7,  2,  0, 0},
+  {7,  7,  3, 0},
+  {9,  7,  7, 5},
+  {9,  9,  7, 6},
+  {10, 10, 9, 7},
+  {11, 11, 10, 7},
+  {12, 12, 11, 10},
+  {13, 12, 12, 11},
+};
+static const uint8_t g_kuiChroma422DcTokenBits[9][4] = {
+  {1,  0,  0, 0},
+  {15, 1,  0, 0},
+  {14, 13, 1, 0},
+  {7,  12, 11, 1},
+  {6,  5, 10, 1},
+  {7,  6,  4, 9},
+  {7,  6,  5, 8},
+  {7,  6,  5, 4},
+  {7,  5,  4, 4},
+};
+static const uint8_t g_kuiChroma422DcTotalZerosLen[7][8] = {
+  {1, 3, 3, 4, 4, 4, 5, 5},
+  {3, 2, 3, 3, 3, 3, 3},
+  {3, 3, 2, 2, 3, 3},
+  {3, 2, 2, 2, 3},
+  {2, 2, 2, 2},
+  {2, 2, 1},
+  {1, 1},
+};
+static const uint8_t g_kuiChroma422DcTotalZerosBits[7][8] = {
+  {1, 2, 3, 2, 3, 1, 1, 0},
+  {0, 1, 1, 4, 5, 6, 7},
+  {0, 1, 1, 2, 6, 7},
+  {6, 0, 1, 2, 7},
+  {0, 1, 2, 3},
+  {0, 1, 1},
+  {0, 1},
+};
+
+static int32_t CavlcGetChroma422DcToken (uint8_t& uiTotalCoeff, uint8_t& uiTrailingOnes,
+    SReadBitsCache* pBitsCache) {
+  if (pBitsCache->uiRemainBits < 13)
+    SHIFT_BUFFER (pBitsCache);
+  for (int32_t iTotal = 0; iTotal <= 8; ++iTotal) {
+    for (int32_t iTrailing = 0; iTrailing < 4; ++iTrailing) {
+      const uint8_t uiLen = g_kuiChroma422DcTokenLen[iTotal][iTrailing];
+      if (uiLen == 0 || uiLen > pBitsCache->uiRemainBits)
+        continue;
+      const uint32_t uiValue = pBitsCache->uiCache32Bit >> (32 - uiLen);
+      if (uiValue == g_kuiChroma422DcTokenBits[iTotal][iTrailing]) {
+        POP_BUFFER (pBitsCache, uiLen);
+        uiTotalCoeff = static_cast<uint8_t> (iTotal);
+        uiTrailingOnes = static_cast<uint8_t> (iTrailing);
+        return uiLen;
+      }
+    }
+  }
+  return -1;
+}
+
+static int32_t CavlcGetChroma422DcTotalZeros (int32_t& iZerosLeft, SReadBitsCache* pBitsCache,
+    uint8_t uiTotalCoeff) {
+  if (uiTotalCoeff < 1 || uiTotalCoeff > 7)
+    return -1;
+  if (pBitsCache->uiRemainBits < 8)
+    SHIFT_BUFFER (pBitsCache);
+  for (int32_t iZeros = 0; iZeros <= 8 - uiTotalCoeff; ++iZeros) {
+    const uint8_t uiLen = g_kuiChroma422DcTotalZerosLen[uiTotalCoeff - 1][iZeros];
+    if (uiLen == 0 || uiLen > pBitsCache->uiRemainBits)
+      continue;
+    const uint32_t uiValue = pBitsCache->uiCache32Bit >> (32 - uiLen);
+    if (uiValue == g_kuiChroma422DcTotalZerosBits[uiTotalCoeff - 1][iZeros]) {
+      POP_BUFFER (pBitsCache, uiLen);
+      iZerosLeft = iZeros;
+      return uiLen;
+    }
+  }
+  return -1;
+}
+
 static int32_t CavlcGetLevelVal (int32_t iLevel[16], SReadBitsCache* pBitsCache, uint8_t uiTotalCoeff,
                                  uint8_t uiTrailingOnes) {
   int32_t i, iUsedBits = 0;
@@ -877,6 +959,7 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
   intX_t iCurIdx   = pBs->iIndex;
   uint8_t* pBuf     = ((uint8_t*)pBs->pStartBuf) + (iCurIdx >> 3);
   bool  bChromaDc = (CHROMA_DC == iResidualProperty);
+  bool  bChromaDc422 = bChromaDc && (iMaxNumCoeff == 8);
   uint8_t bChroma   = (bChromaDc || CHROMA_AC == iResidualProperty);
   SReadBitsCache sReadBitsCache;
 
@@ -887,9 +970,34 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
   //////////////////////////////////////////////////////////////////////////
 
   if (bChroma) {
-    iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
-    nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
-    nB = pNonZeroCountCache[iCurNonZeroCacheIdx - 8];
+    if (pCtx->pSps->uiChromaFormatIdc == 2 && iIndex >= 16 && iIndex < 32) {
+      const int32_t iLocal = (iIndex - 16) & 7;
+      const int32_t iCol = iLocal & 1;
+      const int32_t iRow = iLocal >> 1;
+      iCurNonZeroCacheIdx = 14 + iCol + (iRow & 1) * 8;
+      PDqLayer pNzcLayer = pCtx->pCurDqLayer;
+      const int32_t iCurMbXy = pNzcLayer->iMbXyIndex;
+      int8_t* pCurNzc = pNzcLayer->pNzc[iCurMbXy];
+      nA = nB = -1;
+      if (iCol > 0) {
+        nA = pCurNzc[iIndex - 1];
+      } else if (pNzcLayer->iMbX > 0) {
+        const int32_t iLeftXy = iCurMbXy - 1;
+        if (pNzcLayer->pSliceIdc[iLeftXy] == pNzcLayer->pSliceIdc[iCurMbXy])
+          nA = pNzcLayer->pNzc[iLeftXy][16 + ((iIndex - 16) & 24) + (iRow << 1) + 1];
+      }
+      if (iRow > 0) {
+        nB = pCurNzc[iIndex - 2];
+      } else if (pNzcLayer->iMbY > 0) {
+        const int32_t iTopXy = iCurMbXy - pNzcLayer->iMbWidth;
+        if (pNzcLayer->pSliceIdc[iTopXy] == pNzcLayer->pSliceIdc[iCurMbXy])
+          nB = pNzcLayer->pNzc[iTopXy][16 + ((iIndex - 16) & 24) + 6 + iCol];
+      }
+    } else {
+      iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
+      nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
+      nB = pNonZeroCountCache[iCurNonZeroCacheIdx - 8];
+    }
   } else { //luma
     iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
     nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
@@ -898,18 +1006,27 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
 
   WELS_NON_ZERO_COUNT_AVERAGE (nC, nA, nB);
 
-  iUsedBits += CavlcGetTrailingOnesAndTotalCoeff (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache, pVlcTable, bChromaDc,
-               nC);
+  if (bChromaDc422) {
+    const int32_t iTokenBits = CavlcGetChroma422DcToken (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache);
+    if (iTokenBits < 0)
+      return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_TOTAL_COEFF_OR_TRAILING_ONES);
+    iUsedBits += iTokenBits;
+  } else {
+    iUsedBits += CavlcGetTrailingOnesAndTotalCoeff (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache, pVlcTable, bChromaDc,
+                 nC);
+  }
 
   if (iResidualProperty != CHROMA_DC && iResidualProperty != I16_LUMA_DC) {
     pNonZeroCountCache[iCurNonZeroCacheIdx] = uiTotalCoeff;
+    if (pCtx->pSps->uiChromaFormatIdc == 2 && iIndex >= 16 && iIndex < 32)
+      pCtx->pCurDqLayer->pNzc[pCtx->pCurDqLayer->iMbXyIndex][iIndex] = uiTotalCoeff;
     //////////////////////////////////////////////////////////////////////////
   }
   if (0 == uiTotalCoeff) {
     pBs->iIndex += iUsedBits;
     return ERR_NONE;
   }
-  if ((uiTrailingOnes > 3) || (uiTotalCoeff > 16)) { /////////////////check uiTrailingOnes and uiTotalCoeff
+  if ((uiTrailingOnes > 3) || (uiTotalCoeff > (bChromaDc422 ? 8 : 16))) { /////////////////check uiTrailingOnes and uiTotalCoeff
     return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_TOTAL_COEFF_OR_TRAILING_ONES);
   }
   if ((i = CavlcGetLevelVal (iLevel, &sReadBitsCache, uiTotalCoeff, uiTrailingOnes)) == -1) {
@@ -917,7 +1034,14 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
   }
   iUsedBits += i;
   if (uiTotalCoeff < iMaxNumCoeff) {
-    iUsedBits += CavlcGetTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff, pVlcTable, bChromaDc);
+    if (bChromaDc422) {
+      const int32_t iZerosBits = CavlcGetChroma422DcTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff);
+      if (iZerosBits < 0)
+        return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_ZERO_LEFT);
+      iUsedBits += iZerosBits;
+    } else {
+      iUsedBits += CavlcGetTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff, pVlcTable, bChromaDc);
+    }
   } else {
     iZerosLeft = 0;
   }
@@ -941,15 +1065,29 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
       j          = kpZigzagTable[ iCoeffNum ];
       pTCoeff[j] = iLevel[i];
     }
-    WelsChromaDcIdct (pTCoeff);
-    //scaling
-    if (!pCtx->bUseScalingList) {
-      for (int j = 0; j < 4; ++j) {
-        pTCoeff[kpZigzagTable[j]] = (pTCoeff[kpZigzagTable[j]] * kpDequantCoeff[0]) >> 1;
+    if (bChromaDc422) {
+      WelsChromaDcIdct422 (pTCoeff);
+      const uint8_t uiDcQp = WELS_MIN (uiQp + 3, 51);
+      const uint16_t uiDcDequant = pCtx->bUseScalingList ? kpDequantCoeff[0] : g_kuiDequantCoeff[uiDcQp][0];
+      for (int j = 0; j < 8; ++j) {
+        const int32_t iIndex422 = kpZigzagTable[j];
+        if (!pCtx->bUseScalingList)
+          pTCoeff[iIndex422] = static_cast<int16_t> ((static_cast<int32_t> (pTCoeff[iIndex422]) * uiDcDequant) >> 2);
+        else
+          pTCoeff[iIndex422] = static_cast<int16_t> ((static_cast<int64_t> (pTCoeff[iIndex422]) *
+                                                     kpDequantCoeff[0]) >> 5);
       }
     } else {
-      for (int j = 0; j < 4; ++j) {
-        pTCoeff[kpZigzagTable[j]] = ((int64_t) pTCoeff[kpZigzagTable[j]] * (int64_t) kpDequantCoeff[0]) >> 5;
+      WelsChromaDcIdct (pTCoeff);
+      //scaling
+      if (!pCtx->bUseScalingList) {
+        for (int j = 0; j < 4; ++j) {
+          pTCoeff[kpZigzagTable[j]] = (pTCoeff[kpZigzagTable[j]] * kpDequantCoeff[0]) >> 1;
+        }
+      } else {
+        for (int j = 0; j < 4; ++j) {
+          pTCoeff[kpZigzagTable[j]] = ((int64_t) pTCoeff[kpZigzagTable[j]] * (int64_t) kpDequantCoeff[0]) >> 5;
+        }
       }
     }
   } else if (iResidualProperty == I16_LUMA_DC) { //DC coefficent, only call in Intra_16x16, base_mode_flag = 0
@@ -976,6 +1114,43 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
   return ERR_NONE;
 }
 
+int32_t WelsDecodeChromaResidual422Cavlc (PWelsDecoderContext pCtx, SVlcTable* pVlcTable, PBitStringAux pBs,
+    uint8_t* pNonZeroCountCache, uint32_t uiCbpChroma, int16_t* pCoeff) {
+  static const uint8_t kuiDcScan[8] = {0, 32, 16, 64, 96, 48, 80, 112};
+  PDqLayer pCurDqLayer = pCtx->pCurDqLayer;
+  const int32_t iMbXy = pCurDqLayer->iMbXyIndex;
+  int8_t* pNzc = pCurDqLayer->pNzc[iMbXy];
+
+  for (int32_t i = 16; i < 32; ++i)
+    pNzc[i] = 0;
+
+  if (uiCbpChroma == 1 || uiCbpChroma == 2) {
+    for (int32_t iComp = 0; iComp < 2; ++iComp) {
+      const int32_t iProperty = iComp ? CHROMA_DC_V : CHROMA_DC_U;
+      const int32_t iRet = WelsResidualBlockCavlc (pVlcTable, pNonZeroCountCache, pBs, 16 + (iComp << 2), 8,
+                           kuiDcScan, iProperty, pCoeff + 256 + (iComp << 7),
+                           pCurDqLayer->pChromaQp[iMbXy][iComp], pCtx);
+      if (iRet != ERR_NONE)
+        return iRet;
+    }
+  }
+
+  if (uiCbpChroma == 2) {
+    for (int32_t iComp = 0; iComp < 2; ++iComp) {
+      const int32_t iProperty = iComp ? CHROMA_AC_V : CHROMA_AC_U;
+      for (int32_t iBlock = 0; iBlock < 8; ++iBlock) {
+        const int32_t iIndex = 16 + (iComp << 3) + iBlock;
+        const int32_t iRet = WelsResidualBlockCavlc (pVlcTable, pNonZeroCountCache, pBs, iIndex, 15,
+                             g_kuiZigzagScan + 1, iProperty, pCoeff + (iIndex << 4),
+                             pCurDqLayer->pChromaQp[iMbXy][iComp], pCtx);
+        if (iRet != ERR_NONE)
+          return iRet;
+      }
+    }
+  }
+  return ERR_NONE;
+}
+
 int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCache, PBitStringAux pBs, int32_t iIndex,
                                    int32_t iMaxNumCoeff, const uint8_t* kpZigzagTable, int32_t iResidualProperty,
                                    int16_t* pTCoeff, int32_t  iIdx4x4, uint8_t uiQp,
@@ -996,6 +1171,7 @@ int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable, uint8_t* pNonZeroCountC
   intX_t iCurIdx   = pBs->iIndex;
   uint8_t* pBuf     = ((uint8_t*)pBs->pStartBuf) + (iCurIdx >> 3);
   bool  bChromaDc = (CHROMA_DC == iResidualProperty);
+  bool  bChromaDc422 = bChromaDc && (iMaxNumCoeff == 8);
   uint8_t bChroma   = (bChromaDc || CHROMA_AC == iResidualProperty);
   SReadBitsCache sReadBitsCache;
 
@@ -1006,9 +1182,34 @@ int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable, uint8_t* pNonZeroCountC
   //////////////////////////////////////////////////////////////////////////
 
   if (bChroma) {
-    iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
-    nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
-    nB = pNonZeroCountCache[iCurNonZeroCacheIdx - 8];
+    if (pCtx->pSps->uiChromaFormatIdc == 2 && iIndex >= 16 && iIndex < 32) {
+      const int32_t iLocal = (iIndex - 16) & 7;
+      const int32_t iCol = iLocal & 1;
+      const int32_t iRow = iLocal >> 1;
+      iCurNonZeroCacheIdx = 14 + iCol + (iRow & 1) * 8;
+      PDqLayer pNzcLayer = pCtx->pCurDqLayer;
+      const int32_t iCurMbXy = pNzcLayer->iMbXyIndex;
+      int8_t* pCurNzc = pNzcLayer->pNzc[iCurMbXy];
+      nA = nB = -1;
+      if (iCol > 0) {
+        nA = pCurNzc[iIndex - 1];
+      } else if (pNzcLayer->iMbX > 0) {
+        const int32_t iLeftXy = iCurMbXy - 1;
+        if (pNzcLayer->pSliceIdc[iLeftXy] == pNzcLayer->pSliceIdc[iCurMbXy])
+          nA = pNzcLayer->pNzc[iLeftXy][16 + ((iIndex - 16) & 24) + (iRow << 1) + 1];
+      }
+      if (iRow > 0) {
+        nB = pCurNzc[iIndex - 2];
+      } else if (pNzcLayer->iMbY > 0) {
+        const int32_t iTopXy = iCurMbXy - pNzcLayer->iMbWidth;
+        if (pNzcLayer->pSliceIdc[iTopXy] == pNzcLayer->pSliceIdc[iCurMbXy])
+          nB = pNzcLayer->pNzc[iTopXy][16 + ((iIndex - 16) & 24) + 6 + iCol];
+      }
+    } else {
+      iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
+      nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
+      nB = pNonZeroCountCache[iCurNonZeroCacheIdx - 8];
+    }
   } else { //luma
     iCurNonZeroCacheIdx = g_kuiCache48CountScan4Idx[iIndex];
     nA = pNonZeroCountCache[iCurNonZeroCacheIdx - 1];
@@ -1017,18 +1218,27 @@ int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable, uint8_t* pNonZeroCountC
 
   WELS_NON_ZERO_COUNT_AVERAGE (nC, nA, nB);
 
-  iUsedBits += CavlcGetTrailingOnesAndTotalCoeff (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache, pVlcTable, bChromaDc,
-               nC);
+  if (bChromaDc422) {
+    const int32_t iTokenBits = CavlcGetChroma422DcToken (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache);
+    if (iTokenBits < 0)
+      return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_TOTAL_COEFF_OR_TRAILING_ONES);
+    iUsedBits += iTokenBits;
+  } else {
+    iUsedBits += CavlcGetTrailingOnesAndTotalCoeff (uiTotalCoeff, uiTrailingOnes, &sReadBitsCache, pVlcTable, bChromaDc,
+                 nC);
+  }
 
   if (iResidualProperty != CHROMA_DC && iResidualProperty != I16_LUMA_DC) {
     pNonZeroCountCache[iCurNonZeroCacheIdx] = uiTotalCoeff;
+    if (pCtx->pSps->uiChromaFormatIdc == 2 && iIndex >= 16 && iIndex < 32)
+      pCtx->pCurDqLayer->pNzc[pCtx->pCurDqLayer->iMbXyIndex][iIndex] = uiTotalCoeff;
     //////////////////////////////////////////////////////////////////////////
   }
   if (0 == uiTotalCoeff) {
     pBs->iIndex += iUsedBits;
     return ERR_NONE;
   }
-  if ((uiTrailingOnes > 3) || (uiTotalCoeff > 16)) { /////////////////check uiTrailingOnes and uiTotalCoeff
+  if ((uiTrailingOnes > 3) || (uiTotalCoeff > (bChromaDc422 ? 8 : 16))) { /////////////////check uiTrailingOnes and uiTotalCoeff
     return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_TOTAL_COEFF_OR_TRAILING_ONES);
   }
   if ((i = CavlcGetLevelVal (iLevel, &sReadBitsCache, uiTotalCoeff, uiTrailingOnes)) == -1) {
@@ -1036,7 +1246,14 @@ int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable, uint8_t* pNonZeroCountC
   }
   iUsedBits += i;
   if (uiTotalCoeff < iMaxNumCoeff) {
-    iUsedBits += CavlcGetTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff, pVlcTable, bChromaDc);
+    if (bChromaDc422) {
+      const int32_t iZerosBits = CavlcGetChroma422DcTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff);
+      if (iZerosBits < 0)
+        return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_CAVLC_INVALID_ZERO_LEFT);
+      iUsedBits += iZerosBits;
+    } else {
+      iUsedBits += CavlcGetTotalZeros (iZerosLeft, &sReadBitsCache, uiTotalCoeff, pVlcTable, bChromaDc);
+    }
   } else {
     iZerosLeft = 0;
   }

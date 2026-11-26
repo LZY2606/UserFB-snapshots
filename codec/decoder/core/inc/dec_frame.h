@@ -75,8 +75,8 @@ struct TagDqLayer {
   int8_t (*pChromaQp)[2];
   int8_t*  pCbp;
   uint16_t *pCbfDc;
-  int8_t (*pNzc)[24];
-  int8_t (*pNzcRs)[24];
+  int8_t (*pNzc)[32];
+  int8_t (*pNzcRs)[32];
   int8_t*  pResidualPredFlag;
   int8_t*  pInterPredictionDoneFlag;
   bool*    pMbCorrectlyDecodedFlag;
@@ -139,7 +139,7 @@ typedef struct TagGpuAvcLayer {
   int32_t*                  pSliceIdc;      // using int32_t for slice_idc
   int8_t*                   pLumaQp;
   int8_t*                   pCbp;
-  int8_t                    (*pNzc)[24];
+  int8_t                    (*pNzc)[32];
   int8_t                    (*pIntraPredMode)[8];     //0~3 top4x4 ; 4~6 left 4x4; 7 intra16x16
   int32_t                   iMbX;
   int32_t                   iMbY;

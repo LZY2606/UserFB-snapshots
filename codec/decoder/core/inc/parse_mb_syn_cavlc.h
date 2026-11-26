@@ -109,6 +109,9 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable,
                                 uint8_t uiQp,
                                 PWelsDecoderContext pCtx);
 
+int32_t WelsDecodeChromaResidual422Cavlc (PWelsDecoderContext pCtx, SVlcTable* pVlcTable, PBitStringAux pBs,
+                                          uint8_t* pNonZeroCountCache, uint32_t uiCbpChroma, int16_t* pCoeff);
+
 // Transform8x8
 int32_t WelsResidualBlockCavlc8x8 (SVlcTable* pVlcTable,
                                    uint8_t* pNonZeroCountCache,

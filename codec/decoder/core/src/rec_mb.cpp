@@ -41,6 +41,7 @@
 
 #include "rec_mb.h"
 #include "decode_slice.h"
+#include "dec422.h"
 
 namespace WelsDec {
 
@@ -53,11 +54,17 @@ void WelsFillRecNeededMbInfo (PWelsDecoderContext pCtx, bool bOutput, PDqLayer p
 
   pCurDqLayer->iLumaStride = iLumaStride;
   pCurDqLayer->iChromaStride = iChromaStride;
+  pCurPic->uiChromaFormatIdc = pCtx->pSps->uiChromaFormatIdc;
+  pCurPic->iCropLeft = pCtx->pSps->sFrameCrop.iLeftOffset;
+  pCurPic->iCropRight = pCtx->pSps->sFrameCrop.iRightOffset;
+  pCurPic->iCropTop = pCtx->pSps->sFrameCrop.iTopOffset;
+  pCurPic->iCropBottom = pCtx->pSps->sFrameCrop.iBottomOffset;
 
   if (bOutput) {
     pCurDqLayer->pPred[0] = pCurPic->pData[0] + ((iMbY * iLumaStride + iMbX) << 4);
-    pCurDqLayer->pPred[1] = pCurPic->pData[1] + ((iMbY * iChromaStride + iMbX) << 3);
-    pCurDqLayer->pPred[2] = pCurPic->pData[2] + ((iMbY * iChromaStride + iMbX) << 3);
+    const int32_t iChromaMbOffset = WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iChromaStride);
+    pCurDqLayer->pPred[1] = pCurPic->pData[1] + iChromaMbOffset;
+    pCurDqLayer->pPred[2] = pCurPic->pData[2] + iChromaMbOffset;
   }
 }
 
@@ -166,9 +173,14 @@ int32_t RecI4x4Chroma (int32_t iMBXY, PWelsDecoderContext pCtx, int16_t* pScoeff
 
   uint8_t* pPred = pDqLayer->pPred[1];
 
-  pGetIChromaPredFunc[iChromaPredMode] (pPred, iChromaStride);
-  pPred = pDqLayer->pPred[2];
-  pGetIChromaPredFunc[iChromaPredMode] (pPred, iChromaStride);
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    WelsIChromaPred422 (pPred, iChromaStride, iChromaPredMode);
+    WelsIChromaPred422 (pDqLayer->pPred[2], iChromaStride, iChromaPredMode);
+  } else {
+    pGetIChromaPredFunc[iChromaPredMode] (pPred, iChromaStride);
+    pPred = pDqLayer->pPred[2];
+    pGetIChromaPredFunc[iChromaPredMode] (pPred, iChromaStride);
+  }
 
   RecChroma (iMBXY, pCtx, pScoeffLevel, pDqLayer);
 
@@ -204,9 +216,14 @@ int32_t RecI16x16Mb (int32_t iMBXY, PWelsDecoderContext pCtx, int16_t* pScoeffLe
 
   /*decode intra mb cb&cr*/
   pPred = pDqLayer->pPred[1];
-  pGetIChromaPredFunc[iChromaPredMode] (pPred, iUVStride);
-  pPred = pDqLayer->pPred[2];
-  pGetIChromaPredFunc[iChromaPredMode] (pPred, iUVStride);
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    WelsIChromaPred422 (pPred, iUVStride, iChromaPredMode);
+    WelsIChromaPred422 (pDqLayer->pPred[2], iUVStride, iChromaPredMode);
+  } else {
+    pGetIChromaPredFunc[iChromaPredMode] (pPred, iUVStride);
+    pPred = pDqLayer->pPred[2];
+    pGetIChromaPredFunc[iChromaPredMode] (pPred, iUVStride);
+  }
   RecChroma (iMBXY, pCtx, pScoeffLevel, pDqLayer);
 
   return ERR_NONE;
@@ -277,10 +294,16 @@ void BaseMC (PWelsDecoderContext pCtx, sMCRefMember* pMCRefMem, const int32_t& l
   }
 
   int32_t iSrcPixOffsetLuma = (iFullMVx >> 2) + (iFullMVy >> 2) * pMCRefMem->iSrcLineLuma;
-  int32_t iSrcPixOffsetChroma = (iFullMVx >> 3) + (iFullMVy >> 3) * pMCRefMem->iSrcLineChroma;
-
+  int32_t iSrcPixOffsetChroma;
   int32_t iBlkWidthChroma = iBlkWidth >> 1;
-  int32_t iBlkHeightChroma = iBlkHeight >> 1;
+  int32_t iBlkHeightChroma;
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    iSrcPixOffsetChroma = (iFullMVx >> 3) + (iFullMVy >> 2) * pMCRefMem->iSrcLineChroma;
+    iBlkHeightChroma = iBlkHeight;
+  } else {
+    iSrcPixOffsetChroma = (iFullMVx >> 3) + (iFullMVy >> 3) * pMCRefMem->iSrcLineChroma;
+    iBlkHeightChroma = iBlkHeight >> 1;
+  }
 
   uint8_t* pSrcY = pMCRefMem->pSrcY + iSrcPixOffsetLuma;
   uint8_t* pSrcU = pMCRefMem->pSrcU + iSrcPixOffsetChroma;
@@ -291,10 +314,18 @@ void BaseMC (PWelsDecoderContext pCtx, sMCRefMember* pMCRefMem, const int32_t& l
 
   pMCFunc->pMcLumaFunc (pSrcY, pMCRefMem->iSrcLineLuma, pDstY, pMCRefMem->iDstLineLuma, iFullMVx, iFullMVy, iBlkWidth,
                         iBlkHeight);
-  pMCFunc->pMcChromaFunc (pSrcU, pMCRefMem->iSrcLineChroma, pDstU, pMCRefMem->iDstLineChroma, iFullMVx, iFullMVy,
-                          iBlkWidthChroma, iBlkHeightChroma);
-  pMCFunc->pMcChromaFunc (pSrcV, pMCRefMem->iSrcLineChroma, pDstV, pMCRefMem->iDstLineChroma, iFullMVx, iFullMVy,
-                          iBlkWidthChroma, iBlkHeightChroma);
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    const int16_t iChromaMvY = static_cast<int16_t> (iFullMVy << 1);
+    WelsMcChroma422_c (pSrcU, pMCRefMem->iSrcLineChroma, pDstU, pMCRefMem->iDstLineChroma,
+                       static_cast<int16_t> (iFullMVx), iChromaMvY, iBlkWidthChroma, iBlkHeightChroma);
+    WelsMcChroma422_c (pSrcV, pMCRefMem->iSrcLineChroma, pDstV, pMCRefMem->iDstLineChroma,
+                       static_cast<int16_t> (iFullMVx), iChromaMvY, iBlkWidthChroma, iBlkHeightChroma);
+  } else {
+    pMCFunc->pMcChromaFunc (pSrcU, pMCRefMem->iSrcLineChroma, pDstU, pMCRefMem->iDstLineChroma, iFullMVx, iFullMVy,
+                            iBlkWidthChroma, iBlkHeightChroma);
+    pMCFunc->pMcChromaFunc (pSrcV, pMCRefMem->iSrcLineChroma, pDstV, pMCRefMem->iDstLineChroma, iFullMVx, iFullMVy,
+                            iBlkWidthChroma, iBlkHeightChroma);
+  }
 
 }
 
@@ -480,6 +511,7 @@ int32_t GetInterPred (uint8_t* pPredY, uint8_t* pPredCb, uint8_t* pPredCr, PWels
   int32_t iDstLineChroma = pCtx->pDec->iLinesize[1];
 
   int32_t iBlk8X, iBlk8Y, iBlk4X, iBlk4Y, i, j, iIIdx, iJIdx;
+  const int32_t iChromaYShift = (pCtx->pSps->uiChromaFormatIdc == 2) ? 0 : 1;
 
   pMCRefMem.iPicWidth = (pCurDqLayer->sLayerInfo.sSliceInLayer.sSliceHeaderExt.sSliceHeader.iMbWidth << 4);
   pMCRefMem.iPicHeight = (pCurDqLayer->sLayerInfo.sSliceInLayer.sSliceHeaderExt.sSliceHeader.iMbHeight << 4);
@@ -523,8 +555,8 @@ int32_t GetInterPred (uint8_t* pPredY, uint8_t* pPredCb, uint8_t* pPredCr, PWels
     iRefIndex = pCurDqLayer->pDec->pRefIndex[0][iMBXY][8];
     WELS_B_MB_REC_VERIFY (GetRefPic (&pMCRefMem, pCtx, iRefIndex, LIST_0));
     pMCRefMem.pDstY = pPredY  + (iDstLineLuma << 3);
-    pMCRefMem.pDstU = pPredCb + (iDstLineChroma << 2);
-    pMCRefMem.pDstV = pPredCr + (iDstLineChroma << 2);
+    pMCRefMem.pDstU = pPredCb + ((iDstLineChroma << 2) << (1 - iChromaYShift));
+    pMCRefMem.pDstV = pPredCr + ((iDstLineChroma << 2) << (1 - iChromaYShift));
     BaseMC (pCtx, &pMCRefMem, LIST_0, iRefIndex, iMBOffsetX, iMBOffsetY + 8, pMCFunc, 16, 8, iMVs);
 
     if (pCurDqLayer->bUseWeightPredictionFlag) {
@@ -570,8 +602,8 @@ int32_t GetInterPred (uint8_t* pPredY, uint8_t* pPredCb, uint8_t* pPredCr, PWels
       iRefIndex = pCurDqLayer->pDec->pRefIndex[0][iMBXY][iIIdx];
       WELS_B_MB_REC_VERIFY (GetRefPic (&pMCRefMem, pCtx, iRefIndex, LIST_0));
       pDstY = pPredY + iBlk8X + iBlk8Y * iDstLineLuma;
-      pDstU = pPredCb + (iBlk8X >> 1) + (iBlk8Y >> 1) * iDstLineChroma;
-      pDstV = pPredCr + (iBlk8X >> 1) + (iBlk8Y >> 1) * iDstLineChroma;
+      pDstU = pPredCb + (iBlk8X >> 1) + ((iBlk8Y >> iChromaYShift) * iDstLineChroma);
+      pDstV = pPredCr + (iBlk8X >> 1) + ((iBlk8Y >> iChromaYShift) * iDstLineChroma);
       pMCRefMem.pDstY = pDstY;
       pMCRefMem.pDstU = pDstU;
       pMCRefMem.pDstV = pDstV;
@@ -599,8 +631,8 @@ int32_t GetInterPred (uint8_t* pPredY, uint8_t* pPredCb, uint8_t* pPredCr, PWels
         iMVs[0] = pCurDqLayer->pDec->pMv[0][iMBXY][iIIdx + 4][0];
         iMVs[1] = pCurDqLayer->pDec->pMv[0][iMBXY][iIIdx + 4][1];
         pMCRefMem.pDstY += (iDstLineLuma << 2);
-        pMCRefMem.pDstU += (iDstLineChroma << 1);
-        pMCRefMem.pDstV += (iDstLineChroma << 1);
+        pMCRefMem.pDstU += (iDstLineChroma << 1) << (1 - iChromaYShift);
+        pMCRefMem.pDstV += (iDstLineChroma << 1) << (1 - iChromaYShift);
         BaseMC (pCtx, &pMCRefMem, LIST_0, iRefIndex, iXOffset, iYOffset + 4, pMCFunc, 8, 4, iMVs);
         if (pCurDqLayer->bUseWeightPredictionFlag) {
 
@@ -638,7 +670,7 @@ int32_t GetInterPred (uint8_t* pPredY, uint8_t* pPredCb, uint8_t* pPredCr, PWels
           iBlk4X = (j & 1) << 2;
           iBlk4Y = (j >> 1) << 2;
 
-          iUVLineStride = (iBlk4X >> 1) + (iBlk4Y >> 1) * iDstLineChroma;
+          iUVLineStride = (iBlk4X >> 1) + ((iBlk4Y >> (pCtx->pSps->uiChromaFormatIdc == 2 ? 0 : 1)) * iDstLineChroma);
           pMCRefMem.pDstY = pDstY + iBlk4X + iBlk4Y * iDstLineLuma;
           pMCRefMem.pDstU = pDstU + iUVLineStride;
           pMCRefMem.pDstV = pDstV + iUVLineStride;
@@ -1001,7 +1033,7 @@ int32_t GetInterBPred (uint8_t* pPredYCbCr[3], uint8_t* pTempPredYCbCr[3], PWels
             iBlk4X = (j & 1) << 2;
             iBlk4Y = (j >> 1) << 2;
 
-            iUVLineStride = (iBlk4X >> 1) + (iBlk4Y >> 1) * iDstLineChroma;
+            iUVLineStride = (iBlk4X >> 1) + ((iBlk4Y >> (pCtx->pSps->uiChromaFormatIdc == 2 ? 0 : 1)) * iDstLineChroma);
             pMCRefMem.pDstY = pDstY + iBlk4X + iBlk4Y * iDstLineLuma;
             pMCRefMem.pDstU = pDstU + iUVLineStride;
             pMCRefMem.pDstV = pDstV + iUVLineStride;
@@ -1034,7 +1066,7 @@ int32_t GetInterBPred (uint8_t* pPredYCbCr[3], uint8_t* pTempPredYCbCr[3], PWels
             iBlk4X = (j & 1) << 2;
             iBlk4Y = (j >> 1) << 2;
 
-            iUVLineStride = (iBlk4X >> 1) + (iBlk4Y >> 1) * iDstLineChroma;
+            iUVLineStride = (iBlk4X >> 1) + ((iBlk4Y >> (pCtx->pSps->uiChromaFormatIdc == 2 ? 0 : 1)) * iDstLineChroma);
             pMCRefMem.pDstY = pDstY + iBlk4X + iBlk4Y * iDstLineLuma;
             pMCRefMem.pDstU = pDstU + iUVLineStride;
             pMCRefMem.pDstV = pDstV + iUVLineStride;
@@ -1055,12 +1087,31 @@ int32_t GetInterBPred (uint8_t* pPredYCbCr[3], uint8_t* pTempPredYCbCr[3], PWels
 
 int32_t RecChroma (int32_t iMBXY, PWelsDecoderContext pCtx, int16_t* pScoeffLevel, PDqLayer pDqLayer) {
   int32_t iChromaStride = pCtx->pCurDqLayer->pDec->iLinesize[1];
-  PIdctFourResAddPredFunc pIdctFourResAddPredFunc = pCtx->pIdctFourResAddPredFunc;
+  PIdctResAddPredFunc pIdctResAddPredFunc = pCtx->pIdctResAddPredFunc;
 
   uint8_t i = 0;
   uint8_t uiCbpC = pDqLayer->pCbp[iMBXY] >> 4;
 
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    if (1 == uiCbpC || 2 == uiCbpC) {
+      for (i = 0; i < 2; ++i) {
+        uint8_t* pPred = pDqLayer->pPred[i + 1];
+        for (int32_t iBlock = 0; iBlock < 8; ++iBlock) {
+          const int32_t iIndex = 16 + (i << 3) + iBlock;
+          int16_t* pRS = pScoeffLevel + (iIndex << 4);
+          const int32_t iCol = iBlock & 1;
+          const int32_t iRow = iBlock >> 1;
+          uint8_t* pBlockPred = pPred + (iRow << 2) * iChromaStride + (iCol << 2);
+          if (pDqLayer->pNzc[iMBXY][iIndex] || pRS[0])
+            pIdctResAddPredFunc (pBlockPred, iChromaStride, pRS);
+        }
+      }
+    }
+    return ERR_NONE;
+  }
+
   if (1 == uiCbpC || 2 == uiCbpC) {
+    PIdctFourResAddPredFunc pIdctFourResAddPredFunc = pCtx->pIdctFourResAddPredFunc;
     for (i = 0; i < 2; i++) {
       int16_t* pRS = pScoeffLevel + 256 + (i << 6);
       uint8_t* pPred = pDqLayer->pPred[i + 1];

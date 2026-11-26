@@ -73,6 +73,7 @@ int32_t WelsMbInterConstruction (PWelsDecoderContext pCtx, PDqLayer pCurDqLayer)
 void WelsLumaDcDequantIdct (int16_t* pBlock, int32_t iQp, PWelsDecoderContext pCtx);
 int32_t WelsMbInterPrediction (PWelsDecoderContext pCtx, PDqLayer pCurDqLayer);
 void WelsChromaDcIdct (int16_t* pBlock);
+void WelsChromaDcIdct422 (int16_t* pBlock);
 bool ComputeColocatedTemporalScaling (PWelsDecoderContext pCtx);
 
 #ifdef __cplusplus

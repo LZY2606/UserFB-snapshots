@@ -353,8 +353,8 @@ typedef struct TagWelsDecoderContext {
     int8_t (*pChromaQp[LAYER_NUM_EXCHANGEABLE])[2];                                         /*mb chroma_qp*/
     int16_t (*pMvd[LAYER_NUM_EXCHANGEABLE][LIST_A])[MB_BLOCK4x4_NUM][MV_A]; //[LAYER_NUM_EXCHANGEABLE   MB_BLOCK4x4_NUM*]
     uint16_t* pCbfDc[LAYER_NUM_EXCHANGEABLE];
-    int8_t (*pNzc[LAYER_NUM_EXCHANGEABLE])[24];
-    int8_t (*pNzcRs[LAYER_NUM_EXCHANGEABLE])[24];
+    int8_t (*pNzc[LAYER_NUM_EXCHANGEABLE])[32];
+    int8_t (*pNzcRs[LAYER_NUM_EXCHANGEABLE])[32];
     int16_t (*pScaledTCoeff[LAYER_NUM_EXCHANGEABLE])[MB_COEFF_LIST_SIZE]; /*need be aligned*/
     int8_t (*pIntraPredMode[LAYER_NUM_EXCHANGEABLE])[8];  //0~3 top4x4 ; 4~6 left 4x4; 7 intra16x16
     int8_t (*pIntra4x4FinalMode[LAYER_NUM_EXCHANGEABLE])[MB_BLOCK4x4_NUM];

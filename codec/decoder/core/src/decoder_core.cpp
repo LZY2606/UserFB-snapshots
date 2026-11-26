@@ -36,6 +36,7 @@
 #include "memmgr_nal_unit.h"
 #include "au_parser.h"
 #include "decode_slice.h"
+#include "dec422.h"
 #include "manage_dec_ref.h"
 #include "expand_pic.h"
 #include "decoder.h"
@@ -72,8 +73,15 @@ static inline int32_t DecodeFrameConstruction (PWelsDecoderContext pCtx, uint8_t
     }
   }
 
-  const int32_t kiActualWidth = kiWidth - (pCtx->sFrameCrop.iLeftOffset + pCtx->sFrameCrop.iRightOffset) * 2;
-  const int32_t kiActualHeight = kiHeight - (pCtx->sFrameCrop.iTopOffset + pCtx->sFrameCrop.iBottomOffset) * 2;
+  const int32_t kiChromaFormatIdc = pPic->uiChromaFormatIdc ? pPic->uiChromaFormatIdc : 1;
+  const int32_t kiCropUnitY = (kiChromaFormatIdc == 2) ? 1 : 2;
+  const int32_t kiCropLeft = pPic->iCropLeft;
+  const int32_t kiCropRight = pPic->iCropRight;
+  const int32_t kiCropTop = pPic->iCropTop;
+  const int32_t kiCropBottom = pPic->iCropBottom;
+  const int32_t kiActualWidth = kiWidth - (kiCropLeft + kiCropRight) * 2;
+  const int32_t kiActualHeight = kiHeight - (kiCropTop + kiCropBottom) *
+                                 kiCropUnitY;
 
 
   if (pCtx->pParam->eEcActiveIdc == ERROR_CON_DISABLE) {
@@ -103,10 +111,11 @@ static inline int32_t DecodeFrameConstruction (PWelsDecoderContext pCtx, uint8_t
       uint8_t* pNalBs = NULL;
       pParser->uiOutBsTimeStamp = (pCurAu->pNalUnitsList [iIdx]) ? pCurAu->pNalUnitsList [iIdx]->uiTimeStamp : 0;
       //pParser->iNalNum = 0;
+      const int32_t kiParserCropUnitY = (pCtx->pSps->uiChromaFormatIdc == 2) ? 1 : 2;
       pParser->iSpsWidthInPixel = (pCtx->pSps->iMbWidth << 4) - ((pCtx->pSps->sFrameCrop.iLeftOffset +
                                   pCtx->pSps->sFrameCrop.iRightOffset) << 1);
       pParser->iSpsHeightInPixel = (pCtx->pSps->iMbHeight << 4) - ((pCtx->pSps->sFrameCrop.iTopOffset +
-                                   pCtx->pSps->sFrameCrop.iBottomOffset) << 1);
+                                   pCtx->pSps->sFrameCrop.iBottomOffset) * kiParserCropUnitY);
 
       if (pCurAu->pNalUnitsList [iIdx]->sNalHeaderExt.bIdrFlag) { //IDR
         if (pCtx->bFrameFinish) { //add required sps/pps
@@ -211,15 +220,16 @@ static inline int32_t DecodeFrameConstruction (PWelsDecoderContext pCtx, uint8_t
   ppDst[1]      = pPic->pData[1];
   ppDst[2]      = pPic->pData[2];
 
-  pDstInfo->UsrData.sSystemBuffer.iFormat = videoFormatI420;
+  pDstInfo->UsrData.sSystemBuffer.iFormat = (kiChromaFormatIdc == 2) ? videoFormatI422 : videoFormatI420;
 
   pDstInfo->UsrData.sSystemBuffer.iWidth = kiActualWidth;
   pDstInfo->UsrData.sSystemBuffer.iHeight = kiActualHeight;
   pDstInfo->UsrData.sSystemBuffer.iStride[0] = pPic->iLinesize[0];
   pDstInfo->UsrData.sSystemBuffer.iStride[1] = pPic->iLinesize[1];
-  ppDst[0] = ppDst[0] + pCtx->sFrameCrop.iTopOffset * 2 * pPic->iLinesize[0] + pCtx->sFrameCrop.iLeftOffset * 2;
-  ppDst[1] = ppDst[1] + pCtx->sFrameCrop.iTopOffset  * pPic->iLinesize[1] + pCtx->sFrameCrop.iLeftOffset;
-  ppDst[2] = ppDst[2] + pCtx->sFrameCrop.iTopOffset  * pPic->iLinesize[1] + pCtx->sFrameCrop.iLeftOffset;
+  ppDst[0] = ppDst[0] + kiCropTop * kiCropUnitY * pPic->iLinesize[0] +
+             kiCropLeft * 2;
+  ppDst[1] = ppDst[1] + kiCropTop * pPic->iLinesize[1] + kiCropLeft;
+  ppDst[2] = ppDst[2] + kiCropTop * pPic->iLinesize[1] + kiCropLeft;
   for (int i = 0; i < 3; ++i) {
     pDstInfo->pDst[i] = ppDst[i];
   }
@@ -1569,11 +1579,11 @@ int32_t InitialDqLayersContext (PWelsDecoderContext pCtx, const int32_t kiMaxWid
                                   int16_t) * MV_A * MB_BLOCK4x4_NUM, "pCtx->sMb.pMvd[][]");
     pCtx->sMb.pCbfDc[i] = (uint16_t*)pMa->WelsMallocz (pCtx->sMb.iMbWidth * pCtx->sMb.iMbHeight * sizeof (uint16_t),
                           "pCtx->sMb.pCbfDc[]");
-    pCtx->sMb.pNzc[i] = (int8_t (*)[24])pMa->WelsMallocz (pCtx->sMb.iMbWidth * pCtx->sMb.iMbHeight * sizeof (
-                          int8_t) * 24,
+    pCtx->sMb.pNzc[i] = (int8_t (*)[32])pMa->WelsMallocz (pCtx->sMb.iMbWidth * pCtx->sMb.iMbHeight * sizeof (
+                          int8_t) * 32,
                         "pCtx->sMb.pNzc[]");
-    pCtx->sMb.pNzcRs[i] = (int8_t (*)[24])pMa->WelsMallocz (pCtx->sMb.iMbWidth * pCtx->sMb.iMbHeight * sizeof (
-                            int8_t) * 24,
+    pCtx->sMb.pNzcRs[i] = (int8_t (*)[32])pMa->WelsMallocz (pCtx->sMb.iMbWidth * pCtx->sMb.iMbHeight * sizeof (
+                            int8_t) * 32,
                           "pCtx->sMb.pNzcRs[]");
     pCtx->sMb.pScaledTCoeff[i] = (int16_t (*)[MB_COEFF_LIST_SIZE])pMa->WelsMallocz (pCtx->sMb.iMbWidth *
                                  pCtx->sMb.iMbHeight *
@@ -2907,10 +2917,20 @@ int32_t DecodeCurrentAccessUnit (PWelsDecoderContext pCtx, uint8_t** ppDst, SBuf
               return iRet;
             }
           }
-          if (!pCtx->pParam->bParseOnly)
-            ExpandReferencingPicture (pCtx->pDec->pData, pCtx->pDec->iWidthInPixel, pCtx->pDec->iHeightInPixel,
-                                      pCtx->pDec->iLinesize,
-                                      pCtx->sExpandPicFunc.pfExpandLumaPicture, pCtx->sExpandPicFunc.pfExpandChromaPicture);
+          if (!pCtx->pParam->bParseOnly) {
+            if (pCtx->pSps->uiChromaFormatIdc == 2) {
+              pCtx->sExpandPicFunc.pfExpandLumaPicture (pCtx->pDec->pData[0], pCtx->pDec->iLinesize[0],
+                                                       pCtx->pDec->iWidthInPixel, pCtx->pDec->iHeightInPixel);
+              WelsExpandChromaPicture422 (pCtx->pDec->pData[1], pCtx->pDec->iLinesize[1],
+                                          pCtx->pDec->iWidthInPixel >> 1, pCtx->pDec->iHeightInPixel);
+              WelsExpandChromaPicture422 (pCtx->pDec->pData[2], pCtx->pDec->iLinesize[2],
+                                          pCtx->pDec->iWidthInPixel >> 1, pCtx->pDec->iHeightInPixel);
+            } else {
+              ExpandReferencingPicture (pCtx->pDec->pData, pCtx->pDec->iWidthInPixel, pCtx->pDec->iHeightInPixel,
+                                        pCtx->pDec->iLinesize,
+                                        pCtx->sExpandPicFunc.pfExpandLumaPicture, pCtx->sExpandPicFunc.pfExpandChromaPicture);
+            }
+          }
         }
       } else if (iThreadCount > 1) {
         SET_EVENT (&pThreadCtx->sImageReady);

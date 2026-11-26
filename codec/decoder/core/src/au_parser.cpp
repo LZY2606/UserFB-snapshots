@@ -942,7 +942,7 @@ int32_t ParseSps (PWelsDecoderContext pCtx, PBitStringAux pBsAux, int32_t* pPicW
   uiProfileIdc = uiCode;
   if (uiProfileIdc != PRO_BASELINE && uiProfileIdc != PRO_MAIN && uiProfileIdc != PRO_SCALABLE_BASELINE
       && uiProfileIdc != PRO_SCALABLE_HIGH
-      && uiProfileIdc != PRO_EXTENDED && uiProfileIdc != PRO_HIGH) {
+      && uiProfileIdc != PRO_EXTENDED && uiProfileIdc != PRO_HIGH && uiProfileIdc != PRO_HIGH422) {
     WelsLog (& (pCtx->sLogCtx), WELS_LOG_WARNING, "SPS ID can not be supported!\n");
     return false;
   }
@@ -997,12 +997,12 @@ int32_t ParseSps (PWelsDecoderContext pCtx, PBitStringAux pBsAux, int32_t* pPicW
 //               pSps->uiChromaFormatIdc);
 //      return GENERATE_ERROR_NO (ERR_LEVEL_PARAM_SETS, ERR_INFO_UNSUPPORTED_NON_BASELINE);
 //    }
-    if (pSps->uiChromaFormatIdc > 1) {
-      WelsLog (& (pCtx->sLogCtx), WELS_LOG_WARNING, "ParseSps(): chroma_format_idc (%d) <=1 supported.",
+    if (pSps->uiChromaFormatIdc > 2) {
+      WelsLog (& (pCtx->sLogCtx), WELS_LOG_WARNING, "ParseSps(): chroma_format_idc (%d) <=2 supported.",
                pSps->uiChromaFormatIdc);
       return GENERATE_ERROR_NO (ERR_LEVEL_PARAM_SETS, ERR_INFO_UNSUPPORTED_NON_BASELINE);
 
-    }// To support 4:0:0; 4:2:0
+    }// To support 4:0:0; 4:2:0 and 4:2:2
     pSps->uiChromaArrayType = pSps->uiChromaFormatIdc;
     WELS_READ_VERIFY (BsGetUe (pBs, &uiCode)); //bit_depth_luma_minus8
     if (uiCode != 0) {

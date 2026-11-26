@@ -78,7 +78,10 @@ PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const
   iPicWidth = WELS_ALIGN (kiPicWidth + (PADDING_LENGTH << 1), PICTURE_RESOLUTION_ALIGNMENT);
   iPicHeight = WELS_ALIGN (kiPicHeight + (PADDING_LENGTH << 1), PICTURE_RESOLUTION_ALIGNMENT);
   iPicChromaWidth   = iPicWidth >> 1;
-  iPicChromaHeight  = iPicHeight >> 1;
+  // Allocate enough vertical chroma storage for 4:2:2.  4:2:0 only uses the
+  // upper half, but keeping the allocation format-independent allows picture
+  // recycling across 4:2:0/4:2:2 switches at the same luma dimensions.
+  iPicChromaHeight  = iPicHeight;
 
   iLumaSize     = iPicWidth * iPicHeight;
   iChromaSize   = iPicChromaWidth * iPicChromaHeight;
@@ -99,12 +102,13 @@ PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const
     pPic->pBuffer[1]   = pPic->pBuffer[0] + iLumaSize;
     pPic->pBuffer[2]   = pPic->pBuffer[1] + iChromaSize;
     pPic->pData[0]     = pPic->pBuffer[0] + (1 + pPic->iLinesize[0]) * PADDING_LENGTH;
-    pPic->pData[1]     = pPic->pBuffer[1] + /*WELS_ALIGN*/ (((1 + pPic->iLinesize[1]) * PADDING_LENGTH) >> 1);
-    pPic->pData[2]     = pPic->pBuffer[2] + /*WELS_ALIGN*/ (((1 + pPic->iLinesize[2]) * PADDING_LENGTH) >> 1);
+    pPic->pData[1]     = pPic->pBuffer[1] + PADDING_LENGTH * pPic->iLinesize[1] + (PADDING_LENGTH >> 1);
+    pPic->pData[2]     = pPic->pBuffer[2] + PADDING_LENGTH * pPic->iLinesize[2] + (PADDING_LENGTH >> 1);
   }
   pPic->iPlanes        = 3;    // yv12 in default
   pPic->iWidthInPixel  = kiPicWidth;
   pPic->iHeightInPixel = kiPicHeight;
+  pPic->uiChromaFormatIdc = (pCtx->pSps != NULL) ? pCtx->pSps->uiChromaFormatIdc : 1;
   pPic->iFrameNum      = -1;
   pPic->iRefCount = 0;
   pPic->pSetUnRef = NULL;
@@ -114,7 +118,7 @@ PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const
   uint32_t uiMbCount = uiMbWidth * uiMbHeight;
 
   pPic->pMbCorrectlyDecodedFlag = (bool*)pMa->WelsMallocz (uiMbCount * sizeof (bool), "pPic->pMbCorrectlyDecodedFlag");
-  pPic->pNzc = GetThreadCount (pCtx) > 1 ? (int8_t (*)[24])pMa->WelsMallocz (uiMbCount * 24, "pPic->pNzc") : NULL;
+  pPic->pNzc = GetThreadCount (pCtx) > 1 ? (int8_t (*)[32])pMa->WelsMallocz (uiMbCount * 32, "pPic->pNzc") : NULL;
   pPic->pMbType = (uint32_t*)pMa->WelsMallocz (uiMbCount * sizeof (uint32_t), "pPic->pMbType");
   pPic->pMv[LIST_0] = (int16_t (*)[16][2])pMa->WelsMallocz (uiMbCount * sizeof (
                         int16_t) * MV_A * MB_BLOCK4x4_NUM, "pPic->pMv[]");

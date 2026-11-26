@@ -56,6 +56,8 @@ extern void FreePicture (PPicture pPic, CMemoryAlign* pMa);
 
 extern PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const int32_t kiPicHeight);
 
+static const uint8_t g_kuiChromaDcScan422[8] = {0, 32, 16, 64, 96, 48, 80, 112};
+
 static bool CheckRefPics (const PWelsDecoderContext& pCtx) {
   int32_t listCount = 1;
   if (pCtx->eSliceType == B_SLICE) {
@@ -200,6 +202,21 @@ int32_t WelsMbInterSampleConstruction (PWelsDecoderContext pCtx, PDqLayer pCurDq
 
   const int8_t* pNzc = pCurDqLayer->pNzc[iMbXy];
   int16_t* pScaledTCoeff = pCurDqLayer->pScaledTCoeff[iMbXy];
+  if (pCtx->pSps->uiChromaFormatIdc == 2) {
+    for (int32_t iComp = 0; iComp < 2; ++iComp) {
+      uint8_t* pDst = iComp ? pDstV : pDstU;
+      for (int32_t iBlock = 0; iBlock < 8; ++iBlock) {
+        const int32_t iIndex = 16 + (iComp << 3) + iBlock;
+        const int32_t iCol = iBlock & 1;
+        const int32_t iRow = iBlock >> 1;
+        uint8_t* pBlockDst = pDst + (iRow << 2) * iStrideC + (iCol << 2);
+        int16_t* pRS = pScaledTCoeff + (iIndex << 4);
+        if (pNzc[iIndex] || pRS[0])
+          pCtx->pIdctResAddPredFunc (pBlockDst, iStrideC, pRS);
+      }
+    }
+    return ERR_NONE;
+  }
   // Cb.
   pCtx->pIdctFourResAddPredFunc (pDstU, iStrideC, pScaledTCoeff + 4 * 64, pNzc + 16);
   // Cr.
@@ -216,8 +233,8 @@ int32_t WelsMbInterConstruction (PWelsDecoderContext pCtx, PDqLayer pCurDqLayer)
   int32_t iChromaStride = pCtx->pDec->iLinesize[1];
 
   pDstY  = pCurDqLayer->pDec->pData[0] + ((iMbY * iLumaStride + iMbX) << 4);
-  pDstCb = pCurDqLayer->pDec->pData[1] + ((iMbY * iChromaStride + iMbX) << 3);
-  pDstCr = pCurDqLayer->pDec->pData[2] + ((iMbY * iChromaStride + iMbX) << 3);
+  pDstCb = pCurDqLayer->pDec->pData[1] + WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iChromaStride);
+  pDstCr = pCurDqLayer->pDec->pData[2] + WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iChromaStride);
 
   if (pCtx->eSliceType == P_SLICE) {
     WELS_B_MB_REC_VERIFY (GetInterPred (pDstY, pDstCb, pDstCr, pCtx));
@@ -239,6 +256,11 @@ int32_t WelsMbInterConstruction (PWelsDecoderContext pCtx, PDqLayer pCurDqLayer)
   if (GetThreadCount (pCtx) <= 1) {
     pCtx->sBlockFunc.pWelsSetNonZeroCountFunc (
       pCurDqLayer->pNzc[pCurDqLayer->iMbXyIndex]); // set all none-zero nzc to 1; dbk can be opti!
+    if (pCtx->pSps->uiChromaFormatIdc == 2) {
+      int8_t* pNzc422 = pCurDqLayer->pNzc[pCurDqLayer->iMbXyIndex];
+      for (int32_t i = 24; i < 32; ++i)
+        pNzc422[i] = !!pNzc422[i];
+    }
   }
   return ERR_NONE;
 }
@@ -310,8 +332,8 @@ int32_t WelsMbInterPrediction (PWelsDecoderContext pCtx, PDqLayer pCurDqLayer) {
   int32_t iChromaStride = pCtx->pDec->iLinesize[1];
 
   pDstY  = pCurDqLayer->pDec->pData[0] + ((iMbY * iLumaStride + iMbX) << 4);
-  pDstCb = pCurDqLayer->pDec->pData[1] + ((iMbY * iChromaStride + iMbX) << 3);
-  pDstCr = pCurDqLayer->pDec->pData[2] + ((iMbY * iChromaStride + iMbX) << 3);
+  pDstCb = pCurDqLayer->pDec->pData[1] + WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iChromaStride);
+  pDstCr = pCurDqLayer->pDec->pData[2] + WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iChromaStride);
 
   if (pCtx->eSliceType == P_SLICE) {
     WELS_B_MB_REC_VERIFY (GetInterPred (pDstY, pDstCb, pDstCr, pCtx));
@@ -377,6 +399,30 @@ void WelsChromaDcIdct (int16_t* pBlock) {
   pBlk[iXStride] = (iE + iB);
   pBlk[iStride] = (iA - iC);
   pBlk[iStride1] = (iE - iB);
+}
+
+void WelsChromaDcIdct422 (int16_t* pBlock) {
+  int32_t aiTemp[8];
+  for (int32_t i = 0; i < 4; ++i) {
+    const int32_t iBase = i * 32;
+    const int32_t iA = pBlock[iBase];
+    const int32_t iB = pBlock[iBase + 16];
+    aiTemp[2 * i] = iA + iB;
+    aiTemp[2 * i + 1] = iA - iB;
+  }
+
+  for (int32_t iCol = 0; iCol < 2; ++iCol) {
+    const int32_t iOffset = iCol * 16;
+    const int32_t iZ0 = aiTemp[iCol] + aiTemp[4 + iCol];
+    const int32_t iZ1 = aiTemp[iCol] - aiTemp[4 + iCol];
+    const int32_t iZ2 = aiTemp[2 + iCol] - aiTemp[6 + iCol];
+    const int32_t iZ3 = aiTemp[2 + iCol] + aiTemp[6 + iCol];
+
+    pBlock[iOffset] = static_cast<int16_t> (iZ0 + iZ3);
+    pBlock[32 + iOffset] = static_cast<int16_t> (iZ1 + iZ2);
+    pBlock[64 + iOffset] = static_cast<int16_t> (iZ1 - iZ2);
+    pBlock[96 + iOffset] = static_cast<int16_t> (iZ0 - iZ3);
+  }
 }
 
 void WelsMapNxNNeighToSampleNormal (PWelsNeighAvail pNeighAvail, int32_t* pSampleAvail) {
@@ -1528,6 +1574,14 @@ int32_t WelsDecodeSlice (PWelsDecoderContext pCtx, bool bFirstSliceInLayer, PNal
 
   pSlice->iTotalMbInCurSlice = 0; //initialize at the starting of slice decoding.
 
+  if (pCtx->pDec != NULL && pSliceHeader->pSps != NULL) {
+    pCtx->pDec->uiChromaFormatIdc = pSliceHeader->pSps->uiChromaFormatIdc;
+    pCtx->pDec->iCropLeft = pSliceHeader->pSps->sFrameCrop.iLeftOffset;
+    pCtx->pDec->iCropRight = pSliceHeader->pSps->sFrameCrop.iRightOffset;
+    pCtx->pDec->iCropTop = pSliceHeader->pSps->sFrameCrop.iTopOffset;
+    pCtx->pDec->iCropBottom = pSliceHeader->pSps->sFrameCrop.iBottomOffset;
+  }
+
   if (pCtx->pPps->bEntropyCodingModeFlag) {
     if (pSlice->sSliceHeaderExt.bAdaptiveMotionPredFlag ||
         pSlice->sSliceHeaderExt.bAdaptiveBaseModeFlag ||
@@ -1635,6 +1689,14 @@ int32_t WelsDecodeAndConstructSlice (PWelsDecoderContext pCtx) {
 
   pSlice->iTotalMbInCurSlice = 0; //initialize at the starting of slice decoding.
 
+  if (pCtx->pDec != NULL && pSliceHeader->pSps != NULL) {
+    pCtx->pDec->uiChromaFormatIdc = pSliceHeader->pSps->uiChromaFormatIdc;
+    pCtx->pDec->iCropLeft = pSliceHeader->pSps->sFrameCrop.iLeftOffset;
+    pCtx->pDec->iCropRight = pSliceHeader->pSps->sFrameCrop.iRightOffset;
+    pCtx->pDec->iCropTop = pSliceHeader->pSps->sFrameCrop.iTopOffset;
+    pCtx->pDec->iCropBottom = pSliceHeader->pSps->sFrameCrop.iBottomOffset;
+  }
+
   if (pCtx->pPps->bEntropyCodingModeFlag) {
     if (pSlice->sSliceHeaderExt.bAdaptiveMotionPredFlag ||
         pSlice->sSliceHeaderExt.bAdaptiveBaseModeFlag ||
@@ -1719,7 +1781,7 @@ int32_t WelsDecodeAndConstructSlice (PWelsDecoderContext pCtx) {
 
       return ERR_INFO_MB_RECON_FAIL;
     }
-    memcpy (pCtx->pDec->pNzc[pCurDqLayer->iMbXyIndex], pCurDqLayer->pNzc[pCurDqLayer->iMbXyIndex], 24);
+    memcpy (pCtx->pDec->pNzc[pCurDqLayer->iMbXyIndex], pCurDqLayer->pNzc[pCurDqLayer->iMbXyIndex], 32);
     if (pCtx->eSliceType != I_SLICE) {
       pCtx->sBlockFunc.pWelsSetNonZeroCountFunc (
         pCtx->pDec->pNzc[pCurDqLayer->iMbXyIndex]); // set all none-zero nzc to 1; dbk can be opti!
@@ -1825,7 +1887,7 @@ int32_t WelsActualDecodeMbCavlcISlice (PWelsDecoderContext pCtx) {
     int32_t iDecStrideC = pCurDqLayer->pDec->iLinesize[1];
 
     int32_t iOffsetL = (iMbX + iMbY * iDecStrideL) << 4;
-    int32_t iOffsetC = (iMbX + iMbY * iDecStrideC) << 3;
+    int32_t iOffsetC = WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iDecStrideC);
 
     uint8_t* pDecY = pCurDqLayer->pDec->pData[0] + iOffsetL;
     uint8_t* pDecU = pCurDqLayer->pDec->pData[1] + iOffsetC;
@@ -1848,7 +1910,7 @@ int32_t WelsActualDecodeMbCavlcISlice (PWelsDecoderContext pCtx) {
     //bounds check: I_PCM copies I_PCM_MB_SIZE_IN_BYTE (256 luma + 128 chroma) bytes
     //directly from the bitstream buffer; reject when fewer bytes remain to avoid
     //an out-of-bounds read (mirrors ParseIPCMInfoCabac).
-    if (pBs->pEndBuf - pBs->pCurBuf < I_PCM_MB_SIZE_IN_BYTE) {
+    if (pBs->pEndBuf - pBs->pCurBuf < (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE)) {
       return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_BS_INCOMPLETE);
     }
 
@@ -1860,19 +1922,19 @@ int32_t WelsActualDecodeMbCavlcISlice (PWelsDecoderContext pCtx) {
         pDecY += iDecStrideL;
         pTmpBsBuf += 16;
       }
-      for (i = 0; i < 8; i++) { //cb
+      for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cb
         memcpy (pDecU, pTmpBsBuf, iCopySizeUV);
         pDecU += iDecStrideC;
         pTmpBsBuf += 8;
       }
-      for (i = 0; i < 8; i++) { //cr
+      for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cr
         memcpy (pDecV, pTmpBsBuf, iCopySizeUV);
         pDecV += iDecStrideC;
         pTmpBsBuf += 8;
       }
     }
 
-    pBs->pCurBuf += I_PCM_MB_SIZE_IN_BYTE;
+    pBs->pCurBuf += (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE);
 
     //step 3: update QP and pNonZeroCount
     pCurDqLayer->pLumaQp[iMbXy] = 0;
@@ -2033,6 +2095,12 @@ int32_t WelsActualDecodeMbCavlcISlice (PWelsDecoderContext pCtx) {
     }
 
     //chroma
+    if (pCtx->pSps->uiChromaFormatIdc == 2) {
+      iRet = WelsDecodeChromaResidual422Cavlc (pCtx, pVlcTable, pBs, pNonZeroCount, uiCbpC,
+                                               pCurDqLayer->pScaledTCoeff[iMbXy]);
+      if (iRet != ERR_NONE)
+        return iRet;
+    } else {
     //step1: DC
     if (1 == uiCbpC || 2 == uiCbpC) {
       for (i = 0; i < 2; i++) { //Cb Cr
@@ -2063,6 +2131,7 @@ int32_t WelsActualDecodeMbCavlcISlice (PWelsDecoderContext pCtx) {
       ST16A2 (&pNzc[20], LD16A2 (&pNonZeroCount[6 + 8 * 2]));
       ST16A2 (&pNzc[18], LD16A2 (&pNonZeroCount[6 + 8 * 4]));
       ST16A2 (&pNzc[22], LD16A2 (&pNonZeroCount[6 + 8 * 5]));
+    }
     }
     BsEndCavlc (pBs);
   }
@@ -2174,7 +2243,7 @@ int32_t WelsActualDecodeMbCavlcPSlice (PWelsDecoderContext pCtx) {
       int32_t iDecStrideC = pCurDqLayer->pDec->iLinesize[1];
 
       int32_t iOffsetL = (iMbX + iMbY * iDecStrideL) << 4;
-      int32_t iOffsetC = (iMbX + iMbY * iDecStrideC) << 3;
+      int32_t iOffsetC = WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iDecStrideC);
 
       uint8_t* pDecY = pCurDqLayer->pDec->pData[0] + iOffsetL;
       uint8_t* pDecU = pCurDqLayer->pDec->pData[1] + iOffsetC;
@@ -2196,7 +2265,7 @@ int32_t WelsActualDecodeMbCavlcPSlice (PWelsDecoderContext pCtx) {
       //bounds check: I_PCM copies I_PCM_MB_SIZE_IN_BYTE (256 luma + 128 chroma) bytes
       //directly from the bitstream buffer; reject when fewer bytes remain to avoid
       //an out-of-bounds read (mirrors ParseIPCMInfoCabac).
-      if (pBs->pEndBuf - pBs->pCurBuf < I_PCM_MB_SIZE_IN_BYTE) {
+      if (pBs->pEndBuf - pBs->pCurBuf < (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE)) {
         return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_BS_INCOMPLETE);
       }
 
@@ -2209,19 +2278,19 @@ int32_t WelsActualDecodeMbCavlcPSlice (PWelsDecoderContext pCtx) {
           pTmpBsBuf += 16;
         }
 
-        for (i = 0; i < 8; i++) { //cb
+        for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cb
           memcpy (pDecU, pTmpBsBuf, iCopySizeUV);
           pDecU += iDecStrideC;
           pTmpBsBuf += 8;
         }
-        for (i = 0; i < 8; i++) { //cr
+        for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cr
           memcpy (pDecV, pTmpBsBuf, iCopySizeUV);
           pDecV += iDecStrideC;
           pTmpBsBuf += 8;
         }
       }
 
-      pBs->pCurBuf += I_PCM_MB_SIZE_IN_BYTE;
+      pBs->pCurBuf += (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE);
 
       //step 3: update QP and pNonZeroCount
       pCurDqLayer->pLumaQp[iMbXy] = 0;
@@ -2409,6 +2478,12 @@ int32_t WelsActualDecodeMbCavlcPSlice (PWelsDecoderContext pCtx) {
 
 
     //chroma
+    if (pCtx->pSps->uiChromaFormatIdc == 2) {
+      iRet = WelsDecodeChromaResidual422Cavlc (pCtx, pVlcTable, pBs, pNonZeroCount, uiCbpC,
+                                               pCurDqLayer->pScaledTCoeff[iMbXy]);
+      if (iRet != ERR_NONE)
+        return iRet;
+    } else {
     //step1: DC
     if (1 == uiCbpC || 2 == uiCbpC) {
       for (i = 0; i < 2; i++) { //Cb Cr
@@ -2447,6 +2522,7 @@ int32_t WelsActualDecodeMbCavlcPSlice (PWelsDecoderContext pCtx) {
       ST16A2 (&pNzc[20], LD16A2 (&pNonZeroCount[6 + 8 * 2]));
       ST16A2 (&pNzc[18], LD16A2 (&pNonZeroCount[6 + 8 * 4]));
       ST16A2 (&pNzc[22], LD16A2 (&pNonZeroCount[6 + 8 * 5]));
+    }
     }
     BsEndCavlc (pBs);
   }
@@ -2487,6 +2563,8 @@ int32_t WelsDecodeMbCavlcPSlice (PWelsDecoderContext pCtx, PNalUnit pNalCur, uin
     ST32A4 (&pNzc[12], 0);
     ST32A4 (&pNzc[16], 0);
     ST32A4 (&pNzc[20], 0);
+    if (pCtx->pSps->uiChromaFormatIdc == 2)
+      memset (&pNzc[24], 0, 8 * sizeof (pNzc[0]));
 
     pCurDqLayer->pInterPredictionDoneFlag[iMbXy] = 0;
     memset (pCurDqLayer->pDec->pRefIndex[0][iMbXy], 0, sizeof (int8_t) * 16);
@@ -2586,6 +2664,8 @@ int32_t WelsDecodeMbCavlcBSlice (PWelsDecoderContext pCtx, PNalUnit pNalCur, uin
     ST32A4 (&pNzc[12], 0);
     ST32A4 (&pNzc[16], 0);
     ST32A4 (&pNzc[20], 0);
+    if (pCtx->pSps->uiChromaFormatIdc == 2)
+      memset (&pNzc[24], 0, 8 * sizeof (pNzc[0]));
 
     pCurDqLayer->pInterPredictionDoneFlag[iMbXy] = 0;
     memset (pCurDqLayer->pDec->pRefIndex[LIST_0][iMbXy], 0, sizeof (int8_t) * 16);
@@ -2728,7 +2808,7 @@ int32_t WelsActualDecodeMbCavlcBSlice (PWelsDecoderContext pCtx) {
       int32_t iDecStrideC = pCurDqLayer->pDec->iLinesize[1];
 
       int32_t iOffsetL = (iMbX + iMbY * iDecStrideL) << 4;
-      int32_t iOffsetC = (iMbX + iMbY * iDecStrideC) << 3;
+      int32_t iOffsetC = WelsChromaMbOffset (pCtx->pSps->uiChromaFormatIdc, iMbX, iMbY, iDecStrideC);
 
       uint8_t* pDecY = pCurDqLayer->pDec->pData[0] + iOffsetL;
       uint8_t* pDecU = pCurDqLayer->pDec->pData[1] + iOffsetC;
@@ -2750,7 +2830,7 @@ int32_t WelsActualDecodeMbCavlcBSlice (PWelsDecoderContext pCtx) {
       //bounds check: I_PCM copies I_PCM_MB_SIZE_IN_BYTE (256 luma + 128 chroma) bytes
       //directly from the bitstream buffer; reject when fewer bytes remain to avoid
       //an out-of-bounds read (mirrors ParseIPCMInfoCabac).
-      if (pBs->pEndBuf - pBs->pCurBuf < I_PCM_MB_SIZE_IN_BYTE) {
+      if (pBs->pEndBuf - pBs->pCurBuf < (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE)) {
         return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_INFO_BS_INCOMPLETE);
       }
 
@@ -2763,19 +2843,19 @@ int32_t WelsActualDecodeMbCavlcBSlice (PWelsDecoderContext pCtx) {
           pTmpBsBuf += 16;
         }
 
-        for (i = 0; i < 8; i++) { //cb
+        for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cb
           memcpy (pDecU, pTmpBsBuf, iCopySizeUV);
           pDecU += iDecStrideC;
           pTmpBsBuf += 8;
         }
-        for (i = 0; i < 8; i++) { //cr
+        for (i = 0; i < (pCtx->pSps->uiChromaFormatIdc == 2 ? 16 : 8); i++) { //cr
           memcpy (pDecV, pTmpBsBuf, iCopySizeUV);
           pDecV += iDecStrideC;
           pTmpBsBuf += 8;
         }
       }
 
-      pBs->pCurBuf += I_PCM_MB_SIZE_IN_BYTE;
+      pBs->pCurBuf += (pCtx->pSps->uiChromaFormatIdc == 2 ? 512 : I_PCM_MB_SIZE_IN_BYTE);
 
       //step 3: update QP and pNonZeroCount
       pCurDqLayer->pLumaQp[iMbXy] = 0;
@@ -2963,6 +3043,12 @@ int32_t WelsActualDecodeMbCavlcBSlice (PWelsDecoderContext pCtx) {
 
 
     //chroma
+    if (pCtx->pSps->uiChromaFormatIdc == 2) {
+      iRet = WelsDecodeChromaResidual422Cavlc (pCtx, pVlcTable, pBs, pNonZeroCount, uiCbpC,
+                                               pCurDqLayer->pScaledTCoeff[iMbXy]);
+      if (iRet != ERR_NONE)
+        return iRet;
+    } else {
     //step1: DC
     if (1 == uiCbpC || 2 == uiCbpC) {
       for (i = 0; i < 2; i++) { //Cb Cr
@@ -3001,6 +3087,7 @@ int32_t WelsActualDecodeMbCavlcBSlice (PWelsDecoderContext pCtx) {
       ST16A2 (&pNzc[20], LD16A2 (&pNonZeroCount[6 + 8 * 2]));
       ST16A2 (&pNzc[18], LD16A2 (&pNonZeroCount[6 + 8 * 4]));
       ST16A2 (&pNzc[22], LD16A2 (&pNonZeroCount[6 + 8 * 5]));
+    }
     }
     BsEndCavlc (pBs);
   }

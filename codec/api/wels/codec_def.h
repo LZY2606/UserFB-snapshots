@@ -59,6 +59,8 @@ typedef enum {
 
   videoFormatNV12       = 26,            ///< new format for output by DXVA decoding
 
+  videoFormatI422       = 27,            ///< planar 4:2:2 YUV
+
   videoFormatVFlip      = 0x80000000
 } EVideoFormatType;
 

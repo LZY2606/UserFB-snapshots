@@ -881,6 +881,19 @@ void FilteringEdgeChromaIntraV (SDeblockingFilter* pFilter, uint8_t* pPixCb, uin
   return;
 }
 
+static void FilteringEdgeChromaV422 (SDeblockingFilter* pFilter, uint8_t* pPixCb, uint8_t* pPixCr,
+                                     int32_t iStride, uint8_t* pBS) {
+  uint8_t uiTopBS[4] = {pBS[0], pBS[0], pBS[1], pBS[1]};
+  uint8_t uiBottomBS[4] = {pBS[2], pBS[2], pBS[3], pBS[3]};
+  FilteringEdgeChromaV (pFilter, pPixCb, pPixCr, iStride, uiTopBS);
+  FilteringEdgeChromaV (pFilter, pPixCb + 8 * iStride, pPixCr + 8 * iStride, iStride, uiBottomBS);
+}
+
+static void FilteringEdgeChromaIntraV422 (SDeblockingFilter* pFilter, uint8_t* pPixCb, uint8_t* pPixCr,
+                                          int32_t iStride) {
+  FilteringEdgeChromaIntraV (pFilter, pPixCb, pPixCr, iStride, NULL);
+  FilteringEdgeChromaIntraV (pFilter, pPixCb + 8 * iStride, pPixCr + 8 * iStride, iStride, NULL);
+}
 
 static void DeblockingInterMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter, uint8_t nBS[2][4][4],
                                int32_t iBoundryFlag) {
@@ -893,11 +906,13 @@ static void DeblockingInterMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter,
   int8_t* pCurChromaQp = pCurDqLayer->pChromaQp[iMbXyIndex];
   int32_t iLineSize   = pFilter->iCsStride[0];
   int32_t iLineSizeUV = pFilter->iCsStride[1];
+  const bool bChroma422 =
+    pCurDqLayer->sLayerInfo.sSliceInLayer.sSliceHeaderExt.sSliceHeader.pSps->uiChromaFormatIdc == 2;
 
   uint8_t* pDestY, * pDestCb, * pDestCr;
   pDestY  = pFilter->pCsData[0] + ((iMbY * iLineSize + iMbX) << 4);
-  pDestCb = pFilter->pCsData[1] + ((iMbY * iLineSizeUV + iMbX) << 3);
-  pDestCr = pFilter->pCsData[2] + ((iMbY * iLineSizeUV + iMbX) << 3);
+  pDestCb = pFilter->pCsData[1] + WelsChromaMbOffset (bChroma422 ? 2 : 1, iMbX, iMbY, iLineSizeUV);
+  pDestCr = pFilter->pCsData[2] + WelsChromaMbOffset (bChroma422 ? 2 : 1, iMbX, iMbY, iLineSizeUV);
 
   //Vertical margin
   if (iBoundryFlag & LEFT_FLAG_MASK) {
@@ -908,11 +923,17 @@ static void DeblockingInterMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter,
     }
     if (nBS[0][0][0] == 0x04) {
       FilteringEdgeLumaIntraV (pFilter, pDestY, iLineSize, NULL);
-      FilteringEdgeChromaIntraV (pFilter, pDestCb, pDestCr, iLineSizeUV, NULL);
+      if (bChroma422)
+        FilteringEdgeChromaIntraV422 (pFilter, pDestCb, pDestCr, iLineSizeUV);
+      else
+        FilteringEdgeChromaIntraV (pFilter, pDestCb, pDestCr, iLineSizeUV, NULL);
     } else {
       if (* (uint32_t*)nBS[0][0] != 0) {
         FilteringEdgeLumaV (pFilter, pDestY, iLineSize, nBS[0][0]);
-        FilteringEdgeChromaV (pFilter, pDestCb, pDestCr, iLineSizeUV, nBS[0][0]);
+        if (bChroma422)
+          FilteringEdgeChromaV422 (pFilter, pDestCb, pDestCr, iLineSizeUV, nBS[0][0]);
+        else
+          FilteringEdgeChromaV (pFilter, pDestCb, pDestCr, iLineSizeUV, nBS[0][0]);
       }
     }
   }
@@ -927,7 +948,10 @@ static void DeblockingInterMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter,
 
   if (* (uint32_t*)nBS[0][2] != 0) {
     FilteringEdgeLumaV (pFilter, &pDestY[2 << 2], iLineSize, nBS[0][2]);
-    FilteringEdgeChromaV (pFilter, &pDestCb[2 << 1], &pDestCr[2 << 1], iLineSizeUV, nBS[0][2]);
+    if (bChroma422)
+      FilteringEdgeChromaV422 (pFilter, &pDestCb[4], &pDestCr[4], iLineSizeUV, nBS[0][2]);
+    else
+      FilteringEdgeChromaV (pFilter, &pDestCb[2 << 1], &pDestCr[2 << 1], iLineSizeUV, nBS[0][2]);
   }
 
   if (* (uint32_t*)nBS[0][3] != 0  && !pCurDqLayer->pTransformSize8x8Flag[iMbXyIndex]) {
@@ -958,16 +982,21 @@ static void DeblockingInterMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter,
 
   if (* (uint32_t*)nBS[1][1] != 0  && !pCurDqLayer->pTransformSize8x8Flag[iMbXyIndex]) {
     FilteringEdgeLumaH (pFilter, &pDestY[ (1 << 2)*iLineSize], iLineSize, nBS[1][1]);
+    if (bChroma422)
+      FilteringEdgeChromaH (pFilter, &pDestCb[4 * iLineSizeUV], &pDestCr[4 * iLineSizeUV], iLineSizeUV, nBS[1][1]);
   }
 
   if (* (uint32_t*)nBS[1][2] != 0) {
     FilteringEdgeLumaH (pFilter, &pDestY[ (2 << 2)*iLineSize], iLineSize, nBS[1][2]);
-    FilteringEdgeChromaH (pFilter, &pDestCb[ (2 << 1)*iLineSizeUV], &pDestCr[ (2 << 1)*iLineSizeUV], iLineSizeUV,
+    const int32_t iChromaRow = bChroma422 ? 8 : (2 << 1);
+    FilteringEdgeChromaH (pFilter, &pDestCb[iChromaRow * iLineSizeUV], &pDestCr[iChromaRow * iLineSizeUV], iLineSizeUV,
                           nBS[1][2]);
   }
 
   if (* (uint32_t*)nBS[1][3] != 0  && !pCurDqLayer->pTransformSize8x8Flag[iMbXyIndex]) {
     FilteringEdgeLumaH (pFilter, &pDestY[ (3 << 2)*iLineSize], iLineSize, nBS[1][3]);
+    if (bChroma422)
+      FilteringEdgeChromaH (pFilter, &pDestCb[12 * iLineSizeUV], &pDestCr[12 * iLineSizeUV], iLineSizeUV, nBS[1][3]);
   }
 }
 
@@ -1125,10 +1154,48 @@ void FilteringEdgeChromaHV (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter, in
   }
 }
 
+static void FilteringEdgeChromaHV422 (PDqLayer pCurDqLayer, PDeblockingFilter pFilter, int32_t iBoundryFlag) {
+  const int32_t iMbXy = pCurDqLayer->iMbXyIndex;
+  const int32_t iMbX = pCurDqLayer->iMbX;
+  const int32_t iMbY = pCurDqLayer->iMbY;
+  const int32_t iStride = pFilter->iCsStride[1];
+  int8_t* pQp = pCurDqLayer->pChromaQp[iMbXy];
+  uint8_t* pCb = pFilter->pCsData[1] + WelsChromaMbOffset (2, iMbX, iMbY, iStride);
+  uint8_t* pCr = pFilter->pCsData[2] + WelsChromaMbOffset (2, iMbX, iMbY, iStride);
+  uint8_t uiBS3[4] = {3, 3, 3, 3};
+
+  if (iBoundryFlag & LEFT_FLAG_MASK) {
+    for (int32_t i = 0; i < 2; ++i)
+      pFilter->iChromaQP[i] = (pQp[i] + pCurDqLayer->pChromaQp[iMbXy - 1][i] + 1) >> 1;
+    FilteringEdgeChromaIntraV422 (pFilter, pCb, pCr, iStride);
+  }
+
+  pFilter->iChromaQP[0] = pQp[0];
+  pFilter->iChromaQP[1] = pQp[1];
+  FilteringEdgeChromaV422 (pFilter, pCb + 4, pCr + 4, iStride, uiBS3);
+
+  if (iBoundryFlag & TOP_FLAG_MASK) {
+    for (int32_t i = 0; i < 2; ++i)
+      pFilter->iChromaQP[i] = (pQp[i] + pCurDqLayer->pChromaQp[iMbXy - pCurDqLayer->iMbWidth][i] + 1) >> 1;
+    FilteringEdgeChromaIntraH (pFilter, pCb, pCr, iStride, NULL);
+  }
+
+  pFilter->iChromaQP[0] = pQp[0];
+  pFilter->iChromaQP[1] = pQp[1];
+  for (int32_t iEdge = 1; iEdge <= 3; ++iEdge) {
+    FilteringEdgeChromaH (pFilter, pCb + 4 * iEdge * iStride, pCr + 4 * iEdge * iStride, iStride, uiBS3);
+  }
+}
+
 // merge h&v lookup table operation to save performance
 static void DeblockingIntraMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter, int32_t iBoundryFlag) {
   FilteringEdgeLumaHV (pCurDqLayer, pFilter, iBoundryFlag);
-  FilteringEdgeChromaHV (pCurDqLayer, pFilter, iBoundryFlag);
+  const bool bChroma422 =
+    pCurDqLayer->sLayerInfo.sSliceInLayer.sSliceHeaderExt.sSliceHeader.pSps->uiChromaFormatIdc == 2;
+  if (bChroma422)
+    FilteringEdgeChromaHV422 (pCurDqLayer, pFilter, iBoundryFlag);
+  else
+    FilteringEdgeChromaHV (pCurDqLayer, pFilter, iBoundryFlag);
 }
 
 void WelsDeblockingMb (PDqLayer pCurDqLayer, PDeblockingFilter  pFilter, int32_t iBoundryFlag) {

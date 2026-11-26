@@ -9,6 +9,7 @@ DECODER_CPP_SRCS=\
 	$(DECODER_SRCDIR)/core/src/deblocking.cpp\
 	$(DECODER_SRCDIR)/core/src/decode_mb_aux.cpp\
 	$(DECODER_SRCDIR)/core/src/decode_slice.cpp\
+	$(DECODER_SRCDIR)/core/src/dec422.cpp\
 	$(DECODER_SRCDIR)/core/src/decoder.cpp\
 	$(DECODER_SRCDIR)/core/src/decoder_core.cpp\
 	$(DECODER_SRCDIR)/core/src/decoder_data_tables.cpp\

@@ -86,6 +86,15 @@ typedef uint32_t SubMbType;
 #define LUMA_DC_AC_INTRA_8  17
 #define LUMA_DC_AC_INTER_8  18
 
+static inline int32_t WelsChromaMbHeight (uint32_t uiChromaFormatIdc) {
+  return uiChromaFormatIdc == 2 ? 16 : 8;
+}
+
+static inline int32_t WelsChromaMbOffset (uint32_t uiChromaFormatIdc, int32_t iMbX, int32_t iMbY,
+    int32_t iChromaStride) {
+  return iMbY * WelsChromaMbHeight (uiChromaFormatIdc) * iChromaStride + (iMbX << 3);
+}
+
 #define SHIFT_BUFFER(pBitsCache)        { pBitsCache->pBuf+=2; pBitsCache->uiRemainBits += 16; pBitsCache->uiCache32Bit |= (((pBitsCache->pBuf[2] << 8) | pBitsCache->pBuf[3]) << (32 - pBitsCache->uiRemainBits)); }
 #define POP_BUFFER(pBitsCache, iCount)  { pBitsCache->uiCache32Bit <<= iCount;  pBitsCache->uiRemainBits -= iCount; }
 
