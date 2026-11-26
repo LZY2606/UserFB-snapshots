@@ -32,6 +32,58 @@ component (96bit or 48bit pixel)
 
 ---
 
+### Lossless rearrangement of BC7 blocks
+
+`bcdec_transform.h` / `bcdec_transform.c` provide
+`bcdec_bc7_transform(const void *src16, void *dst16, bcdec_transform_op op)`.
+It rearranges a standard 16-byte BC7 block directly—mode, partition bits,
+endpoints, p-bits, and selector planes—without decoding to RGBA or
+recompressing. `src16` and `dst16` may be identical.
+
+```c
+#include "bcdec_transform.h"
+
+void rotate_bc7_block(const unsigned char src[16], unsigned char dst[16])
+{
+    bcdec_transform_status status =
+        bcdec_bc7_transform(src, dst, BCDEC_ROTATE_90);
+
+    if (status == BCDEC_TRANSFORM_INVALID) {
+        /* Null pointer, bad operation, or no valid BC7 mode bit. */
+    } else if (status == BCDEC_TRANSFORM_UNREPRESENTABLE) {
+        /*
+         * The transformed partition layout is not one of the standard
+         * layouts allowed for this mode.  Decode/recompress here if your
+         * pipeline permits it; this library never does that implicitly.
+         * dst has been left unchanged.
+         */
+    }
+}
+```
+
+Compile `bcdec_transform.c` with the rest of the project; it includes
+`bcdec.h` for the shared partition table but does not require a decoder call.
+
+Supported operations are `BCDEC_IDENTITY`, `BCDEC_ROTATE_90`,
+`BCDEC_ROTATE_180`, `BCDEC_ROTATE_270`, `BCDEC_FLIP_X`, `BCDEC_FLIP_Y`,
+`BCDEC_TRANSPOSE`, and `BCDEC_ANTI_TRANSPOSE`.
+
+`BCDEC_TRANSFORM_UNREPRESENTABLE` is a structural statement about BC7's
+fixed partition tables. After moving the subset labels with the requested
+pixel transform, the implementation looks for an equivalent standard
+partition for the same mode, allowing subsets to be renamed. Mode 0 may only
+use partition IDs 0–15. If there is no equivalent partition/subset mapping,
+endpoint colors cannot make the block structurally rearrangeable, even when
+all endpoints happen to be equal. Single-subset modes (4, 5, and 6) are
+always structurally representable. When a partition does match, anchor
+indices and endpoint order are adjusted as needed, but endpoint quantized
+values are never refit.
+
+The `task_tests/target.cpp` integration test writes its transformed 8×8
+example as `task_tests/target.ppm`.
+
+---
+
 You will also find included test program that converts compressed DDS files into TGA/HDR.  
 It is a good start to learn on how to use the **bcdec** library.  
 It comes with some test images in the *test_images* folder and a batch script *test_bcdec.bat* to run over them.
