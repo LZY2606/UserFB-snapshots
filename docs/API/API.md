@@ -227,6 +227,12 @@ future use and should be 0):
   - `pktseq`: [OUT] packet sequence number (first packet from the message, if it spans multiple UDP packets)
   - `msgno`: [OUT] message number assigned to the currently received message
 
+Use `srt_dropmsg` with the returned send `msgno` to revoke a message that is still
+retained by the sender buffer. It returns the newly revoked payload byte count
+(`0` for a duplicate or already ACK-reclaimed message); see the
+[detailed `srt_dropmsg` reference](API-functions.md#srt_dropmsg) for the
+in-flight packet boundary and protocol behavior.
+
 Please note that the `msgttl` and `inorder` arguments and fields in `SRT_MSGCTRL`
 are meaningful only when you use the message API in file mode (this will be explained
 later). In live mode, which is the SRT default, packets are always delivered when
@@ -249,6 +255,7 @@ enabled and receiver supports it).
 int srt_send(SRTSOCKET s, const char* buf, int len);
 int srt_sendmsg(SRTSOCKET s, const char* buf, int len, int msgttl, bool inorder, uint64_t srctime);
 int srt_sendmsg2(SRTSOCKET s, const char* buf, int len, SRT_MSGCTRL* msgctrl);
+int srt_dropmsg(SRTSOCKET s, int32_t msgno);
 
 int srt_recv(SRTSOCKET s, char* buf, int len);
 int srt_recvmsg(SRTSOCKET s, char* buf, int len);

@@ -178,6 +178,13 @@ public:
     SRT_ATTR_EXCLUDES(m_BufLock)
     int dropLateData(int& bytes, int32_t& w_first_msgno, const time_point& too_late_time);
 
+    /// Mark all still-buffered blocks belonging to @a msgno as explicitly dropped.
+    /// The blocks stay in the buffer until acknowledged; only their payload is
+    /// prevented from being read for original or retransmitted packets.
+    /// @return newly dropped payload bytes still present, or 0 if absent/already dropped.
+    SRT_ATTR_EXCLUDES(m_BufLock)
+    int dropMessage(int32_t msgno, DropRange& w_range);
+
     void updAvgBufSize(const time_point& time);
     int  getAvgBufSize(int& bytes, int& timespan);
     int  getCurrBufSize(int& bytes, int& timespan) const;
@@ -229,6 +236,7 @@ private:
         time_point m_tsOriginTime; // block origin time (either provided from above or equals the time a message was submitted for sending.
         time_point m_tsRexmitTime; // packet retransmission time
         int        m_iTTL; // time to live (milliseconds)
+        bool       m_bDropped; // explicitly revoked by the application; retain until ACK
 
         Block* m_pNext; // next block
 

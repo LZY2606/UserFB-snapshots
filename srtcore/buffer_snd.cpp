@@ -93,6 +93,7 @@ CSndBuffer::CSndBuffer(int ip_family, int size, int maxpld, int authtag)
     for (int i = 0; i < m_iSize; ++i)
     {
         pb->m_iMsgNoBitset = 0;
+        pb->m_bDropped     = false;
         pb->m_pcData       = pc;
         pc                += m_iBlockLen;
 
@@ -210,6 +211,7 @@ void CSndBuffer::addBuffer(const char* data, int len, SRT_MSGCTRL& w_mctrl)
         // [PB_SOLO] - 1 packet per message
 
         s->m_iTTL = ttl;
+        s->m_bDropped = false;
         s->m_tsRexmitTime = time_point();
         s->m_tsOriginTime = m_tsLastOriginTime;
         
@@ -286,6 +288,7 @@ int CSndBuffer::addBufferFromFile(fstream& ifs, int len)
 
         s->m_iLength = pktlen;
         s->m_iTTL    = SRT_MSGTTL_INF;
+        s->m_bDropped = false;
         s            = s->m_pNext;
 
         total += pktlen;
@@ -313,6 +316,16 @@ int CSndBuffer::readData(CPacket& w_packet, steady_clock::time_point& w_srctime,
     ScopedLock bufferguard(m_BufLock);
     while (m_pCurrBlock != m_pLastBlock)
     {
+        if (m_pCurrBlock->m_bDropped)
+        {
+            HLOGC(bslog.Debug,
+                  log << CONID() << "CSndBuffer: skipping explicitly dropped packet %"
+                      << m_pCurrBlock->m_iSeqNo << " #" << m_pCurrBlock->getMsgSeq());
+            ++w_seqnoinc;
+            m_pCurrBlock = m_pCurrBlock->m_pNext;
+            continue;
+        }
+
         // Make the packet REFLECT the data stored in the buffer.
         w_packet.m_pcData = m_pCurrBlock->m_pcData;
         readlen = m_pCurrBlock->m_iLength;
@@ -370,10 +383,13 @@ int CSndBuffer::readData(CPacket& w_packet, steady_clock::time_point& w_srctime,
 CSndBuffer::time_point CSndBuffer::peekNextOriginal() const
 {
     ScopedLock bufferguard(m_BufLock);
-    if (m_pCurrBlock == m_pLastBlock)
+    const Block* p = m_pCurrBlock;
+    while (p != m_pLastBlock && p->m_bDropped)
+        p = p->m_pNext;
+    if (p == m_pLastBlock)
         return time_point();
 
-    return m_pCurrBlock->m_tsOriginTime;
+    return p->m_tsOriginTime;
 }
 
 int32_t CSndBuffer::getMsgNoAt(const int offset)
@@ -466,17 +482,23 @@ int CSndBuffer::readData(const int offset, CPacket& w_packet, steady_clock::time
     // (This is for messages that have declared TTL - messages that fail to be sent
     // before the TTL defined time comes, will be dropped).
 
-    if ((p->m_iTTL >= 0) && (count_milliseconds(steady_clock::now() - p->m_tsOriginTime) > p->m_iTTL))
+    const bool explicitly_dropped = p->m_bDropped;
+    const bool ttl_expired = (p->m_iTTL >= 0)
+        && (count_milliseconds(steady_clock::now() - p->m_tsOriginTime) > p->m_iTTL);
+    if (explicitly_dropped || ttl_expired)
     {
         w_drop.msgno = p->getMsgSeq();
-        int msglen   = 1;
-        p            = p->m_pNext;
-        bool move    = false;
+        const int32_t beginseq = p->m_iSeqNo;
+        int32_t endseq         = p->m_iSeqNo;
+        int      msglen        = 1;
+        p                      = p->m_pNext;
+        bool move              = false;
         while (p != m_pLastBlock && w_drop.msgno == p->getMsgSeq())
         {
 #if ENABLE_HEAVY_LOGGING
             last_seq = p->m_iSeqNo;
 #endif
+            endseq = p->m_iSeqNo;
             if (p == m_pCurrBlock)
                 move = true;
             p = p->m_pNext;
@@ -486,22 +508,20 @@ int CSndBuffer::readData(const int offset, CPacket& w_packet, steady_clock::time
         }
 
         HLOGC(qslog.Debug,
-              log << "CSndBuffer::readData: due to TTL exceeded, %(" << first_seq << " - " << last_seq << "), "
+              log << "CSndBuffer: due to " << (explicitly_dropped ? "explicit drop" : "TTL exceeded")
+                  << ", %(" << first_seq << " - " << last_seq << "), "
                   << msglen << " packets to drop with #" << w_drop.msgno);
 
-        // Theoretically as the seq numbers are being tracked, you should be able
-        // to simply take the sequence number from the block. But this is a new
-        // feature and should be only used after refax for the sender buffer to
-        // make it manage the sequence numbers inside, instead of by CUDT::m_iSndLastDataAck.
-        w_drop.seqno[DropRange::BEGIN] = w_packet.seqno();
-        w_drop.seqno[DropRange::END] = CSeqNo::incseq(w_packet.seqno(), msglen - 1);
+        w_drop.seqno[DropRange::BEGIN] = beginseq;
+        w_drop.seqno[DropRange::END]   = endseq;
+
+        SRT_ASSERT(w_drop.seqno[DropRange::END] == CSeqNo::incseq(w_packet.seqno(), msglen - 1));
+        (void)msglen;
 
         // Note the rules: here `p` is pointing to the first block AFTER the
-        // message to be dropped, so the end sequence should be one behind
-        // the one for p. Note that the loop rolls until hitting the first
-        // packet that doesn't belong to the message or m_pLastBlock, which
-        // is past-the-end for the occupied range in the sender buffer.
-        // m_pLastBlock itself is not occupied and carries no valid sequence number.
+        // message to be dropped. The exact block sequence numbers preserve
+        // circular wrapping. m_pLastBlock itself is not occupied and carries
+        // no valid sequence number.
         SRT_ASSERT(p == m_pLastBlock || w_drop.seqno[DropRange::END] == CSeqNo::decseq(p->m_iSeqNo));
         return READ_DROP;
     }
@@ -650,6 +670,50 @@ CSndBuffer::duration CSndBuffer::getBufferingDelay(const time_point& tnow) const
         return duration(0);
 
     return tnow - m_pFirstBlock->m_tsOriginTime;
+}
+
+int CSndBuffer::dropMessage(int32_t msgno, DropRange& w_range)
+{
+    ScopedLock bufferguard(m_BufLock);
+
+    Block* first = NULL;
+    Block* last  = NULL;
+    int    bytes = 0;
+    bool   newly = false;
+
+    Block* p = m_pFirstBlock;
+    for (int i = 0; i < m_iCount && p != m_pLastBlock && !first; ++i)
+    {
+        if (p->getMsgSeq() == msgno)
+            first = p;
+        else
+            p = p->m_pNext;
+    }
+
+    if (!first)
+        return 0;
+
+    // A message is the contiguous run of blocks carrying this message number.
+    p = first;
+    while (p != m_pLastBlock && p->getMsgSeq() == msgno)
+    {
+        last = p;
+        if (!p->m_bDropped)
+        {
+            newly = true;
+            bytes += p->m_iLength;
+        }
+        p->m_bDropped = true;
+        p = p->m_pNext;
+    }
+
+    if (!newly)
+        return 0;
+
+    w_range.msgno                = msgno;
+    w_range.seqno[DropRange::BEGIN] = first->m_iSeqNo;
+    w_range.seqno[DropRange::END]   = last->m_iSeqNo;
+    return bytes;
 }
 
 int CSndBuffer::dropLateData(int& w_bytes, int32_t& w_first_msgno, const steady_clock::time_point& too_late_time)

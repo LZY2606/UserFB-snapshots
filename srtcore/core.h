@@ -352,6 +352,7 @@ public: //API
     static int sendmsg(SRTSOCKET u, const char* buf, int len, int ttl = SRT_MSGTTL_INF, bool inorder = false, int64_t srctime = 0);
     static int recvmsg(SRTSOCKET u, char* buf, int len, int64_t& srctime);
     static int sendmsg2(SRTSOCKET u, const char* buf, int len, SRT_MSGCTRL& mctrl);
+    static int dropmsg(SRTSOCKET u, int32_t msgno);
     static int recvmsg2(SRTSOCKET u, char* buf, int len, SRT_MSGCTRL& w_mctrl);
     static int64_t sendfile(SRTSOCKET u, std::fstream& ifs, int64_t& offset, int64_t size, int block = SRT_DEFAULT_SENDFILE_BLOCK);
     static int64_t recvfile(SRTSOCKET u, std::fstream& ofs, int64_t& offset, int64_t size, int block = SRT_DEFAULT_RECVFILE_BLOCK);
@@ -795,6 +796,9 @@ private:
     /// @return Actual size of data received.
 
     SRT_ATR_NODISCARD int sendmsg2(const char* data, int len, SRT_MSGCTRL& w_m);
+
+    /// Revoke an unsent/unacknowledged message while retaining its buffer slots until ACK.
+    SRT_ATR_NODISCARD int dropmsg(int32_t msgno);
 
     SRT_ATR_NODISCARD int recvmsg(char* data, int len, int64_t& srctime);
     SRT_ATR_NODISCARD int recvmsg2(char* data, int len, SRT_MSGCTRL& w_m);

@@ -840,6 +840,11 @@ SRT_API int srt_send    (SRTSOCKET u, const char* buf, int len);
 SRT_API int srt_sendmsg (SRTSOCKET u, const char* buf, int len, int ttl/* = -1*/, int inorder/* = false*/);
 SRT_API int srt_sendmsg2(SRTSOCKET u, const char* buf, int len, SRT_MSGCTRL *mctrl);
 
+// Revoke a message previously returned by srt_sendmsg2() while its payload is
+// still retained by the sender buffer. Returns the newly revoked payload byte
+// count (0 for an already revoked or fully ACK-reclaimed message), or SRT_ERROR.
+SRT_API int srt_dropmsg (SRTSOCKET u, int32_t msgno);
+
 //
 // Receiving functions
 //
