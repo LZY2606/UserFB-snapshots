@@ -83,6 +83,53 @@ for {
 }
 ```
 
+### Timed data: PES on the program's continuous clock
+
+`NextTimedData` delivers the same parsed data as `NextData`, but each PES also
+comes with the program clock that was in effect when the PES's first TS packet
+was received. PAT/PMT and other non PES data are delivered as usual with nil
+time pointers. Programs and their PCR PIDs are derived from the received
+PAT/PMT, and PCRs carried by adaptation-field-only packets are tracked.
+
+PCR values (`base*300+extension`, modulus `2^33*300`) are unwrapped into
+`PCR27MHz` per clock epoch. Each raw 33 bit PTS/DTS is expanded into the
+`PTS90k`/`DTS90k` value closest to the anchor `PCR27MHz/300` (compared with
+integers in 27 MHz units so the sub-tick PCR phase is preserved). Unknown
+programs and programs without a PCR anchor are still delivered, with nil time
+pointers. Epochs start at `0` and are renewed on a discontinuity indicator on
+the current PCR PID or when the PMT changes that PCR PID.
+
+```go
+dmx := astits.NewDemuxer(ctx, f, astits.DemuxerOptPacketSize(188))
+for {
+    td, err := dmx.NextTimedData()
+    if err == astits.ErrNoMorePackets {
+        break
+    }
+    if err != nil {
+        return err
+    }
+    if td.Data.PES != nil {
+        fmt.Printf("program=%d epoch=%d payload=%d bytes\n",
+            td.ProgramNumber, td.ClockEpoch, len(td.Data.PES.Data))
+        if td.PCR27MHz != nil {
+            fmt.Printf("  anchor PCR (27MHz continuous): %d\n", *td.PCR27MHz)
+        }
+        if td.PTS90k != nil {
+            fmt.Printf("  PTS (90kHz continuous): %d\n", *td.PTS90k)
+        }
+        if td.DTS90k != nil {
+            fmt.Printf("  DTS (90kHz continuous): %d\n", *td.DTS90k)
+        }
+    }
+}
+```
+
+Do not mix the three reading entry points `NextPacket`, `NextData` and
+`NextTimedData` on the same `Demuxer`: choose one for its whole lifetime.
+`Rewind` can be called to restart a timed read; it rebuilds the program clocks
+so reading the same stream again yields the same timed results.
+
 ## Mux
 
 ```go

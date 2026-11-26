@@ -36,6 +36,11 @@ type Demuxer struct {
 	programMap   *programMap
 	r            io.Reader
 	streamMap    *elementaryStreamMap
+
+	// Timed reading state (NextTimedData). It is independent from dataBuffer.
+	clocks         *programClockRegistry
+	timedBuffer    []*TimedData
+	timedSnapshots map[*Packet]timedSnapshot
 }
 
 // PacketsParser represents an object capable of parsing a set of packets containing a unique payload spanning over those packets
@@ -50,11 +55,13 @@ type PacketSkipper func(p *Packet) (skip bool)
 func NewDemuxer(ctx context.Context, r io.Reader, opts ...func(*Demuxer)) (d *Demuxer) {
 	// Init
 	d = &Demuxer{
-		ctx:        ctx,
-		l:          astikit.AdaptStdLogger(nil),
-		programMap: newProgramMap(),
-		r:          r,
-		streamMap:  newElementaryStreamMap(),
+		ctx:            ctx,
+		clocks:         newProgramClockRegistry(),
+		l:              astikit.AdaptStdLogger(nil),
+		programMap:     newProgramMap(),
+		r:              r,
+		streamMap:      newElementaryStreamMap(),
+		timedSnapshots: map[*Packet]timedSnapshot{},
 	}
 	d.packetPool = newPacketPool(d.programMap)
 
@@ -192,23 +199,28 @@ func (dmx *Demuxer) updateData(ds []*DemuxerData) (d *DemuxerData) {
 		dmx.dataBuffer = append(dmx.dataBuffer, ds[1:]...)
 
 		// Update program map
-		for _, v := range ds {
-			if v.PAT != nil {
-				for _, pgm := range v.PAT.Programs {
-					// Program number 0 is reserved to NIT
-					if pgm.ProgramNumber > 0 {
-						dmx.programMap.setUnlocked(pgm.ProgramMapID, pgm.ProgramNumber)
-					}
-				}
-			}
-			if v.PMT != nil {
-				for _, es := range v.PMT.ElementaryStreams {
-					dmx.streamMap.setUnlocked(es.ElementaryPID, v.PMT.ProgramNumber)
+		dmx.updateProgramMaps(ds)
+	}
+	return
+}
+
+// updateProgramMaps updates PAT/PMT derived maps from parsed data
+func (dmx *Demuxer) updateProgramMaps(ds []*DemuxerData) {
+	for _, v := range ds {
+		if v.PAT != nil {
+			for _, pgm := range v.PAT.Programs {
+				// Program number 0 is reserved to NIT
+				if pgm.ProgramNumber > 0 {
+					dmx.programMap.setUnlocked(pgm.ProgramMapID, pgm.ProgramNumber)
 				}
 			}
 		}
+		if v.PMT != nil {
+			for _, es := range v.PMT.ElementaryStreams {
+				dmx.streamMap.setUnlocked(es.ElementaryPID, v.PMT.ProgramNumber)
+			}
+		}
 	}
-	return
 }
 
 // Rewind rewinds the demuxer reader
@@ -216,6 +228,10 @@ func (dmx *Demuxer) Rewind() (n int64, err error) {
 	dmx.dataBuffer = []*DemuxerData{}
 	dmx.packetBuffer = nil
 	dmx.packetPool = newPacketPool(dmx.programMap)
+	// Rebuild program clocks from the start on timed reads
+	dmx.timedBuffer = nil
+	dmx.timedSnapshots = map[*Packet]timedSnapshot{}
+	dmx.clocks.reset()
 	if n, err = rewind(dmx.r); err != nil {
 		err = fmt.Errorf("astits: rewinding reader failed: %w", err)
 		return
