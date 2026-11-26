@@ -82,6 +82,65 @@ const char* glslopt_get_output (glslopt_shader* shader);
 const char* glslopt_get_log (glslopt_shader* shader);
 void glslopt_shader_delete (glslopt_shader* shader);
 
+// ---------------------------------------------------------------------------
+// optional fragment execution tracing
+//
+// glslopt_optimize_traced() runs the same optimization pipeline as
+// glslopt_optimize() and then instruments the optimized NIR with an
+// execution log written to a new std430 SSBO. The result is still a
+// runnable GLSL 430 fragment shader; the original control flow, outputs,
+// discards and memory side effects are unchanged. A null configuration
+// delegates to glslopt_optimize() with byte-identical output.
+
+// Event kinds stored in the trace catalog (also used in the record tag:
+// tag = kind * 8 + component count).
+enum glslopt_trace_kind {
+   kGlslTraceAlu = 1,      // float32 ALU result explicitly typed as float output
+   kGlslTraceBranch = 2,   // actual evaluation of a branch condition
+   kGlslTraceOutput = 3,   // actual store to a user fragment output
+   kGlslTraceDiscard = 4,  // actually executed discard
+};
+
+struct glslopt_trace_config {
+   int ssbo_binding;    // binding of the trace SSBO; must not clash with an active SSBO
+   int origin_x;        // integer pixel origin subtracted from floor(gl_FragCoord.xy)
+   int origin_y;
+   int width;           // positive trace region size in pixels
+   int height;
+   unsigned capacity;   // events recorded per pixel; 0 keeps only the counters
+};
+
+// One catalog entry. IDs start at 1 and follow the block walk and the
+// in-block instruction order of the optimized NIR before instrumentation.
+// Instructions added by the tracer are never catalogued.
+struct glslopt_trace_site {
+   unsigned id;
+   glslopt_trace_kind kind;
+   unsigned components;  // number of payload components (0 for discard)
+   unsigned block;       // index of the original block owning the site
+   const char* output_name; // user output variable name for kGlslTraceOutput, else NULL
+   unsigned write_mask;  // glsl-style component write mask for kGlslTraceOutput, else 0
+};
+
+// Reflection of the trace embedded in a successfully traced shader.
+// Remains valid until glslopt_shader_delete.
+struct glslopt_trace_info {
+   const char* buffer_name;       // instance name of the trace SSBO
+   const char* buffer_type_name;  // interface block type name
+   int binding;
+   unsigned segment_words;        // uint words per pixel: 2 + 6 * capacity
+   unsigned site_count;
+   const glslopt_trace_site* sites;
+};
+
+// Like glslopt_optimize, with optional tracing. A null config is exactly
+// equivalent to glslopt_optimize. On failure the returned shader reports
+// failure through glslopt_get_status/glslopt_get_log.
+glslopt_shader* glslopt_optimize_traced (glslopt_ctx* ctx, glslopt_shader_type type, const char* shaderSource,
+                                         unsigned options, const glslopt_trace_config* config);
+// NULL for shaders produced without tracing.
+const glslopt_trace_info* glslopt_shader_get_trace_info (glslopt_shader* shader);
+
 // Fixed compute workgroup dimensions, or zero for non-compute shaders.
 void glslopt_shader_get_compute_local_size(glslopt_shader* shader, int* x, int* y, int* z);
 

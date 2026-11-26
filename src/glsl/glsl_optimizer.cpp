@@ -1,6 +1,7 @@
 #include "glsl_optimizer.h"
 #include "nir_optimize.h"
 #include "nir_printer.h"
+#include "nir_trace.h"
 #include "buffer_layout.h"
 #include "image_formats.h"
 #include "main/mtypes.h"
@@ -181,6 +182,12 @@ struct glslopt_shader {
    char* optimizedOutput = nullptr;
    const char* infoLog = "Shader not compiled yet";
    bool status = false;
+
+   // Present only when the shader was built through glslopt_optimize_traced
+   // with a non-null configuration. The referenced strings and site array are
+   // ralloc'd in mem_ctx and outlive the producing context.
+   glslopt_trace_info traceInfo = {};
+   bool traced = false;
 
    const char* strdup(const char* s) { return s ? ralloc_strdup(mem_ctx, s) : nullptr; }
    void fail(const char* msg) { infoLog = ralloc_strdup(mem_ctx, msg); }
@@ -752,7 +759,9 @@ calculate_stats(nir_shader* nir, int* math, int* tex, int* flow)
 
 // ---------------------------------------------------------------------------
 
-glslopt_shader* glslopt_optimize(glslopt_ctx* ctx, glslopt_shader_type type, const char* shaderSource, unsigned options)
+static glslopt_shader*
+optimize_shader(glslopt_ctx* ctx, glslopt_shader_type type, const char* shaderSource, unsigned options,
+                const glslopt_trace_config* traceConfig)
 {
    if (!ctx)
       return NULL;
@@ -853,6 +862,27 @@ glslopt_shader* glslopt_optimize(glslopt_ctx* ctx, glslopt_shader_type type, con
       auto p = [](nir_deref_instr* d) { return glslopt_precision_info::norm(glslopt_precision_info::deref_prec(d)) == GLSL_PRECISION_MEDIUM; };
       return p(dst) == p(src);
    });
+
+   if (traceConfig) {
+      // First revision: OpenGL GLSL 430 fragment shaders only.
+      if (ctx->target != kGlslTargetOpenGL || type != kGlslOptShaderFragment) {
+         result->fail("Tracing is only supported for OpenGL GLSL fragment shaders.");
+         return result;
+      }
+      if (info.es || info.version < 430) {
+         result->fail("Tracing requires a desktop GLSL 430 (or newer) fragment shader.");
+         return result;
+      }
+      // The regular optimization pipeline has finished; now catalog the
+      // original optimized NIR and only then insert the logging code.
+      const char* traceError = nullptr;
+      if (!glslopt_trace_fragment(nir, *traceConfig, &result->traceInfo, result->mem_ctx, &traceError)) {
+         result->fail(traceError);
+         return result;
+      }
+      result->traced = true;
+   }
+
    usage_info usage = collect_usage(nir);
    glslopt_metal_layout layout;
    std::string optText = metal ? glslopt_print_metal(nir, info, layout) : glslopt_print_glsl(nir, info);
@@ -864,6 +894,28 @@ glslopt_shader* glslopt_optimize(glslopt_ctx* ctx, glslopt_shader_type type, con
    calculate_stats(nir, &result->statsMath, &result->statsTex, &result->statsFlow);
    result->status = true;
    return result;
+}
+
+glslopt_shader*
+glslopt_optimize(glslopt_ctx* ctx, glslopt_shader_type type, const char* shaderSource, unsigned options)
+{
+   // No tracing: byte-identical behavior and output to the historical entry.
+   return optimize_shader(ctx, type, shaderSource, options, nullptr);
+}
+
+glslopt_shader*
+glslopt_optimize_traced(glslopt_ctx* ctx, glslopt_shader_type type, const char* shaderSource,
+                        unsigned options, const glslopt_trace_config* config)
+{
+   if (!config)
+      return optimize_shader(ctx, type, shaderSource, options, nullptr);
+   return optimize_shader(ctx, type, shaderSource, options, config);
+}
+
+const glslopt_trace_info*
+glslopt_shader_get_trace_info(glslopt_shader* shader)
+{
+   return shader && shader->traced ? &shader->traceInfo : nullptr;
 }
 
 void glslopt_shader_delete(glslopt_shader* shader)
