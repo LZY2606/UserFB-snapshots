@@ -124,6 +124,54 @@ mx.WriteData(&astits.MuxerData{
 })
 ```
 
+## Program remux
+
+`ProgramRemuxer` extracts one program from a multi-program MPEG-TS without
+decoding or rebuilding elementary streams. It regenerates only PAT/PMT sections
+and rewrites output PIDs/continuity counters on admitted media packets; PCR,
+PTS, DTS, PES headers and elementary-stream bytes remain untouched.
+
+```go
+package main
+
+import (
+    "io"
+    "os"
+
+    "github.com/asticode/go-astits"
+)
+
+func extractProgram(inputPath, outputPath string) error {
+    in, err := os.Open(inputPath)
+    if err != nil {
+        return err
+    }
+    defer in.Close()
+
+    out, err := os.Create(outputPath)
+    if err != nil {
+        return err
+    }
+    defer out.Close()
+
+    remuxer, err := astits.NewProgramRemuxer(out, astits.ProgramRemuxConfig{
+        ProgramNumber:  1,
+        OutputPMTPID:   0x0100,
+        FirstMediaPID:  0x0040,
+    })
+    if err != nil {
+        return err
+    }
+
+    // Write accepts chunks cut at arbitrary byte offsets. A successful output
+    // consists of complete 188-byte transport stream packets.
+    if _, err := io.Copy(remuxer, in); err != nil {
+        return err
+    }
+    return remuxer.Flush()
+}
+```
+
 ## Options
 
 In order to pass options to the demuxer or the muxer, look for the methods prefixed with `DemuxerOpt` or `MuxerOpt` and add them upon calling `NewDemuxer` or `NewMuxer` :

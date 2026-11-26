@@ -5,7 +5,7 @@ mode=${1:-baseline}
 source task_support/env.sh
 if [[ $mode == target ]]; then
   test -s program_remuxer_test.go
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/program-remux-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   go test -count=1 -v . -run '^(TestProgramTables|TestProgramEpochs|TestProgramMedia)$' >"$output_log" 2>&1
