@@ -12,8 +12,12 @@
 //   2008.3.15  skywind  fixed a trapezoid issue
 //   2015.8.09  skywind  rewrite with more comment
 //   2015.8.12  skywind  adjust interfaces for clearity 
-// 
+//
 //=====================================================================
+#if !defined(_WIN32) && !defined(MINI3D_HEADLESS)
+#define MINI3D_HEADLESS
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -533,7 +537,9 @@ void device_clear(device_t *device, int mode) {
 	int y, x, height = device->height;
 	for (y = 0; y < device->height; y++) {
 		IUINT32 *dst = device->framebuffer[y];
-		IUINT32 cc = (height - 1 - y) * 230 / (height - 1);
+		IUINT32 cc = 0;
+		if (height > 1)
+			cc = (height - 1 - y) * 230 / (height - 1);
 		cc = (cc << 16) | (cc << 8) | cc;
 		if (mode == 0) cc = device->background;
 		for (x = device->width; x > 0; dst++, x--) dst[0] = cc;

@@ -36,3 +36,5 @@
 *.jpeg
 *.png
 *.bmp
+*.ppm
+.task-build/

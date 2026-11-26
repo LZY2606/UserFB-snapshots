@@ -55,6 +55,41 @@
 * 从 BMP/TGA 文件加载纹理
 * 载入 BSP 场景并实现漫游
 
+## 连续快门运动渲染
+
+新增的 `mini3d.h` 暴露原来的核心类型与函数；`motion.h` / `motion.c` 提供离线连续快门入口：
+
+```c
+int motion_render(device_t *device,
+                  const motion_triangle *triangles,
+                  size_t count,
+                  double *rgb);
+```
+
+每个 `motion_triangle` 给出同一组三个顶点在快门打开和关闭时的状态。下标相同的端点是同一个顶点，其世界坐标在 `t∈[0,1]` 线性运动；顶点 RGB 不随时间变化，统一读取 `open[k].color`。调用前仍需更新 `device->transform`，并保证合成矩阵是有限的仿射矩阵、`w=1`，所有端点位于原 CVV 内且颜色在 `[0,1]`。
+
+对每个像素中心 `(x+0.5,y+0.5)`，实现先求出所有会改变可见面的连续事件：边行列式过零、投影面积过零/翻转、以及两个面的屏幕重心深度相等。二次几何事件直接求实根，深度差是次数不超过 5 的多项式，用导数分区和二分定位符号交换根；不使用固定时间采样或加密采样猜测短暂显露。事件之间覆盖面、半开共边归属和深度顺序不变，获胜面的屏幕重心 RGB 是二次/二次有理函数，再进行带误差控制的自适应 Simpson 积分。普通解析尺度下，每个颜色通道的积分误差目标低于 `1e-7`。
+
+`rgb` 必须指向长度为 `width*height*3` 的 `double` 数组，按行保存 `[0,1]` 时间积分。成功时结果被复制到该数组，随后逐通道夹取并执行一次 `floor(255*c+0.5)` 量化，写入原有 `device->framebuffer`，函数返回 `1`。`count=0` 生成 `device->background`。空指针、非法设备尺寸或临时内存分配失败时返回 `0`；在全部像素计算完成前不会改写 framebuffer。该接口不读取或写入旧 zbuffer，也不修改输入、矩阵、`render_state`、纹理和 zbuffer，可重入并可交错用于多台设备。普通 `device_draw_primitive` 路径保持不变。
+
+目标测试位于 `tests/motion_target.c`，注册 `events`、`integrals`、`pipeline` 三组用例：
+
+```bash
+bash task_support/run.sh target
+```
+
+该命令会编译 `motion.c` 和目标测试，并继续运行原来的单帧 baseline。
+
+PPM 示例可用下面命令构建：
+
+```bash
+cc -std=c99 -O2 -DMINI3D_HEADLESS -I. \
+    examples/motion.c mini3d.c motion.c -lm -o motion_example
+./motion_example
+```
+
+它生成 `motion_shutter.ppm`（连续快门积分）和 `motion_single.ppm`（快门打开时刻的普通单帧绘制）。实现、测试和示例只使用 C99 标准库与 libm。
+
 ## 原理讲解
 
 - [韦易笑：OpenGL 和 DirectX 是如何在只知道顶点的情况下得出像素位置的？](https://skywind.me/blog/archives/2594)
