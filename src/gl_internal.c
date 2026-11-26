@@ -299,6 +299,17 @@ static void vertex_stage(const GLvoid* indices, GLsizei count, GLsizei instance_
 
 
 //TODO make fs_input static?  or a member of glContext?
+
+// Point/line/fullscreen callbacks have no triangle interpolation footprint.
+// Reset every derivative field so a reused/stack Shader_Builtins can never
+// leak the previous filled triangle's pgl_Ddx/pgl_Ddy/valid flag.
+static inline void pgl_builtins_clear_derivs(Shader_Builtins* b)
+{
+	memset(b->pgl_Ddx, 0, sizeof(b->pgl_Ddx));
+	memset(b->pgl_Ddy, 0, sizeof(b->pgl_Ddy));
+	b->pgl_DerivativesValid = GL_FALSE;
+}
+
 static void draw_point(glVertex* vert, float poly_offset)
 {
 	// No meaningful UV footprint for points
@@ -315,6 +326,7 @@ static void draw_point(glVertex* vert, float poly_offset)
 	//	clamp(point.z, c->depth_range_near, c->depth_range_far);
 
 	Shader_Builtins builtins;
+	pgl_builtins_clear_derivs(&builtins);
 	// 3.3 spec pg 110 says r,q are supposed to be replaced with 0 and 1...
 	// but PointCoord is a vec2 and that is not in the 4.6 spec so it must be a typo
 
@@ -451,6 +463,7 @@ static void setup_fs_input(float t, float* v1_out, float* v2_out, float wa, floa
 		}
 	}
 
+	pgl_builtins_clear_derivs(&c->builtins);
 	c->builtins.discard = GL_FALSE;
 }
 
@@ -2108,8 +2121,35 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 	float inv_w1 = 1/p1.w;
 	float inv_w2 = 1/p2.w;
 
+	// Analytic barycentric gradients per target pixel. These are the exact
+	// derivatives of alpha/beta/gamma evaluated below (same snapped integer
+	// edges and same i64 denominators). One target pixel is
+	// PGL_SUBPIXEL_SCALE subpixel units; +iy tracks window y up. They are
+	// constant over the triangle, unlike the perspective quotient derivative.
+	double pxl = (double)PGL_SUBPIXEL_SCALE;
+	double ga_dx = pxl * (double)(vy1 - vy2) / (double)e12_v0; // d alpha / d X
+	double ga_dy = pxl * (double)(vx2 - vx1) / (double)e12_v0;
+	double gb_dx = pxl * (double)(vy2 - vy0) / (double)e20_v1; // d beta  / d X
+	double gb_dy = pxl * (double)(vx0 - vx2) / (double)e20_v1;
+	double gg_dx = pxl * (double)(vy0 - vy1) / (double)e01_v2; // d gamma / d X
+	double gg_dy = pxl * (double)(vx1 - vx0) / (double)e01_v2;
+
+	// D = alpha/w0 + beta/w1 + gamma/w2 (== tmp2) and its constant gradients.
+	double iw0d = 1.0 / (double)p0.w;
+	double iw1d = 1.0 / (double)p1.w;
+	double iw2d = 1.0 / (double)p2.w;
+	double D_dx = ga_dx*iw0d + gb_dx*iw1d + gg_dx*iw2d;
+	double D_dy = ga_dy*iw0d + gb_dy*iw1d + gg_dy*iw2d;
+
 	int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
 	Shader_Builtins builtins;
+
+	// Filled triangles are the only valid source of analytic derivatives.
+	// Zero both full arrays once; slots >= vs_output.size stay zero. Every
+	// used slot is rewritten for each covered fragment before the FS runs.
+	memset(builtins.pgl_Ddx, 0, sizeof(builtins.pgl_Ddx));
+	memset(builtins.pgl_Ddy, 0, sizeof(builtins.pgl_Ddy));
+	builtins.pgl_DerivativesValid = GL_TRUE;
 
 	for (int iy = y_min; iy<iy_max; ++iy) {
 		int py = (iy << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
@@ -2131,9 +2171,12 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 				if ((e12 != 0 || pgl_same_sign(e12_v0, e12_s)) &&
 				    (e20 != 0 || pgl_same_sign(e20_v1, e20_s)) &&
 				    (e01 != 0 || pgl_same_sign(e01_v2, e01_s))) {
-					gamma = (float)((double)e01 / (double)e01_v2);
-					beta  = (float)((double)e20 / (double)e20_v1);
-					alpha = (float)((double)e12 / (double)e12_v0);
+					double ba = (double)e12 / (double)e12_v0;
+					double bb = (double)e20 / (double)e20_v1;
+					double bg = (double)e01 / (double)e01_v2;
+					gamma = (float)bg;
+					beta  = (float)bb;
+					alpha = (float)ba;
 
 					//calculate interpolation here
 					tmp2 = alpha*inv_w0 + beta*inv_w1 + gamma*inv_w2;
@@ -2149,16 +2192,43 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 					}
 
 					for (int i=0; i<c->vs_output.size; ++i) {
+						GLfloat ddx = 0.0f, ddy = 0.0f;
 						if (c->vs_output.interpolation[i] == PGL_SMOOTH) {
 							tmp = alpha*perspective[i] + beta*perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS + i] + gamma*perspective[2*GL_MAX_VERTEX_OUTPUT_COMPONENTS + i];
 
 							fs_input[i] = tmp/tmp2;
 
+							// Perspective-correct varying f = N/D with
+							// N = a*(v0/w0) + b*(v1/w1) + g*(v2/w2),
+							// D = a/w0 + b/w1 + g/w2.  N',D' are constant
+							// screen gradients; evaluate the quotient rule
+							// at this pixel's barycentrics.
+							double q0 = (double)v0->vs_out[i] * iw0d;
+							double q1 = (double)v1->vs_out[i] * iw1d;
+							double q2 = (double)v2->vs_out[i] * iw2d;
+							double N  = ba*q0 + bb*q1 + bg*q2;
+							double D  = ba*iw0d + bb*iw1d + bg*iw2d;
+							double Nx = ga_dx*q0 + gb_dx*q1 + gg_dx*q2;
+							double Ny = ga_dy*q0 + gb_dy*q1 + gg_dy*q2;
+							ddx = (GLfloat)((Nx*D - N*D_dx)/(D*D));
+							ddy = (GLfloat)((Ny*D - N*D_dy)/(D*D));
+
 						} else if (c->vs_output.interpolation[i] == PGL_NOPERSPECTIVE) {
 							fs_input[i] = alpha * v0->vs_out[i] + beta * v1->vs_out[i] + gamma * v2->vs_out[i];
+
+							double a0 = (double)v0->vs_out[i];
+							double a1 = (double)v1->vs_out[i];
+							double a2 = (double)v2->vs_out[i];
+							ddx = (GLfloat)(ga_dx*a0 + gb_dx*a1 + gg_dx*a2);
+							ddy = (GLfloat)(ga_dy*a0 + gb_dy*a1 + gg_dy*a2);
 						} else { // == PGL_FLAT
 							fs_input[i] = vs_output[provoke*c->vs_output.size + i];
+							// Flat varyings are provoking-vertex constants.
+							ddx = 0.0f;
+							ddy = 0.0f;
 						}
+						builtins.pgl_Ddx[i] = ddx;
+						builtins.pgl_Ddy[i] = ddy;
 					}
 
 					// tmp2 is 1/w interpolated... I now do that everywhere (draw_line, draw_point)

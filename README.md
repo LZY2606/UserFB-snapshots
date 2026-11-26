@@ -292,6 +292,91 @@ PGL will print all errors to `stdout` and you can set your own message handler w
 So what version of OpenGL is PortableGL?  _Shrug_, it's still mostly 3.x but I will add things outside of
 3.x as long as it makes sense to me and is in line with the goals and priorities of the project.
 
+Analytic varying derivatives (`pgl_Ddx` / `pgl_Ddy`)
+=====================================================
+
+`Shader_Builtins` carries three extra fields:
+
+```c
+GLfloat   pgl_Ddx[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+GLfloat   pgl_Ddy[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+GLboolean pgl_DerivativesValid;
+```
+
+For a fragment produced by **filled-triangle** rasterization, slot `i` of these
+arrays is the analytic screen-space derivative of the interpolated vertex
+output `fs_input[i]`: `pgl_Ddx[i] = d fs_input[i] / d x` and
+`pgl_Ddy[i] = d fs_input[i] / d y`, in window coordinates measured per target
+pixel, with **y pointing up** (matching `gl_FragCoord`).
+
+The derivatives use the exact same snapped integer edge equations and
+barycentric coordinates as `fs_input`:
+
+* `PGL_SMOOTH` differentiates the perspective-correct rational interpolation
+  `f = N/D` (the quotient rule after the perspective divide). Because `N` and
+  `D` are affine in the window coordinates, their gradients are constant over
+  the triangle and the quotient is evaluated at the current pixel. This is what
+  lets a perspective floor select different mip levels at its near and far
+  ends instead of one whole-triangle constant.
+* `PGL_NOPERSPECTIVE` is the derivative of the screen-affine interpolation.
+* `PGL_FLAT` is always zero (the value is the provoking-vertex constant).
+* Unused slots are zero.
+
+Clipped triangle fans, indexed drawing, `GL_TRIANGLE_STRIP`/`GL_TRIANGLE_FAN`
+and instanced drawing all go through the same fill path. When the provoking
+vertex is clipped away, the flat value is still sourced the old way.
+
+**Scope vs. quad differences.** These are analytic derivatives of *vertex
+output interpolation only*. They are **not** `dFdx`/`dFdy` of an arbitrary
+expression computed inside the fragment shader. PortableGL invokes each
+fragment callback independently; it does not group fragments into 2x2 quads
+and does not evaluate neighbouring pixels, so the usual quad finite
+differences used by hardware `dFdx/dFdy` are not available here. No extra
+vertex or fragment shader calls are made to estimate these gradients, and
+they are not the maximum UV change rate over the three edges.
+
+`pgl_DerivativesValid` is `GL_FALSE` and both arrays are zeroed for points,
+lines, polygon point/line modes and the `pglDrawFrame`/`pglDrawFrame2`
+fullscreen callbacks, so a reused `Shader_Builtins` can never expose a
+previous triangle's gradients. The state lives in the `Shader_Builtins`
+passed to the callback (and per-context GL errors stay per context), so
+interleaving two contexts does not leak derivative state between them.
+`discard` and user-written `gl_FragDepth` do not alter the derivatives;
+color, depth and stencil handling is unchanged.
+
+`pglTexture2DVarying`
+---------------------
+
+```c
+vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                         const Shader_Builtins* builtins,
+                         GLuint u_slot, GLuint v_slot);
+```
+
+This samples `texture` with `fs_input[u_slot], fs_input[v_slot]` as UVs and
+feeds the matching analytic derivatives
+(`pgl_Ddx/Ddy[u_slot/v_slot]`) straight into the existing `texture2DGrad`
+path, so all texture format, filtering, wrap and error rules are exactly the
+`Grad` rules. The two slots do not have to be adjacent. If
+`pgl_DerivativesValid` is false, either pointer is null, or a slot is `>=
+GL_MAX_VERTEX_OUTPUT_COMPONENTS`, it sets `GL_INVALID_OPERATION` and returns
+transparent black `(0,0,0,0)`; it never silently falls back to the old
+constant per-triangle LOD. The original `texture2D()` behaviour (including its
+single constant triangle mip estimate) is preserved unchanged.
+
+`examples/varying_mip.cpp` is a headless example that renders an oblique
+perspective checkerboard to a PPM using this interface:
+
+```sh
+c++ -std=c++17 -O1 -I. examples/varying_mip.cpp -DPORTABLEGL_IMPLEMENTATION -o varying_mip
+./varying_mip checker.ppm
+```
+
+`task_support/run.sh target` reassembles the components into
+`.task-build/portablegl.h`, builds and runs the
+`task_tests/target.cpp` gradient/clipping/sampling checks and the example
+(no Python, window or GPU required).
+
 References
 ==========
 

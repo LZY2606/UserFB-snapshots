@@ -37,6 +37,17 @@ PGLDEF vec4 texture_cubemapLod(GLuint texture, float x, float y, float z, float 
 PGLDEF vec4 texture1DGrad(GLuint tex, float x, float dPdx, float dPdy);
 PGLDEF vec4 texture2DGrad(GLuint tex, float x, float y,
                           float dUdx, float dVdx, float dUdy, float dVdy);
+
+// Sample a 2D texture using two interpolated vertex-output components as UV
+// and their analytic screen derivatives (Shader_Builtins.pgl_Ddx/Ddy) as the
+// gradients, forwarding to texture2DGrad. u_slot/v_slot may be non-adjacent.
+// Requires the valid filled-triangle derivative context passed to the fragment
+// callback; otherwise (or for out-of-range slots) GL_INVALID_OPERATION is set
+// and transparent black (0,0,0,0) is returned. Never falls back to the old
+// constant per-triangle auto LOD.
+PGLDEF vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                                const Shader_Builtins* builtins,
+                                GLuint u_slot, GLuint v_slot);
 PGLDEF vec4 texture_cubemapGrad(GLuint texture, float x, float y, float z,
                                 float dPdx_x, float dPdx_y, float dPdx_z,
                                 float dPdy_x, float dPdy_y, float dPdy_z);

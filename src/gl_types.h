@@ -696,6 +696,25 @@ typedef struct Shader_Builtins
 	float gl_FragDepth;
 	GLboolean discard;
 
+	// Analytic screen-space derivatives of the interpolated *vertex outputs*
+	// for the fragment currently running. Only filled-triangle rasterization
+	// sets pgl_DerivativesValid to GL_TRUE; every other path (points, lines,
+	// polygon point/line modes, pglDrawFrame* fullscreen programs) leaves it
+	// GL_FALSE and both arrays zeroed.
+	//
+	// For a valid triangle fragment, pgl_Ddx[i]/pgl_Ddy[i] are d(fs_input[i])
+	// with respect to window x/y, measured per target pixel, with y pointing
+	// up. They are derived from the same snapped edge equations and barycentric
+	// coordinates as fs_input: PGL_SMOOTH differentiates the perspective-
+	// correct rational interpolation (N/D after the divide), PGL_NOPERSPECTIVE
+	// the screen-affine one, and PGL_FLAT is always 0. Slots the program does
+	// not output are 0. These describe vertex-output interpolation only; they
+	// are not derivatives of arbitrary expressions in the fragment shader, and
+	// no neighbouring vertex/fragment invocations are evaluated to obtain them.
+	GLfloat pgl_Ddx[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	GLfloat pgl_Ddy[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	GLboolean pgl_DerivativesValid;
+
 } Shader_Builtins;
 
 // TODO GLfloat* and GLvoid*?

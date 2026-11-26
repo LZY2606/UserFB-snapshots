@@ -729,6 +729,33 @@ PGLDEF vec4 texture2DGrad(GLuint tex, float x, float y,
 	                           pgl_within_level_filter(t->min_filter));
 }
 
+PGLDEF vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                                const Shader_Builtins* builtins,
+                                GLuint u_slot, GLuint v_slot)
+{
+	// Only a filled-triangle fragment carrying valid analytic interpolation
+	// derivatives may feed Grad. Points/lines/fullscreen programs report
+	// pgl_DerivativesValid == GL_FALSE, and out-of-range slots are rejected.
+	// Keep the explicit return outside PGL_ERR_RET_VAL so the bounds/NULL
+	// guard still exists under PGL_UNSAFE (where the GL error check compiles
+	// out). No silent fallback to the old constant per-triangle LOD.
+	if (!builtins || !fs_input || !builtins->pgl_DerivativesValid ||
+	    u_slot >= GL_MAX_VERTEX_OUTPUT_COMPONENTS ||
+	    v_slot >= GL_MAX_VERTEX_OUTPUT_COMPONENTS) {
+		PGL_SET_ERR(GL_INVALID_OPERATION);
+		return make_v4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+
+	float u = fs_input[u_slot];
+	float v = fs_input[v_slot];
+
+	// Ddx[slot] = d fs_input[slot] / d window-x, likewise Ddy / d window-y.
+	// The two slots are independent and need not be adjacent.
+	return texture2DGrad(texture, u, v,
+	                     builtins->pgl_Ddx[u_slot], builtins->pgl_Ddx[v_slot],
+	                     builtins->pgl_Ddy[u_slot], builtins->pgl_Ddy[v_slot]);
+}
+
 PGLDEF vec4 texture3D(GLuint tex, float x, float y, float z)
 {
 	int i0, j0, i1, j1, k0, k1;
