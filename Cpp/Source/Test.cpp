@@ -35,13 +35,117 @@ static SpheresSoA s_SpheresSoA(kSphereCount);
 
 struct Material
 {
-    enum Type { Lambert, Metal, Dielectric };
+    // NOTE: CoatedLambert is appended on purpose so the numeric values of the
+    // pre-existing Lambert/Metal/Dielectric types (and the Material field layout)
+    // stay unchanged. It is only implemented for the CPU path.
+    enum Type { Lambert, Metal, Dielectric, CoatedLambert };
     Type type;
     float3pack albedo;
     float3pack emissive;
     float roughness;
     float ri;
 };
+
+// What kind of lobe a Scatter call sampled. This drives whether the emission of
+// the next hit has already been accounted for (diffuse + next-event estimation)
+// or must be accumulated (perfect specular reflection).
+enum ScatterEvent
+{
+    kScatterNone = 0,
+    kScatterDiffuse = 1,
+    kScatterSpecular = 2
+};
+
+// ---- CoatedLambert (smooth clear coat over a Lambert base) -----------------
+// Thin-coat model: no refraction displacement and no internal multi-bounce.
+// ri is the coat index of refraction (ri >= 1); albedo is the base colour.
+
+static inline float CoatF0(float ri)
+{
+    float r = (ri - 1.0f) / (ri + 1.0f);
+    return r * r;
+}
+
+// Schlick Fresnel. The ri == 1 case is an explicit, global exception: F is
+// identically zero so the material collapses to a plain Lambert diffuse.
+// The same exception must be used by path sampling, sphere-light direct
+// sampling and any independent integration.
+static inline float CoatF(float cosine, float ri)
+{
+    if (ri <= 1.0f) // explicit ri == 1 exception (also guards ri < 1)
+        return 0.0f;
+    float c = cosine;
+    if (c < 0.0f) c = 0.0f;
+    if (c > 1.0f) c = 1.0f;
+    float F0 = CoatF0(ri);
+    float t = 1.0f - c;
+    float t5 = t * t * t * t * t;
+    return F0 + (1.0f - F0) * t5;
+}
+
+// Orient the shading normal so it faces the direction the ray came from
+// (wo = -r_in.dir). Afterwards dot(n, wo) >= 0.
+static inline float3 CoatOrientedNormal(const float3& geometricNormal, const Ray& r_in)
+{
+    float3 wo = -r_in.dir;
+    return dot(geometricNormal, wo) < 0.0f ? -geometricNormal : geometricNormal;
+}
+
+// Diffuse BSDF: albedo/pi * (1-F(N.wo)) * (1-F(N.wi)), zero below the hemisphere.
+static inline float3 CoatDiffuseBSDF(const float3& albedo, float ri,
+                                     const float3& n, const float3& wo, const float3& wi)
+{
+    float NoL = dot(n, wi);
+    if (NoL <= 0.0f)
+        return float3(0, 0, 0);
+    float NoV = dot(n, wo);
+    if (NoV < 0.0f) NoV = 0.0f;
+    float Fo = CoatF(NoV, ri);
+    float Fi = CoatF(NoL, ri);
+    return albedo * ((1.0f - Fo) * (1.0f - Fi) / kPI);
+}
+
+// Importance-sample one continuation event for the coated material.
+//
+// The specular lobe (weight Fo = F(N.wo)) is sampled with probability Fo and
+// the diffuse lobe with probability 1-Fo (the code base's Fresnel-as-probability
+// idiom, cf. Dielectric). Returned attenuation already contains the division by
+// the event/pdf probability, so averaging it under constant incoming radiance
+// reproduces the hemispherical integral of the model exactly:
+//   specular -> exact reflect() direction, attenuation 1
+//   diffuse  -> cosine-weighted hemisphere, attenuation albedo * (1 - F(N.wi))
+//               (the outgoing (1-Fo) cancels with the 1-Fo event probability)
+// ri == 1 takes the explicit no-coat path: always diffuse, no extra RNG draw.
+static void CoatSampleEvent(const float3& albedo, float ri,
+                            const float3& p, const float3& n, const float3& wo,
+                            uint32_t& state,
+                            Ray& outScattered, float3& outAttenuation,
+                            int& outEvent)
+{
+    float NoV = dot(n, wo);
+    if (NoV < 0.0f) NoV = 0.0f;
+    if (NoV > 1.0f) NoV = 1.0f;
+    float Fo = CoatF(NoV, ri); // is exactly 0 for ri == 1
+
+    if (ri > 1.0f && RandomFloat01(state) < Fo)
+    {
+        // Perfect mirror reflection, exact direction.
+        float3 wi = reflect(-wo, n); // == reflect(r_in.dir, n)
+        outScattered = Ray(p, normalize(wi));
+        outAttenuation = float3(1, 1, 1); // Fo / Fo
+        outEvent = kScatterSpecular;
+        return;
+    }
+
+    // Cosine-weighted hemisphere, same construction as Lambert.
+    float3 dir = normalize(n + RandomUnitVector(state));
+    float NoL = dot(n, dir);
+    if (NoL < 0.0f) NoL = 0.0f;
+    float Fi = CoatF(NoL, ri);
+    outScattered = Ray(p, dir);
+    outAttenuation = albedo * (1.0f - Fi);
+    outEvent = kScatterDiffuse;
+}
 
 static Material s_SphereMats[kSphereCount] =
 {
@@ -79,12 +183,71 @@ bool HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
     return outID != -1;
 }
 
+// Next-event estimation for the CoatedLambert diffuse lobe against all sphere
+// lights. Mirrors the Lambert sphere-cone sampler but weights the contribution
+// by (1-F(N.wo))*(1-F(N.wi)). ri == 1 makes both Fresnel factors exactly 1.
+// `selfMat` may be null; otherwise the matching emissive sphere is skipped.
+static float3 CoatDirectLightE(const float3& albedo, float ri,
+                               const float3& p, const float3& n, const float3& wo,
+                               const Material* selfMat,
+                               uint32_t& state, int& inoutRayCount)
+{
+    float3 lightE(0, 0, 0);
+#if DO_LIGHT_SAMPLING
+    float NoV = dot(n, wo);
+    if (NoV < 0.0f) NoV = 0.0f;
+    float oneMinusFo = 1.0f - CoatF(NoV, ri); // constant for this hit
+    for (int j = 0; j < s_EmissiveSphereCount; ++j)
+    {
+        int i = s_EmissiveSpheres[j];
+        const Material& smat = s_SphereMats[i];
+        if (selfMat == &smat)
+            continue; // skip self
+        const Sphere& s = s_Spheres[i];
 
-static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state)
+        // create a random direction towards sphere
+        float3 sc = s.center.toFloat3();
+        float3 sw = normalize(sc - p);
+        float3 su = normalize(cross(fabsf(sw.getX()) > 0.01f ? float3(0, 1, 0) : float3(1, 0, 0), sw));
+        float3 sv = cross(sw, su);
+        // sample sphere by solid angle
+        float cosAMax = sqrtf(1.0f - s.radius*s.radius / sqLength(p - sc));
+        float eps1 = RandomFloat01(state), eps2 = RandomFloat01(state);
+        float cosA = 1.0f - eps1 + eps1 * cosAMax;
+        float sinA = sqrtf(fmaxf(0.0f, 1.0f - cosA*cosA));
+        float phi = 2 * kPI * eps2;
+        float3 l = su * (cosf(phi) * sinA) + sv * (sinf(phi) * sinA) + sw * cosA;
+
+        // shoot shadow ray
+        Hit lightHit;
+        int hitID;
+        ++inoutRayCount;
+        if (HitWorld(Ray(p, l), kMinT, kMaxT, lightHit, hitID) && hitID == i)
+        {
+            float cosL = dot(n, l);
+            if (cosL <= 0.0f)
+                continue; // diffuse lobe only contributes above the normal
+            if (cosL > 1.0f) cosL = 1.0f;
+            float omega = 2 * kPI * (1 - cosAMax);
+            float Fi = CoatF(cosL, ri);
+            float3 smatEmissive = smat.emissive.toFloat3();
+            // albedo/pi * (1-Fo)(1-Fi) * Le * cosL * omega
+            lightE += albedo * smatEmissive *
+                      (oneMinusFo * (1.0f - Fi) * cosL * omega / kPI);
+        }
+    }
+#endif
+    return lightE;
+}
+
+
+static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state, int* outEvent = 0)
 {
     outLightE = float3(0,0,0);
+    if (outEvent) *outEvent = kScatterNone;
     if (mat.type == Material::Lambert)
     {
+        if (outEvent) *outEvent = kScatterDiffuse;
         // random point on unit sphere that is tangent to the hit point
         float3 target = rec.pos + rec.normal + RandomUnitVector(state);
         scattered = Ray(rec.pos, normalize(target - rec.pos));
@@ -136,6 +299,7 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
     }
     else if (mat.type == Material::Metal)
     {
+        if (outEvent) *outEvent = kScatterSpecular;
         AssertUnit(r_in.dir); AssertUnit(rec.normal);
         float3 refl = reflect(r_in.dir, rec.normal);
         // reflected ray, and random inside of sphere based on roughness
@@ -150,6 +314,9 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
     }
     else if (mat.type == Material::Dielectric)
     {
+        // Both reflection and refraction keep the seen emission (old rule was
+        // type != Lambert), so any non-diffuse event preserves the next light.
+        if (outEvent) *outEvent = kScatterSpecular;
         AssertUnit(r_in.dir); AssertUnit(rec.normal);
         float3 outwardN;
         float3 rdir = r_in.dir;
@@ -184,6 +351,26 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
         else
             scattered = Ray(rec.pos, normalize(refr));
     }
+    else if (mat.type == Material::CoatedLambert)
+    {
+        float3 matAlbedo = mat.albedo.toFloat3();
+        float ri = mat.ri;
+        // Orient N to face the view direction wo = -r_in.dir (explicit model rule).
+        float3 n = CoatOrientedNormal(rec.normal, r_in);
+        float3 wo = -r_in.dir;
+
+        int eventKind = kScatterNone;
+        CoatSampleEvent(matAlbedo, ri, rec.pos, n, wo, state,
+                        scattered, attenuation, eventKind);
+        if (outEvent) *outEvent = eventKind;
+
+        // Diffuse lobe gets explicit sphere-light NEE. It is evaluated on every
+        // hit (independent of which continuation event was sampled) and carries
+        // the full (1-Fo)(1-Fi) weighting.
+        outLightE = CoatDirectLightE(matAlbedo, ri, rec.pos, n, wo, &mat,
+                                    state, inoutRayCount);
+        return true;
+    }
     else
     {
         attenuation = float3(1,0,1);
@@ -202,16 +389,27 @@ static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state
         Ray scattered;
         float3 attenuation;
         float3 lightE;
+        int scatterEvent = kScatterNone;
         const Material& mat = s_SphereMats[id];
         float3 matE = mat.emissive.toFloat3();
-        if (depth < kMaxDepth && Scatter(mat, r, rec, attenuation, scattered, lightE, inoutRayCount, state))
+        if (depth < kMaxDepth && Scatter(mat, r, rec, attenuation, scattered, lightE, inoutRayCount, state, &scatterEvent))
         {
 #if DO_LIGHT_SAMPLING
             if (!doMaterialE) matE = float3(0,0,0); // don't add material emission if told so
-            // dor Lambert materials, we just did explicit light (emissive) sampling and already
-            // for their contribution, so if next ray bounce hits the light again, don't add
-            // emission
-            doMaterialE = (mat.type != Material::Lambert);
+            // Whether the next hit's emission is accumulated is decided by the
+            // sampled event, not just the material type:
+            //  * diffuse events (Lambert, or the diffuse base of CoatedLambert)
+            //    already did explicit sphere-light sampling, so a light hit right
+            //    after must not add its emission again;
+            //  * specular/transmission events (Metal, Dielectric, and the clear-coat
+            //    mirror branch) must keep emitters seen in the scattered direction.
+            // The fallback preserves the old type-only rule if no event was reported.
+            if (scatterEvent == kScatterDiffuse)
+                doMaterialE = false;
+            else if (scatterEvent == kScatterSpecular)
+                doMaterialE = true;
+            else
+                doMaterialE = (mat.type != Material::Lambert);
 #endif
             return matE + lightE + attenuation * Trace(scattered, depth+1, inoutRayCount, state, doMaterialE);
         }
