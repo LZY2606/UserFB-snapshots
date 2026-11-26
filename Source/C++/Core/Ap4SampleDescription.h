@@ -988,5 +988,10 @@ const AP4_UI08 AP4_MPEG4_AUDIO_OBJECT_TYPE_SMR_MAIN              = 41; /**< SMR 
 const AP4_UI08 AP4_MPEG4_AUDIO_OBJECT_TYPE_USAC                  = 42; /**< USAC                                     */
 const AP4_UI08 AP4_MPEG4_AUDIO_OBJECT_TYPE_SAOC                  = 43; /**< SAOC                                     */
 
+/* tx3g timed-text sample description and decoder API.
+ * Included after the base class definition so that includers of this
+ * header also see AP4_Tx3gSampleDescription / AP4_Tx3gDecoder. */
+#include "Ap4Tx3g.h"
+
 #endif // _AP4_SAMPLE_DESCRIPTION_H_
 

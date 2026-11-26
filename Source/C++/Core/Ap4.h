@@ -246,6 +246,7 @@
 #include "Ap4DataBuffer.h"
 #include "Ap4SampleTable.h"
 #include "Ap4SyntheticSampleTable.h"
+#include "Ap4Tx3g.h"
 #include "Ap4AtomSampleTable.h"
 #include "Ap4FragmentSampleTable.h"
 #include "Ap4UrlAtom.h"

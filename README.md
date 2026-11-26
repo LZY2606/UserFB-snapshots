@@ -148,6 +148,95 @@ Alternatively, you can build and install Bento4 using [vcpkg](https://github.com
 
 The Bento4 port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
 
+Reading TX3G subtitles sample by sample
+---------------------------------------
+
+TX3G (3GPP timed text, sample format `tx3g`) tracks can be decoded one
+sample at a time with `AP4_Tx3gDecoder`. Each `AP4_Tx3gCue` owns its UTF-8
+text and merged style runs, so it stays valid independently of the file.
+The CTS and duration are in the track's media timescale ticks. The sample
+description (default style, alignment, background color, text box and the
+`ftab` font table) is re-resolved for every sample, which matters when a
+track switches between sample descriptions that reuse the same `fontID`
+for different fonts.
+
+```cpp
+#include "Ap4.h"
+
+void RenderTx3gTrack(const char* path)
+{
+    AP4_ByteStream* input = NULL;
+    if (AP4_FAILED(AP4_FileByteStream::Create(
+            path, AP4_FileByteStream::STREAM_MODE_READ, input))) {
+        return;
+    }
+    AP4_File file(*input);
+    input->Release(); // parsing is done; atoms that need the stream ref it
+
+    AP4_Movie* movie = file.GetMovie();
+    if (movie == NULL) return;
+
+    AP4_Track* track = NULL;
+    AP4_List<AP4_Track>& tracks = movie->GetTracks();
+    for (AP4_Ordinal i = 0; i < tracks.ItemCount(); ++i) {
+        AP4_Track* t = NULL;
+        tracks.Get(i, t);
+        // tx3g tracks may be classified as TYPE_TEXT or TYPE_SUBTITLES
+        if (t && t->GetSampleDescriptionCount() > 0) {
+            AP4_SampleDescription* d = t->GetSampleDescription(0);
+            if (d && d->GetFormat() == AP4_SAMPLE_FORMAT_TX3G) {
+                track = t;
+                break;
+            }
+        }
+    }
+    if (track == NULL) return;
+
+    AP4_UI32 timescale = track->GetMediaTimeScale();
+    for (AP4_Ordinal i = 0; i < track->GetSampleCount(); ++i) {
+        AP4_Tx3gCue cue;
+        AP4_Result rc = AP4_Tx3gDecoder::Decode(*track, i, cue);
+        if (AP4_FAILED(rc)) {
+            // truncated sample, bad UTF encoding, style range out of
+            // bounds/reversed, unknown fontID, or incomplete 'styl':
+            // cue was left unchanged.
+            continue;
+        }
+
+        AP4_UI64 start_ms = timescale ? (cue.cts      * 1000 / timescale) : 0;
+        AP4_UI64 end_ms   = timescale ? ((cue.cts + cue.duration) * 1000 / timescale)
+                                      : 0;
+
+        if (cue.text.GetLength() == 0) {
+            // empty text is a valid clear-screen cue: hide the previous line
+            HideSubtitle();
+            continue;
+        }
+
+        // cue.textBox is the default box; cue.horizontalAlignment and
+        // cue.verticalAlignment use 0=left/top, 1=center, -1=right/bottom.
+        BeginSubtitle(start_ms, end_ms,
+                      cue.textBox, cue.horizontalAlignment,
+                      cue.verticalAlignment, cue.backgroundColor);
+
+        // runs are non-overlapping, adjacent and maximal, in text order
+        for (AP4_Cardinal r = 0; r < cue.runs.ItemCount(); ++r) {
+            const AP4_Tx3gStyleRun& run = cue.runs[r];
+            SetFont(run.fontName.GetChars(), run.fontSize,
+                    run.bold, run.italic, run.underline,
+                    run.color.r, run.color.g, run.color.b, run.color.a);
+            DrawUtf8(run.text.GetChars()); // or cue.text + [run.startByte,run.endByte)
+        }
+        EndSubtitle();
+    }
+}
+```
+
+The raw sample read/write API (`AP4_Track::ReadSample`, the two-byte text
+length and the raw `styl`/extension boxes) keeps working unchanged;
+`AP4_Tx3gDecoder` is an additional layer on top of it. Unknown extension
+boxes are skipped by their declared size and never appended to the text.
+
 Release Notes
 -------------
 
