@@ -179,6 +179,31 @@ typedef struct _parsed_pe {
   pe_header peHeader;
 } parsed_pe;
 
+// TE (UEFI PI Terse Executable) image support.
+constexpr std::uint16_t TE_MAGIC = 0x5A56;
+constexpr std::uint32_t TE_IMAGE_HEADER_SIZE = 40;
+
+// Raw TE header exactly as stored in the file. StrippedSize is the number of
+// bytes that were removed from the head of the original PE image (the added
+// TE header is not included in that count). The two data directories are
+// TE-specific: DataDirectory[0] is the base relocation directory and
+// DataDirectory[1] is the debug directory. They do not correspond to the PE
+// data directory indices.
+typedef struct _te_header {
+  std::uint16_t Machine;
+  std::uint8_t NumberOfSections;
+  std::uint8_t Subsystem;
+  std::uint16_t StrippedSize;
+  std::uint32_t AddressOfEntryPoint;
+  std::uint32_t BaseOfCode;
+  std::uint64_t ImageBase;
+  data_directory DataDirectory[2];
+} te_header;
+
+// Retrieve the raw TE header from a parsed TE image. Returns false (and
+// leaves the output untouched) when the parsed image is a normal PE image.
+bool GetTEHeader(parsed_pe *pe, te_header &te);
+
 // Resolve a Rich header product id / build number pair to a known
 // product name
 typedef std::pair<std::uint16_t, std::uint16_t> ProductKey;
