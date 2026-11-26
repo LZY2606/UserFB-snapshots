@@ -181,6 +181,11 @@ rtp_error_t uvgrtp::rtcp::send_bye_packet(const uint32_t* ssrcs, size_t count)
     return pimpl_->send_bye_packet(ssrc_vector);
 }
 
+rtp_error_t uvgrtp::rtcp::send_twcc_feedback(size_t max_bytes)
+{
+    return pimpl_->send_twcc_feedback(max_bytes);
+}
+
 rtp_error_t uvgrtp::rtcp::add_sdes_item(const uvgrtp::frame::rtcp_sdes_item& item)
 {
     return pimpl_->add_sdes_item(item);

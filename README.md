@@ -25,6 +25,7 @@ You are welcome to contact us in our Discord if you have questions or comments r
 * Delivery encryption with SRTP
 * Encryption key negotiation with ZRTP
 * UDP firewall hole punching
+* Transport-wide congestion control (TWCC) receiver feedback generation
 * Simple to use API
 * Working examples
 * Permissive license
@@ -38,6 +39,46 @@ See [BUILDING.md](BUILDING.md) for instructions on how to build and use uvgRTP.
 To get started using uvgRTP, check out [usage](USAGE.md) file which contains a step-by-step tutorial for using uvgRTP. To see uvgRTP in action, the [examples](examples) folder contains many working examples to illustrate how to use uvgRTP in variety of situations. For a more detailed description, check the [documentation](docs/README.md) where you can find info on advanced topics and descriptions of all uvgRTP flags.
 
 Furthermore, we also provide a Doxygen documentation of the [public API](https://ultravideo.github.io/uvgRTP/html/index.html) on Github.
+
+## Transport-wide congestion control feedback (TWCC)
+
+The receiver can generate transport-wide congestion control feedback, the
+RTPFB/FMT=15 packet described by the fixed wire subset in
+[`task_support/twcc-wire.md`](task_support/twcc-wire.md) (based on
+draft-holmer-rmcat-transport-wide-cc-extensions-01).
+
+Enable it per receiving media stream with the RFC 8285 one-byte extension id
+used by the sender (ids `1`–`14`):
+
+```cpp
+stream->configure_twcc(3);
+```
+
+The two-byte transport sequence is then read from every matching extension at
+the UDP receive point and recorded in one ledger shared by all media streams
+multiplexed on the same receive socket. This is what allows audio and video on
+one socket to share a single transport sequence space, arrival history and
+feedback packet counter. Another stream on the same socket may enable the same
+id, but a different id is rejected with `RTP_INVALID_VALUE`. Pass `0` to
+`configure_twcc()` to release the stream; when the last user releases, the
+shared ledger is cleared. Sockets have independent state. When disabled,
+packet reception and media delivery behave exactly as before.
+
+Reports are sent only when the application asks for them:
+
+```cpp
+stream->get_rtcp()->send_twcc_feedback(/*max_bytes=*/1200);
+```
+
+One call sends one report containing the longest contiguous status prefix that
+fits `max_bytes` (the size of the entire RTCP datagram, including header and
+padding); call again to send the rest. The reported interval and the 8-bit
+feedback count advance only after a successful send. `RTP_NOT_FOUND` is
+returned when the calling stream has not configured TWCC or there is nothing to
+report, and `RTP_INVALID_VALUE` when the budget is too small.
+
+Scope: this is **plaintext RTP/RTCP only**. It does not perform bandwidth
+estimation, sender bitrate control, SDP negotiation or SRTP handling.
 
 ## Contributing
 

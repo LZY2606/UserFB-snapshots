@@ -349,6 +349,9 @@ namespace uvgrtp {
          */
         rtp_error_t configure_ctx(int rcc_flag, ssize_t value);
 
+        /* Enable/disable shared transport-wide CC recording for this stream. */
+        rtp_error_t configure_twcc(uint8_t extension_id);
+
         /**
          * \brief Get the values associated with configuration flags, see ::RTP_CTX_CONFIGURATION_FLAGS for more details
          *
@@ -478,5 +481,9 @@ namespace uvgrtp {
         int snd_buf_size_;
         int rcv_buf_size_;
         int multicast_ttl_;
+
+        // TWCC extension id configured by this stream itself (0 == not configured);
+        // the shared ledger/id/feedback count live in reception_flow's TwccState.
+        uint8_t twcc_configured_id_ = 0;
     };
 }

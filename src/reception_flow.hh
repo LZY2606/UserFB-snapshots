@@ -2,6 +2,8 @@
 
 #include "uvgrtp/util.hh"
 
+#include "twcc.hh"
+
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -158,6 +160,11 @@ namespace uvgrtp {
             void set_poll_timeout_ms(int timeout_ms);
             int get_poll_timeout_ms();
 
+            /* Shared transport-wide CC state for every stream multiplexed on this socket.
+             * The object always exists; recording is a no-op until an application
+             * configures an extension id. */
+            std::shared_ptr<uvgrtp::twcc::TwccState> twcc_state() const;
+
             // DISABLED rtp_error_t install_user_hook(void* arg, void (*hook)(void*, uint8_t* data, uint32_t len));
             /// \endcond
 
@@ -228,6 +235,9 @@ namespace uvgrtp {
 
             std::condition_variable process_cond_;
             std::shared_ptr<uvgrtp::socket> socket_;
+
+            /* One TWCC ledger per shared reception flow / socket. */
+            std::shared_ptr<uvgrtp::twcc::TwccState> twcc_state_;
 
             ssize_t buffer_size_kbytes_;
             size_t payload_size_;

@@ -7,6 +7,7 @@
 #include "poll.hh"
 #include "rtp.hh"
 #include "debug.hh"
+#include "twcc.hh"
 #include "srtp/srtcp.hh"
 #include "rtcp_packets.hh"
 #include "socketfactory.hh"
@@ -2265,6 +2266,71 @@ rtp_error_t uvgrtp::rtcp_internal::send_app_packet(const char* name, uint8_t sub
     packet_mutex_.unlock();
 
     return RTP_OK;
+}
+
+void uvgrtp::rtcp_internal::enable_twcc(std::shared_ptr<uvgrtp::twcc::TwccState> state)
+{
+    std::lock_guard<std::mutex> guard(twcc_cfg_mutex_);
+    twcc_state_ = std::move(state);
+    twcc_enabled_.store(true);
+}
+
+void uvgrtp::rtcp_internal::disable_twcc()
+{
+    twcc_enabled_.store(false);
+}
+
+void uvgrtp::rtcp_internal::set_twcc_media_transport(std::shared_ptr<uvgrtp::socket> media_socket,
+                                                     const sockaddr_in& addr4,
+                                                     const sockaddr_in6& addr6)
+{
+    std::lock_guard<std::mutex> guard(twcc_cfg_mutex_);
+    twcc_media_socket_ = std::move(media_socket);
+    twcc_media_addr4_ = addr4;
+    twcc_media_addr6_ = addr6;
+}
+
+rtp_error_t uvgrtp::rtcp_internal::send_twcc_feedback(size_t max_bytes)
+{
+    /* Only the configured calling stream may trigger a report. */
+    if (!twcc_enabled_.load())
+        return RTP_NOT_FOUND;
+
+    std::shared_ptr<uvgrtp::twcc::TwccState> state;
+    {
+        std::lock_guard<std::mutex> guard(twcc_cfg_mutex_);
+        state = twcc_state_;
+    }
+    if (!state)
+        return RTP_NOT_FOUND;
+
+    /* Prefer the normal RTCP transport (separate RTCP socket or the muxed media
+     * socket installed via set_socket()). Fall back to the media socket/address
+     * recorded at configure time when RTCP was not started separately. */
+    std::shared_ptr<uvgrtp::socket> out_socket = rtcp_socket_;
+    sockaddr_in out_addr4 = socket_address_;
+    sockaddr_in6 out_addr6 = socket_address_ipv6_;
+
+    if (!out_socket) {
+        std::lock_guard<std::mutex> guard(twcc_cfg_mutex_);
+        out_socket = twcc_media_socket_;
+        out_addr4 = twcc_media_addr4_;
+        out_addr6 = twcc_media_addr6_;
+    }
+
+    if (!out_socket)
+        return RTP_SEND_ERROR;
+
+    uint32_t sender_ssrc = ssrc_ ? ssrc_->load() : 0;
+
+    /* The send callback runs while the TWCC state lock is held: the reported
+     * interval and feedback count advance only when sendto succeeds. */
+    return state->send_feedback(max_bytes, sender_ssrc,
+        [&](const std::vector<uint8_t>& packet) -> rtp_error_t {
+            return out_socket->sendto(out_addr4, out_addr6,
+                                      const_cast<uint8_t*>(packet.data()),
+                                      packet.size(), 0);
+        });
 }
 
 uint32_t uvgrtp::rtcp_internal::get_rtcp_interval_ms() const

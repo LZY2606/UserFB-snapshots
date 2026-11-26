@@ -138,6 +138,31 @@ namespace uvgrtp {
             /// \retval RTP_INVALID_VALUE on invalid parameters
             rtp_error_t send_bye_packet(const uint32_t* ssrcs, size_t count);
 
+            /**
+             * \brief Send one explicit transport-wide congestion control feedback packet
+             *
+             * \details Builds and sends one RTPFB (PT=205, FMT=15) TWCC report from the
+             * shared arrival ledger of the socket this stream receives on. TWCC must
+             * first be enabled for this exact media_stream with
+             * uvgrtp::media_stream::configure_twcc().
+             *
+             * One call sends a single packet containing the longest contiguous status
+             * prefix that fits into \p max_bytes (which counts the whole RTCP datagram,
+             * including its header and padding). Sequences that do not fit remain unreported
+             * and are sent by the next call. The reported interval and feedback packet
+             * counter advance only after the packet was sent successfully.
+             *
+             * Plaintext RTP/RTCP only; no bandwidth estimation or bitrate control is done.
+             *
+             * \param max_bytes Maximum size of the complete RTCP packet in bytes
+             * \retval RTP_OK On success
+             * \retval RTP_NOT_FOUND If this stream has not configured TWCC or there is no
+             *         reportable arrival status
+             * \retval RTP_INVALID_VALUE If \p max_bytes is too small to hold any report
+             * \retval Other rtp_error_t values if sending failed (state is left unchanged)
+             */
+            rtp_error_t send_twcc_feedback(size_t max_bytes);
+
             /// \brief Install a callback for incoming RTCP Sender Reports
             ///
             /// \param handler Function to call when a Sender Report is received

@@ -32,6 +32,10 @@ namespace uvgrtp {
     class socketfactory;
     class rtcp_reader;
 
+    namespace twcc {
+        class TwccState;
+    }
+
 
 
 #if !UVGRTP_EXTENDED_API
@@ -198,6 +202,17 @@ namespace uvgrtp {
 
         rtp_error_t send_app_packet(const char* name, uint8_t subtype, uint32_t payload_len, const uint8_t* payload);
         rtp_error_t send_bye_packet(std::vector<uint32_t> ssrcs);
+
+        /* Transport-wide CC feedback (RTPFB/FMT=15). Only enabled for the calling
+         * media stream after a successful media_stream::configure_twcc(). */
+        rtp_error_t send_twcc_feedback(size_t max_bytes);
+        void enable_twcc(std::shared_ptr<uvgrtp::twcc::TwccState> state);
+        void disable_twcc();
+
+        /* Fallback transport used when RTCP was not enabled separately: the media
+         * socket and its remote address. Normal RTCP sockets take precedence. */
+        void set_twcc_media_transport(std::shared_ptr<uvgrtp::socket> media_socket,
+                                      const sockaddr_in& addr4, const sockaddr_in6& addr6);
 
         /* Return the latest RTCP packet received from participant of "ssrc"
          * Return nullptr if we haven't received this kind of packet or if "ssrc" doesn't exist
@@ -648,6 +663,14 @@ namespace uvgrtp {
         std::shared_ptr<uvgrtp::socket> rtcp_socket_;
         std::shared_ptr<uvgrtp::socketfactory> sfp_;
         std::shared_ptr<uvgrtp::rtcp_reader> rtcp_reader_;
+
+        /* TWCC state shared per reception socket plus this stream's grant. */
+        std::shared_ptr<uvgrtp::twcc::TwccState> twcc_state_;
+        std::atomic<bool> twcc_enabled_{false};
+        std::mutex twcc_cfg_mutex_;
+        std::shared_ptr<uvgrtp::socket> twcc_media_socket_;
+        sockaddr_in twcc_media_addr4_{};
+        sockaddr_in6 twcc_media_addr6_{};
 
         bool is_active() const
         {

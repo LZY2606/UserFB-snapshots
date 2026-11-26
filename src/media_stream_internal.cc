@@ -611,6 +611,10 @@ rtp_error_t uvgrtp::media_stream_internal::start_components()
 
 rtp_error_t uvgrtp::media_stream_internal::stop()
 {
+    /* Release this stream's share of the socket-wide TWCC state before tearing
+     * anything down. Idempotent: configure_twcc(0) on an unconfigured stream is OK. */
+    (void)configure_twcc(0);
+
     /* This attempts a graceful stop of worker components that may be running
      * so that deleting media_stream after this call has a smaller race window.
      * We intentionally do not throw exceptions here. */
@@ -894,6 +898,37 @@ rtp_error_t uvgrtp::media_stream_internal::install_receive_hook(void* arg, void 
         return RTP_INVALID_VALUE;
     }
     return reception_flow_->install_receive_hook(arg, hook, remote_ssrc_.get()->load());
+}
+
+rtp_error_t uvgrtp::media_stream_internal::configure_twcc(uint8_t extension_id)
+{
+    if (extension_id != 0 && (extension_id < 1 || extension_id > 14))
+        return RTP_INVALID_VALUE;
+
+    /* init() always creates the shared reception flow before the stream is handed out. */
+    if (!reception_flow_)
+        return RTP_NOT_FOUND;
+
+    std::shared_ptr<uvgrtp::twcc::TwccState> state = reception_flow_->twcc_state();
+
+    /* twcc_configured_id_ is the per-stream configuration token; the shared state
+     * performs conflict detection and user-count/reset handling. */
+    rtp_error_t ret = state->configure_stream(extension_id, twcc_configured_id_);
+    if (ret != RTP_OK)
+        return ret;
+
+    if (rtcp_ && rtcp_->pimpl_) {
+        if (twcc_configured_id_ != 0) {
+            rtcp_->pimpl_->enable_twcc(state);
+            /* Used only if the RTCP layer has no socket of its own (RCE_RTCP absent). */
+            rtcp_->pimpl_->set_twcc_media_transport(socket_, remote_sockaddr_,
+                                                     remote_sockaddr_ip6_);
+        } else {
+            rtcp_->pimpl_->disable_twcc();
+        }
+    }
+
+    return RTP_OK;
 }
 
 rtp_error_t uvgrtp::media_stream_internal::configure_ctx(int rcc_flag, ssize_t value)

@@ -48,7 +48,13 @@ uvgrtp::reception_flow::reception_flow(bool ipv6) :
     active_(false),
     ipv6_(ipv6)
 {
+    twcc_state_ = std::make_shared<uvgrtp::twcc::TwccState>();
     create_ring_buffer();
+}
+
+std::shared_ptr<uvgrtp::twcc::TwccState> uvgrtp::reception_flow::twcc_state() const
+{
+    return twcc_state_;
 }
 
 uvgrtp::reception_flow::~reception_flow()
@@ -518,6 +524,16 @@ void uvgrtp::reception_flow::receiver(std::shared_ptr<uvgrtp::socket> socket)
                     should_stop_ = true;
                     break;
                 }
+
+                /* TWCC arrival time is sampled here at the socket read point, not when
+                 * the processing thread gets to parse the queued datagram. ingest_datagram
+                 * applies the same explicit-time recording logic used by fixed-clock tests.
+                 * Disabled state and malformed extensions are cheap no-ops. */
+                int64_t twcc_arrival_us = uvgrtp::twcc::now_microseconds();
+                (void)twcc_state_->ingest_datagram(
+                    ring_buffer_[next_write_index].data,
+                    static_cast<size_t>(ring_buffer_[next_write_index].read),
+                    twcc_arrival_us);
 
                 ++read_packets;
                 last_ring_write_index_ = next_write_index;

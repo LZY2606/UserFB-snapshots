@@ -245,6 +245,31 @@ namespace uvgrtp {
 
             /**
              * \ingroup CORE_API
+             * \brief Configure transport-wide congestion control sequence extraction
+             *
+             * \details Enables recording of transport-wide sequence numbers carried in a
+             * two-byte RFC 8285 one-byte RTP header extension with the given id (valid
+             * ids are 1..14). All media streams sharing the same underlying receive socket
+             * also share one extension id, arrival ledger and TWCC feedback counter: another
+             * stream may enable the same id, while a different id is rejected.
+             *
+             * Pass 0 to release this stream's configuration. Once the last using stream
+             * releases, the shared state is cleared. Repeating an identical configuration is
+             * idempotent. While disabled, reception behaves exactly as without TWCC.
+             *
+             * This only enables feedback generation; it does not perform bandwidth
+             * estimation, bitrate control or SDP negotiation, and only plaintext RTP/RTCP
+             * is in scope. Trigger reports with uvgrtp::rtcp::send_twcc_feedback().
+             *
+             * \param extension_id RFC 8285 one-byte extension id 1..14, or 0 to disable
+             * \retval RTP_OK On success
+             * \retval RTP_INVALID_VALUE If the id is outside 1..14 (and not 0) or conflicts
+             *         with the id already configured on the shared socket
+             */
+            rtp_error_t configure_twcc(uint8_t extension_id);
+
+            /**
+             * \ingroup CORE_API
              * \brief Get the values associated with configuration flags, see ::RTP_CTX_CONFIGURATION_FLAGS for more details
              *
              * \return Value of the configuration flag
