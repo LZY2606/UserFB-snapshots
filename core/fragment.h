@@ -26,6 +26,11 @@ int isom_finish_final_fragment_movie
     lsmash_adhoc_remux_t *remux
 );
 
+int isom_prefix_index_validate
+(
+    lsmash_file_t *file
+);
+
 int isom_set_fragment_last_duration
 (
     isom_traf_t *traf,

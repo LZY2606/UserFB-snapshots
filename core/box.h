@@ -1949,6 +1949,7 @@ typedef struct
     unsigned int reference_size  : 31;  /* the distance in bytes from the first byte of the referenced item to the first
                                          * byte of the next referenced item, or in the case of the last entry, the end of
                                          * the referenced material */
+    uint64_t     reference_size_wide;    /* untruncated muxer-side value */
     uint32_t     subsegment_duration;   /* when the reference is to Segment Index Box, i.e. reference_type is equal to 1:
                                          *   this field carries the sum of the subsegment_duration fields in that box;
                                          * when the reference is to a subsegment:
@@ -1959,6 +1960,7 @@ typedef struct
                                          *   subsegment of the stream) and the earliest presentation time of any access
                                          *   unit of the reference stream in the referenced subsegment;
                                          * The duration is expressed in the timescale of the enclosing Segment Index Box. */
+    uint64_t     subsegment_duration_wide; /* untruncated muxer-side value */
     unsigned int starts_with_SAP : 1;   /* whether the referenced subsegments start with a SAP */
     unsigned int SAP_type        : 3;   /* a SAP type or the value 0
                                          *   When starting with a SAP, the value 0 means a SAP may be of an unknown type.
@@ -1970,6 +1972,7 @@ typedef struct
                                          *   the earliest presentation time of the subsegment, and the TSAP.
                                          *   Note that this difference may be zero, in the case that the subsegment starts
                                          *   with a SAP. */
+    uint64_t     SAP_delta_time_wide;   /* untruncated muxer-side value */
 } isom_sidx_referenced_item_t;
 
 typedef struct

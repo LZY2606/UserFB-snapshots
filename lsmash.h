@@ -108,6 +108,7 @@ typedef enum
     LSMASH_FILE_MODE_MEDIA             = 1<<6,  /* media data */
     LSMASH_FILE_MODE_INDEX             = 1<<7,
     LSMASH_FILE_MODE_SEGMENT           = 1<<8,  /* segment */
+    LSMASH_FILE_MODE_FRAGMENT_INDEX    = 1<<9,  /* per-fragment prefix segment indexes */
     LSMASH_FILE_MODE_WRITE_FRAGMENTED  = LSMASH_FILE_MODE_WRITE | LSMASH_FILE_MODE_FRAGMENTED,  /* deprecated */
 } lsmash_file_mode;
 

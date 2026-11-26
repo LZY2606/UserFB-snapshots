@@ -567,14 +567,27 @@ lsmash_file_t *lsmash_set_file
     file->max_chunk_duration  = param->max_chunk_duration;
     file->max_async_tolerance = LSMASH_MAX( param->max_async_tolerance, 2 * param->max_chunk_duration );
     file->max_chunk_size      = param->max_chunk_size;
+    int prefix_index_mode = (file->flags & LSMASH_FILE_MODE_FRAGMENT_INDEX) != 0;
+    if( prefix_index_mode )
+    {
+        const lsmash_file_mode required = LSMASH_FILE_MODE_WRITE
+                                        | LSMASH_FILE_MODE_BOX
+                                        | LSMASH_FILE_MODE_FRAGMENTED
+                                        | LSMASH_FILE_MODE_INDEX
+                                        | LSMASH_FILE_MODE_INITIALIZATION
+                                        | LSMASH_FILE_MODE_MEDIA;
+        if( (file->flags & required) != required
+         || (file->flags & LSMASH_FILE_MODE_SEGMENT)
+         || file->flags & LSMASH_FILE_MODE_READ )
+            goto fail;
+    }
     if( (file->flags & LSMASH_FILE_MODE_WRITE)
      && (file->flags & LSMASH_FILE_MODE_BOX) )
     {
-        /* Construction of Segment Index Box requires seekability at our current implementation.
-         * If segment is not so large, data rearrangement can be avoided by buffering i.e. the
-         * seekability is not essential, but at present we don't support buffering of all materials
-         * within segment. */
-        if( (file->flags & LSMASH_FILE_MODE_INDEX) && file->bs->unseekable )
+        /* Construction of whole-segment Segment Index Boxes requires seekability at our current
+         * implementation.  The per-fragment prefix index mode writes each index immediately before
+         * its movie fragment and therefore works with an unseekable stream. */
+        if( (file->flags & LSMASH_FILE_MODE_INDEX) && file->bs->unseekable && !prefix_index_mode )
             goto fail;
         /* Establish the fragment handler if required. */
         if( file->flags & LSMASH_FILE_MODE_FRAGMENTED )
@@ -594,6 +607,8 @@ lsmash_file_t *lsmash_set_file
         if( isom_set_brands( file, param->major_brand,
                                    param->minor_version,
                                    param->brands, param->brand_count ) < 0 )
+            goto fail;
+        if( prefix_index_mode && file->max_isom_version < 6 )
             goto fail;
         /* Create the movie header if the initialization of the streams is required. */
         if( (file->flags & LSMASH_FILE_MODE_INITIALIZATION) && !isom_movie_create( file ) )

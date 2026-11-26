@@ -2485,8 +2485,12 @@ int lsmash_finish_movie
         return LSMASH_ERR_FUNCTION_PARAM;
     lsmash_file_t *file = root->file;
     if( !file->bs
-     || LSMASH_IS_NON_EXISTING_BOX( file->initializer->moov ) )
+     || LSMASH_IS_NON_EXISTING_BOX( file->initializer->moov )
+     || file->bs->error )
         return LSMASH_ERR_INVALID_DATA;
+    int prefix_support = isom_prefix_index_validate( file );
+    if( prefix_support < 0 )
+        return prefix_support;
     if( file->fragment )
         return isom_finish_final_fragment_movie( file, remux );
     if( file != file->initializer )
@@ -4039,6 +4043,8 @@ int lsmash_flush_pooled_samples( lsmash_root_t *root, uint32_t track_ID, uint32_
     if( isom_check_initializer_present( root ) < 0 )
         return LSMASH_ERR_FUNCTION_PARAM;
     lsmash_file_t *file = root->file;
+    if( file->bs && file->bs->error )
+        return LSMASH_ERR_NAMELESS;
     if( file->fragment
      && file->fragment->movie )
         return isom_flush_fragment_pooled_samples( file, track_ID, last_sample_delta );
@@ -4067,10 +4073,14 @@ int lsmash_append_sample( lsmash_root_t *root, uint32_t track_ID, lsmash_sample_
     /* We think max_chunk_duration == 0, which means all samples will be cached on memory, should be prevented.
      * This means removal of a feature that we used to have, but anyway very alone chunk does not make sense. */
     if( !file->bs
+     || file->bs->error
      || !(file->flags & LSMASH_FILE_MODE_BOX)
      || file->max_chunk_duration  == 0
      || file->max_async_tolerance == 0 )
         return LSMASH_ERR_NAMELESS;
+    int prefix_support = isom_prefix_index_validate( file );
+    if( prefix_support < 0 )
+        return prefix_support;
     /* Write File Type Box here if it was not written yet. */
     if( file->flags & LSMASH_FILE_MODE_INITIALIZATION )
     {

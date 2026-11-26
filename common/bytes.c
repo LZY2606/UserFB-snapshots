@@ -334,9 +334,14 @@ int lsmash_bs_write_data( lsmash_bs_t *bs, const uint8_t *buf, size_t size )
         return LSMASH_ERR_NAMELESS;
     }
     int write_size = bs->write( bs->stream, (uint8_t *)buf, size );
+    if( write_size < 0 || (size_t)write_size != size )
+    {
+        bs->error = 1;
+        return LSMASH_ERR_NAMELESS;
+    }
     bs->written += write_size;
     bs->offset  += write_size;
-    return write_size != size ? LSMASH_ERR_NAMELESS : 0;
+    return 0;
 }
 
 void *lsmash_bs_export_data( lsmash_bs_t *bs, uint32_t *length )
