@@ -18,6 +18,14 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
+# Standalone, dependency-free sparse edit-plan demo. It is a single
+# translation unit, so it can be built without the optional GLFW submodules.
+add_executable(edit_plan_drag edit_plan_drag.c)
+target_include_directories(edit_plan_drag PRIVATE ..)
+IF (NOT WIN32)
+    target_link_libraries(edit_plan_drag m)
+ENDIF()
+
 add_subdirectory(submodules/glfw)
 include_directories(submodules/glfw/include)
 include_directories(submodules/dj_opengl)
