@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-cache=$(mktemp -d)
+cache=$(mktemp -d "${TMPDIR:-/tmp}/itanium-symbols.XXXXXX")
 trap 'chmod -R u+w "$cache"; rm -r "$cache"' EXIT
 export GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOMODCACHE="$cache/mod" GOCACHE="$cache/build"
 go run ./checks/symbol_baseline.go
