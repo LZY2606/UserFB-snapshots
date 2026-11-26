@@ -299,7 +299,83 @@ static bool appendMeshlet(meshopt_Meshlet& meshlet, unsigned int a, unsigned int
 	return result;
 }
 
-static unsigned int getNeighborTriangle(const meshopt_Meshlet& meshlet, const Cone& meshlet_cone, const unsigned int* meshlet_vertices, const unsigned int* indices, const TriangleAdjacency2& adjacency, const Cone* triangles, const unsigned int* live_triangles, const short* used, float meshlet_expected_radius, float cone_weight)
+// Disk meshlet builder tracks cluster edges in a small hash table to validate disk topology incrementally;
+// a cluster with up to 512 triangles has at most 512*3 distinct edges
+const size_t kDiskEdgeTableSize = 4096;
+const size_t kDiskMaxEdges = 512 * 3;
+
+static unsigned int diskEdgeKey(unsigned int a, unsigned int b)
+{
+	// local vertex indices fit in 8 bits; the key is order-independent
+	unsigned int lo = a < b ? a : b, hi = a < b ? b : a;
+
+	return lo * 256 + hi;
+}
+
+static unsigned int diskEdgeCount(const unsigned int* edge_table, unsigned int key)
+{
+	unsigned int slot = (key * 2654435761u) & (kDiskEdgeTableSize - 1);
+
+	while (edge_table[slot])
+	{
+		if ((edge_table[slot] >> 2) == key)
+			return edge_table[slot] & 3;
+
+		slot = (slot + 1) & (kDiskEdgeTableSize - 1);
+	}
+
+	return 0;
+}
+
+static void diskEdgeAdd(unsigned int* edge_table, unsigned int key, unsigned int* edge_slots, size_t& edge_slot_count)
+{
+	unsigned int slot = (key * 2654435761u) & (kDiskEdgeTableSize - 1);
+
+	while (edge_table[slot] && (edge_table[slot] >> 2) != key)
+		slot = (slot + 1) & (kDiskEdgeTableSize - 1);
+
+	if (edge_table[slot] == 0)
+	{
+		assert(edge_slot_count < kDiskMaxEdges);
+		edge_slots[edge_slot_count++] = slot;
+	}
+
+	unsigned int count = edge_table[slot] & 3;
+	assert(count < 2); // input must not have edges shared by more than two triangles
+
+	edge_table[slot] = (key << 2) | (count + 1);
+}
+
+// A triangle can join a disk cluster only if the result stays a topological disk: it must share a full
+// boundary edge with the cluster, or fill a corner formed by two boundary edges. This keeps faces connected
+// through edges, preserves a single face fan per vertex and a single boundary loop, and never closes the surface.
+static bool diskAdmissible(const unsigned int* edge_table, short av, short bv, short cv)
+{
+	int shared = (av >= 0) + (bv >= 0) + (cv >= 0);
+
+	// a disjoint triangle breaks connectivity, and a single shared vertex splits a vertex fan
+	if (shared < 2)
+		return false;
+
+	if (shared == 2)
+	{
+		// the edge between the two vertices already in the cluster must be a boundary edge
+		short x = av < 0 ? bv : av;
+		short y = av < 0 ? cv : (bv < 0 ? cv : bv);
+
+		return diskEdgeCount(edge_table, diskEdgeKey(unsigned(x), unsigned(y))) == 1;
+	}
+
+	// all three vertices are in the cluster: the triangle must share exactly two boundary edges with the
+	// cluster; sharing one would pinch a vertex fan, sharing three would close the surface into a sphere
+	unsigned int e0 = diskEdgeCount(edge_table, diskEdgeKey(unsigned(av), unsigned(bv)));
+	unsigned int e1 = diskEdgeCount(edge_table, diskEdgeKey(unsigned(bv), unsigned(cv)));
+	unsigned int e2 = diskEdgeCount(edge_table, diskEdgeKey(unsigned(cv), unsigned(av)));
+
+	return (e0 == 1) + (e1 == 1) + (e2 == 1) == 2 && e0 + e1 + e2 == 2;
+}
+
+static unsigned int getNeighborTriangle(const meshopt_Meshlet& meshlet, const Cone& meshlet_cone, const unsigned int* meshlet_vertices, const unsigned int* indices, const TriangleAdjacency2& adjacency, const Cone* triangles, const unsigned int* live_triangles, const short* used, float meshlet_expected_radius, float cone_weight, const unsigned int* edge_table = NULL)
 {
 	unsigned int best_triangle = ~0u;
 	int best_priority = 5;
@@ -316,6 +392,10 @@ static unsigned int getNeighborTriangle(const meshopt_Meshlet& meshlet, const Co
 		{
 			unsigned int triangle = neighbors[j];
 			unsigned int a = indices[triangle * 3 + 0], b = indices[triangle * 3 + 1], c = indices[triangle * 3 + 2];
+
+			// for disk meshlets, skip triangles that would break the disk topology; they stay available for future clusters
+			if (edge_table && !diskAdmissible(edge_table, used[a], used[b], used[c]))
+				continue;
 
 			int extra = (used[a] < 0) + (used[b] < 0) + (used[c] < 0);
 			assert(extra <= 2);
@@ -1238,6 +1318,301 @@ size_t meshopt_buildMeshletsFlex(meshopt_Meshlet* meshlets, unsigned int* meshle
 size_t meshopt_buildMeshlets(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight)
 {
 	return meshopt_buildMeshletsFlex(meshlets, meshlet_vertices, meshlet_triangles, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, max_vertices, max_triangles, max_triangles, cone_weight, 0.0f);
+}
+
+size_t meshopt_buildMeshletsDisk(meshopt_MeshletDisk* disks, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, unsigned int* triangle_source, unsigned char* boundary_vertices, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight)
+{
+	using namespace meshopt;
+
+	assert(index_count % 3 == 0);
+	assert(vertex_positions_stride >= 12 && vertex_positions_stride <= 256);
+	assert(vertex_positions_stride % sizeof(float) == 0);
+
+	assert(max_vertices >= 3 && max_vertices <= 256);
+	assert(max_triangles >= 1 && max_triangles <= 512);
+
+	assert(cone_weight >= 0 && cone_weight <= 1);
+
+	if (index_count == 0)
+		return 0;
+
+	meshopt_Allocator allocator;
+
+	TriangleAdjacency2 adjacency = {};
+	if (vertex_count > index_count && index_count < (1u << 31))
+		buildTriangleAdjacencySparse(adjacency, indices, index_count, vertex_count, allocator);
+	else
+		buildTriangleAdjacency(adjacency, indices, index_count, vertex_count, allocator);
+
+	// live triangle counts; note, we alias adjacency.counts as we remove triangles after emitting them so the counts always match
+	unsigned int* live_triangles = adjacency.counts;
+
+	size_t face_count = index_count / 3;
+
+	unsigned char* emitted_flags = allocator.allocate<unsigned char>(face_count);
+	memset(emitted_flags, 0, face_count);
+
+	// for each triangle, precompute centroid & normal to use for scoring
+	Cone* triangles = allocator.allocate<Cone>(face_count);
+	float mesh_area = computeTriangleCones(triangles, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride);
+
+	// assuming each meshlet is a square patch, expected radius is sqrt(expected area)
+	float triangle_area_avg = mesh_area / float(face_count) * 0.5f;
+	float meshlet_expected_radius = sqrtf(triangle_area_avg * max_triangles) * 0.5f;
+
+	// build a kd-tree for nearest neighbor lookup
+	unsigned int* kdindices = allocator.allocate<unsigned int>(face_count);
+	for (size_t i = 0; i < face_count; ++i)
+		kdindices[i] = unsigned(i);
+
+	KDNode* nodes = allocator.allocate<KDNode>(face_count * 2);
+	kdtreeBuild(0, nodes, face_count * 2, &triangles[0].px, sizeof(Cone) / sizeof(float), kdindices, face_count, /* leaf_size= */ 8, 0);
+
+	// find a specific corner of the mesh to use as a starting point for meshlet flow
+	float cornerx = FLT_MAX, cornery = FLT_MAX, cornerz = FLT_MAX;
+
+	for (size_t i = 0; i < face_count; ++i)
+	{
+		const Cone& tri = triangles[i];
+
+		cornerx = cornerx > tri.px ? tri.px : cornerx;
+		cornery = cornery > tri.py ? tri.py : cornery;
+		cornerz = cornerz > tri.pz ? tri.pz : cornerz;
+	}
+
+	// index of the vertex in the meshlet, -1 if the vertex isn't used
+	short* used = allocator.allocate<short>(vertex_count);
+	clearUsed(used, vertex_count, indices, index_count);
+
+	// initial seed triangle is the one closest to the corner
+	unsigned int initial_seed = ~0u;
+	float initial_score = FLT_MAX;
+
+	for (size_t i = 0; i < face_count; ++i)
+	{
+		const Cone& tri = triangles[i];
+
+		float dx = tri.px - cornerx, dy = tri.py - cornery, dz = tri.pz - cornerz;
+		float score = sqrtf(dx * dx + dy * dy + dz * dz);
+
+		if (initial_seed == ~0u || score < initial_score)
+		{
+			initial_seed = unsigned(i);
+			initial_score = score;
+		}
+	}
+
+	// per-cluster edge table tracks how many cluster faces use each edge, to validate disk topology incrementally
+	unsigned int* edge_table = allocator.allocate<unsigned int>(kDiskEdgeTableSize);
+	memset(edge_table, 0, kDiskEdgeTableSize * sizeof(unsigned int));
+
+	unsigned int edge_slots[kDiskMaxEdges];
+	size_t edge_slot_count = 0;
+
+	// seed triangles to continue meshlet flow
+	unsigned int seeds[kMeshletMaxSeeds] = {};
+	size_t seed_count = 0;
+
+	meshopt_Meshlet meshlet = {};
+	size_t meshlet_offset = 0;
+	unsigned int boundary_offset = 0;
+
+	Cone meshlet_cone_acc = {};
+
+	// position of the last finished cluster, used to seed disconnected components
+	float lastx = cornerx, lasty = cornery, lastz = cornerz;
+
+	for (;;)
+	{
+		unsigned int best_triangle = ~0u;
+
+		if (meshlet.triangle_count == 0)
+		{
+			// start a new cluster: use the initial seed, a queued seed, or the closest remaining triangle
+			if (meshlet_offset == 0)
+				best_triangle = initial_seed;
+			else
+			{
+				best_triangle = selectSeedTriangle(seeds, seed_count, indices, triangles, live_triangles, cornerx, cornery, cornerz);
+
+				if (best_triangle == ~0u)
+				{
+					float position[3] = {lastx, lasty, lastz};
+					float distance = FLT_MAX;
+
+					kdtreeNearest(nodes, 0, &triangles[0].px, sizeof(Cone) / sizeof(float), emitted_flags, position, best_triangle, distance);
+				}
+			}
+
+			if (best_triangle == ~0u)
+				break;
+		}
+		else
+		{
+			Cone meshlet_cone = getMeshletCone(meshlet_cone_acc, meshlet.triangle_count);
+
+			// pick the best adjacent triangle that keeps the cluster a topological disk
+			best_triangle = getNeighborTriangle(meshlet, meshlet_cone, meshlet_vertices, indices, adjacency, triangles, live_triangles, used, meshlet_expected_radius, cone_weight, edge_table);
+
+			// if the best triangle doesn't fit into the current cluster, close the cluster; the triangle stays available for the next one
+			if (best_triangle != ~0u)
+			{
+				int best_extra = (used[indices[best_triangle * 3 + 0]] < 0) + (used[indices[best_triangle * 3 + 1]] < 0) + (used[indices[best_triangle * 3 + 2]] < 0);
+
+				if (meshlet.vertex_count + best_extra > max_vertices || meshlet.triangle_count >= max_triangles)
+					best_triangle = ~0u;
+			}
+		}
+
+		if (best_triangle == ~0u)
+		{
+			assert(meshlet.triangle_count > 0);
+
+			// remember the cluster position to seed future disconnected clusters nearby
+			Cone meshlet_cone = getMeshletCone(meshlet_cone_acc, meshlet.triangle_count);
+			lastx = meshlet_cone.px, lasty = meshlet_cone.py, lastz = meshlet_cone.pz;
+
+			// queue neighboring triangles as seeds for future clusters
+			seed_count = pruneSeedTriangles(seeds, seed_count, emitted_flags);
+			seed_count = (seed_count + kMeshletAddSeeds <= kMeshletMaxSeeds) ? seed_count : kMeshletMaxSeeds - kMeshletAddSeeds;
+			seed_count += appendSeedTriangles(seeds + seed_count, meshlet, meshlet_vertices, indices, adjacency, triangles, live_triangles, cornerx, cornery, cornerz);
+
+			// extract the boundary loop: boundary edges are cluster edges with a single face, directed along that face
+			short boundary_next[256];
+			memset(boundary_next, 0xff, sizeof(boundary_next));
+
+			unsigned int boundary_count = 0;
+
+			for (size_t i = 0; i < meshlet.triangle_count; ++i)
+			{
+				for (int j = 0; j < 3; ++j)
+				{
+					unsigned int a = meshlet_triangles[meshlet.triangle_offset + i * 3 + j];
+					unsigned int b = meshlet_triangles[meshlet.triangle_offset + i * 3 + (j + 1) % 3];
+
+					if (diskEdgeCount(edge_table, diskEdgeKey(a, b)) == 1)
+					{
+						assert(boundary_next[a] < 0);
+						boundary_next[a] = short(b);
+						boundary_count++;
+					}
+				}
+			}
+
+			assert(boundary_count >= 3 && boundary_count <= meshlet.vertex_count);
+
+			disks[meshlet_offset].meshlet = meshlet;
+			disks[meshlet_offset].boundary_offset = boundary_offset;
+			disks[meshlet_offset].boundary_count = boundary_count;
+
+			// the cluster is a disk, so boundary edges chain into a single closed loop
+			unsigned int start = 0;
+			while (boundary_next[start] < 0)
+				start++;
+
+			unsigned int v = start;
+			for (unsigned int i = 0; i < boundary_count; ++i)
+			{
+				boundary_vertices[boundary_offset + i] = (unsigned char)v;
+				v = unsigned(boundary_next[v]);
+			}
+			assert(v == start);
+
+			boundary_offset += boundary_count;
+
+			// reset cluster state for the next cluster
+			for (size_t i = 0; i < meshlet.vertex_count; ++i)
+				used[meshlet_vertices[meshlet.vertex_offset + i]] = -1;
+
+			for (size_t i = 0; i < edge_slot_count; ++i)
+				edge_table[edge_slots[i]] = 0;
+			edge_slot_count = 0;
+
+			meshlet.vertex_offset += meshlet.vertex_count;
+			meshlet.triangle_offset += meshlet.triangle_count * 3;
+			meshlet.vertex_count = 0;
+			meshlet.triangle_count = 0;
+
+			meshlet_offset++;
+			memset(&meshlet_cone_acc, 0, sizeof(meshlet_cone_acc));
+			continue;
+		}
+
+		unsigned int a = indices[best_triangle * 3 + 0], b = indices[best_triangle * 3 + 1], c = indices[best_triangle * 3 + 2];
+		assert(a < vertex_count && b < vertex_count && c < vertex_count);
+
+		short& av = used[a];
+		short& bv = used[b];
+		short& cv = used[c];
+
+		if (av < 0)
+		{
+			av = short(meshlet.vertex_count);
+			meshlet_vertices[meshlet.vertex_offset + meshlet.vertex_count++] = a;
+		}
+
+		if (bv < 0)
+		{
+			bv = short(meshlet.vertex_count);
+			meshlet_vertices[meshlet.vertex_offset + meshlet.vertex_count++] = b;
+		}
+
+		if (cv < 0)
+		{
+			cv = short(meshlet.vertex_count);
+			meshlet_vertices[meshlet.vertex_offset + meshlet.vertex_count++] = c;
+		}
+
+		meshlet_triangles[meshlet.triangle_offset + meshlet.triangle_count * 3 + 0] = (unsigned char)av;
+		meshlet_triangles[meshlet.triangle_offset + meshlet.triangle_count * 3 + 1] = (unsigned char)bv;
+		meshlet_triangles[meshlet.triangle_offset + meshlet.triangle_count * 3 + 2] = (unsigned char)cv;
+
+		triangle_source[meshlet.triangle_offset / 3 + meshlet.triangle_count] = best_triangle;
+		meshlet.triangle_count++;
+
+		// track cluster edges to validate topology of subsequent additions
+		diskEdgeAdd(edge_table, diskEdgeKey(unsigned(av), unsigned(bv)), edge_slots, edge_slot_count);
+		diskEdgeAdd(edge_table, diskEdgeKey(unsigned(bv), unsigned(cv)), edge_slots, edge_slot_count);
+		diskEdgeAdd(edge_table, diskEdgeKey(unsigned(cv), unsigned(av)), edge_slots, edge_slot_count);
+
+		// remove emitted triangle from adjacency data
+		// this makes sure that we spend less time traversing these lists on subsequent iterations
+		// live triangle counts are updated as a byproduct of these adjustments
+		for (size_t k = 0; k < 3; ++k)
+		{
+			unsigned int index = indices[best_triangle * 3 + k];
+
+			unsigned int* neighbors = &adjacency.data[0] + adjacency.offsets[index];
+			size_t neighbors_size = adjacency.counts[index];
+
+			for (size_t i = 0; i < neighbors_size; ++i)
+			{
+				unsigned int tri = neighbors[i];
+
+				if (tri == best_triangle)
+				{
+					neighbors[i] = neighbors[neighbors_size - 1];
+					adjacency.counts[index]--;
+					break;
+				}
+			}
+		}
+
+		// update aggregated meshlet cone data for scoring subsequent triangles
+		meshlet_cone_acc.px += triangles[best_triangle].px;
+		meshlet_cone_acc.py += triangles[best_triangle].py;
+		meshlet_cone_acc.pz += triangles[best_triangle].pz;
+		meshlet_cone_acc.nx += triangles[best_triangle].nx;
+		meshlet_cone_acc.ny += triangles[best_triangle].ny;
+		meshlet_cone_acc.nz += triangles[best_triangle].nz;
+
+		assert(!emitted_flags[best_triangle]);
+		emitted_flags[best_triangle] = 1;
+	}
+
+	assert(meshlet_offset <= face_count);
+	assert(meshlet.triangle_offset <= index_count && meshlet.vertex_offset <= index_count && boundary_offset <= index_count);
+	return meshlet_offset;
 }
 
 size_t meshopt_buildMeshletsScan(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const unsigned int* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles)

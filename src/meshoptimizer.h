@@ -714,6 +714,21 @@ struct meshopt_Meshlet
 };
 
 /**
+ * Meshlet disk is a meshlet that is guaranteed to be a topological disk, accompanied by its boundary loop.
+ * The boundary loop is stored as a sequence of local (meshlet) vertex indices in the boundary_vertices array;
+ * consecutive vertices (including the last/first pair) form directed edges of the meshlet triangles, and the first vertex is not repeated.
+ */
+struct meshopt_MeshletDisk
+{
+	/* meshlet cluster data; offsets refer to meshlet_vertices and meshlet_triangles arrays */
+	struct meshopt_Meshlet meshlet;
+
+	/* offset within boundary_vertices array and number of vertices in the boundary loop; data is stored in consecutive range [offset..offset+count) */
+	unsigned int boundary_offset;
+	unsigned int boundary_count;
+};
+
+/**
  * Meshlet builder
  * Splits the mesh into a set of meshlets where each meshlet has a micro index buffer indexing into meshlet vertices that refer to the original vertex buffer
  * The resulting data can be used to render meshes using NVidia programmable mesh shading pipeline, or in other cluster-based renderers.
@@ -759,6 +774,24 @@ MESHOPTIMIZER_API size_t meshopt_buildMeshletsFlex(struct meshopt_Meshlet* meshl
  * fill_weight allows to prioritize clusters that are closer to maximum size at some cost to SAH quality; 0.5 is a safe default
  */
 MESHOPTIMIZER_API size_t meshopt_buildMeshletsSpatial(struct meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t min_triangles, size_t max_triangles, float fill_weight);
+
+/**
+ * Meshlet disk builder
+ * Splits the mesh into a set of meshlets, similarly to meshopt_buildMeshlets, but additionally guarantees that each cluster is a topological disk:
+ * triangles are connected through shared edges, each vertex has a single fan of triangles, interior edges are shared by two triangles with opposite winding, and the boundary is a single closed loop.
+ * All input triangles are preserved exactly once, with their original winding and vertex indices; a triangle that would break the disk topology is deferred to a later cluster instead.
+ * The input must be a (possibly disconnected) orientable triangle mesh without duplicate or degenerate triangles, and without edges shared by more than two triangles.
+ *
+ * disks must contain enough space for all meshlets, worst case is index_count/3 elements
+ * meshlet_vertices must contain enough space for all meshlets, worst case is index_count elements (*not* vertex_count!)
+ * meshlet_triangles must contain enough space for all meshlets, worst case is index_count elements
+ * triangle_source must contain index_count/3 elements; for each output triangle (addressed via meshlet.triangle_offset/3) it contains the index of the source triangle in the input index buffer
+ * boundary_vertices must contain enough space for all meshlets, worst case is index_count elements; for each meshlet, boundary_vertices[boundary_offset..boundary_offset+boundary_count) is a closed loop of local vertex indices that follows directed boundary edges of the meshlet triangles
+ * vertex_positions should have float3 position in the first 12 bytes of each vertex
+ * max_vertices and max_triangles must not exceed implementation limits (max_vertices <= 256, max_triangles <= 512)
+ * cone_weight should be set to 0 when cone culling is not used, and a value between 0 and 1 otherwise to balance between cluster size and cone culling efficiency
+ */
+MESHOPTIMIZER_API size_t meshopt_buildMeshletsDisk(struct meshopt_MeshletDisk* disks, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, unsigned int* triangle_source, unsigned char* boundary_vertices, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight);
 
 /**
  * Meshlet optimizer
@@ -1163,6 +1196,8 @@ template <typename T>
 inline size_t meshopt_buildMeshletsFlex(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t min_triangles, size_t max_triangles, float cone_weight, float split_factor);
 template <typename T>
 inline size_t meshopt_buildMeshletsSpatial(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t min_triangles, size_t max_triangles, float fill_weight);
+template <typename T>
+inline size_t meshopt_buildMeshletsDisk(meshopt_MeshletDisk* disks, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, unsigned int* triangle_source, unsigned char* boundary_vertices, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight);
 template <typename T>
 inline meshopt_Bounds meshopt_computeClusterBounds(const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
 template <typename T>
@@ -1657,6 +1692,14 @@ inline size_t meshopt_buildMeshletsSpatial(meshopt_Meshlet* meshlets, unsigned i
 	meshopt_IndexAdapter<T> in(NULL, indices, index_count);
 
 	return meshopt_buildMeshletsSpatial(meshlets, meshlet_vertices, meshlet_triangles, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, max_vertices, min_triangles, max_triangles, fill_weight);
+}
+
+template <typename T>
+inline size_t meshopt_buildMeshletsDisk(meshopt_MeshletDisk* disks, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, unsigned int* triangle_source, unsigned char* boundary_vertices, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight)
+{
+	meshopt_IndexAdapter<T> in(NULL, indices, index_count);
+
+	return meshopt_buildMeshletsDisk(disks, meshlet_vertices, meshlet_triangles, triangle_source, boundary_vertices, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, max_vertices, max_triangles, cone_weight);
 }
 
 template <typename T>
