@@ -89,10 +89,21 @@
 pub(crate) mod basic;
 #[macro_use]
 pub mod model;
+#[cfg(feature = "xml")]
+pub mod parallel;
 pub mod parser;
 pub mod writer;
 #[cfg(feature = "xml")]
 pub mod xml;
+
+#[cfg(feature = "xml")]
+pub use parallel as piece;
+#[cfg(feature = "xml")]
+pub use parallel as piece_resolver;
+#[cfg(feature = "xml")]
+pub use parallel as resolver;
+#[cfg(feature = "xml")]
+pub use parallel::*;
 
 #[cfg(feature = "xml")]
 use std::convert::{TryFrom, TryInto};
