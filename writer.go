@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -93,71 +94,90 @@ func (p *MasterPlaylist) Encode() *bytes.Buffer {
 		}
 	}
 
-	altsWritten := make(map[string]bool)
+	// Write rendition groups. The catalog (MasterPlaylist.Renditions) is
+	// written first in declaration order, followed by any entries that were
+	// only linked through the legacy Variant.Alternatives in variant order.
+	// Each identity (TYPE, GROUP-ID, NAME) is written exactly once.
+	altsWritten := make(map[renditionKey]bool)
+	writeAlternative := func(alt *Alternative) {
+		if alt == nil {
+			return
+		}
+		key := alternativeKey(alt)
+		if altsWritten[key] {
+			return
+		}
+		altsWritten[key] = true
+		p.buf.WriteString("#EXT-X-MEDIA:")
+		if alt.Type != "" {
+			p.buf.WriteString("TYPE=") // Type should not be quoted
+			p.buf.WriteString(alt.Type)
+		}
+		if alt.GroupId != "" {
+			p.buf.WriteString(",GROUP-ID=\"")
+			p.buf.WriteString(alt.GroupId)
+			p.buf.WriteRune('"')
+		}
+		if alt.Name != "" {
+			p.buf.WriteString(",NAME=\"")
+			p.buf.WriteString(alt.Name)
+			p.buf.WriteRune('"')
+		}
+		p.buf.WriteString(",DEFAULT=")
+		if alt.Default {
+			p.buf.WriteString("YES")
+		} else {
+			p.buf.WriteString("NO")
+		}
+		if alt.Autoselect != "" {
+			p.buf.WriteString(",AUTOSELECT=")
+			p.buf.WriteString(alt.Autoselect)
+		}
+		if alt.Language != "" {
+			p.buf.WriteString(",LANGUAGE=\"")
+			p.buf.WriteString(alt.Language)
+			p.buf.WriteRune('"')
+		}
+		if alt.Forced != "" {
+			p.buf.WriteString(",FORCED=\"")
+			p.buf.WriteString(alt.Forced)
+			p.buf.WriteRune('"')
+		}
+		if alt.Characteristics != "" {
+			p.buf.WriteString(",CHARACTERISTICS=\"")
+			p.buf.WriteString(alt.Characteristics)
+			p.buf.WriteRune('"')
+		}
+		if alt.Subtitles != "" {
+			p.buf.WriteString(",SUBTITLES=\"")
+			p.buf.WriteString(alt.Subtitles)
+			p.buf.WriteRune('"')
+		}
+		if alt.URI != "" {
+			p.buf.WriteString(",URI=\"")
+			p.buf.WriteString(alt.URI)
+			p.buf.WriteRune('"')
+		}
+		if alt.InstreamId != "" {
+			p.buf.WriteString(",INSTREAM-ID=") // INSTREAM-ID should not be quoted
+			p.buf.WriteString(alt.InstreamId)
+		}
+		p.buf.WriteRune('\n')
+	}
+
+	for _, alt := range p.Renditions {
+		writeAlternative(alt)
+	}
+	for _, pl := range p.Variants {
+		if pl == nil {
+			continue
+		}
+		for _, alt := range pl.Alternatives {
+			writeAlternative(alt)
+		}
+	}
 
 	for _, pl := range p.Variants {
-		if pl.Alternatives != nil {
-			for _, alt := range pl.Alternatives {
-				// Make sure that we only write out an alternative once
-				altKey := fmt.Sprintf("%s-%s-%s-%s", alt.Type, alt.GroupId, alt.Name, alt.Language)
-				if altsWritten[altKey] {
-					continue
-				}
-				altsWritten[altKey] = true
-
-				p.buf.WriteString("#EXT-X-MEDIA:")
-				if alt.Type != "" {
-					p.buf.WriteString("TYPE=") // Type should not be quoted
-					p.buf.WriteString(alt.Type)
-				}
-				if alt.GroupId != "" {
-					p.buf.WriteString(",GROUP-ID=\"")
-					p.buf.WriteString(alt.GroupId)
-					p.buf.WriteRune('"')
-				}
-				if alt.Name != "" {
-					p.buf.WriteString(",NAME=\"")
-					p.buf.WriteString(alt.Name)
-					p.buf.WriteRune('"')
-				}
-				p.buf.WriteString(",DEFAULT=")
-				if alt.Default {
-					p.buf.WriteString("YES")
-				} else {
-					p.buf.WriteString("NO")
-				}
-				if alt.Autoselect != "" {
-					p.buf.WriteString(",AUTOSELECT=")
-					p.buf.WriteString(alt.Autoselect)
-				}
-				if alt.Language != "" {
-					p.buf.WriteString(",LANGUAGE=\"")
-					p.buf.WriteString(alt.Language)
-					p.buf.WriteRune('"')
-				}
-				if alt.Forced != "" {
-					p.buf.WriteString(",FORCED=\"")
-					p.buf.WriteString(alt.Forced)
-					p.buf.WriteRune('"')
-				}
-				if alt.Characteristics != "" {
-					p.buf.WriteString(",CHARACTERISTICS=\"")
-					p.buf.WriteString(alt.Characteristics)
-					p.buf.WriteRune('"')
-				}
-				if alt.Subtitles != "" {
-					p.buf.WriteString(",SUBTITLES=\"")
-					p.buf.WriteString(alt.Subtitles)
-					p.buf.WriteRune('"')
-				}
-				if alt.URI != "" {
-					p.buf.WriteString(",URI=\"")
-					p.buf.WriteString(alt.URI)
-					p.buf.WriteRune('"')
-				}
-				p.buf.WriteRune('\n')
-			}
-		}
 		if pl.Iframe {
 			p.buf.WriteString("#EXT-X-I-FRAME-STREAM-INF:PROGRAM-ID=")
 			p.buf.WriteString(strconv.FormatUint(uint64(pl.ProgramId), 10))
@@ -280,6 +300,165 @@ func (p *MasterPlaylist) SetCustomTag(tag CustomTag) {
 	}
 
 	p.Custom[tag.TagName()] = tag
+}
+
+// renditionGroupTypes lists the rendition group types that
+// RenameRenditionGroups accepts.
+var renditionGroupTypes = map[string]bool{
+	"AUDIO":           true,
+	"VIDEO":           true,
+	"SUBTITLES":       true,
+	"CLOSED-CAPTIONS": true,
+}
+
+// sortedKeys returns the keys of a string-keyed map in ascending order.
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// RenameRenditionGroups renames rendition groups in place. The mapping is
+// keyed by the group names as they were before the call, so a single call may
+// swap two names (a→b together with b→a). Groups that are not in the mapping
+// are left untouched, and groups that are declared but never referenced by a
+// variant may be renamed too. Groups with the same name but different TYPE
+// are distinct.
+//
+// On success the rendition catalog, every matching Audio/Video/Subtitles/
+// Captions reference, and the legacy Variant.Alternatives slices all carry
+// the new names consistently. An empty mapping is a successful no-op.
+//
+// Renaming is atomic: if any part of the mapping is invalid the playlist and
+// any output already generated from it are left unchanged. The following are
+// rejected:
+//   - a source group (or a TYPE) that does not exist
+//   - an empty (or blank) target name
+//   - two groups of the same TYPE ending up with the same final name
+//   - renaming a CLOSED-CAPTIONS group to "NONE" (which means "no captions")
+func (p *MasterPlaylist) RenameRenditionGroups(renames map[RenditionGroupKey]string) error {
+	if len(renames) == 0 {
+		return nil
+	}
+
+	// Collect every group that exists, from the catalog and from variant
+	// references, keyed by type.
+	existing := make(map[string]map[string]bool)
+	addGroup := func(typ, group string) {
+		if group == "" {
+			return
+		}
+		if existing[typ] == nil {
+			existing[typ] = make(map[string]bool)
+		}
+		existing[typ][group] = true
+	}
+	for _, alt := range p.Renditions {
+		if alt != nil {
+			addGroup(alt.Type, alt.GroupId)
+			// An EXT-X-MEDIA SUBTITLES attribute references a subtitles group.
+			addGroup("SUBTITLES", alt.Subtitles)
+		}
+	}
+	collectVariantGroups := func(v *Variant) {
+		if v == nil {
+			return
+		}
+		addGroup("AUDIO", v.Audio)
+		addGroup("VIDEO", v.Video)
+		addGroup("SUBTITLES", v.Subtitles)
+		if v.Captions != "NONE" { // NONE is not a group, it means "no captions"
+			addGroup("CLOSED-CAPTIONS", v.Captions)
+		}
+	}
+	for _, v := range p.Variants {
+		collectVariantGroups(v)
+	}
+
+	// Validate the mapping and build a per-type old→new lookup.
+	perType := make(map[string]map[string]string)
+	for key, target := range renames {
+		if !renditionGroupTypes[key.Type] {
+			return fmt.Errorf("RenameRenditionGroups: unknown rendition type %q in key %+v", key.Type, key)
+		}
+		if !existing[key.Type][key.GroupID] {
+			return fmt.Errorf("RenameRenditionGroups: missing source group %+v", key)
+		}
+		if strings.TrimSpace(target) == "" {
+			return fmt.Errorf("RenameRenditionGroups: empty target name for group %+v", key)
+		}
+		if key.Type == "CLOSED-CAPTIONS" && target == "NONE" {
+			return fmt.Errorf("RenameRenditionGroups: cannot rename group %+v to NONE", key)
+		}
+		if perType[key.Type] == nil {
+			perType[key.Type] = make(map[string]string)
+		}
+		perType[key.Type][key.GroupID] = target
+	}
+
+	// Check that the final names are unique within each type.
+	// Collection order is sorted first so the reported pair is deterministic.
+	types := make([]string, 0, len(existing))
+	for typ := range existing {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+	for _, typ := range types {
+		groups := sortedKeys(existing[typ])
+		final := make(map[string]string, len(groups))
+		for _, group := range groups {
+			name := group
+			if mapped, ok := perType[typ][group]; ok {
+				name = mapped
+			}
+			if prev, ok := final[name]; ok {
+				return fmt.Errorf("RenameRenditionGroups: groups %+v and %+v of type %s both map to %q",
+					RenditionGroupKey{Type: typ, GroupID: prev}, RenditionGroupKey{Type: typ, GroupID: group}, typ, name)
+			}
+			final[name] = group
+		}
+	}
+
+	// Validation passed; apply the rename. Alternatives can be shared between
+	// the catalog and several variants, so rename each one only once.
+	renameGroup := func(typ, group string) string {
+		if mapped, ok := perType[typ][group]; ok {
+			return mapped
+		}
+		return group
+	}
+	renamed := make(map[*Alternative]bool)
+	renameAlternative := func(alt *Alternative) {
+		if alt == nil || renamed[alt] {
+			return
+		}
+		renamed[alt] = true
+		alt.GroupId = renameGroup(alt.Type, alt.GroupId)
+		alt.Subtitles = renameGroup("SUBTITLES", alt.Subtitles)
+	}
+	for _, alt := range p.Renditions {
+		renameAlternative(alt)
+	}
+	for _, v := range p.Variants {
+		if v == nil {
+			continue
+		}
+		v.Audio = renameGroup("AUDIO", v.Audio)
+		v.Video = renameGroup("VIDEO", v.Video)
+		v.Subtitles = renameGroup("SUBTITLES", v.Subtitles)
+		if v.Captions != "NONE" { // NONE always means "no captions"
+			v.Captions = renameGroup("CLOSED-CAPTIONS", v.Captions)
+		}
+		for _, alt := range v.Alternatives {
+			renameAlternative(alt)
+		}
+	}
+
+	p.buf.Reset()
+	return nil
 }
 
 // Version returns the current playlist version number

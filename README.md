@@ -90,6 +90,39 @@ You may use API methods to fill structures or create them manually to generate p
 	fmt.Println(p.Encode().String())
 ```
 
+Rendition groups
+----------------
+
+Every `EXT-X-MEDIA` declaration is kept in `MasterPlaylist.Renditions`, in the
+order it first appears - including groups that no variant references and
+renditions without a `URI` (embedded audio/captions). Entries are identified by
+the `(TYPE, GROUP-ID, NAME)` triple, so the same URI may back several
+renditions. Variant `AUDIO`/`VIDEO`/`SUBTITLES`/`CLOSED-CAPTIONS` references are
+matched by type and group name and are still exposed through the legacy
+`Variant.Alternatives` field.
+
+Rendition group names can be changed in place; the catalog, every variant
+reference and `Variant.Alternatives` are updated consistently:
+
+```go
+	err = masterpl.RenameRenditionGroups(map[m3u8.RenditionGroupKey]string{
+		{Type: "AUDIO", GroupID: "a"}: "stereo", // a -> stereo
+		{Type: "AUDIO", GroupID: "b"}: "a",      // b -> a (a swap works)
+		{Type: "SUBTITLES", GroupID: "subs"}: "captions",
+	})
+	if err != nil {
+		// The playlist is left unchanged; the error names the offending key.
+		panic(err)
+	}
+	fmt.Println(masterpl.Encode().String())
+```
+
+Groups of different types may share a name, unreferenced groups can be renamed,
+and an empty mapping is a no-op. The call fails, without changing anything, when
+a source group is missing, a target is empty, the type is unknown, two groups of
+the same type end up with the same name, or a `CLOSED-CAPTIONS` group is renamed
+to `NONE` (`NONE` always means "no captions").
+
 Custom Tags
 -----------
 

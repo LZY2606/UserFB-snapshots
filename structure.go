@@ -147,7 +147,8 @@ type MediaPlaylist struct {
 //    http://example.com/audio-only.m3u8
 type MasterPlaylist struct {
 	Variants            []*Variant
-	Args                string // optional arguments placed after URI (URI?Args)
+	Renditions          []*Alternative // catalog of all EXT-X-MEDIA declarations, in first-seen order
+	Args                string         // optional arguments placed after URI (URI?Args)
 	CypherVersion       string // non-standard tag for Widevine (see also WV struct)
 	buf                 bytes.Buffer
 	ver                 uint8
@@ -197,6 +198,14 @@ type Alternative struct {
 	Forced          string
 	Characteristics string
 	Subtitles       string
+	InstreamId      string // INSTREAM-ID attribute (used by CLOSED-CAPTIONS)
+}
+
+// RenditionGroupKey identifies a rendition group by its type and group
+// name. It is used by MasterPlaylist.RenameRenditionGroups.
+type RenditionGroupKey struct {
+	Type    string
+	GroupID string
 }
 
 // MediaSegment structure represents a media segment included in a
@@ -327,7 +336,6 @@ type decodingState struct {
 	duration           float64
 	title              string
 	variant            *Variant
-	alternatives       []*Alternative
 	xkey               *Key
 	xmap               *Map
 	scte               *SCTE

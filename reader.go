@@ -79,7 +79,7 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 		}
 	}
 
-	p.attachRenditionsToVariants(state.alternatives)
+	p.attachRenditionsToVariants()
 
 	if strict && !state.m3u {
 		return errors.New("#EXTM3U absent")
@@ -87,24 +87,76 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 	return nil
 }
 
-func (p *MasterPlaylist) attachRenditionsToVariants(alternatives []*Alternative) {
+// renditionKey is the identity of an EXT-X-MEDIA declaration: the TYPE,
+// GROUP-ID and NAME attributes. URI and other attributes are not part of
+// the identity.
+type renditionKey struct {
+	Type    string
+	GroupID string
+	Name    string
+}
+
+func alternativeKey(alt *Alternative) renditionKey {
+	return renditionKey{Type: alt.Type, GroupID: alt.GroupId, Name: alt.Name}
+}
+
+// addRendition records an EXT-X-MEDIA declaration in the playlist's
+// rendition catalog. The catalog keeps entries in first-seen order and
+// merges exact duplicate declarations identified by the (TYPE, GROUP-ID,
+// NAME) triple. A declaration whose identity matches an earlier one but
+// whose attributes differ is a conflict; strict parsing reports it.
+func (p *MasterPlaylist) addRendition(alt *Alternative, strict bool) error {
+	key := alternativeKey(alt)
+	for _, existing := range p.Renditions {
+		if existing == nil {
+			continue
+		}
+		if alternativeKey(existing) != key {
+			continue
+		}
+		if *existing == *alt {
+			return nil // exact duplicate, already catalogued
+		}
+		if strict {
+			return fmt.Errorf("conflicting EXT-X-MEDIA declaration for TYPE=%s,GROUP-ID=%q,NAME=%q", alt.Type, alt.GroupId, alt.Name)
+		}
+		return nil // keep the first declaration for this identity
+	}
+	p.Renditions = append(p.Renditions, alt)
+	return nil
+}
+
+// attachRenditionsToVariants links catalog entries to variants through the
+// legacy Variant.Alternatives field. A catalog entry is linked only when
+// both its TYPE and GROUP-ID match one of the variant's references. Each
+// catalog entry is linked at most once per variant.
+func (p *MasterPlaylist) attachRenditionsToVariants() {
 	for _, variant := range p.Variants {
-		for _, alt := range alternatives {
+		if variant == nil {
+			continue
+		}
+		var alts []*Alternative
+		for _, alt := range p.Renditions {
 			if alt == nil {
 				continue
 			}
-			if variant.Video != "" && alt.Type == "VIDEO" && variant.Video == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
+			var matches bool
+			switch alt.Type {
+			case "VIDEO":
+				matches = variant.Video != "" && variant.Video == alt.GroupId
+			case "AUDIO":
+				matches = variant.Audio != "" && variant.Audio == alt.GroupId
+			case "CLOSED-CAPTIONS":
+				matches = variant.Captions != "" && variant.Captions != "NONE" && variant.Captions == alt.GroupId
+			case "SUBTITLES":
+				matches = variant.Subtitles != "" && variant.Subtitles == alt.GroupId
 			}
-			if variant.Audio != "" && alt.Type == "AUDIO" && variant.Audio == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
+			if matches {
+				alts = append(alts, alt)
 			}
-			if variant.Captions != "" && alt.Type == "CLOSED-CAPTIONS" && variant.Captions == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
-			}
-			if variant.Subtitles != "" && alt.Type == "SUBTITLES" && variant.Subtitles == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
-			}
+		}
+		if len(alts) > 0 {
+			variant.Alternatives = alts
 		}
 	}
 }
@@ -245,7 +297,6 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 		}
 
 		err = decodeLineOfMasterPlaylist(master, state, line, strict)
-		master.attachRenditionsToVariants(state.alternatives)
 		if strict && err != nil {
 			return master, state.listType, err
 		}
@@ -256,6 +307,8 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 		}
 
 	}
+	master.attachRenditionsToVariants()
+
 	if state.listType == MEDIA && state.tagWV {
 		media.WV = wv
 	}
@@ -353,11 +406,15 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 				alt.Characteristics = v
 			case "SUBTITLES":
 				alt.Subtitles = v
+			case "INSTREAM-ID":
+				alt.InstreamId = v
 			case "URI":
 				alt.URI = v
 			}
 		}
-		state.alternatives = append(state.alternatives, &alt)
+		if err = p.addRendition(&alt, strict); strict && err != nil {
+			return err
+		}
 	case !state.tagStreamInf && strings.HasPrefix(line, "#EXT-X-STREAM-INF:"):
 		state.tagStreamInf = true
 		state.listType = MASTER
@@ -417,10 +474,6 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 		state.listType = MASTER
 		state.variant = new(Variant)
 		state.variant.Iframe = true
-		if len(state.alternatives) > 0 {
-			state.variant.Alternatives = state.alternatives
-			state.alternatives = nil
-		}
 		p.Variants = append(p.Variants, state.variant)
 		for k, v := range decodeParamsLine(line[26:]) {
 			switch k {

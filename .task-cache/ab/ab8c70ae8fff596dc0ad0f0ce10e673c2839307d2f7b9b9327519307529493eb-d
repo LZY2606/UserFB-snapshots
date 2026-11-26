@@ -1,0 +1,8 @@
+./doc.go
+./reader.go
+./structure.go
+./writer.go
+./reader_test.go
+./rendition_groups_test.go
+./structure_test.go
+./writer_test.go

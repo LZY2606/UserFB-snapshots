@@ -1,0 +1,43 @@
+{
+	"github.com/grafov/m3u8": {
+		"testinggoroutine": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:599:5",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:599:17",
+				"message": "call to (*testing.T).Fatal from a non-test goroutine"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:603:5",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:603:54",
+				"message": "call to (*testing.T).Fatalf from a non-test goroutine"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:606:5",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:606:17",
+				"message": "call to (*testing.T).Fatal from a non-test goroutine"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:611:5",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:611:27",
+				"message": "call to (*testing.T).Fatal from a non-test goroutine"
+			}
+		],
+		"tests": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:974:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:974:1",
+				"message": "ExampleMediaPlaylist_String_Winsize0 has malformed example suffix: Winsize0"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:993:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:993:1",
+				"message": "ExampleMediaPlaylist_String_Winsize0_VOD has malformed example suffix: Winsize0_VOD"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:1092:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/RE20261125X1191/attempts/20261126T162046209202Z/repo/writer_test.go:1092:1",
+				"message": "ExampleMediaPlaylistGetAllSegments refers to unknown identifier: MediaPlaylistGetAllSegments"
+			}
+		]
+	}
+}
