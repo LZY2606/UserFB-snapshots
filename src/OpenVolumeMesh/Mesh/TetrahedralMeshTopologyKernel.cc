@@ -34,9 +34,404 @@
 
 #include <OpenVolumeMesh/Mesh/TetrahedralMeshTopologyKernel.hh>
 
+#include <algorithm>
 #include <iostream>
 
 namespace OpenVolumeMesh {
+
+namespace {
+
+// Vertices of a halfface in its stored orientation (the orientation the
+// owning cell uses for the face).
+std::array<VertexHandle, 3> halfface_vertex_tuple(const TetrahedralMeshTopologyKernel& _mesh,
+                                                  HalfFaceHandle _hfh)
+{
+    const auto vhs = _mesh.get_halfface_vertices(_hfh);
+    return {vhs[0], vhs[1], vhs[2]};
+}
+
+// Orientation (permutation sign) of the triple (v0, v1, v2) relative to the
+// stored halfface orientation (a, b, c): +1 for an even permutation
+// (same orientation), -1 for an odd one (opposite orientation). The two
+// triples are known to contain the same set of vertices.
+int orientation_sign(const std::array<VertexHandle, 3>& _abc,
+                     VertexHandle _v0, VertexHandle _v1, VertexHandle _v2)
+{
+    int pos0 = -1, pos1 = -1, pos2 = -1;
+    for (int i = 0; i < 3; ++i) {
+        if (_abc[i] == _v0) pos0 = i;
+        if (_abc[i] == _v1) pos1 = i;
+        if (_abc[i] == _v2) pos2 = i;
+    }
+    const int inversions =
+        (pos0 > pos1) + (pos0 > pos2) + (pos1 > pos2);
+    return (inversions % 2 == 0) ? 1 : -1;
+}
+
+// The halfface of _fh whose incident cell is _owner, i.e. the halfface in
+// the orientation the owning cell stores for the face. Valid while the old
+// cells are still alive.
+HalfFaceHandle cavity_side_halfface(const TetrahedralMeshTopologyKernel& _mesh,
+                                    FaceHandle _fh, CellHandle _owner)
+{
+    const HalfFaceHandle h0 = _mesh.halfface_handle(_fh, 0);
+    if (_mesh.incident_cell(h0) == _owner) return h0;
+    return _mesh.halfface_handle(_fh, 1);
+}
+
+} // anonymous namespace
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::has_live_edge(VertexHandle _v0,
+                                                  VertexHandle _v1) const
+{
+    const HalfEdgeHandle heh = find_halfedge(_v0, _v1);
+    return heh.is_valid() && !is_deleted(edge_handle(heh));
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::analyze_flip23_cavity(
+        FaceHandle _fh, FlipCavity& _cavity) const
+{
+    if (!is_valid(_fh) || is_deleted(_fh)) return false;
+    if (valence(_fh) != 3) return false;
+
+    const HalfFaceHandle hfh0 = halfface_handle(_fh, 0);
+    const HalfFaceHandle hfh1 = halfface_handle(_fh, 1);
+
+    // The shared face must be internal, with a live tet on both sides.
+    const CellHandle c0 = incident_cell(hfh0);
+    const CellHandle c1 = incident_cell(hfh1);
+    if (!c0.is_valid() || !c1.is_valid() || c0 == c1) return false;
+    if (is_deleted(c0) || is_deleted(c1)) return false;
+    if (valence(c0) != 4 || valence(c1) != 4) return false;
+
+    const auto face_vhs = get_halfface_vertices(hfh0);
+    if (face_vhs.size() != 3) return false;
+    const VertexHandle a = face_vhs[0];
+    const VertexHandle b = face_vhs[1];
+    const VertexHandle c = face_vhs[2];
+
+    const auto v0 = get_cell_vertices(c0);
+    const auto v1 = get_cell_vertices(c1);
+    if (v0.size() != 4 || v1.size() != 4) return false;
+
+    VertexHandle d = InvalidVertexHandle;
+    for (const VertexHandle vh : v0) {
+        if (vh != a && vh != b && vh != c) { d = vh; break; }
+    }
+    VertexHandle e = InvalidVertexHandle;
+    for (const VertexHandle vh : v1) {
+        if (vh != a && vh != b && vh != c) { e = vh; break; }
+    }
+    if (!d.is_valid() || !e.is_valid()) return false;
+
+    // Five pairwise distinct cavity vertices.
+    if (d == e || d == a || d == b || d == c ||
+        e == a || e == b || e == c) return false;
+
+    _cavity.vertices = {a, b, c, d, e};
+    _cavity.old_cells = {c0, c1};
+
+    // Six hull faces: every face of the two tets except the shared one.
+    std::set<FaceHandle> hull_set;
+    for (const CellHandle ch : _cavity.old_cells) {
+        for (auto it = cf_iter(ch); it.valid(); ++it) {
+            const FaceHandle fh = *it;
+            if (fh != _fh) {
+                if (is_deleted(fh)) return false;
+                hull_set.insert(fh);
+            }
+        }
+    }
+    if (hull_set.size() != 6) return false; // non-spherical link / self adjacency
+
+    // The candidate internal edge de must not be in use by a live edge.
+    if (has_live_edge(d, e)) return false;
+
+    // Build the three replacement tets (x, y, p, q), where p is the
+    // opposite vertex of the tet owning hull face (x, y, p) and q the
+    // opposite vertex on the other side.
+    const std::array<std::array<VertexHandle, 4>, 3> triples = {{
+        {a, b, d, e},
+        {b, c, d, e},
+        {c, a, d, e}
+    }};
+
+    for (const auto& t : triples) {
+        const VertexHandle x = t[0], y = t[1], p = t[2], q = t[3];
+        std::array<VertexHandle, 4> tet = {x, y, p, q};
+
+        // Two hull halffaces of this candidate tet:
+        // (x, y, p) belongs to c0, (y, x, q) belongs to c1.
+        const HalfFaceHandle hf_p = find_halfface({x, y, p});
+        const HalfFaceHandle hf_q = find_halfface({y, x, q});
+        if (!hf_p.is_valid() || !hf_q.is_valid()) return false;
+        const FaceHandle fp = face_handle(hf_p);
+        const FaceHandle fq = face_handle(hf_q);
+        if (is_deleted(fp) || is_deleted(fq)) return false;
+        if (hull_set.count(fp) == 0 || hull_set.count(fq) == 0) return false;
+        if (fp == fq) return false;
+
+        // The other two boundary triangles are internal candidates: they
+        // must not be occupied by another live face.
+        const std::array<std::array<VertexHandle, 3>, 4> boundary_tris = {{
+            {x, y, p}, {x, p, q}, {x, q, y}, {y, q, p}
+        }};
+        for (const auto& tri : boundary_tris) {
+            const HalfFaceHandle found = find_halfface(
+                std::vector<VertexHandle>(tri.begin(), tri.end()));
+            if (found.is_valid() && !is_deleted(face_handle(found))) {
+                const FaceHandle fh = face_handle(found);
+                if (fh != fp && fh != fq) return false;
+            }
+        }
+
+        // Orient the tet so that its f0 face (x, y, p) reuses the stored
+        // halfface orientation of the hull (handles and orientations of
+        // the six hull faces must be preserved).
+        const HalfFaceHandle hullSide = cavity_side_halfface(*this, fp, c0);
+        const auto abc = halfface_vertex_tuple(*this, hullSide);
+        if (orientation_sign(abc, x, y, p) < 0) {
+            std::swap(tet[2], tet[3]);
+        }
+
+        _cavity.new_cells.push_back(tet);
+    }
+
+    if (_cavity.new_cells.size() != 3) return false;
+
+    std::copy(hull_set.begin(), hull_set.end(), _cavity.hull_faces.begin());
+    _cavity.old_faces.push_back(_fh);
+    return true;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::analyze_flip32_cavity(
+        EdgeHandle _eh, FlipCavity& _cavity) const
+{
+    if (!is_valid(_eh) || is_deleted(_eh)) return false;
+    if (valence(_eh) != 3) return false;
+    if (is_boundary(_eh)) return false;
+
+    // Exactly three live, distinct incident cells.
+    std::set<CellHandle> cell_set;
+    for (auto it = ec_iter(_eh); it.valid(); ++it) {
+        const CellHandle ch = *it;
+        if (is_deleted(ch)) return false;
+        cell_set.insert(ch);
+    }
+    if (cell_set.size() != 3) return false;
+    for (const CellHandle ch : cell_set) {
+        if (valence(ch) != 4) return false;
+    }
+    _cavity.old_cells.assign(cell_set.begin(), cell_set.end());
+
+    const auto endpoints = edge_vertices(_eh);
+    const VertexHandle a = endpoints[0];
+    const VertexHandle b = endpoints[1];
+
+    // The three link vertices, two per incident tet.
+    std::set<VertexHandle> link_set;
+    for (const CellHandle ch : _cavity.old_cells) {
+        const auto vhs = get_cell_vertices(ch);
+        for (const VertexHandle vh : vhs) {
+            if (vh != a && vh != b) link_set.insert(vh);
+        }
+    }
+    if (link_set.size() != 3) return false; // non-spherical link
+    std::vector<VertexHandle> link(link_set.begin(), link_set.end());
+    const VertexHandle c = link[0];
+    const VertexHandle d = link[1];
+    const VertexHandle e = link[2];
+
+    // Five pairwise distinct cavity vertices.
+    if (c == a || c == b || d == a || d == b || e == a || e == b) return false;
+
+    _cavity.vertices = {a, b, c, d, e};
+
+    // The three internal faces contain the central edge; the other six
+    // faces of the tets are the cavity hull.
+    std::set<FaceHandle> internal_set;
+    std::set<FaceHandle> hull_set;
+    for (const CellHandle ch : _cavity.old_cells) {
+        for (auto it = cf_iter(ch); it.valid(); ++it) {
+            const FaceHandle fh = *it;
+            if (is_deleted(fh)) return false;
+            if (is_incident(fh, _eh)) internal_set.insert(fh);
+            else hull_set.insert(fh);
+        }
+    }
+    if (internal_set.size() != 3 || hull_set.size() != 6) return false;
+
+    // Every hull face has exactly one cavity side. Its other side is
+    // either the mesh boundary or a live cell outside the cavity.
+    for (const FaceHandle fh : hull_set) {
+        const auto cells = face_cells(fh);
+        int inside = 0;
+        for (const CellHandle owner : cells) {
+            if (!owner.is_valid()) continue; // boundary side is allowed
+            if (is_deleted(owner)) return false;
+            if (cell_set.count(owner) > 0) ++inside;
+        }
+        if (inside != 1) return false; // non-spherical link
+    }
+
+    // The candidate internal face cde must not be occupied by a live
+    // face. Its three edges are hull edges: they already exist live and
+    // are reused, so only the face itself can be in conflict here.
+    {
+        const HalfFaceHandle found = find_halfface({c, d, e});
+        if (found.is_valid() && !is_deleted(face_handle(found))) return false;
+    }
+
+    // Build the two replacement tets, one per endpoint of the removed edge.
+    const std::array<VertexHandle, 2> apices = {{a, b}};
+    for (const VertexHandle apex : apices) {
+        const VertexHandle x = c, y = d, z = e;
+        std::array<VertexHandle, 4> tet = {apex, x, y, z};
+
+        // The three outer halffaces opposite the link vertices must be
+        // hull faces: (apex, z, y), (apex, x, z), (apex, y, x).
+        std::array<FaceHandle, 3> outer = {
+            InvalidFaceHandle, InvalidFaceHandle, InvalidFaceHandle};
+        const std::array<std::array<VertexHandle, 3>, 3> outer_tris = {{
+            {apex, z, y},
+            {apex, x, z},
+            {apex, y, x}
+        }};
+        for (int i = 0; i < 3; ++i) {
+            const HalfFaceHandle found = find_halfface(
+                std::vector<VertexHandle>(outer_tris[i].begin(),
+                                          outer_tris[i].end()));
+            if (!found.is_valid() || is_deleted(face_handle(found))) return false;
+            const FaceHandle fh = face_handle(found);
+            if (hull_set.count(fh) == 0) return false;
+            outer[i] = fh;
+        }
+        if (outer[0] == outer[1] || outer[1] == outer[2] ||
+            outer[0] == outer[2]) return false;
+
+        // No other boundary triangle of the candidate tet may be taken.
+        const std::array<std::array<VertexHandle, 3>, 4> boundary_tris = {{
+            {apex, x, y}, {apex, y, z},
+            {apex, z, x}, {x, z, y}
+        }};
+        for (const auto& tri : boundary_tris) {
+            const HalfFaceHandle found = find_halfface(
+                std::vector<VertexHandle>(tri.begin(), tri.end()));
+            if (found.is_valid() && !is_deleted(face_handle(found))) {
+                if (hull_set.count(face_handle(found)) == 0) return false;
+            }
+        }
+
+        // A cell's own halfface orientation points into the cell; after
+        // the flip the same stored halfface must point into the new tet.
+        // outer[0] has vertex set {apex, y, z}, which is f1 of
+        // (apex, x, y, z), i.e. the sequence (apex, y, z).
+        const HalfFaceHandle h0 = halfface_handle(outer[0], 0);
+        const HalfFaceHandle h1 = halfface_handle(outer[0], 1);
+        const HalfFaceHandle hullSide =
+            cell_set.count(incident_cell(h0)) ? h0 : h1;
+        const auto abc = halfface_vertex_tuple(*this, hullSide);
+        if (orientation_sign(abc, apex, y, z) < 0) {
+            // Negate the tet orientation by swapping two vertices.
+            std::swap(tet[1], tet[2]);
+        }
+
+        _cavity.new_cells.push_back(tet);
+    }
+
+    if (_cavity.new_cells.size() != 2) return false;
+
+    std::copy(hull_set.begin(), hull_set.end(), _cavity.hull_faces.begin());
+    _cavity.old_faces.assign(internal_set.begin(), internal_set.end());
+    _cavity.old_edges.push_back(_eh);
+    return true;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::apply_flip(
+        FlipCavity& _cavity, std::vector<CellHandle>& _created)
+{
+    // All combinatorial validation has to happen before this point: the
+    // mesh must remain untouched if the flip is rejected. Determine the
+    // cell whose properties are inherited by every replacement cell:
+    // the removed cell with the smallest handle.
+    CellHandle property_source = _cavity.old_cells.front();
+    for (const CellHandle ch : _cavity.old_cells) {
+        if (ch < property_source) property_source = ch;
+    }
+
+    // Remove the old cells first so that their halffaces become available
+    // for the replacement cells.
+    for (const CellHandle ch : _cavity.old_cells) {
+        delete_cell(ch);
+    }
+    // The old internal simplices are no longer incident to any live cell.
+    for (const FaceHandle fh : _cavity.old_faces) {
+        delete_face(fh);
+    }
+    for (const EdgeHandle eh : _cavity.old_edges) {
+        delete_edge(eh);
+    }
+
+    // Create the replacement tets. add_cell() reuses existing
+    // edges/faces (the hull) and only allocates the internal ones;
+    // all bottom-up incidences are updated by the base kernel.
+    std::vector<CellHandle> created;
+    created.reserve(_cavity.new_cells.size());
+    for (const auto& vhs : _cavity.new_cells) {
+        CellHandle ch = add_cell(vhs[0], vhs[1], vhs[2], vhs[3]);
+        if (!ch.is_valid()) {
+            // Should be unreachable after the upfront validation, and only
+            // ordinary allocation failures can get us here.
+            return false;
+        }
+        copy_property_elements(property_source, ch);
+        created.push_back(ch);
+    }
+
+    std::sort(created.begin(), created.end());
+    _created = std::move(created);
+    return true;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::flip23(FaceHandle _fh,
+                                           std::vector<CellHandle>& _created)
+{
+    if (!deferred_deletion_enabled() || !has_full_bottom_up_incidences()) {
+        return false;
+    }
+
+    FlipCavity cavity;
+    if (!analyze_flip23_cavity(_fh, cavity)) return false;
+
+    return apply_flip(cavity, _created);
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::flip32(EdgeHandle _eh,
+                                           std::vector<CellHandle>& _created)
+{
+    if (!deferred_deletion_enabled() || !has_full_bottom_up_incidences()) {
+        return false;
+    }
+
+    FlipCavity cavity;
+    if (!analyze_flip32_cavity(_eh, cavity)) return false;
+
+    return apply_flip(cavity, _created);
+}
+
+//========================================================================================
 
 FaceHandle TetrahedralMeshTopologyKernel::add_face(std::vector<HalfEdgeHandle> _halfedges, bool _topologyCheck) {
 

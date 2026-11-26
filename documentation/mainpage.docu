@@ -45,6 +45,7 @@ Find information on how to build %OpenVolumeMesh in Section \ref building_openvo
 
 \li \subpage concepts
 \li \subpage iterators_and_circulators
+\li \subpage tetrahedral_flips
 \li \subpage file_formats
 \li \subpage property_system
 \li \subpage building_openvolumemesh

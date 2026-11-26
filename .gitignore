@@ -19,3 +19,6 @@ CMakeUserPresets.json
 *.orig
 .vim
 .cache
+
+# Task test harness build output
+.task-build/

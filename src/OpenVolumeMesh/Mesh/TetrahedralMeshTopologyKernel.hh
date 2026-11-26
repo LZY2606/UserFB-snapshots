@@ -37,7 +37,9 @@
 #ifndef NDEBUG
 #include <iostream>
 #endif
+#include <array>
 #include <set>
+#include <vector>
 
 #include <OpenVolumeMesh/Core/TopologyKernel.hh>
 #include <OpenVolumeMesh/Mesh/TetrahedralMeshIterators.hh>
@@ -101,9 +103,110 @@ public:
 
 
     VertexHandle collapse_edge(HalfEdgeHandle _heh);
+
+    // ======================= Local flips (2->3 and 3->2) =====================
+
+    /**
+     * \brief In-place 2-to-3 flip of an internal triangular face.
+     *
+     * The two tetrahedra sharing the internal face \p _fh are replaced by
+     * three tetrahedra arranged around a new internal edge that connects the
+     * two vertices opposite to \p _fh. No vertices are added and no vertex
+     * coordinates are changed. The six faces of the cavity hull keep their
+     * handles, half-face orientations and properties; the old internal face
+     * and the two old cells are marked deleted (deferred deletion, no garbage
+     * collection is triggered).
+     *
+     * The function only performs combinatorial checks. It returns false
+     * (without modifying the mesh) when deferred deletion or the full
+     * bottom-up incidences are disabled, when the handle is invalid or
+     * deleted, when the face is on the boundary, when the five involved
+     * vertices are not pairwise distinct, when the cavity has a
+     * non-spherical link, when duplicate edges/faces are present, or when a
+     * candidate internal edge/face is already in use by another live entity.
+     *
+     * \param _fh Internal face shared by exactly two tetrahedra.
+     * \param _created On success, the three new cell handles, sorted ascending.
+     * \return true on success, false if the flip was rejected.
+     *
+     * Example:
+     * \code
+     * TetrahedralMeshTopologyKernel mesh;
+     * // ... two tets sharing an internal face fh ...
+     * std::vector<CellHandle> created;
+     * if (mesh.flip23(fh, created)) {
+     *     // created holds the three tets around the new internal edge
+     * }
+     * \endcode
+     */
+    bool flip23(FaceHandle _fh, std::vector<CellHandle>& _created);
+
+    /**
+     * \brief In-place 3-to-2 flip of an internal edge of valence three.
+     *
+     * The three tetrahedra around the internal edge \p _eh are replaced by
+     * two tetrahedra sharing a new internal triangular face whose vertices
+     * are the three vertices opposite to \p _eh in the cavity. This is the
+     * exact inverse of flip23(). No vertices are added and no vertex
+     * coordinates are changed. The six faces of the cavity hull keep their
+     * handles, half-face orientations and properties; the old internal edge,
+     * the old internal faces and the three old cells are marked deleted
+     * (deferred deletion, no garbage collection is triggered).
+     *
+     * The function only performs combinatorial checks. It returns false
+     * (without modifying the mesh) when deferred deletion or the full
+     * bottom-up incidences are disabled, when the handle is invalid or
+     * deleted, when the edge is on the boundary or does not have valence
+     * three, when the five involved vertices are not pairwise distinct, when
+     * the cavity has a non-spherical link, when duplicate edges/faces are
+     * present, or when a candidate internal face is already in use by another
+     * live entity.
+     *
+     * \param _eh Internal edge incident to exactly three tetrahedra.
+     * \param _created On success, the two new cell handles, sorted ascending.
+     * \return true on success, false if the flip was rejected.
+     *
+     * Example:
+     * \code
+     * std::vector<CellHandle> created;
+     * if (mesh.flip32(edge, created)) {
+     *     // created holds the two tets sharing the new internal face
+     * }
+     * \endcode
+     */
+    bool flip32(EdgeHandle _eh, std::vector<CellHandle>& _created);
+
 protected:
     void split_edge(HalfEdgeHandle _heh, VertexHandle _vh);
     void split_face(FaceHandle _fh, VertexHandle _vh);
+
+    /// Combinatorial description of a flip cavity. Shared by the geometry
+    /// kernel, which adds the geometric validity checks before applying it.
+    struct FlipCavity {
+        // The five cavity vertices. For a 2->3 flip: vertices of the shared
+        // face (a, b, c) and the two opposite vertices (d, e). For a 3->2
+        // flip: endpoints of the central edge (a, b) and the three link
+        // vertices (c, d, e).
+        std::array<VertexHandle, 5> vertices{};
+        // The two (2->3) or three (3->2) cells that get removed.
+        std::vector<CellHandle> old_cells;
+        // The six hull faces (handles and orientations stay untouched).
+        std::array<FaceHandle, 6> hull_faces{};
+        // Replacement tets as oriented vertex quadruples; their outer
+        // halffaces are exactly the six hull faces in their stored
+        // orientation.
+        std::vector<std::array<VertexHandle, 4>> new_cells;
+        // Simplices that get removed in addition to the old cells.
+        std::vector<EdgeHandle> old_edges;
+        std::vector<FaceHandle> old_faces;
+    };
+
+    bool analyze_flip23_cavity(FaceHandle _fh, FlipCavity& _cavity) const;
+    bool analyze_flip32_cavity(EdgeHandle _eh, FlipCavity& _cavity) const;
+    bool apply_flip(FlipCavity& _cavity, std::vector<CellHandle>& _created);
+
+    /// True if a live (non-deleted) edge between the two vertices exists.
+    bool has_live_edge(VertexHandle _v0, VertexHandle _v1) const;
 
 public:
 

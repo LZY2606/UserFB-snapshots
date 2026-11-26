@@ -1,0 +1,105 @@
+/**
+
+\page tetrahedral_flips Local Flips on Tetrahedral Meshes
+
+For local mesh optimization, %OpenVolumeMesh provides two in-place
+topological edits on tetrahedral meshes: the 2-to-3 and the 3-to-2 flip.
+Neither of them adds vertices or changes vertex coordinates, and both are
+implemented directly on the mesh instead of producing a separate result
+object.
+
+\subsection flip23 2-to-3 Flip
+
+A 2-to-3 flip replaces the two tetrahedra that share an internal
+triangular face by three tetrahedra arranged around a new internal edge.
+The new edge connects the two vertices that were opposite to the shared
+face. The six faces forming the cavity hull keep their handles, their
+half-face orientations and all of their properties; only the old internal
+face and the two old cells are marked deleted.
+
+Call TetrahedralMeshTopologyKernel::flip23() on a
+TetrahedralMeshTopologyKernel, or the geometric overload on a
+TetrahedralGeometryKernel:
+
+\code
+TetrahedralGeometryKernel<Vec3d> mesh;
+// ... build two tets sharing an internal face fh ...
+
+std::vector<CellHandle> created;
+if (mesh.flip23(fh, created)) {
+    // created contains the three new cell handles, sorted ascending
+}
+\endcode
+
+\subsection flip32 3-to-2 Flip
+
+The 3-to-2 flip is the exact inverse: it replaces the three tetrahedra
+around an internal edge of valence three by two tetrahedra that share a
+new internal triangular face. The new face connects the three vertices
+opposite to the central edge (the vertices of the edge's link).
+
+\code
+std::vector<CellHandle> created;
+if (mesh.flip32(edge, created)) {
+    // created contains the two new cell handles, sorted ascending
+}
+\endcode
+
+Because the two operations are inverse, a successful 2-to-3 flip can be
+undone immediately by a 3-to-2 flip on the freshly created edge, and any
+number of flips can be chained. Cell-vertex traversal, per-half-face
+adjacency and boundary queries reflect the new connectivity right after
+each call.
+
+\subsection flip_requirements Requirements and Rejection
+
+Both flips require deferred deletion and all bottom-up incidences
+(vertex, edge and face) to be enabled; otherwise they return false
+without touching the mesh. They never toggle these switches and never run
+garbage collection.
+
+The topological kernel only checks combinatorial validity. A flip is
+rejected, with the mesh left unchanged, when:
+
+\li the target face is on the boundary (2-to-3), or the target edge is on
+    the boundary or does not have valence three (3-to-2);
+\li the five cavity vertices are not pairwise distinct;
+\li the cavity does not have a spherical link, e.g. because of
+    self-adjacent cells;
+\li duplicate edges or faces already occupy a candidate internal
+    simplex;
+\li a handle is invalid or already deleted.
+
+On failure the output vector, the entity counts, all properties and all
+deletion flags stay as they were before the call.
+
+\subsection flip_geometry Geometric Volume Gate
+
+TetrahedralGeometryKernel offers geometric overloads with an additional
+relative volume threshold (default \f$10^{-12}\f$):
+
+\code
+const double threshold = 1e-12;
+mesh.flip23(fh, created, threshold);
+mesh.flip32(edge, created, threshold);
+\endcode
+
+Before writing, every removed cell must have a strictly positive signed
+volume, and every candidate replacement tet must satisfy
+\f$V > \epsilon\,L^3\f$, where \f$L\f$ is the longest distance between the
+five cavity vertices. Comparing the signed (not the absolute) volume
+ensures that a tet folding out of the cavity cannot pass the gate. Since
+the threshold is relative to \f$L^3\f$, the test is independent of the
+mesh's length scale.
+
+\subsection flip_properties Handles and Properties
+
+The six hull faces keep their handles and half-face orientations, so any
+external references to them remain valid. New internal edges and faces
+receive default property values. Every replacement cell copies all cell
+properties of the removed cell with the smallest handle, including
+user-defined property types. Removed cells and internal simplices are
+only marked deleted; their slots remain available until an explicit
+garbage collection, which the flips never trigger.
+
+*/
