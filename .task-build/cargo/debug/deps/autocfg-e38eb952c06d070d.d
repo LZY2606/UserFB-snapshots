@@ -1,0 +1,10 @@
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/autocfg-e38eb952c06d070d.d: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/error.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/rustc.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/version.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libautocfg-e38eb952c06d070d.rlib: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/error.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/rustc.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/version.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libautocfg-e38eb952c06d070d.rmeta: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/error.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/rustc.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/version.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/lib.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/error.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/rustc.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/autocfg/src/version.rs:

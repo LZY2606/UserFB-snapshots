@@ -89,6 +89,71 @@ fn main() {
 
 This code can also be found in `examples/sphere.rs`. Note that the shadow is correctly tinted red due to [global illumination](https://en.wikipedia.org/wiki/Global_illumination). See the detailed [API documentation](https://docs.rs/rpt) for information about all of the features, and feel free to learn from the other examples!
 
+### Ideal mirror panels
+
+The `rpt::mirrors` module adds finite, two-sided ideal planar mirrors. A
+`MirrorPanel` is a rectangle described by its `center` and two orthogonal,
+nonzero half-edge vectors `edge_u` and `edge_v`: it spans
+`center + a * edge_u + b * edge_v` for `a, b in [-1, 1]`, and every
+`reflectance` channel must be in `[0, 1]`. Up to 8 panels are supported, with
+`MirrorTransport::new(panels, max_reflections)` accepting a per-connection
+reflection limit in `0..=4`. The returned transport is read-only and shared;
+panels become real geometry for eye paths and occlusion, so do not also add
+copies to `Scene.objects`.
+
+```rust
+use rpt::*;
+
+let mut scene = Scene::new();
+// ... ordinary objects and a Light::Point ...
+let panel = MirrorPanel {
+    center: glm::vec3(2.0, 2.0, 0.0),
+    edge_u: glm::vec3(0.0, 2.0, 0.0),
+    edge_v: glm::vec3(0.0, 0.0, 2.0),
+    reflectance: glm::vec3(0.9, 0.8, 0.6),
+};
+let transport = MirrorTransport::new(vec![panel], 4).unwrap();
+let image = Renderer::new(&scene, camera)
+    .mirror_transport(&transport)
+    .max_bounces(4)
+    .render();
+```
+
+Point-light connections are found deterministically with the method of mirror
+images instead of random sampling. For every ordered panel sequence within the
+remaining bounce budget and `max_reflections`, the light is reflected across
+each panel plane and the straight line to the final virtual image is unfolded
+into a polyline satisfying the law of reflection. Consecutive repeats of the
+same panel are skipped (they collapse to a zero-length fold), while
+non-adjacent repeats such as `A -> B -> A` are fully explored. Each
+contribution uses the receiver's existing BSDF and forward cosine, the point
+light's intensity divided by the squared *total unfolded path length*, and the
+component-wise product of mirror reflectances; planar reflection introduces no
+extra area Jacobian. `MirrorTransport::connect` returns the same
+`MirrorConnection` values (panel sequence, world fold points, total length and
+reflectance product) used for the actual illumination.
+
+Degenerate configurations never contribute: segments parallel or coplanar
+with a panel plane have no unique intersection, zero-length segments are
+rejected, and fold points outside the finite aperture are rejected. Finite
+segment checks use absolute tolerances — `LENGTH_EPS = 1e-10` for positive
+segment length and the open occlusion interval (endpoint self-intersections,
+including objects behind the light, never shade), `PARALLEL_EPS = 1e-12` on
+the plane cosine, and a relative `APERTURE_EPS = 1e-10` so that a fold point
+on the rectangle boundary counts as inside. Every polyline segment is
+occlusion-tested against ordinary objects and against any panel that is not an
+endpoint of that segment, so mirrors are never treated as transparent
+connection markers.
+
+Eye rays and ordinary BSDF successors reflect specularly when a panel is the
+closest surface, consuming one `max_bounces` per reflection; mirrors also
+reflect environment lighting. `Renderer::trace_ray_seeded(ray, seed)` traces a
+single ray through the same code path with a fixed seed and returns the
+un-tonemapped linear color. Without `mirror_transport`, rendering behavior and
+the random sampling sequence are unchanged. The offline end-to-end demo lives
+in `harness/src/bin/mirror_demo.rs` and writes a small, finite, non-black PNG
+to the path passed as its command-line argument.
+
 ## References
 
 - [Physically Based Rendering, 3rd ed.](http://www.pbr-book.org/)

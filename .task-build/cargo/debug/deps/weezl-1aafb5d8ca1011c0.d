@@ -1,0 +1,10 @@
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/weezl-1aafb5d8ca1011c0.d: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/decode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/encode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/error.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libweezl-1aafb5d8ca1011c0.rlib: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/decode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/encode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/error.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libweezl-1aafb5d8ca1011c0.rmeta: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/decode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/encode.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/error.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/lib.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/decode.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/encode.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/weezl/src/error.rs:

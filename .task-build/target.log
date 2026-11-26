@@ -1,0 +1,22 @@
+warning: struct `SimpleCircleSystem` is never constructed
+  --> /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/src/ode/particle_system.rs:27:12
+   |
+27 | pub struct SimpleCircleSystem;
+   |            ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rpt` (lib) generated 1 warning
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.12s
+     Running tests/mirror_transport.rs (/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/mirror_transport-6d80b4211498508f)
+
+running 3 tests
+test mirror_geometry ... TASK_GROUP_DONE mirror_geometry checks=42
+ok
+test mirror_render ... TASK_GROUP_DONE mirror_render checks=23
+ok
+test mirror_visibility ... TASK_GROUP_DONE mirror_visibility checks=10
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

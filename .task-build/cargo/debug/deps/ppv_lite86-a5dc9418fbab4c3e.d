@@ -1,0 +1,10 @@
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/ppv_lite86-a5dc9418fbab4c3e.d: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/soft.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/types.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/generic.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libppv_lite86-a5dc9418fbab4c3e.rlib: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/soft.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/types.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/generic.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/.task-build/cargo/debug/deps/libppv_lite86-a5dc9418fbab4c3e.rmeta: /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/lib.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/soft.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/types.rs /Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/generic.rs
+
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/lib.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/soft.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/types.rs:
+/Users/lzy/pro/UserFB/workspace/Z02440/attempts/20261126T161211838354Z/repo/vendor/ppv-lite86/src/generic.rs:
