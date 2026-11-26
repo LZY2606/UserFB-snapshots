@@ -184,6 +184,11 @@ mmap { (prot & PROT_EXEC) == 0 },
 open { flags == O_RDONLY|O_CLOEXEC }
 ```
 
+Repeated bitwise subexpressions inside one comparison are canonicalized,
+shared, and assigned BPF scratch slots by the planner in
+[`VALUE_PLAN.md`](VALUE_PLAN.md).  The policy syntax and public API are
+unchanged.
+
 You don't have to declare arguments for well-known syscalls but can just use
 their regular names as specified in Linux kernel and `man` pages.
 

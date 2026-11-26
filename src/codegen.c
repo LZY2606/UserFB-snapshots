@@ -32,6 +32,7 @@
 #include "kafel.h"
 #include "range_rules.h"
 #include "syscall.h"
+#include "value_plan.h"
 
 #define INVALID_LOCATION INT_MIN
 #define MAX_JUMP UINT8_MAX
@@ -453,6 +454,102 @@ static int generate_load(struct codegen_ctxt *ctxt, struct expr_tree *expr,
   }
 }
 
+static __u16 value_plan_alu_op(int expr_op) {
+  switch (expr_op) {
+    case EXPR_BIT_AND:
+      return BPF_AND;
+    case EXPR_BIT_OR:
+      return BPF_OR;
+    default:
+      ASSERT(0);
+      return BPF_OR;
+  }
+}
+
+/*
+ * value_plan emits its setup steps in normal execution order.  The rest of
+ * codegen builds the pre-reversal buffer in reverse execution order, so append
+ * those steps from last to first.  The comparison jump has already been
+ * appended and global buffer reversal puts the planned setup before it.
+ */
+static int generate_value_plan(struct codegen_ctxt *ctxt,
+                               struct value_plan *plan) {
+  ASSERT(ctxt != NULL);
+  ASSERT(plan != NULL);
+  ASSERT(plan->feasible);
+
+  for (size_t i = plan->step_len; i > 0; --i) {
+    const struct value_plan_step *step = &plan->steps[i - 1];
+    switch (step->type) {
+      case VP_STEP_LOAD_ARG:
+        ADD_INSTR(BPF_LOAD_ARG_WORD(step->arg, step->word));
+        break;
+      case VP_STEP_LOAD_IMM:
+        ADD_INSTR(BPF_STMT(BPF_LD | BPF_IMM, step->value));
+        break;
+      case VP_STEP_LOAD_A_SLOT:
+        ADD_INSTR(BPF_STMT(BPF_LD | BPF_MEM, step->slot));
+        break;
+      case VP_STEP_LOAD_X_SLOT:
+        ADD_INSTR(BPF_STMT(BPF_LDX | BPF_MEM, step->slot));
+        break;
+      case VP_STEP_STORE_A_SLOT:
+        ADD_INSTR(BPF_STMT(BPF_ST, step->slot));
+        break;
+      case VP_STEP_ALU_K:
+        ADD_INSTR(BPF_STMT(
+            BPF_ALU | value_plan_alu_op(step->op) | BPF_K, step->value));
+        break;
+      case VP_STEP_ALU_X:
+        ADD_INSTR(BPF_STMT(
+            BPF_ALU | value_plan_alu_op(step->op) | BPF_X, 0));
+        break;
+      default:
+        ASSERT(0);
+    }
+  }
+
+  if (plan->max_slot_index > (int)ctxt->max_stack_ptr) {
+    ctxt->max_stack_ptr = plan->max_slot_index;
+  }
+  return CURRENT_LOC;
+}
+
+static bool generate_planned_operands(struct codegen_ctxt *ctxt,
+                                      struct expr_tree *left,
+                                      struct expr_tree *right, int word,
+                                      int *next) {
+  struct value_plan *plan = value_plan_build(left, right, word);
+  if (plan == NULL) {
+    return false;
+  }
+  if (!plan->feasible) {
+    value_plan_destroy(plan);
+    return false;
+  }
+
+  *next = generate_value_plan(ctxt, plan);
+  value_plan_destroy(plan);
+  return true;
+}
+
+static bool generate_planned_load(struct codegen_ctxt *ctxt,
+                                  struct expr_tree *expr, int word,
+                                  int *next) {
+  struct value_plan *plan = value_plan_build_load(expr, word);
+  if (plan == NULL) {
+    return false;
+  }
+  if (!plan->feasible) {
+    value_plan_destroy(plan);
+    return false;
+  }
+
+  *next = generate_value_plan(ctxt, plan);
+  value_plan_destroy(plan);
+  return true;
+}
+
 static bool is_64bit(struct expr_tree *expr) {
   if (expr->type >= EXPR_BINARY_MIN && expr->type <= EXPR_BINARY_MAX) {
     return is_64bit(expr->left) || is_64bit(expr->right);
@@ -536,21 +633,27 @@ static int generate_cmp32(struct codegen_ctxt *ctxt, __u32 type,
   if (is_const_value(right, word)) {
     next = ADD_JUMP_K(type, value_of(right, word), tloc, floc);
     if (load == ALWAYS || (load != NEVER && next > begin)) {
-      begin = next = generate_load(ctxt, left, word, 0);
+      if (!generate_planned_load(ctxt, left, word, &next)) {
+        next = generate_load(ctxt, left, word, 0);
+      }
+      begin = next;
     }
   } else {
     next = ADD_JUMP_X(type, tloc, floc);
     if (load == ALWAYS || (load != NEVER && next > begin)) {
-      bool use_stack = should_use_stack(left);
-      if (use_stack) {
-        ADD_INSTR(BPF_STMT(BPF_LDX | BPF_MEM, 0));
-        generate_load(ctxt, left, word, 1);
-        ADD_INSTR(BPF_STMT(BPF_ST, 0));
-      } else {
-        generate_load(ctxt, left, word, 0);
-        ADD_INSTR(BPF_STMT(BPF_MISC | BPF_TAX, 0));
+      if (!generate_planned_operands(ctxt, left, right, word, &next)) {
+        bool use_stack = should_use_stack(left);
+        if (use_stack) {
+          ADD_INSTR(BPF_STMT(BPF_LDX | BPF_MEM, 0));
+          generate_load(ctxt, left, word, 1);
+          ADD_INSTR(BPF_STMT(BPF_ST, 0));
+        } else {
+          generate_load(ctxt, left, word, 0);
+          ADD_INSTR(BPF_STMT(BPF_MISC | BPF_TAX, 0));
+        }
+        next = generate_load(ctxt, right, word, 0);
       }
-      begin = next = generate_load(ctxt, right, word, 0);
+      begin = next;
     }
   }
 

@@ -35,6 +35,7 @@ SYSCALL_LISTS:=amd64_syscalls.c \
 SRCS:=kafel.c \
       context.c \
       codegen.c \
+      value_plan.c \
       expression.c \
       includes.c \
       parser_types.c \
@@ -79,8 +80,9 @@ kafel.o: syscall.h common.h lexer.h parser.h
 context.o: context.h includes.h parser_types.h policy.h expression.h
 context.o: syscall.h common.h
 codegen.o: codegen.h context.h includes.h parser_types.h policy.h
-codegen.o: expression.h syscall.h common.h range_rules.h
+codegen.o: expression.h syscall.h common.h range_rules.h value_plan.h
 expression.o: expression.h parser_types.h syscall.h common.h
+value_plan.o: value_plan.h expression.h parser_types.h syscall.h common.h
 includes.o: includes.h common.h
 parser_types.o: parser_types.h common.h
 policy.o: policy.h expression.h parser_types.h syscall.h common.h
