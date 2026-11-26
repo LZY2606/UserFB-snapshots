@@ -137,6 +137,14 @@ static const char* GetAddrArg (unsigned Flags, uint32_t Addr)
 static void GenerateLabel (unsigned Flags, uint32_t Addr)
 /* Generate a label in pass one if requested */
 {
+    /* In automatic 65816 mode, targets outside the supplied interval are
+    ** path exits.  Do not add out-of-range constant labels; relative handlers
+    ** can then emit a reassemblable "*+offset" expression.
+    */
+    if (Auto65816 && (Addr < CodeStart || Addr > CodeEnd)) {
+        return;
+    }
+
     /* Generate labels in pass #1, and only if we don't have a label already */
     if (Pass == 1 && !HaveLabel (Addr) &&
         /* Check if we must create a label */

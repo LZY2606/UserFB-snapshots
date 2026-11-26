@@ -55,6 +55,7 @@ const char CfgExt[]           = ".cfg"; /* Config file extension */
 unsigned char DebugInfo       = 0;      /* Add debug info to the object file */
 unsigned char FormFeeds       = 0;      /* Add form feeds to the output? */
 unsigned char MultiPass       = 0;      /* Run several passes to resolve labels */
+unsigned char Auto65816       = 0;      /* Automatic 65816 state-flow mode */
 unsigned char UseHexOffs      = 0;      /* Use hexadecimal label offsets */
 signed char   NewlineAfterJMP = -1;     /* Add a newline after a JMP insn? */
 signed char   NewlineAfterRTS = -1;     /* Add a newline after a RTS insn? */

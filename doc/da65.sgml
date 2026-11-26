@@ -60,6 +60,7 @@ Short options:
 
 Long options:
   --argument-column n   Specify argument start column
+  --auto-65816 E,M,X,C   Track 65816 state and immediate widths
   --comment-column n    Specify comment start column
   --comments n          Set the comment level for the output
   --cpu type            Set cpu type
@@ -93,6 +94,57 @@ Here is a description of all the command line options:
 
   Specifies the column where the argument for a mnemonic or pseudo instruction
   starts.
+
+
+  <label id="option--auto-65816">
+  <tag><tt>--auto-65816 E,M,X,C</tt></tag>
+
+  Enable optional state-flow decoding for 65816 code.  The four comma-separated
+  values are zero or one and give the processor state at the unique entry
+  address: the emulation flag <tt/E/, the memory/accumulator width flag
+  <tt/M/, the index width flag <tt/X/, and the carry flag <tt/C/.  A value of
+  one for M or X means eight-bit operands; zero means 16-bit operands.  If
+  <tt/E=1/, both <tt/M/ and <tt/X/ must be one because emulation mode forces
+  eight-bit accumulator and index registers.
+
+  The analyzer follows conditional branches on both sides, merges equal
+  complete states at loop and branch targets, evaluates REP/SEP, CLC/SEC, XCE
+  and PLP, and retains both possible carry values after arithmetic, compare
+  and shift/rotate instructions that set C.  The M/X state on entry to an
+  instruction determines whether its immediate operand is two or three bytes;
+  the state changed by that same instruction only affects following
+  instructions.  BCC/BCS edges incompatible with a known carry are removed.
+  BRA, BRL and direct jumps follow their targets only; JSR/JSL, indirect
+  jumps, returns, BRK/COP, WAI and STP stop that analysis path.  Bytes not
+  reached as instructions remain data.
+
+  If two states at one address require different instruction lengths, if a
+  reachable instruction start lies inside another instruction's operand, or if
+  a candidate instruction is truncated at the end of the input, da65 reports
+  the addresses and exits unsuccessfully before creating the output file.
+  This option requires <tt/--cpu 65816/ and cannot be combined with
+  <tt/--info/.  Manual info files and all other CPUs keep their existing
+  behavior.
+
+  A small round-trippable example is:
+
+<tscreen><verb>
+mkdir -p .task-build
+cc task_support/make_fixture.c -o .task-build/make-fixture
+.task-build/make-fixture
+bin/da65 --cpu 65816 --auto-65816 0,0,1,0 \
+         --start-addr 0x8000 \
+         -o .task-build/auto-example.s .task-build/state.bin
+bin/ca65 --cpu 65816 -o .task-build/auto-example.o \
+         .task-build/auto-example.s
+bin/ld65 -o .task-build/auto-example.bin \
+         -C test/dasm/65816.cfg .task-build/auto-example.o
+cmp .task-build/state.bin .task-build/auto-example.bin
+</verb></tscreen>
+
+  The initial native state <tt/0,0,1,0/ means M=0 (16-bit accumulator) and
+  X=1 (eight-bit index).  REP preserves M=0, so the first LDA is disassembled
+  as <tt/lda #$1234/; SEP then sets M=1 and the next LDA is eight bits.
 
 
   <label id="option--comment-column">

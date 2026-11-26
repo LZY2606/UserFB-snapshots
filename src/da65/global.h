@@ -60,6 +60,7 @@ extern const char       CfgExt[];       /* Config file extension */
 extern unsigned char    DebugInfo;      /* Add debug info to the object file */
 extern unsigned char    FormFeeds;      /* Add form feeds to the output? */
 extern unsigned char    MultiPass;      /* Run several passes to resolve labels */
+extern unsigned char    Auto65816;      /* State-flow width decoding is active */
 extern unsigned char    UseHexOffs;     /* Use hexadecimal label offsets */
 extern signed char      NewlineAfterJMP;/* Add a newline after a JMP insn? */
 extern signed char      NewlineAfterRTS;/* Add a newline after a RTS insn? */

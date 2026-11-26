@@ -61,13 +61,17 @@
 #include "infofile.h"
 #include "labels.h"
 #include "opctable.h"
+#include "opcflow.h"
 #include "opc45GS02.h"
 #include "output.h"
 #include "scanner.h"
 #include "segment.h"
+#include "widthflow.h"
 
 
 static unsigned PrevAddrMode;
+
+static WfState       Auto65816InitialState;
 
 
 /*****************************************************************************/
@@ -95,6 +99,7 @@ static void Usage (void)
             "\n"
             "Long options:\n"
             "  --argument-column n\tSpecify argument start column\n"
+            "  --auto-65816 E,M,X,C\tDecode 65816 widths from entry state\n"
             "  --comment-column n\tSpecify comment start column\n"
             "  --comments n\t\tSet the comment level for the output\n"
             "  --cpu type\t\tSet cpu type\n"
@@ -225,6 +230,18 @@ static void OptCPU (const char* Opt attribute ((unused)), const char* Arg)
     /* Find the CPU from the given name */
     CPU = FindCPU (Arg);
     SetOpcTable (CPU);
+}
+
+
+
+static void OptAuto65816 (const char* Opt attribute ((unused)), const char* Arg)
+/* Handle the --auto-65816 option */
+{
+    if (!WfParseState (Arg, &Auto65816InitialState)) {
+        Error ("Invalid state for --auto-65816: expected E,M,X,C as four "
+               "comma-separated 0/1 values, with E=1 requiring M=X=1");
+    }
+    Auto65816 = 1;
 }
 
 
@@ -386,6 +403,84 @@ static void OptVersion (const char* Opt attribute ((unused)),
 
 
 
+static attr_t AutoModeAttr (const WfSite* Site,
+                            WfState* Previous, int* HavePrevious)
+/* Choose a deterministic representative of a state set.  A width-sensitive
+** opcode has only one possible M or X width here; for other opcodes prefer
+** the previous mode to avoid unnecessary .a8/.i8 directives.
+*/
+{
+    unsigned I;
+    int      BestScore = -1;
+    WfState  Best = Auto65816InitialState;
+
+    for (I = 0; I < OPCFLOW_STATE_COUNT; ++I) {
+        WfState State;
+        int     Score = 0;
+
+        if ((Site->StateMask & (1u << I)) == 0) {
+            continue;
+        }
+        OpcFlowStateFromIndex (I, &State);
+
+        if (*HavePrevious) {
+            Score = (State.M == Previous->M) + (State.X == Previous->X);
+        }
+        if (Score > BestScore) {
+            BestScore = Score;
+            Best = State;
+        }
+    }
+
+    *Previous = Best;
+    *HavePrevious = 1;
+
+    return (Best.M ? atMem8 : atMem16) | (Best.X ? atIdx8 : atIdx16);
+}
+
+
+
+static void ApplyAuto65816 (void)
+/* Run state/width flow and mark unambiguous reachable instructions as code. */
+{
+    size_t     Size = (size_t) (CodeEnd - CodeStart + 1);
+    WfResult*  Result;
+    size_t     I;
+    WfState    Previous = Auto65816InitialState;
+    int        HavePrevious = 0;
+
+    Result = WfAnalyze (CodeBuf + CodeStart, Size, CodeStart,
+                        &Auto65816InitialState);
+    if (Result == 0) {
+        Error ("Invalid --auto-65816 input or state");
+    }
+
+    if (!Result->Clean) {
+        for (I = 0; I < Result->DiagnosticCount; ++I) {
+            fprintf (stderr, "%s: %s\n", ProgName,
+                     Result->Diagnostics[I].Message);
+        }
+        WfResultFree (Result);
+        Error ("65816 state-flow decoding is ambiguous or truncated");
+    }
+
+    for (I = 0; I < Result->SiteCount; ++I) {
+        WfSite* Site = &Result->Sites[I];
+        attr_t  Mode;
+
+        if (Site->StateMask == 0) {
+            continue;
+        }
+
+        Mode = AutoModeAttr (Site, &Previous, &HavePrevious);
+        MarkAddr (Site->Address, atCode | Mode);
+    }
+
+    WfResultFree (Result);
+}
+
+
+
 static unsigned HandleChangedLength(const OpcDesc* D, unsigned PC)
 /* Instructions that have flSizeChanges set may use a different size than what
 ** the table says. This function adjusts the PC accordingly, so after this only
@@ -418,12 +513,12 @@ static unsigned HandleChangedLength(const OpcDesc* D, unsigned PC)
                 }
             }
         } else if (CPU == CPU_65816) {
-            if ((D->Handler == OH_Immediate65816M &&
-                GetAttr (PC) & atMem16) ||
-                (D->Handler == OH_Immediate65816X &&
-                GetAttr (PC) & atIdx16)) {
-                PC++;
-            }
+            attr_t Mode = GetAttr (PC);
+            unsigned TotalSize =
+                Opc65816LengthForWidth (GetCodeByte (PC),
+                                        !!(Mode & atMem16),
+                                        !!(Mode & atIdx16));
+            PC += TotalSize - D->Size;
         }
     }
     return PC;
@@ -443,8 +538,13 @@ static void OneOpcode (unsigned RemainingBytes)
     /* Get the opcode description for the opcode byte */
     const OpcDesc* D = &OpcTable[OPC];
 
-    /* Get the output style for the current PC */
-    attr_t Style = GetStyleAttr (PC);
+    /* Get the output style and width attributes for the current PC */
+    attr_t FullAttr = GetAttr (PC);
+    attr_t Style = FullAttr & atStyleMask;
+    unsigned InsnSize = (CPU == CPU_65816)
+        ? Opc65816LengthForWidth (OPC, !!(FullAttr & atMem16),
+                                  !!(FullAttr & atIdx16))
+        : D->Size;
 
     /* If a segment begins here, then name that segment.
     ** Note that the segment is named even if its code is being skipped,
@@ -473,21 +573,21 @@ static void OneOpcode (unsigned RemainingBytes)
     ** If any one of those conditions is false, switch to data mode.
     */
     if (Style == atDefault) {
-        if (D->Size > RemainingBytes) {
+        if (InsnSize > RemainingBytes) {
             Style = atIllegal;
             MarkAddr (PC, Style);
         } else if (D->Flags & flIllegal) {
             Style = atIllegal;
             MarkAddr (PC, Style);
         } else {
-            for (I = PC + D->Size; --I > PC; ) {
+            for (I = PC + InsnSize; --I > PC; ) {
                 if (HaveLabel (I) || IsSegmentStart (I)) {
                     Style = atIllegal;
                     MarkAddr (PC, Style);
                     break;
                 }
             }
-            for (I = 0; I < D->Size - 1u; ++I) {
+            for (I = 0; I < InsnSize - 1u; ++I) {
                 if (IsSegmentEnd (PC + I)) {
                     Style = atIllegal;
                     MarkAddr (PC, Style);
@@ -515,9 +615,9 @@ static void OneOpcode (unsigned RemainingBytes)
             /* Beware: If we don't have enough bytes left to disassemble the
             ** following insn, fall through to byte mode.
             */
-            if (D->Size <= RemainingBytes) {
+            if (InsnSize <= RemainingBytes) {
                 if (CPU == CPU_65816) {
-                    const unsigned AddrMode = GetAttr (PC) & at65816Mask;
+                    const unsigned AddrMode = FullAttr & at65816Mask;
                     if (PrevAddrMode != AddrMode) {
                         if ((PrevAddrMode & atMem8) != (AddrMode & atMem8) ||
                             (PrevAddrMode & atMem16) != (AddrMode & atMem16)) {
@@ -533,7 +633,7 @@ static void OneOpcode (unsigned RemainingBytes)
                 }
 
                 /* Output labels within the next insn */
-                for (I = 1; I < D->Size; ++I) {
+                for (I = 1; I < InsnSize; ++I) {
                     ForwardLabel (I);
                 }
                 /* Output the insn */
@@ -659,6 +759,7 @@ int main (int argc, char* argv [])
     /* Program long options */
     static const LongOpt OptTab[] = {
         { "--argument-column",  1,      OptArgumentColumn       },
+        { "--auto-65816",       1,      OptAuto65816           },
         { "--bytes-per-line",   1,      OptBytesPerLine         },
         { "--comment-column",   1,      OptCommentColumn        },
         { "--comments",         1,      OptComments             },
@@ -765,6 +866,21 @@ int main (int argc, char* argv [])
         ++I;
     }
 
+    /* State-flow width decoding is strictly opt-in and cannot be combined
+    ** with the manual address-mode/range information file.
+    */
+    if (Auto65816) {
+        if (CPU != CPU_65816) {
+            Error ("--auto-65816 can only be used with --cpu 65816");
+        }
+        if (InfoAvail ()) {
+            Error ("--auto-65816 cannot be used together with --info");
+        }
+        if (!OpcFlowStateValid (&Auto65816InitialState)) {
+            Error ("Invalid --auto-65816 state: E=1 requires M=X=1");
+        }
+    }
+
     /* Try to read the info file */
     ReadInfoFile ();
 
@@ -800,6 +916,20 @@ int main (int argc, char* argv [])
 
     /* Load the input file */
     LoadCode ();
+
+    /* Resolve automatic 65816 widths before creating/truncating the output
+    ** file.  Ambiguous or truncated input therefore does not publish a
+    ** disassembly that appears complete.
+    */
+    if (Auto65816) {
+        /* Avoid leaving a stale successful-looking output file if the new
+        ** analysis fails before OpenOutput would truncate it.
+        */
+        if (OutFile != 0) {
+            remove (OutFile);
+        }
+        ApplyAuto65816 ();
+    }
 
     /* Open the output file */
     OpenOutput (OutFile);
