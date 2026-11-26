@@ -163,6 +163,9 @@ public: //--------------------------------------------------- module management
     return *_mh.module();
   }
 
+  /// All registered modules, used by optional history validation.
+  const ModuleList& all_modules() const { return all_modules_; }
+
 
 protected:
 

@@ -55,6 +55,8 @@
 //== INCLUDES =================================================================
 
 #include <memory>
+#include <functional>
+#include <utility>
 
 #include <OpenMesh/Core/Utils/Property.hh>
 #include <OpenMesh/Tools/Utils/HeapT.hh>
@@ -102,17 +104,69 @@ public:
   size_t decimate( size_t _n_collapses = 0 );
 
   /// Decimate to target complexity, returns number of collapses
-  size_t decimate_to( size_t  _n_vertices )
-  {
-    return ( (_n_vertices < this->mesh().n_vertices()) ?
-	     decimate( this->mesh().n_vertices() - _n_vertices ) : 0 );
-  }
+  size_t decimate_to( size_t  _n_vertices );
 
   /** Decimate to target complexity (vertices and faces).
    *  Stops when the number of vertices or the number of faces is reached.
    *  Returns number of performed collapses.
    */
   size_t decimate_to_faces( size_t  _n_vertices=0, size_t _n_faces=0 );
+
+  /** \name Collapse history, undo and redo
+   *
+   * History is an opt-in local before/after image log. Call
+   * set_history_transfer() before enable_history(), finish all property and
+   * module setup, call initialize(), and then enable_history().
+   *
+   * While history is enabled, do not directly edit the mesh topology or
+   * points, and do not change property values outside the transfer callback
+   * or change property layout; do not add/remove modules, change module
+   * parameters, or call initialize() again. Garbage collection is also
+   * rejected because history keeps original handle indices. Disable history
+   * before compacting the mesh.
+   *
+   * The mesh must outlive the decimater. At most one DecimaterT history
+   * session may be active for a mesh at a time.
+   *
+   * Only a non-binary ModQuadricT, optionally together with
+   * ModNormalFlippingT, can enable history.
+   */
+  //@{
+
+  /// Enable local collapse history after a successful initialize().
+  bool enable_history();
+
+  /// Discard all history records and release the mesh history/GC session.
+  void disable_history();
+
+  /// Undo at most _n collapses. Returns the number actually moved.
+  size_t undo(size_t _n = 1);
+
+  /// Redo at most _n collapses. Returns the number actually moved.
+  size_t redo(size_t _n = 1);
+
+  /// Number of records on the current undo branch.
+  size_t history_size() const;
+
+  /// Number of applied records from the start of the current branch.
+  size_t history_position() const;
+
+  /// Number of V/H/E/F property values in all retained before/after images.
+  size_t history_stored_elements() const;
+
+  /** Set an optional attribute transfer callback before enable_history().
+   *
+   * It is called once per completed collapse after normal updates and module
+   * postprocessing. The callback may modify ordinary V/H/E/F properties on
+   * the local support domain, but must not change topology, points, status,
+   * normals, property layout, or module-private state. Undo/redo restores
+   * the recorded result directly and therefore does not call the callback.
+   */
+  void set_history_transfer(
+      std::function<void(const CollapseInfo&)> _transfer)
+  { history_transfer_ = std::move(_transfer); }
+
+  //@}
 
 public:
 
@@ -161,6 +215,12 @@ private: //---------------------------------------------------- private methods
   /// Insert vertex in heap
   void heap_vertex(VertexHandle _vh);
 
+  bool collapse_legal_without_tag_leak(const CollapseInfo& _ci);
+  size_t count_live_vertices() const;
+  size_t count_live_faces() const;
+
+  struct HistoryState;
+
 private: //------------------------------------------------------- private data
 
 
@@ -174,6 +234,9 @@ private: //------------------------------------------------------- private data
   VPropHandleT<HalfedgeHandle>  collapse_target_;
   VPropHandleT<float>           priority_;
   VPropHandleT<int>             heap_position_;
+
+  std::unique_ptr<HistoryState> history_;
+  std::function<void(const CollapseInfo&)> history_transfer_;
 
 };
 

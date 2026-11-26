@@ -41,12 +41,15 @@
 
 #include <OpenMesh/Core/Mesh/ArrayKernel.hh>
 
+#include <stdexcept>
+
 namespace OpenMesh
 {
 
 ArrayKernel::ArrayKernel()
 : refcount_vstatus_(0), refcount_hstatus_(0),
-  refcount_estatus_(0), refcount_fstatus_(0)
+  refcount_estatus_(0), refcount_fstatus_(0),
+  history_gc_owner_(0)
 {
   init_bit_masks(); //Status bit masks initialization
 }
@@ -162,8 +165,25 @@ unsigned int ArrayKernel::delete_isolated_vertices()
   return n_isolated;
 }
 
+bool ArrayKernel::begin_decimation_history_session(const void* _owner)
+{
+  if (!_owner || (history_gc_owner_ && history_gc_owner_ != _owner))
+    return false;
+  history_gc_owner_ = _owner;
+  return true;
+}
+
+void ArrayKernel::end_decimation_history_session(const void* _owner)
+{
+  if (history_gc_owner_ == _owner)
+    history_gc_owner_ = 0;
+}
+
 void ArrayKernel::garbage_collection(bool _v, bool _e, bool _f)
 {
+  if (history_gc_owner_)
+    throw std::logic_error("garbage_collection() is forbidden while decimation history is enabled");
+
   std::vector<VertexHandle*> empty_vh;
   std::vector<HalfedgeHandle*> empty_hh;
   std::vector<FaceHandle*> empty_fh;

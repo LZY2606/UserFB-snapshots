@@ -55,6 +55,12 @@ namespace OpenMesh {
     Abstract class defining the basic interface of a dynamic property.
 **/
 
+class OPENMESHDLLEXPORT PropertyValueMemento
+{
+public:
+  virtual ~PropertyValueMemento() {}
+};
+
 class OPENMESHDLLEXPORT BaseProperty
 {
 public:
@@ -111,6 +117,13 @@ public: // synchronized array interface
   
   /// Return a deep copy of self.
   virtual BaseProperty* clone () const = 0;
+
+  /// Save one element without copying the complete property container.
+  virtual PropertyValueMemento* save_value(size_t /*_idx*/) const { return 0; }
+
+  /// Restore one element from a memento created by save_value().
+  virtual void restore_value(size_t /*_idx*/,
+                             const PropertyValueMemento& /*_value*/) {}
 
 public: // named property interface
 

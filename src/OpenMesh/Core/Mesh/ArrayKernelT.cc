@@ -45,6 +45,8 @@
 
 #include <OpenMesh/Core/Mesh/ArrayKernel.hh>
 
+#include <stdexcept>
+
 //== NAMESPACES ===============================================================
 
 namespace OpenMesh
@@ -60,6 +62,8 @@ void ArrayKernel::garbage_collection(std_API_Container_VHandlePointer& vh_to_upd
                                      std_API_Container_FHandlePointer& fh_to_update,
                                      bool _v, bool _e, bool _f)
 {
+  if (history_gc_owner_)
+    throw std::logic_error("garbage_collection() is forbidden while decimation history is enabled");
 
 #ifdef DEBUG
   #ifndef OM_GARBAGE_NO_STATUS_WARNING

@@ -82,6 +82,64 @@
 
   See \ref DecimaterExa.
         
+\section DecimaterHistory Collapse history, undo and redo
+
+  DecimaterT can optionally keep local before/after images of completed
+  halfedge collapses. Enable the session only after all properties and modules
+  have been registered and initialize() has succeeded:
+
+  \code
+  decimater.set_history_transfer(transfer_attributes); // optional, before enable
+  decimater.initialize();
+  if (!decimater.enable_history()) { /* unsupported module combination */ }
+
+  decimater.decimate(10);
+  decimater.undo(2);
+  decimater.redo(1);
+  \endcode
+
+  undo() and redo() restore the original vertex, halfedge, edge and face
+  indices, connectivity, status bits, points, normals and all ordinary
+  V/H/E/F properties. This includes bool, std::string and copyable user
+  types without IO support. ModQuadricT accumulators are ordinary vertex
+  properties and are restored to the corresponding history position; they are
+  not recomputed from the current coarse mesh. Replay restores images directly
+  and therefore does not rerun priorities, collapse modules or the transfer
+  callback.
+
+  history_size() is the number of records on the current branch and
+  history_position() is the number of applied records. Undoing and then
+  performing another successful collapse creates a new branch and discards
+  the old future at the first new collapse. history_stored_elements() counts
+  one for each property value in every retained before/after image. Internal
+  heap and candidate-cache properties are not counted.
+
+  The optional std::function<void(const CollapseInfo&)> transfer callback is
+  called once after normal updates and module postprocessing for each
+  completed collapse. It should transfer source, weight and face-corner
+  attributes to retained elements. It may write ordinary V/H/E/F properties
+  on the pre-collapse faces adjacent to either endpoint and all of their
+  vertices, edges and halfedges, including deleted slots. It must not change
+  topology, points, status, normals, property layout or module-private state.
+
+  While history is enabled, handle indices must remain stable. Therefore
+  both garbage_collection() overloads throw std::logic_error before making
+  changes, even when the history is empty. Call disable_history() before
+  garbage collection. Destroying the decimater also ends the session and
+  restores the normal garbage-collection behavior.
+
+  During a history session the caller must not directly edit the mesh or its
+  property values/layout, add/remove modules, change parameters, or call
+  initialize() again. The mesh must outlive the decimater, and only one
+  history session may be bound to a mesh at a time. History supports a
+  non-binary ModQuadricT alone or together with ModNormalFlippingT; other
+  module combinations make enable_history() return false without changing
+  the mesh or modules.
+
+  A complete C++14 call example follows:
+
+\include decimation_history.cc
+
 \section DecimaterExa Basic Setup
 
   The following small example show the basic steps to setup up a

@@ -5,8 +5,10 @@ mode=${1:-baseline}
 if [[ $mode == target ]]; then test -s checks/test_decimation_history.cpp; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
-  c++ -std=c++14 -O1 -Wno-deprecated-declarations -Isrc -I. -x c++ task_support/driver.c checks/test_decimation_history.cpp -x none .task-build/core.a -o .task-build/target
-  output_log=$(mktemp)
+  mkdir -p .task-build/include
+  ln -sfn ../../task_support .task-build/include/task_support
+  c++ -std=c++14 -O1 -Wno-deprecated-declarations -Isrc -I.task-build/include -x c++ task_support/driver.c checks/test_decimation_history.cpp -x none .task-build/core.a -o .task-build/target
+  output_log=.task-build/target-output.log
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

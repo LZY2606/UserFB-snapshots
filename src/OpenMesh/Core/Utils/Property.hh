@@ -199,6 +199,22 @@ public: // data access interface
     return p;
   }
 
+  struct ValueMemento : public PropertyValueMemento
+  {
+    explicit ValueMemento(const T& _value) : value_(_value) {}
+    T value_;
+  };
+
+  virtual PropertyValueMemento* save_value(size_t _idx) const
+  { return new ValueMemento(data_[_idx]); }
+
+  virtual void restore_value(size_t _idx, const PropertyValueMemento& _value)
+  {
+    const ValueMemento* v = dynamic_cast<const ValueMemento*>(&_value);
+    if (v)
+      data_[_idx] = v->value_;
+  }
+
 
 private:
 
@@ -363,6 +379,22 @@ public:
     return p;
   }
 
+  struct ValueMemento : public PropertyValueMemento
+  {
+    explicit ValueMemento(bool _value) : value_(_value) {}
+    bool value_;
+  };
+
+  virtual PropertyValueMemento* save_value(size_t _idx) const
+  { return new ValueMemento(data_[_idx]); }
+
+  virtual void restore_value(size_t _idx, const PropertyValueMemento& _value)
+  {
+    const ValueMemento* v = dynamic_cast<const ValueMemento*>(&_value);
+    if (v)
+      data_[_idx] = v->value_;
+  }
+
 
 private:
 
@@ -449,6 +481,23 @@ public:
     PropertyT<value_type>* p = new PropertyT<value_type>( *this );
     return p;
   }
+
+  struct ValueMemento : public PropertyValueMemento
+  {
+    explicit ValueMemento(const std::string& _value) : value_(_value) {}
+    std::string value_;
+  };
+
+  virtual PropertyValueMemento* save_value(size_t _idx) const
+  { return new ValueMemento(data_[_idx]); }
+
+  virtual void restore_value(size_t _idx, const PropertyValueMemento& _value)
+  {
+    const ValueMemento* v = dynamic_cast<const ValueMemento*>(&_value);
+    if (v)
+      data_[_idx] = v->value_;
+  }
+
 private:
 
   vector_type data_;

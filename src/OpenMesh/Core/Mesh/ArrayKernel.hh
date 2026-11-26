@@ -287,6 +287,11 @@ public:
                           std_API_Container_FHandlePointer& fh_to_update,
                           bool _v=true, bool _e=true, bool _f=true);
 
+  // Decimater history sessions pin handle indices and therefore forbid GC.
+  bool begin_decimation_history_session(const void* _owner);
+  void end_decimation_history_session(const void* _owner);
+  bool decimation_history_active() const { return history_gc_owner_ != 0; }
+
   /** \brief Clear the whole mesh
    *
    *  This will remove all properties and elements from the mesh
@@ -827,6 +832,8 @@ private:
   BitMaskContainer                          edge_bit_masks_;
   BitMaskContainer                          vertex_bit_masks_;
   BitMaskContainer                          face_bit_masks_;
+
+  const void*                               history_gc_owner_;
 };
 
 
