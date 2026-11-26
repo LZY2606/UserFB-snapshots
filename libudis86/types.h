@@ -121,6 +121,10 @@ enum ud_type
   UD_R_YMM8,  UD_R_YMM9,  UD_R_YMM10, UD_R_YMM11,
   UD_R_YMM12, UD_R_YMM13, UD_R_YMM14, UD_R_YMM15,
 
+  /* AMX tile registers (distinct from the vector register files) */
+  UD_R_TMM0,  UD_R_TMM1,  UD_R_TMM2,  UD_R_TMM3,
+  UD_R_TMM4,  UD_R_TMM5,  UD_R_TMM6,  UD_R_TMM7,
+
   UD_R_RIP,
 
   /* Operand Types */

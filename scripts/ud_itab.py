@@ -100,6 +100,13 @@ class UdItabGenerator:
         "Wx"       : [    "OP_W"        , "SZ_X"     ],
         "L"        : [    "OP_L"        , "SZ_O"     ],
         "Lx"       : [    "OP_L"        , "SZ_X"     ],
+        # AMX tile registers. T is the modrm.rm tile, TG the modrm.reg
+        # tile and TH the tile encoded in VEX.vvvv. Tile shapes come from
+        # the runtime tile configuration, so no static operand size is
+        # assigned.
+        "T"        : [    "OP_T"        , "SZ_NA"    ],
+        "TG"       : [    "OP_TG"       , "SZ_NA"    ],
+        "TH"       : [    "OP_TH"       , "SZ_NA"    ],
         "MwU"      : [    "OP_MU"       , "SZ_WO"    ],
         "MdU"      : [    "OP_MU"       , "SZ_DO"    ],
         "MqU"      : [    "OP_MU"       , "SZ_QO"    ],

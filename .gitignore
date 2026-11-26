@@ -72,3 +72,7 @@ _ReSharper*/
 *.tar.gz
 tests/bufoverrun
 tests/symresolve
+
+# task harness scratch directories
+.task-build/
+.task-tmp/

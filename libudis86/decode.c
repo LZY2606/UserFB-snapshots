@@ -65,7 +65,8 @@ enum reg_class { /* register classes */
   REGCLASS_CR,
   REGCLASS_DB,
   REGCLASS_SEG,
-  REGCLASS_XMM
+  REGCLASS_XMM,
+  REGCLASS_TMM
 };
 
  /* 
@@ -453,6 +454,10 @@ decode_reg(struct ud *u,
       }
       break;
     }
+    case REGCLASS_TMM :
+      /* only tmm0-tmm7 exist; the upper extension bit is ignored. */
+      reg = UD_R_TMM0 + (num & 7);
+      break;
     default:
       UD_ASSERT(!"invalid register type");
       return;
@@ -701,6 +706,40 @@ decode_vex_vvvv(struct ud *u, struct ud_operand *opr, unsigned size)
   decode_reg(u, opr, REGCLASS_XMM, (0xf & ~vvvv), size);
 }
 
+/*
+ * decode_tile_reg / decode_tile_rm / decode_tile_vvvv
+ *    Decode AMX tile registers (tmm0-tmm7). The tile file is kept
+ *    separate from the vector register file, so these never produce
+ *    xmm/ymm operands.
+ */
+static void
+decode_tile_reg(struct ud *u, struct ud_operand *opr)
+{
+  uint8_t reg = (REX_R(u->_rex) << 3) | MODRM_REG(modrm(u));
+  decode_reg(u, opr, REGCLASS_TMM, reg, 0);
+}
+
+static void
+decode_tile_rm(struct ud *u, struct ud_operand *opr)
+{
+  uint8_t rm;
+  if (MODRM_MOD(modrm(u)) != 3) {
+    UDERR(u, "expected modrm.mod == 3 for tile register\n");
+    return;
+  }
+  rm = (REX_B(u->_rex) << 3) | MODRM_RM(modrm(u));
+  decode_reg(u, opr, REGCLASS_TMM, rm, 0);
+}
+
+static void
+decode_tile_vvvv(struct ud *u, struct ud_operand *opr)
+{
+  uint8_t vvvv;
+  UD_ASSERT(u->vex_op != 0);
+  vvvv = ((u->vex_op == 0xc4 ? u->vex_b2 : u->vex_b1) >> 3) & 0xf;
+  decode_reg(u, opr, REGCLASS_TMM, (0xf & ~vvvv), 0);
+}
+
 
 /* 
  * decode_vex_immreg
@@ -877,6 +916,15 @@ decode_operand(struct ud           *u,
       break;
     case OP_L:
       decode_vex_immreg(u, operand, size);
+      break;
+    case OP_T:
+      decode_tile_rm(u, operand);
+      break;
+    case OP_TG:
+      decode_tile_reg(u, operand);
+      break;
+    case OP_TH:
+      decode_tile_vvvv(u, operand);
       break;
     default :
       operand->type = UD_NONE;

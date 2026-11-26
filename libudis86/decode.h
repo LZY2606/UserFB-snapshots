@@ -96,9 +96,12 @@ enum ud_operand_code {
     OP_U,      OP_N,      OP_MU,      OP_H,
     OP_L,
 
-    OP_R,      OP_C,      OP_D,       
+    OP_R,      OP_C,      OP_D,
 
-    OP_MR
+    OP_MR,
+
+    /* AMX tile registers (modrm.rm, modrm.reg and VEX.vvvv) */
+    OP_T,      OP_TG,     OP_TH
 } UD_ATTR_PACKED;
 
 
