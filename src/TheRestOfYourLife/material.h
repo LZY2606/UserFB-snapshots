@@ -12,6 +12,7 @@
 //==============================================================================================
 
 #include "hittable.h"
+#include "light_path_expression.h"
 #include "pdf.h"
 #include "texture.h"
 
@@ -22,6 +23,9 @@ class scatter_record {
     shared_ptr<pdf> pdf_ptr;
     bool skip_pdf;
     ray skip_pdf_ray;
+    // Light-path event label for this scattering event. Materials that do not set it
+    // keep the default, which is a diffuse (D) event.
+    path_event event = PATH_D;
 };
 
 
@@ -81,6 +85,8 @@ class metal : public material {
         srec.pdf_ptr = nullptr;
         srec.skip_pdf = true;
         srec.skip_pdf_ray = ray(rec.p, reflected, r_in.time());
+        // Fuzzy metal is still a specular reflection event.
+        srec.event = PATH_S;
 
         return true;
     }
@@ -108,10 +114,15 @@ class dielectric : public material {
         bool cannot_refract = ri * sin_theta > 1.0;
         vec3 direction;
 
-        if (cannot_refract || reflectance(cos_theta, ri) > random_double())
+        if (cannot_refract || reflectance(cos_theta, ri) > random_double()) {
             direction = reflect(unit_direction, rec.normal);
-        else
+            // Label the event from what this ray actually did; total internal
+            // reflection can only be S.
+            srec.event = PATH_S;
+        } else {
             direction = refract(unit_direction, rec.normal, ri);
+            srec.event = PATH_T;
+        }
 
         srec.skip_pdf_ray = ray(rec.p, direction, r_in.time());
         return true;
@@ -157,6 +168,7 @@ class isotropic : public material {
         srec.attenuation = tex->value(rec.u, rec.v, rec.p);
         srec.pdf_ptr = make_shared<sphere_pdf>();
         srec.skip_pdf = false;
+        srec.event = PATH_V;
         return true;
     }
 

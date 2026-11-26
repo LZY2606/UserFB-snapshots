@@ -54,6 +54,29 @@ class camera {
         std::clog << "\rDone.                 \n";
     }
 
+    // Everything below backs the AOV entry points in light_path_expression.  The sample
+    // rays are generated in exactly the same order, and consume exactly the same random
+    // numbers, as render(), so enabling AOV collection does not perturb the path stream.
+
+    void prepare() { initialize(); }
+
+    int rendered_image_height() const { return image_height; }
+    double pixel_scale() const { return pixel_samples_scale; }
+
+    // Calls fn(i, j, ray) once per camera sample in render() order.  prepare() must have
+    // been called first.
+    template <class F>
+    void for_each_sample_ray(F fn) const {
+        for (int j = 0; j < image_height; j++) {
+            for (int i = 0; i < image_width; i++) {
+                for (int s_j = 0; s_j < sqrt_spp; s_j++) {
+                    for (int s_i = 0; s_i < sqrt_spp; s_i++)
+                        fn(i, j, get_ray(i, j, s_i, s_j));
+                }
+            }
+        }
+    }
+
   private:
     int    image_height;         // Rendered image height
     double pixel_samples_scale;  // Color scale factor for a sum of pixel samples

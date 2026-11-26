@@ -1,0 +1,18 @@
+-- Compiler ID: AppleClang
+-- Release flags: -O3 -DNDEBUG
+-- Debug flags: -g
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125Y1099/attempts/20261126T161915745920Z/repo/.build/cmake
+[ 30%] Building CXX object CMakeFiles/theRestOfYourLife.dir/src/TheRestOfYourLife/main.cc.o
+[ 35%] Built target theNextWeek
+[ 35%] Built target inOneWeekend
+[ 35%] Built target cos_cubed
+[ 45%] Built target cos_density
+[ 60%] Built target pi
+[ 65%] Built target integrate_x_sq
+[ 90%] Built target sphere_plot
+[ 90%] Built target sphere_importance
+[ 95%] Built target estimate_halfway
+[100%] Linking CXX executable theRestOfYourLife
+[100%] Built target theRestOfYourLife

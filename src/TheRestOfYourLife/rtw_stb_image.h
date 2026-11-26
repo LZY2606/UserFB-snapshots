@@ -14,9 +14,22 @@
     #pragma warning (push, 0)
 #endif
 
+// In multi-translation-unit builds only one TU may define the stb_image implementation;
+// every other TU still needs the declarations.
+#ifdef RTW_NO_HEADER_IMPLEMENTATION
+#include "external/stb_image.h"
+// The allocation macros are only defined inside stb's implementation section; mirror its
+// defaults here so rtw_image's inline methods still compile in a declaration-only TU.
+#ifndef STBI_MALLOC
+#define STBI_MALLOC(sz)       std::malloc(sz)
+#define STBI_REALLOC(p, sz)   std::realloc(p, sz)
+#define STBI_FREE(p)          std::free(p)
+#endif
+#else
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_FAILURE_USERMSG
 #include "external/stb_image.h"
+#endif
 
 #include <cstdlib>
 #include <iostream>

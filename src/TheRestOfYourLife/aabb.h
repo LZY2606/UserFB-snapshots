@@ -95,6 +95,11 @@ class aabb {
     }
 };
 
+// Out-of-line definitions live below; declarations stay visible in every TU.
+aabb operator+(const aabb& bbox, const vec3& offset);
+aabb operator+(const vec3& offset, const aabb& bbox);
+
+#ifndef RTW_NO_HEADER_IMPLEMENTATION
 const aabb aabb::empty    = aabb(interval::empty,    interval::empty,    interval::empty);
 const aabb aabb::universe = aabb(interval::universe, interval::universe, interval::universe);
 
@@ -105,6 +110,7 @@ aabb operator+(const aabb& bbox, const vec3& offset) {
 aabb operator+(const vec3& offset, const aabb& bbox) {
     return bbox + offset;
 }
+#endif
 
 
 #endif

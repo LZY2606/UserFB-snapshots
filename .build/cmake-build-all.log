@@ -1,0 +1,28 @@
+[ 10%] Building CXX object CMakeFiles/cos_cubed.dir/src/TheRestOfYourLife/cos_cubed.cc.o
+[ 10%] Building CXX object CMakeFiles/inOneWeekend.dir/src/InOneWeekend/main.cc.o
+[ 15%] Building CXX object CMakeFiles/theNextWeek.dir/src/TheNextWeek/main.cc.o
+[ 25%] Built target theRestOfYourLife
+[ 30%] Building CXX object CMakeFiles/cos_density.dir/src/TheRestOfYourLife/cos_density.cc.o
+[ 35%] Linking CXX executable cos_cubed
+[ 40%] Linking CXX executable cos_density
+[ 40%] Built target cos_cubed
+[ 45%] Building CXX object CMakeFiles/integrate_x_sq.dir/src/TheRestOfYourLife/integrate_x_sq.cc.o
+[ 45%] Built target cos_density
+[ 50%] Building CXX object CMakeFiles/pi.dir/src/TheRestOfYourLife/pi.cc.o
+[ 55%] Linking CXX executable inOneWeekend
+[ 55%] Built target inOneWeekend
+[ 60%] Building CXX object CMakeFiles/estimate_halfway.dir/src/TheRestOfYourLife/estimate_halfway.cc.o
+[ 65%] Linking CXX executable integrate_x_sq
+[ 70%] Linking CXX executable pi
+[ 70%] Built target integrate_x_sq
+[ 75%] Building CXX object CMakeFiles/sphere_importance.dir/src/TheRestOfYourLife/sphere_importance.cc.o
+[ 75%] Built target pi
+[ 80%] Building CXX object CMakeFiles/sphere_plot.dir/src/TheRestOfYourLife/sphere_plot.cc.o
+[ 85%] Linking CXX executable estimate_halfway
+[ 85%] Built target estimate_halfway
+[ 90%] Linking CXX executable sphere_importance
+[ 95%] Linking CXX executable sphere_plot
+[ 95%] Built target sphere_importance
+[ 95%] Built target sphere_plot
+[100%] Linking CXX executable theNextWeek
+[100%] Built target theNextWeek

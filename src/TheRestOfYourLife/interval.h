@@ -50,6 +50,11 @@ class interval {
     static const interval empty, universe;
 };
 
+// Out-of-line definitions live below; declarations stay visible in every TU.
+interval operator+(const interval& ival, double displacement);
+interval operator+(double displacement, const interval& ival);
+
+#ifndef RTW_NO_HEADER_IMPLEMENTATION
 const interval interval::empty    = interval(+infinity, -infinity);
 const interval interval::universe = interval(-infinity, +infinity);
 
@@ -60,6 +65,7 @@ interval operator+(const interval& ival, double displacement) {
 interval operator+(double displacement, const interval& ival) {
     return ival + displacement;
 }
+#endif
 
 
 #endif

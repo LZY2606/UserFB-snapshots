@@ -1,0 +1,12 @@
+[ 10%] Built target inOneWeekend
+[ 20%] Built target theNextWeek
+[ 30%] Built target cos_cubed
+[ 35%] Building CXX object CMakeFiles/theRestOfYourLife.dir/src/TheRestOfYourLife/main.cc.o
+[ 65%] Built target integrate_x_sq
+[ 65%] Built target pi
+[ 65%] Built target cos_density
+[ 85%] Built target sphere_plot
+[ 95%] Built target estimate_halfway
+[ 95%] Built target sphere_importance
+[100%] Linking CXX executable theRestOfYourLife
+[100%] Built target theRestOfYourLife

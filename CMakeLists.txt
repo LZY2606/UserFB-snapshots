@@ -63,6 +63,7 @@ set ( SOURCE_REST_OF_YOUR_LIFE
   src/TheRestOfYourLife/hittable.h
   src/TheRestOfYourLife/hittable_list.h
   src/TheRestOfYourLife/interval.h
+  src/TheRestOfYourLife/light_path_expression.h
   src/TheRestOfYourLife/material.h
   src/TheRestOfYourLife/onb.h
   src/TheRestOfYourLife/pdf.h
@@ -75,6 +76,11 @@ set ( SOURCE_REST_OF_YOUR_LIFE
   src/TheRestOfYourLife/texture.h
   src/TheRestOfYourLife/vec3.h
 )
+
+# light_path_expression.cpp is a separate translation unit: the multi-TU AOV test harness
+# is built directly by support/target.sh (which defines RTW_NO_HEADER_IMPLEMENTATION for the
+# declaration-only translation unit).  It is intentionally not linked into the single-TU
+# theRestOfYourLife executable above.
 
 include_directories(src)
 

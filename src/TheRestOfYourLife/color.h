@@ -27,6 +27,10 @@ inline double linear_to_gamma(double linear_component)
 }
 
 
+// Out-of-line definition lives below; the declaration stays visible in every TU.
+void write_color(std::ostream& out, const color& pixel_color);
+
+#ifndef RTW_NO_HEADER_IMPLEMENTATION
 void write_color(std::ostream& out, const color& pixel_color) {
     auto r = pixel_color.x();
     auto g = pixel_color.y();
@@ -51,6 +55,7 @@ void write_color(std::ostream& out, const color& pixel_color) {
     // Write out the pixel color components.
     out << rbyte << ' ' << gbyte << ' ' << bbyte << '\n';
 }
+#endif
 
 
 #endif
