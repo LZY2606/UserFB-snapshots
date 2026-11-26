@@ -5806,6 +5806,19 @@ GF_Err gf_isom_text_add_karaoke(GF_TextSample *tx_samp, u32 start_time);
 \return error if any
 */
 GF_Err gf_isom_text_set_karaoke_segment(GF_TextSample *tx_samp, u32 end_time, u16 start_char, u16 end_char);
+
+/*! bakes karaoke and static highlights into ordinary tx3g style records.
+The source track is read but not modified. A new track is created in destination,
+preserving media timescale, sample descriptions, description switches and edits.
+Karaoke timing is relative to each source sample start and expressed in source track ticks.
+\param src source ISO file
+\param track source track number
+\param dst writable destination ISO file, must be a different handle from src
+\param out_track set to the new destination track number, or 0 on failure
+\return error if any
+*/
+GF_Err gf_isom_text_bake_karaoke(GF_ISOFile *src, u32 track, GF_ISOFile *dst, u32 *out_track);
+
 /*! sets scroll delay for the whole sample (scrolling is enabled through GF_TextSampleDescriptor.DisplayFlags)
 \param tx_samp the target text sample
 \param scroll_delay delay for scrolling expressed in text stream timescale
