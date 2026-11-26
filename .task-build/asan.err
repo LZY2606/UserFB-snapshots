@@ -1,0 +1,2 @@
+bitstream.h:166:17: runtime error: left shift of 4881904815717473992 by 1 places cannot be represented in type 'intptr_t' (aka 'long')
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior bitstream.h:166:17 

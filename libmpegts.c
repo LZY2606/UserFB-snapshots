@@ -724,7 +724,9 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
         }
         program->pmt_packets = temp2;
 
-        program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE + TP_EXTRA_HEADER_BYTES( w ) );
+        /* extra tail bytes absorb the word-sized prefetch in bs_init after
+         * write_padding lands exactly at the packet end */
+        program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE + TP_EXTRA_HEADER_BYTES( w ) + 8 );
         if( !program->pmt_packets[program->num_queued_pmt] )
         {
             fprintf( stderr, "malloc failed" );
@@ -1013,30 +1015,31 @@ ts_writer_t *ts_create_writer( void )
     return w;
 }
 
-int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
+/* Multi-program (2..8 static programs, Generic/CBR/low-latency only)
+ * configuration validation.  This is purely observational: it must not
+ * allocate or mutate writer state so a rejected setup leaves the writer
+ * safe to close (and a previous good configuration intact). */
+static int mpts_validate_setup( ts_main_t *params )
 {
-    // TODO check for PID collisions, add MPTS support
-    if( params->ts_type < TS_TYPE_GENERIC || params->ts_type > TS_TYPE_BLU_RAY )
+    const int pid_min = 0x20;
+    const int pid_max = 0x1ffe;
+    int n = params->num_programs;
+
+    if( params->ts_type != TS_TYPE_GENERIC )
     {
-        fprintf( stderr, "Invalid Transport Stream type.\n" );
+        fprintf( stderr, "Multi-program support is only available for TS_TYPE_GENERIC\n" );
         return -1;
     }
 
-    if( params->num_programs > 1 )
+    if( !params->cbr )
     {
-        fprintf( stderr, "Multiple program transport streams are not yet supported.\n" );
+        fprintf( stderr, "Variable bitrate multi-program transport streams are not supported\n" );
         return -1;
     }
 
-    if( !params->cbr && params->num_programs > 1 )
+    if( !params->lowlatency )
     {
-        fprintf( stderr, "Multiple program transport streams cannot be variable bitrate.\n" );
-        return -1;
-    }
-
-    if( params->network_pid && ( params->network_pid < 0x10 || params->network_pid == 0x1fff ) )
-    {
-        fprintf( stderr, "Invalid network_PID.\n" );
+        fprintf( stderr, "Non-low-latency multi-program transport streams are not supported\n" );
         return -1;
     }
 
@@ -1046,61 +1049,263 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
     }
 
-    if( params->programs[0].num_streams < 0 || params->programs[0].num_streams > MAX_STREAMS )
+    if( params->network_pid &&
+        ( params->network_pid < 0x10 || params->network_pid == 0x1fff ) )
     {
-        fprintf( stderr, "Invalid number of streams\n" );
+        fprintf( stderr, "Invalid network_PID for multi-program transport stream\n" );
         return -1;
     }
 
-    /* service descriptor names share an 8-bit descriptor_length with 3 other bytes */
-    if( ( params->programs[0].sdt.service_name ? strlen( params->programs[0].sdt.service_name ) : 0 ) +
-        ( params->programs[0].sdt.provider_name ? strlen( params->programs[0].sdt.provider_name ) : 0 ) > 252 )
+    for( int i = 0; i < n; i++ )
     {
-        fprintf( stderr, "Service and provider names too long\n" );
+        ts_program_t *p = &params->programs[i];
+
+        if( p->program_num < 1 || p->program_num > 65535 )
+        {
+            fprintf( stderr, "Program number %i out of range 1..65535\n", p->program_num );
+            return -1;
+        }
+
+        for( int j = i + 1; j < n; j++ )
+        {
+            if( p->program_num == params->programs[j].program_num )
+            {
+                fprintf( stderr, "Duplicate program number %i\n", p->program_num );
+                return -1;
+            }
+        }
+
+        if( p->num_streams < 0 || p->num_streams > MAX_STREAMS )
+        {
+            fprintf( stderr, "Invalid number of streams for program %i\n", p->program_num );
+            return -1;
+        }
+
+        if( p->pmt_pid < pid_min || p->pmt_pid > pid_max )
+        {
+            fprintf( stderr, "PMT PID %#x out of range 0x20..0x1ffe\n", p->pmt_pid );
+            return -1;
+        }
+
+        if( p->pmt_pid == params->network_pid )
+        {
+            fprintf( stderr, "PMT PID %#x conflicts with network_PID\n", p->pmt_pid );
+            return -1;
+        }
+
+        if( p->pcr_pid < pid_min || p->pcr_pid > pid_max )
+        {
+            fprintf( stderr, "PCR PID %#x out of range 0x20..0x1ffe\n", p->pcr_pid );
+            return -1;
+        }
+
+        if( p->pcr_pid == params->network_pid )
+        {
+            fprintf( stderr, "PCR PID %#x conflicts with network_PID\n", p->pcr_pid );
+            return -1;
+        }
+
+        int video_streams = 0;
+        int pcr_on_own_es = 0;
+
+        for( int k = 0; k < p->num_streams; k++ )
+        {
+            ts_stream_t *s = &p->streams[k];
+
+            if( s->pid < pid_min || s->pid > pid_max )
+            {
+                fprintf( stderr, "Elementary PID %#x out of range 0x20..0x1ffe\n", s->pid );
+                return -1;
+            }
+
+            if( s->pid == params->network_pid )
+            {
+                fprintf( stderr, "Elementary PID %#x conflicts with network_PID\n", s->pid );
+                return -1;
+            }
+
+            int is_video = s->stream_format == LIBMPEGTS_VIDEO_MPEG2 ||
+                           s->stream_format == LIBMPEGTS_VIDEO_AVC;
+
+            if( is_video )
+                video_streams++;
+
+            if( video_streams > 1 )
+            {
+                fprintf( stderr, "Multiple video streams in program %i are not allowed\n", p->program_num );
+                return -1;
+            }
+
+            if( s->pid == p->pcr_pid )
+                pcr_on_own_es = 1;
+
+            /* ES PIDs are a single namespace across every program */
+            for( int q = 0; q < n; q++ )
+            {
+                ts_program_t *other = &params->programs[q];
+
+                if( other->pmt_pid == s->pid )
+                {
+                    fprintf( stderr, "Elementary PID %#x collides with a PMT PID\n", s->pid );
+                    return -1;
+                }
+
+                for( int m = 0; m < other->num_streams; m++ )
+                {
+                    if( q == i && m == k )
+                        continue;
+                    if( other->streams[m].pid == s->pid )
+                    {
+                        fprintf( stderr, "Elementary PID %#x is shared or duplicated\n", s->pid );
+                        return -1;
+                    }
+                }
+            }
+        }
+
+        /* PCR PID must reference an ES of this program or be exclusive:
+         * no PMT or ES anywhere may use it and no other program may claim it. */
+        if( !pcr_on_own_es )
+        {
+            for( int q = 0; q < n; q++ )
+            {
+                ts_program_t *other = &params->programs[q];
+
+                if( other->pmt_pid == p->pcr_pid )
+                {
+                    fprintf( stderr, "Independent PCR PID %#x collides with a PMT PID\n", p->pcr_pid );
+                    return -1;
+                }
+
+                if( q != i && other->pcr_pid == p->pcr_pid )
+                {
+                    fprintf( stderr, "PCR PID %#x shared between programs\n", p->pcr_pid );
+                    return -1;
+                }
+
+                for( int m = 0; m < other->num_streams; m++ )
+                {
+                    if( other->streams[m].pid == p->pcr_pid )
+                    {
+                        fprintf( stderr, "PCR PID %#x is not an elementary stream of program %i\n",
+                                 p->pcr_pid, p->program_num );
+                        return -1;
+                    }
+                }
+            }
+        }
+    }
+
+    /* PMT PIDs must also be unique across programs */
+    for( int i = 0; i < n; i++ )
+        for( int j = i + 1; j < n; j++ )
+            if( params->programs[i].pmt_pid == params->programs[j].pmt_pid )
+            {
+                fprintf( stderr, "Duplicate PMT PID %#x\n", params->programs[i].pmt_pid );
+                return -1;
+            }
+
+    return 0;
+}
+
+int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
+{
+    if( params->ts_type < TS_TYPE_GENERIC || params->ts_type > TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "Invalid Transport Stream type.\n" );
         return -1;
+    }
+
+    if( params->num_programs < 1 || params->num_programs > 8 )
+    {
+        fprintf( stderr, "Only 1 to 8 programs are supported\n" );
+        return -1;
+    }
+
+    if( params->num_programs >= 2 )
+    {
+        /* Unsupported multi-program modes and configuration conflicts are
+         * rejected before any writer state is built. */
+        if( mpts_validate_setup( params ) < 0 )
+            return -1;
+    }
+    else
+    {
+        if( params->network_pid && ( params->network_pid < 0x10 || params->network_pid == 0x1fff ) )
+        {
+            fprintf( stderr, "Invalid network_PID.\n" );
+            return -1;
+        }
+
+        if( !params->muxrate )
+        {
+            fprintf( stderr, "Muxrate must be nonzero\n" );
+            return -1;
+        }
+
+        if( params->programs[0].num_streams < 0 || params->programs[0].num_streams > MAX_STREAMS )
+        {
+            fprintf( stderr, "Invalid number of streams\n" );
+            return -1;
+        }
+
+        /* service descriptor names share an 8-bit descriptor_length with 3 other bytes */
+        if( ( params->programs[0].sdt.service_name ? strlen( params->programs[0].sdt.service_name ) : 0 ) +
+            ( params->programs[0].sdt.provider_name ? strlen( params->programs[0].sdt.provider_name ) : 0 ) > 252 )
+        {
+            fprintf( stderr, "Service and provider names too long\n" );
+            return -1;
+        }
     }
 
     BOOLIFY( params->cbr );
     BOOLIFY( params->legacy_constraints );
 
-    int internal_pcr_pid, video_stream;
-    internal_pcr_pid = video_stream = 0;
-    ts_int_program_t *cur_program = calloc( 1, sizeof(*cur_program) );
-    if( !cur_program )
-    {
-        fprintf( stderr, "Malloc failed\n" );
-        return -1;
-    }
-
     w->ts_type = params->ts_type;
-    w->num_programs = 1;
-    w->programs[0] = cur_program;
+    w->num_programs = 0;
 
-    cur_program->pmt.pid = params->programs[0].pmt_pid;
-    cur_program->program_num = params->programs[0].program_num;
-
-    cur_program->is_3dtv = params->programs[0].is_3dtv;
-    cur_program->sb_leak_rate = params->programs[0].sb_leak_rate;
-    cur_program->sb_size = params->programs[0].sb_size;
-    cur_program->video_dts = -1;
-
-    cur_program->sdt_ctx.service_type = params->programs[0].sdt.service_type;
-    cur_program->sdt_ctx.service_name = copy_string( params->programs[0].sdt.service_name ? params->programs[0].sdt.service_name : "" );
-    if( !cur_program->sdt_ctx.service_name )
+    for( int prog_idx = 0; prog_idx < params->num_programs; prog_idx++ )
     {
-        fprintf( stderr, "Malloc failed\n" );
-        return -1;
-    }
-    cur_program->sdt_ctx.provider_name = copy_string( params->programs[0].sdt.provider_name ? params->programs[0].sdt.provider_name : "" );
-    if( !cur_program->sdt_ctx.provider_name )
-    {
-        fprintf( stderr, "Malloc failed\n" );
-        return -1;
-    }
+        ts_program_t *prog_in = &params->programs[prog_idx];
 
-    for( int i = 0; i < params->programs[0].num_streams; i++ )
-    {
-        ts_stream_t *stream_in = &params->programs[0].streams[i];
+        int internal_pcr_pid, video_stream;
+        internal_pcr_pid = video_stream = 0;
+        ts_int_program_t *cur_program = calloc( 1, sizeof(*cur_program) );
+        if( !cur_program )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+
+        /* publish before filling in so close can release a partial setup */
+        w->programs[prog_idx] = cur_program;
+        w->num_programs = prog_idx + 1;
+
+        cur_program->pmt.pid = prog_in->pmt_pid;
+        cur_program->program_num = prog_in->program_num;
+
+        cur_program->is_3dtv = prog_in->is_3dtv;
+        cur_program->sb_leak_rate = prog_in->sb_leak_rate;
+        cur_program->sb_size = prog_in->sb_size;
+        cur_program->video_dts = -1;
+
+        cur_program->sdt_ctx.service_type = prog_in->sdt.service_type;
+        cur_program->sdt_ctx.service_name = copy_string( prog_in->sdt.service_name ? prog_in->sdt.service_name : "" );
+        if( !cur_program->sdt_ctx.service_name )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+        cur_program->sdt_ctx.provider_name = copy_string( prog_in->sdt.provider_name ? prog_in->sdt.provider_name : "" );
+        if( !cur_program->sdt_ctx.provider_name )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+
+        for( int i = 0; i < prog_in->num_streams; i++ )
+        {
+            ts_stream_t *stream_in = &prog_in->streams[i];
 
         if( stream_in->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream_in->stream_format == LIBMPEGTS_VIDEO_AVC )
         {
@@ -1120,6 +1325,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             return -1;
         }
 
+        cur_stream->owner = cur_program;
         cur_stream->pid = stream_in->pid;
         cur_stream->stream_format = stream_in->stream_format;
         for( int j = 0; stream_type_table[j][0] != 0; j++ )
@@ -1151,7 +1357,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 
         cur_stream->audio_type = stream_in->audio_type;
 
-        if( cur_stream->pid == params->programs[0].pcr_pid )
+        if( cur_stream->pid == prog_in->pcr_pid )
         {
             cur_program->pcr_stream = cur_stream;
             internal_pcr_pid = 1;
@@ -1232,8 +1438,10 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         ts_int_stream_t *pcr_stream = calloc( 1, sizeof(*pcr_stream) );
         if( !pcr_stream )
             return -1;
-        pcr_stream->pid = params->programs[0].pcr_pid;
+        pcr_stream->owner = cur_program;
+        pcr_stream->pid = prog_in->pcr_pid;
         cur_program->pcr_stream = pcr_stream;
+    }
     }
 
     update_ts_params( w, params );
@@ -1724,6 +1932,404 @@ void ts_remove_sdt( ts_writer_t *w )
     w->sdt = NULL;
 }
 
+/**** Multi-program muxing (TS_TYPE_GENERIC / cbr / lowlatency, 2..8 programs)
+ *
+ * The output keeps one shared constant bit-rate time axis driven by
+ * w->packets_written.  Every program owns its PMT, its per-PID continuity
+ * counters and its own last_pcr state.  The scheduling loop below emits one
+ * TS packet per iteration so independent PCR deadlines and PSI bursts cannot
+ * jump past each other. ****/
+
+/* queue PAT followed by one PMT action per program */
+static int mpts_queue_tables( ts_writer_t *w )
+{
+    int need = w->psi_queue_len + w->num_programs + 1;
+
+    if( w->psi_queue_alloc < need )
+    {
+        int alloc = need + 8;
+        int *q = realloc( w->psi_queue, alloc * sizeof(*q) );
+        if( !q )
+        {
+            fprintf( stderr, "realloc failed\n" );
+            return -1;
+        }
+        w->psi_queue = q;
+        w->psi_queue_alloc = alloc;
+    }
+
+    w->psi_queue[w->psi_queue_len++] = -1;
+    for( int i = 0; i < w->num_programs; i++ )
+        w->psi_queue[w->psi_queue_len++] = i;
+
+    return 0;
+}
+
+/* emit exactly one TS packet for the head table action */
+static int mpts_emit_table_step( ts_writer_t *w )
+{
+    int action = w->psi_queue[0];
+
+    if( action < 0 )
+    {
+        if( write_pat( w ) < 0 )
+            return -1;
+
+        w->psi_queue_len--;
+        memmove( &w->psi_queue[0], &w->psi_queue[1], w->psi_queue_len * sizeof(*w->psi_queue) );
+    }
+    else
+    {
+        ts_int_program_t *program = w->programs[action];
+
+        /* write_pmt emits the first section packet, or ejects one queued
+         * continuation packet if a long PMT is already being sent. */
+        if( write_pmt( w, program ) < 0 )
+            return -1;
+
+        if( !program->num_queued_pmt )
+        {
+            w->psi_queue_len--;
+            memmove( &w->psi_queue[0], &w->psi_queue[1], w->psi_queue_len * sizeof(*w->psi_queue) );
+        }
+    }
+
+    return 0;
+}
+
+/* earliest-dts eligible non-video PES, else earliest-dts eligible video PES */
+static ts_int_pes_t *mpts_pick_media( ts_writer_t *w, int64_t cur_pcr, int64_t pkt_time )
+{
+    ts_int_pes_t *pes = NULL;
+
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        ts_int_pes_t *cand = w->buffered_frames[i];
+        ts_int_stream_t *stream = cand->stream;
+
+        if( IS_VIDEO( stream ) )
+            continue;
+
+        if( pes && cand->dts >= pes->dts )
+            continue;
+
+        if( cur_pcr >= cand->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+            pes_due( stream->owner, cand, cur_pcr, pkt_time ) )
+            pes = cand;
+    }
+
+    if( pes )
+        return pes;
+
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        ts_int_pes_t *cand = w->buffered_frames[i];
+        ts_int_stream_t *stream = cand->stream;
+
+        if( !IS_VIDEO( stream ) )
+            continue;
+
+        if( pes && cand->dts >= pes->dts )
+            continue;
+
+        if( cur_pcr >= cand->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+            pes_due( stream->owner, cand, cur_pcr, pkt_time ) )
+            pes = cand;
+    }
+
+    return pes;
+}
+
+/* eligible PES on a due program's PCR stream, for PCR piggybacking */
+static ts_int_pes_t *mpts_pick_pcr_carrier( ts_writer_t *w, ts_int_program_t *program, int64_t cur_pcr )
+{
+    ts_int_pes_t *pes = NULL;
+
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        ts_int_pes_t *cand = w->buffered_frames[i];
+        ts_int_stream_t *stream = cand->stream;
+
+        if( stream != program->pcr_stream )
+            continue;
+
+        if( pes && cand->dts >= pes->dts )
+            continue;
+
+        if( cur_pcr >= cand->initial_arrival_time && stream->tb.cur_buf == 0.0 )
+            pes = cand;
+    }
+
+    return pes;
+}
+
+/* write one TS packet carrying (a chunk of) pes, optionally with a PCR */
+static int mpts_write_pes_packet( ts_writer_t *w, ts_int_pes_t *pes, int write_pcr )
+{
+    ts_int_program_t *program = pes->stream->owner;
+    ts_int_stream_t *stream = pes->stream;
+    bs_t q;
+    uint8_t temp[200];
+    bs_t *s = &w->out.bs;
+
+    int stuffing, flags, pkt_bytes_left, adapt_field_len, write_adapt_field, pes_start, start;
+
+    pkt_bytes_left = 184;
+    adapt_field_len = write_adapt_field = 0;
+    pes_start = pes->data == pes->cur_pos;
+
+    if( program->pcr_stream == stream && pes_start )
+        write_adapt_field = 1;
+
+    if( pes_start && pes->random_access )
+        write_adapt_field = 1;
+
+    if( write_pcr )
+        write_adapt_field = 1;
+
+    bs_init( &q, temp, 150 );
+
+    if( write_adapt_field )
+    {
+        adapt_field_len = write_adaptation_field( w, &q, program, pes, write_pcr, 1, 0, 0 );
+        pkt_bytes_left -= adapt_field_len;
+    }
+
+    /* DVB AU_Information is large so consider this case */
+    if( !adapt_field_len && pes_start && stream->dvb_au )
+    {
+        adapt_field_len = write_adaptation_field( w, &q, program, pes, 0, 1, 0, 0 );
+        pkt_bytes_left -= adapt_field_len;
+    }
+
+    if( pes->bytes_left >= pkt_bytes_left )
+    {
+        write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len) << 1), &stream->cc );
+        if( adapt_field_len )
+            write_adaptation_field( w, s, program, pes, write_pcr, 1, 0, 0 );
+
+        write_bytes( s, pes->cur_pos, pkt_bytes_left );
+        pes->cur_pos += pkt_bytes_left;
+        pes->bytes_left -= pkt_bytes_left;
+        if( pes_start )
+            pes->random_access = 0;
+        add_to_buffer( &stream->tb );
+        if( increase_pcr( w, 1, 0 ) < 0 )
+            return -1;
+    }
+    else
+    {
+        /* stuff the last packet with an oversized adaptation field */
+        stuffing = pkt_bytes_left - pes->bytes_left;
+        flags = 1;
+
+        if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+        {
+            adapt_field_len = 0;
+        }
+        else if( stuffing == 1 && !adapt_field_len )
+        {
+            stuffing = flags = 0;
+            adapt_field_len = 1;
+        }
+        else if( stuffing && !adapt_field_len )
+        {
+            adapt_field_len = 2;
+            stuffing -= 2; /* 2 bytes for adaptation field in this case */
+        }
+
+        start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
+        write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len) << 1), &stream->cc );
+        if( adapt_field_len )
+            write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
+        if( pes_start )
+            pes->random_access = 0;
+
+        write_bytes( s, pes->cur_pos, pes->bytes_left );
+        if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+            write_padding( s, start );
+
+        pes->bytes_left = 0;
+        add_to_buffer( &stream->tb );
+        if( increase_pcr( w, 1, 0 ) < 0 )
+            return -1;
+    }
+
+    if( pes->bytes_left == 0 )
+    {
+        /* eject the current pes from the queue */
+        for( int i = 0; i < w->num_buffered_frames; i++ )
+        {
+            if( w->buffered_frames[i] == pes )
+            {
+                w->num_buffered_frames--;
+                memmove( &w->buffered_frames[i], &w->buffered_frames[i+1],
+                         (w->num_buffered_frames - i) * sizeof(w->buffered_frames[0]) );
+                break;
+            }
+        }
+
+        free( pes->data );
+        free( pes );
+    }
+
+    return 0;
+}
+
+/* positive when the program's PCR deadline is due; larger = more overdue */
+static int64_t mpts_pcr_urgency( ts_writer_t *w, ts_int_program_t *program )
+{
+    int64_t next_pkt_pcr = get_pcr_int( w, TS_PACKET_SIZE + PCR_BYTE_OFFSET ) - (int64_t)program->last_pcr;
+    return next_pkt_pcr - (int64_t)w->pcr_period * (TS_CLOCK / 1000);
+}
+
+static int mpts_write_frames( ts_writer_t *w, int64_t pcr_stop, int drain,
+                              uint8_t **out, int *len, int64_t **pcr_list )
+{
+    bs_t *s = &w->out.bs;
+    int64_t pkt_time = (int64_t)TS_PACKET_SIZE * 8 * TS_CLOCK / w->ts_muxrate;
+    int initial_burst = 1;
+    int64_t cur_pcr;
+
+    /* first round: an initial (discontinuity) PCR for every program */
+    if( !w->first_input )
+    {
+        /* the initial mux buffer can be tiny at very low muxrates */
+        if( check_bitstream( w ) < 0 )
+            return -1;
+
+        for( int p = 0; p < w->num_programs; p++ )
+        {
+            if( write_pcr_empty( w, w->programs[p], 1 ) < 0 )
+                return -1;
+        }
+        w->first_input = 1;
+
+        w->last_pat = get_pcr_int( w, 0 );
+        if( mpts_queue_tables( w ) < 0 )
+            return -1;
+    }
+
+    cur_pcr = get_pcr_int( w, 0 );
+
+    for( ;; )
+    {
+        int within_window = cur_pcr < pcr_stop;
+        int drain_active = drain && w->num_buffered_frames > 0;
+        int table_pending = w->psi_queue_len > 0;
+
+        if( !within_window && !drain_active && !table_pending )
+            break;
+
+        /* past the arrival window only a final num_frames=0 drain may still
+         * push buffered media out; a pending table burst is flushed too */
+        int media_allowed = within_window || drain_active;
+
+        ts_int_program_t *due = NULL;
+        int64_t due_urgency = -1;
+        ts_int_pes_t *pes;
+
+        if( check_bitstream( w ) < 0 )
+            return -1;
+
+        /* retransmit the same PAT + PMT group at pat_period */
+        if( within_window && w->psi_queue_len == 0 &&
+            cur_pcr - (int64_t)w->last_pat >= (int64_t)w->pat_period * 27000LL )
+        {
+            w->last_pat = cur_pcr;
+            if( mpts_queue_tables( w ) < 0 )
+                return -1;
+            table_pending = 1;
+        }
+
+        /* PCR deadlines take the next slot while inside the arrival window.
+         * At most one program's PCR is emitted per slot, so N simultaneous
+         * deadlines need N slots; pick the most overdue program.  Past the
+         * window a final num_frames=0 drain pushes buffered media out without
+         * scheduling more PCR, which also guarantees termination. */
+        if( within_window )
+        {
+            for( int p = 0; p < w->num_programs; p++ )
+            {
+                int64_t urgency = mpts_pcr_urgency( w, w->programs[p] );
+                if( urgency >= 0 && urgency > due_urgency )
+                {
+                    due_urgency = urgency;
+                    due = w->programs[p];
+                }
+            }
+        }
+
+        if( due )
+        {
+            /* during the opening table burst never put media on the wire */
+            pes = w->psi_queue_len == 0 ? mpts_pick_pcr_carrier( w, due, cur_pcr ) : NULL;
+
+            if( pes )
+            {
+                if( mpts_write_pes_packet( w, pes, 1 ) < 0 )
+                    return -1;
+            }
+            else if( write_pcr_empty( w, due, 0 ) < 0 )
+                return -1;
+
+            cur_pcr = get_pcr_int( w, 0 );
+            continue;
+        }
+
+        /* no new media once the batch's arrival window has been covered,
+         * unless this is the final num_frames=0 drain */
+        pes = media_allowed ? mpts_pick_media( w, cur_pcr, pkt_time ) : NULL;
+
+        if( w->psi_queue_len > 0 )
+        {
+            /* a PES at its final-arrival deadline may jump ahead of a
+             * retransmission burst, but the opening burst always completes
+             * before the first media packet */
+            int urgent = pes && cur_pcr >= pes->final_arrival_time - pkt_time;
+
+            if( !initial_burst && urgent )
+            {
+                if( mpts_write_pes_packet( w, pes, 0 ) < 0 )
+                    return -1;
+            }
+            else
+            {
+                if( mpts_emit_table_step( w ) < 0 )
+                    return -1;
+                if( w->psi_queue_len == 0 )
+                    initial_burst = 0;
+            }
+
+            cur_pcr = get_pcr_int( w, 0 );
+            continue;
+        }
+
+        if( pes )
+        {
+            if( mpts_write_pes_packet( w, pes, 0 ) < 0 )
+                return -1;
+        }
+        else if( w->cbr )
+        {
+            if( write_null_packet( w ) < 0 )
+                return -1;
+        }
+        else if( increase_pcr( w, 1, 1 ) < 0 )
+            return -1;
+
+        cur_pcr = get_pcr_int( w, 0 );
+    }
+
+    bs_flush( s );
+
+    *out = w->out.p_bitstream;
+    *len = bs_pos( s ) >> 3;
+    *pcr_list = w->pcr_list;
+
+    return 0;
+}
+
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
 {
     ts_int_program_t *program = w->programs[0];
@@ -1814,7 +2420,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         stream = find_stream( w, frames[i].pid );
 
         if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
-            program->video_dts = frames[i].dts;
+            stream->owner->video_dts = frames[i].dts;
 
         new_pes[i] = calloc( 1, sizeof(ts_int_pes_t) );
         if( !new_pes[i] || !(new_pes[i]->data = malloc( frames[i].size + 512 )) )
@@ -1882,7 +2488,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
         else
         {
-            new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
+            new_pes[i]->header_size = write_pes( w, stream->owner, &frames[i], new_pes[i] );
         }
     }
 
@@ -1900,7 +2506,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     write_pcr = 0;
     running = 1;
 
-    if( !w->first_input )
+    if( w->num_programs == 1 && !w->first_input )
     {
         if( write_pcr_empty( w, program, 1 ) < 0 )
             return -1;
@@ -1942,6 +2548,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             }
         }
     }
+
+    if( w->num_programs > 1 )
+        return mpts_write_frames( w, pcr_stop, num_frames == 0, out, len, pcr_list );
 
     while( cur_pcr < pcr_stop )
     {
@@ -2237,6 +2846,8 @@ int ts_close_writer( ts_writer_t *w )
     if( w->sdt )
         free( w->sdt );
 
+    free( w->psi_queue );
+
     if( w->pcr_list )
         free( w->pcr_list );
 
@@ -2303,18 +2914,24 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
     int64_t *temp;
     int64_t pcr;
 
-    // TODO do this for all programs
-    ts_int_program_t *program = w->programs[0];
     double next_pcr = get_pcr_double( w, num_packets * TS_PACKET_SIZE );
-    /* buffer drip (TODO: all buffers?) */
-    drip_buffer( w, program, w->rx_sys, &w->tb, next_pcr );
-    for( int i = 0; i < program->num_streams; i++ )
+    /* buffer drip: the shared system PSI transport buffer leaks once per slot */
+    drip_buffer( w, NULL, w->rx_sys, &w->tb, next_pcr );
+    /* every program's elementary stream transport buffers advance each slot */
+    for( int p = 0; p < w->num_programs; p++ )
     {
-        /* SCTE35 is PSI so not part of T-STD */
-        if( program->streams[i]->stream_format == LIBMPEGTS_DATA_SCTE35 )
-            program->streams[i]->tb.cur_buf = 0;
-        else
-            drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
+        ts_int_program_t *program = w->programs[p];
+        if( !program )
+            continue;
+
+        for( int i = 0; i < program->num_streams; i++ )
+        {
+            /* SCTE35 is PSI so not part of T-STD */
+            if( program->streams[i]->stream_format == LIBMPEGTS_DATA_SCTE35 )
+                program->streams[i]->tb.cur_buf = 0;
+            else
+                drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
+        }
     }
 
     w->packets_written += num_packets;
@@ -2352,10 +2969,17 @@ void write_crc( bs_t *s, int start )
 
 ts_int_stream_t *find_stream( ts_writer_t *w, int pid )
 {
-    for( int i = 0; i < w->programs[0]->num_streams; i++ )
+    for( int p = 0; p < w->num_programs; p++ )
     {
-        if( pid == w->programs[0]->streams[i]->pid )
-            return w->programs[0]->streams[i];
+        ts_int_program_t *program = w->programs[p];
+        if( !program )
+            continue;
+
+        for( int i = 0; i < program->num_streams; i++ )
+        {
+            if( pid == program->streams[i]->pid )
+                return program->streams[i];
+        }
     }
     return NULL;
 }

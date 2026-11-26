@@ -301,8 +301,10 @@ ts_writer_t *ts_create_writer( void );
  *
  * CURRENT LIMITATIONS
  *
- * Single Program Transport Streams only supported currently.
- * Only one video stream allowed.
+ * Multi-program transport streams (2..8 static programs) are supported for
+ * TS_TYPE_GENERIC with cbr=1 and lowlatency=1. Other multi-program modes are
+ * rejected by ts_setup_transport_stream. Single program transport streams and
+ * one video stream per program remain supported in every mode.
  *
  *
  * */

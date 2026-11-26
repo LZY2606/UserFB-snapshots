@@ -174,6 +174,8 @@ typedef struct
     int bytes;
 } ts_dvb_sub_b2_t;
 
+typedef struct ts_int_program_t ts_int_program_t;
+
 typedef struct
 {
     int pid;
@@ -181,6 +183,9 @@ typedef struct
     int stream_format; /* internal stream format type */
     int stream_type;   /* stream_type syntax element */
     int stream_id;
+
+    /* program that owns this elementary/PCR stream */
+    ts_int_program_t *owner;
 
     int version_number;
 
@@ -276,7 +281,7 @@ typedef struct
     int pic_struct;
 } ts_int_pes_t;
 
-typedef struct
+struct ts_int_program_t
 {
     ts_int_stream_t pmt;
     int program_num;
@@ -299,7 +304,7 @@ typedef struct
 
     int sb_leak_rate;
     int sb_size;
-} ts_int_program_t;
+};
 
 struct ts_writer_t
 {
@@ -367,6 +372,13 @@ struct ts_writer_t
     uint64_t last_eit;
     uint64_t last_tdt;
     uint64_t last_sit;
+
+    /* MPTS table burst queue: -1 is PAT, >=0 is a full PMT emission step
+     * for the program with that index (long PMTs keep their head action
+     * until all section fragments are ejected). */
+    int *psi_queue;
+    int psi_queue_len;
+    int psi_queue_alloc;
 
     ts_dtcp_t *dtcp_ctx;
 };
