@@ -5,6 +5,7 @@
 
 # Ignore build outputs
 build
+.task-build
 src/*.o
 src/*.a
 Raw_Demos/bigfont
