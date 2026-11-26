@@ -220,6 +220,7 @@ struct jcv_diagram_
 
 #ifdef JC_VORONOI_IMPLEMENTATION
 #undef JC_VORONOI_IMPLEMENTATION
+#define JC_VORONOI_IMPLEMENTATION_DONE 1
 
 #include <memory.h>
 

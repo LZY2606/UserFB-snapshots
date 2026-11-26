@@ -115,6 +115,79 @@ one C or C++ translation unit:
 Other translation units should include `jc_voronoi.h` without defining
 `JC_VORONOI_IMPLEMENTATION`.
 
+## Periodic Voronoi cells and Lloyd relaxation
+
+`src/jc_voronoi_periodic.h` builds a toroidal diagram on top of the original
+sweep-line generator. Define `JC_VORONOI_PERIODIC_IMPLEMENTATION` in one C99
+translation unit; with the repository's double-precision configuration, compile
+with `-include support/config.h`.
+
+```c
+#include <string.h>
+#define JC_VORONOI_PERIODIC_IMPLEMENTATION
+#include "jc_voronoi_periodic.h"
+
+int main(void) {
+    jcv_rect rect = {{0.0, 0.0}, {1.0, 1.0}};
+    jcv_point points[4] = {
+        {0.08, 0.17}, {0.58, 0.22}, {0.33, 0.81}, {0.87, 0.69}
+    };
+
+    jcv_periodic_diagram diagram;
+    memset(&diagram, 0, sizeof(diagram));
+    if (!jcv_periodic_generate(4, points, &rect, &diagram))
+        return 1;
+
+    jcv_point relaxed[4];
+    if (jcv_periodic_relax(&diagram, (jcv_real)0.5, relaxed)) {
+        jcv_periodic_diagram next;
+        memset(&next, 0, sizeof(next));
+        jcv_periodic_generate(4, relaxed, &rect, &next);
+        /* ... use next ... */
+        jcv_periodic_free(&next);
+    }
+
+    jcv_periodic_free(&diagram);
+    return 0;
+}
+```
+
+Each cell is one complete, counter-clockwise, unwrapped polygon centered on its
+normalized seed. Polygon vertices and `centroid` are not modulo-wrapped, so a
+cell crossing a seam remains one continuous polygon and its area centroid is
+computed from polygon moments. The edge neighbor is an original input index;
+the neighboring copy is located at
+
+```c
+neighbor_position.x =
+    diagram.cells[edge.neighbor].point.x + edge.shift_x * width;
+neighbor_position.y =
+    diagram.cells[edge.neighbor].point.y + edge.shift_y * height;
+```
+
+The same neighbor can therefore occur several times with different lattice
+shifts, including self-neighbors. The cell areas sum to `width * height`.
+
+`jcv_periodic_generate` allocates `diagram.cells` and `diagram.edges`;
+`jcv_periodic_free` releases them and clears the struct. It accepts `NULL` and
+may be called repeatedly. `jcv_periodic_relax` writes only a caller-owned
+`numsites`-element array, computes the simultaneous
+`point + alpha * (centroid - point)` update, wraps the result into the rect,
+and does not modify the source diagram.
+
+The runnable texture example performs three `alpha = 0.5` rounds and writes
+`texture.svg` and `cells.csv`:
+
+```sh
+sh support/run.sh target
+# or, after building build/periodic-texture yourself:
+mkdir -p build/texture
+./build/periodic-texture build/texture
+```
+
+The SVG translates and clips copies of each unwrapped polygon into the
+fundamental rectangle, preserving matching vector edges across tile boundaries.
+
 ## CMake
 
 When this repository is added with `add_subdirectory` or `FetchContent`, link
