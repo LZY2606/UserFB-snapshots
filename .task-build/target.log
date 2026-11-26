@@ -1,0 +1,28 @@
+CASE pages empty_and_zero_budget checks=7
+CASE pages budget_one_and_two checks=10
+CASE pages cover_without_prefix_repeat checks=35
+CASE pages range_continuation checks=9
+CASE pages cross_zero checks=17
+CASE pages prepare_is_pure checks=10
+CASE pages modular_order_not_signed checks=7
+GROUP pages cases=7 checks=95 COMPLETE
+CASE commit foreign_and_empty checks=5
+CASE commit commit_twice checks=4
+08:55:05.889025/!W:SRT.qr: RCV-LOSS/insert: (10,10) to be inserted is too small: m_iLargestSeq=10, m_iLength=1, m_iHead=0, m_iTail=0 -- REJECTING
+CASE commit stale_after_modifications checks=6
+CASE commit stale_after_other_commit checks=3
+CASE commit cursor_follows_removed_loss checks=10
+CASE commit through_periodic_path checks=35
+CASE commit failure_resends_same_page checks=11
+CASE commit snapshot_allowed_but_stale checks=6
+CASE commit nakreport_and_filter_gate checks=7
+CASE commit no_spin_one_page_per_period checks=6
+CASE commit heap_reuse_and_range_restore checks=8
+CASE commit page_after_complete_sweep checks=5
+CASE commit production_sender_honours_channel checks=9
+GROUP commit cases=13 checks=115 COMPLETE
+CASE playback gap_until_due_then_drop checks=40
+CASE playback after_drop_successor_readable checks=20
+CASE playback empty_page_after_drop checks=7
+GROUP playback cases=3 checks=67 COMPLETE
+TARGET_COMPLETE cases=23

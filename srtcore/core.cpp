@@ -12196,6 +12196,117 @@ int srt::CUDT::checkACKTimer(const steady_clock::time_point &currtime)
     return because_decision;
 }
 
+int srt::CUDT::periodicNakStep(const steady_clock::time_point& currtime, LossReportSender sender, void* opaque)
+{
+    /*
+     * m_config.bRcvNakReport enables NAK reports for SRT.
+     * Retransmission based on timeout is bandwidth consuming,
+     * not knowing what to retransmit when the only NAK sent by receiver is lost,
+     * all packets past last ACK are retransmitted (rexmitMethod() == SRM_FASTREXMIT).
+     */
+    if (!m_config.bRcvNakReport || m_PktFilterRexmitLevel != SRT_ARQ_ALWAYS)
+        return BECAUSE_NO_REASON;
+
+    int loss_len = 0;
+    {
+        ScopedLock lg(m_RcvLossLock);
+        loss_len = m_pRcvLossList->getLossLength();
+    }
+
+    SRT_ASSERT(loss_len >= 0);
+
+    if (loss_len > 0)
+    {
+        if (currtime <= m_tsNextNAKTime.load())
+            return BECAUSE_NO_REASON; // wait for next NAK time
+
+        // One page per period: the word budget is derived from the maximum
+        // data payload size. A failure (including an empty page) does not
+        // move the report cursor; the next attempt happens on the next
+        // scheduled period, without spinning.
+        const size_t max_words = size_t(m_iMaxDataPayloadSize) / sizeof(int32_t);
+        sendPeriodicLossReport(max_words, sender, opaque);
+
+        updateNAKInterval(loss_len);
+
+        m_tsNextNAKTime.store(currtime + m_tdNAKInterval);
+        return BECAUSE_NAKREPORT;
+    }
+
+    // No losses: keep the schedule advancing as before.
+    m_tsNextNAKTime.store(currtime + m_tdNAKInterval);
+    return BECAUSE_NO_REASON;
+}
+
+void srt::CUDT::updateNAKInterval(int loss_len)
+{
+    // update next NAK time, which should wait enough time for the retansmission, but not too long
+    m_tdNAKInterval = microseconds_from(m_iSRTT + 4 * m_iRTTVar);
+
+    // Fix the NAKreport period according to the congctl
+    m_tdNAKInterval =
+        microseconds_from(m_CongCtl->updateNAKInterval(count_microseconds(m_tdNAKInterval),
+                                                                  m_RcvTimeWindow.getPktRcvSpeed(),
+                                                                  size_t(loss_len)));
+
+    // This is necessary because a congctl need not wish to define
+    // its own minimum interval, in which case the default one is used.
+    if (m_tdNAKInterval < m_tdMinNakInterval)
+        m_tdNAKInterval = m_tdMinNakInterval;
+}
+
+int srt::CUDT::sendPeriodicLossReport(size_t max_words, LossReportSender sender, void* opaque)
+{
+    CRcvLossList::LossReportPage page;
+    {
+        ScopedLock lock(m_RcvLossLock);
+        page = m_pRcvLossList->prepareLossReport(max_words);
+    }
+
+    const std::vector<int32_t>& words = page.words();
+    if (words.empty())
+        return 0;
+
+    // Build the packet from the already prepared snapshot. The channel
+    // converts the payload to network byte order in place, so pack from a
+    // scratch copy to keep the snapshot intact. The snapshot may become stale
+    // while sending; it is still allowed to go out, but its commit attempt
+    // will then fail and the cursor won't move.
+    std::vector<int32_t> wire_words(words);
+    CPacket ctrlpkt;
+    setPacketTS(ctrlpkt, steady_clock::now());
+    ctrlpkt.pack(UMSG_LOSSREPORT, NULL, &wire_words[0], wire_words.size() * sizeof(int32_t));
+    ctrlpkt.set_id(m_PeerID);
+
+    const bool sent = sender(opaque, m_PeerAddr, ctrlpkt, m_SourceAddr);
+    if (!sent)
+        return 0;
+
+    // Same bookkeeping as a successful sendCtrl(): the packet did go out.
+    m_tsLastSndTime.store(steady_clock::now());
+
+    bool committed = false;
+    {
+        ScopedLock lock(m_RcvLossLock);
+        committed = m_pRcvLossList->commitLossReport(page);
+    }
+
+    enterCS(m_StatsLock);
+    m_stats.rcvr.sentNak.count(1);
+    leaveCS(m_StatsLock);
+
+    (void)committed; // A stale page is sent, but the next period re-prepares it.
+    return 1;
+}
+
+bool srt::CUDT::defaultLossReportSender(void* opaque, const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src)
+{
+    CUDT* self = static_cast<CUDT*>(opaque);
+    if (!self || !self->m_pSndQueue)
+        return false;
+    return self->m_pSndQueue->sendtoChecked(addr, packet, src) > 0;
+}
+
 int srt::CUDT::checkNAKTimer(const steady_clock::time_point& currtime)
 {
     // XXX The problem with working NAKREPORT with SRT_ARQ_ONREQ
@@ -12209,33 +12320,7 @@ int srt::CUDT::checkNAKTimer(const steady_clock::time_point& currtime)
     // by the filter. By this reason they appear often out of order
     // and for adding them properly the loss list container wasn't
     // prepared. This then requires some more effort to implement.
-    if (!m_config.bRcvNakReport || m_PktFilterRexmitLevel != SRT_ARQ_ALWAYS)
-        return BECAUSE_NO_REASON;
-
-    /*
-     * m_config.bRcvNakReport enables NAK reports for SRT.
-     * Retransmission based on timeout is bandwidth consuming,
-     * not knowing what to retransmit when the only NAK sent by receiver is lost,
-     * all packets past last ACK are retransmitted (rexmitMethod() == SRM_FASTREXMIT).
-     */
-    enterCS(m_RcvLossLock);
-    const int loss_len = m_pRcvLossList->getLossLength();
-    leaveCS(m_RcvLossLock);
-
-    SRT_ASSERT(loss_len >= 0);
-    int debug_decision = BECAUSE_NO_REASON;
-
-    if (loss_len > 0)
-    {
-        if (currtime <= m_tsNextNAKTime.load())
-            return BECAUSE_NO_REASON; // wait for next NAK time
-
-        sendCtrl(UMSG_LOSSREPORT);
-        debug_decision = BECAUSE_NAKREPORT;
-    }
-
-    m_tsNextNAKTime.store(currtime + m_tdNAKInterval);
-    return debug_decision;
+    return periodicNakStep(currtime, &CUDT::defaultLossReportSender, this);
 }
 
 bool srt::CUDT::checkExpTimer(const steady_clock::time_point& currtime, int check_reason SRT_ATR_UNUSED)

@@ -481,6 +481,8 @@ srt::CRcvLossList::CRcvLossList(int size)
     , m_iLength(0)
     , m_iSize(size)
     , m_iLargestSeq(SRT_SEQNO_NONE)
+    , m_iReportCursor(SRT_SEQNO_NONE)
+    , m_uReportGeneration(0)
 {
     m_caSeq = new Seq[m_iSize];
 
@@ -499,6 +501,10 @@ srt::CRcvLossList::~CRcvLossList()
 
 int srt::CRcvLossList::insert(int32_t seqno1, int32_t seqno2)
 {
+    // Any modification call invalidates previously prepared report pages,
+    // even when this particular call changes nothing.
+    ReportStateGuard report_guard(*this);
+
     SRT_ASSERT(seqno1 != SRT_SEQNO_NONE && seqno2 != SRT_SEQNO_NONE);
     // Make sure that seqno2 isn't earlier than seqno1.
     SRT_ASSERT(CSeqNo::seqcmp(seqno1, seqno2) <= 0);
@@ -579,6 +585,8 @@ int srt::CRcvLossList::insert(int32_t seqno1, int32_t seqno2)
 
 bool srt::CRcvLossList::remove(int32_t seqno)
 {
+    ReportStateGuard report_guard(*this);
+
     if (m_iLargestSeq == SRT_SEQNO_NONE || CSeqNo::seqcmp(seqno, m_iLargestSeq) > 0)
         m_iLargestSeq = seqno;
 
@@ -718,6 +726,8 @@ bool srt::CRcvLossList::remove(int32_t seqno)
 
 bool srt::CRcvLossList::remove(int32_t seqno1, int32_t seqno2)
 {
+    ReportStateGuard report_guard(*this);
+
     if (CSeqNo::seqcmp(seqno1, seqno2) > 0)
     {
         return false;
@@ -731,6 +741,8 @@ bool srt::CRcvLossList::remove(int32_t seqno1, int32_t seqno2)
 
 int32_t srt::CRcvLossList::removeUpTo(int32_t seqno_last)
 {
+    ReportStateGuard report_guard(*this);
+
     int32_t first = getFirstLostSeq();
     if (first == SRT_SEQNO_NONE)
     {

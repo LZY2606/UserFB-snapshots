@@ -141,8 +141,19 @@ In live streaming configurations, the SRT protocol maintains a constant end-to-e
   </p>
 </details>
 
-## Getting Started with SRT
+<details>
+  <summary>Periodic NAK Report Paging</summary>
 
+  <p>
+
+  Receiver-side periodic NAK reports (`SRTO_NAKREPORT`, enabled by default) send one loss report page per reporting period, with the page sized by the maximum data payload (`floor(MSS/4)` 32-bit words). The report cursor advances across the receiver loss list in circular sequence order, so when early losses remain unrecovered the later gaps still get reported instead of waiting behind a permanently repeated prefix.
+
+  Paging only affects the periodic feedback path. The loss report issued when a new gap is first detected, as well as the delayed "fresh loss" report controlled by `SRTO_LOSSREPORT`/latency settings, keep their original rules. Disabling periodic NAK reports (`SRTO_NAKREPORT=false`) or enabling a packet filter that is not in `SRT_ARQ_ALWAYS` mode still suppresses periodic reports as before. `CRcvLossList::getLossArray()` keeps its original head-first behavior for callers that use it directly.
+
+  </p>
+</details>
+
+## Getting Started with SRT
 |                                                                                                                               |                                                                                      |                                                                                   |
 |:-----------------------------------------------------------------------------------------------------------------------------:|:------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------:|
 | [The SRT API](./docs#srt-api-documents)                                                                                       | [IETF Internet Draft](https://datatracker.ietf.org/doc/html/draft-sharabayko-srt-01) | [Sample Apps](./docs#sample-applications)                                         |

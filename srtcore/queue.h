@@ -424,6 +424,18 @@ public:
     /// @return Size of data sent out.
     int sendto(const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
 
+    /// Send a packet out immediately and report the actual channel result.
+    /// Unlike sendto(), the returned value is not the payload length: it is
+    /// the value returned by CChannel::sendto(), i.e. a negative number or
+    /// zero on failure and a positive number of bytes on success. This is
+    /// required by callers for which the payload length cannot be treated as
+    /// a success proof.
+    /// @param [in] addr destination address
+    /// @param [in,ref] packet packet to be sent out
+    /// @param [in] src The source IP address (details above)
+    /// @return Channel result (<0 or 0 on failure, >0 on success).
+    int sendtoChecked(const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
+
     /// Get the IP TTL.
     /// @param [in] ttl IP Time To Live.
     /// @return TTL.

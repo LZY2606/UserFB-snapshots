@@ -633,6 +633,13 @@ int srt::CSndQueue::sendto(const sockaddr_any& addr, CPacket& w_packet, const so
     return (int)w_packet.getLength();
 }
 
+int srt::CSndQueue::sendtoChecked(const sockaddr_any& addr, CPacket& w_packet, const sockaddr_any& src)
+{
+    // Same immediate control-path send as sendto(), but the channel result is
+    // propagated instead of replacing it with the payload length.
+    return m_pChannel->sendto(addr, w_packet, src);
+}
+
 //
 srt::CRcvUList::CRcvUList()
     : m_pUList(NULL)

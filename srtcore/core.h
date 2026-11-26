@@ -307,6 +307,7 @@ class CUDT
     friend class CUDTGroup;
     friend class TestMockCUDT; // unit tests
     friend class TestMockControlPackets; // unit tests
+    friend class NakPagesTest; // task regression tests (task_tests/nak_pages.cpp)
 
     typedef sync::steady_clock::time_point time_point;
     typedef sync::steady_clock::duration duration;
@@ -1234,6 +1235,38 @@ private: // Common connection Congestion Control setup
 
 private: // Generation and processing of packets
     void sendCtrl(UDTMessageType pkttype, const int32_t* lparam = NULL, void* rparam = NULL, int size = 0);
+
+    /// Send callback used by the periodic loss report path. Returns true only
+    /// when the packet was actually handed over to the channel successfully.
+    typedef bool (*LossReportSender)(void* opaque, const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
+
+    /// Narrow internal entry used by the periodic NAK report path and by the
+    /// NakPages regression tests. It prepares at most one loss report page,
+    /// sends it via @a sender, and commits it on success. It never advances
+    /// any timer, so a failure simply waits for the next scheduled period.
+    /// @param max_words word budget for one page.
+    /// @param sender packet send callback (must report real success/failure).
+    /// @param opaque callback context.
+    /// @return number of non-empty pages successfully sent (0 or 1).
+    int sendPeriodicLossReport(size_t max_words, LossReportSender sender, void* opaque);
+
+    /// Periodic NAK step shared by checkNAKTimer() and the tests: checks the
+    /// NAK configuration and schedule, sends at most one page using @a sender,
+    /// and advances the NAK schedule exactly once.
+    /// @param currtime current time used for the schedule check.
+    /// @param sender packet send callback (must report real success/failure).
+    /// @param opaque callback context.
+    /// @return the BECAUSE_* decision (BECAUSE_NO_REASON when nothing was done).
+    int periodicNakStep(const time_point& currtime, LossReportSender sender, void* opaque);
+
+    /// Recompute the NAK interval after a report attempt.
+    /// @param loss_len current loss list length (cached by the caller).
+    void updateNAKInterval(int loss_len);
+
+    /// Default sender that goes through the real queue and honours the
+    /// channel's actual result (CSndQueue::sendto only reports the payload
+    /// length, so it cannot be used as a success proof here).
+    static bool defaultLossReportSender(void* opaque, const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
 
     /// Forms and sends ACK packet
     /// @note Assumes @ctrlpkt already has a timestamp.

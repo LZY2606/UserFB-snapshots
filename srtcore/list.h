@@ -53,7 +53,9 @@ modified by
 #ifndef INC_SRT_LIST_H
 #define INC_SRT_LIST_H
 
+#include <stdint.h>
 #include <deque>
+#include <vector>
 
 #include "udt.h"
 #include "common.h"
@@ -208,6 +210,57 @@ public:
     /// @return physical length of the result array.
     int getLossArray(FixedArray<int32_t>& array);
 
+    /// A prepared, not-yet-committed page of a periodic loss report.
+    ///
+    /// A page is a snapshot of a portion of the loss list in SRT NAK wire
+    /// encoding (host byte order): a single sequence number occupies one
+    /// word, while a contiguous closed range occupies two words, the first
+    /// one carrying @c LOSSDATA_SEQNO_RANGE_FIRST.
+    ///
+    /// A page belongs to the loss list object that produced it and to the
+    /// state of that object at preparation time. It becomes stale after any
+    /// modification call (insert/remove/removeUpTo), after another page has
+    /// been committed, and after it has been committed itself. Stale and
+    /// foreign pages are rejected by commitLossReport().
+    class LossReportPage
+    {
+    public:
+        LossReportPage();
+
+        /// Read the encoded words of this page. Never modified after
+        /// preparation.
+        const std::vector<int32_t>& words() const { return m_words; }
+
+    private:
+        friend class CRcvLossList;
+
+        const CRcvLossList* m_owner;      //< list that produced this page
+        uint64_t m_generation;            //< state generation at preparation
+        int32_t m_next_seqno;             //< cursor to use after a commit
+        std::vector<int32_t> m_words;     //< encoded NAK words
+    };
+
+    /// Prepare a page of the periodic loss report without modifying the list.
+    ///
+    /// The page is filled greedily, following the circular report cursor,
+    /// for at most one full lap of the loss list. Preparation does not move
+    /// the cursor, does not delete losses and does not affect ACK positions
+    /// or loss statistics; repeated preparation without an intervening
+    /// modification yields identical content.
+    ///
+    /// @param [in] max_words maximum number of encoded words.
+    /// @return the prepared page (empty if @a max_words is 0 or the list is empty).
+    LossReportPage prepareLossReport(size_t max_words) const;
+
+    /// Commit a previously prepared page, advancing the report cursor to the
+    /// strict modular successor of the last sequence number represented by it.
+    ///
+    /// @param [in] page page returned by prepareLossReport() on this instance.
+    /// @return true if the page was valid and the cursor was advanced;
+    /// false for empty, foreign, already committed or stale pages. On failure
+    /// the cursor is unchanged.
+    bool commitLossReport(const LossReportPage& page);
+
 private:
     struct Seq
     {
@@ -222,6 +275,34 @@ private:
     int m_iLength; // loss length
     int m_iSize;   // size of the static array
     int m_iLargestSeq; // largest seq ever seen
+
+    // Periodic loss report paging state.
+    // m_iReportCursor is the next sequence position to start a page from;
+    // SRT_SEQNO_NONE means "start from the head". It only moves on a
+    // successful commit, so preparing a page has no side effects.
+    int32_t  m_iReportCursor;
+    // Incremented on every modification call (even a no-op one) and on every
+    // successful commit; used to invalidate prepared pages.
+    uint64_t m_uReportGeneration;
+
+private:
+    /// RAII helper used by every modification entry point: invalidates
+    /// prepared pages at entry (even for a no-op call) and, at exit, resets
+    /// the report cursor when the list has become empty.
+    struct ReportStateGuard
+    {
+        CRcvLossList& list;
+        explicit ReportStateGuard(CRcvLossList& l)
+            : list(l)
+        {
+            ++list.m_uReportGeneration;
+        }
+        ~ReportStateGuard()
+        {
+            if (list.m_iLength == 0)
+                list.m_iReportCursor = SRT_SEQNO_NONE;
+        }
+    };
 
 private:
     CRcvLossList(const CRcvLossList&);
