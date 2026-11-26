@@ -38,4 +38,7 @@ var (
 	errAppDefinedInvalidLength  = errors.New("rtcp: application defined type invalid length")
 	errAppDefinedDataTooLarge   = errors.New("rtcp: application defined data is too large")
 	errAppDefinedInvalidName    = errors.New("rtcp: application defined name must be 4 ASCII chars")
+	errFeedbackBudget           = errors.New("rtcp: transport feedback maxBytes out of range")
+	errFeedbackSampleCount      = errors.New("rtcp: too many transport feedback samples")
+	errFeedbackArrivalTime      = errors.New("rtcp: invalid transport feedback arrival time")
 )

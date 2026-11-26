@@ -35,3 +35,39 @@ Check out the [contributing wiki](https://github.com/pion/webrtc/wiki/Contributi
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
+
+### Transport-wide congestion control feedback
+
+`BuildTransportFeedback` turns an ordered run of arrival observations into one or
+more ready-to-send reduced-size RTCP packets (PT=205, FMT=15). The caller supplies
+one `TransportFeedbackSample` per transport-wide sequence number; lost packets
+still occupy a slot with `Received: false`.
+
+```go
+samples := []rtcp.TransportFeedbackSample{
+	{Received: true, ArrivalUS: 0},
+	{Received: false},
+	{Received: true, ArrivalUS: 500},
+	{Received: true, ArrivalUS: 1_000_000},
+}
+
+packets, err := rtcp.BuildTransportFeedback(
+	senderSSRC, // SSRC of the packet sender
+	mediaSSRC,  // SSRC of the media source
+	100,        // base transport-wide sequence number
+	7,          // first feedback packet count
+	samples,
+	1200,       // maximum bytes per packet, [24, 65532]
+)
+for _, raw := range packets {
+	// raw is a complete, independently marshaled RTCP packet.
+}
+```
+
+Each returned packet is produced with `TransportLayerCC.Marshal` and is at most
+`maxBytes` long. Arrival times must be in `[0, 2^50)` microseconds and a multiple
+of 250; they may be out of order. Samples are fragmented greedily into the
+longest prefix that fits, with the status chunks chosen for the fewest possible
+chunks, so the packet size stays minimal under the budget. The input slice and
+its fields are never modified; invalid arrival times, an out-of-range budget, or
+too many samples return `nil` and an error before any packet is built.
