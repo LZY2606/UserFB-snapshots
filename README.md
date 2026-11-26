@@ -114,3 +114,30 @@ func main() {
 ```
 
 ![Teapot](http://i.imgur.com/DaqbkLR.png)
+
+### Polyline Strokes
+
+`Context.DrawPolyline` draws a measurement polyline as one continuous stroke.
+Dash phase accumulates over the whole path (so splitting an edge into more
+vertices does not move the dashes), bends use bevel joins, and the stroke is
+clipped to the view volume without resetting the dash phase. Width and dash
+lengths are in screen pixels.
+
+```go
+context.DrawPolyline([]fauxgl.Vertex{
+	{Position: fauxgl.V(0, 0, 0)},
+	{Position: fauxgl.V(1, 0, 0)},
+	{Position: fauxgl.V(1, 1, 0)},
+}, fauxgl.StrokeStyle{
+	Width:      2,
+	Dashes:     []float64{12, 6},
+	DashOffset: 3,
+	Closed:     false,
+})
+```
+
+`Dashes` is empty for a solid stroke. A non-empty pattern must have an even
+number of finite, strictly positive entries, alternating solid and empty runs.
+The layer still goes through the context shader, depth buffer, and color
+commit rules, so `ReadDepth`, `WriteDepth`, `WriteColor`, `AlphaBlend`, and
+`DepthBias` apply as usual.
