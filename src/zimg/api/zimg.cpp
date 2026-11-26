@@ -14,6 +14,7 @@
 #include "common/zassert.h"
 #include "graph/filtergraph.h"
 #include "graph/graphbuilder.h"
+#include "graph/lut3d.h"
 #include "colorspace/colorspace.h"
 #include "depth/depth.h"
 #include "resize/filter.h"
@@ -679,6 +680,73 @@ zimg_filter_graph *zimg_filter_graph_build(const zimg_image_format *src_format, 
 		zimg::graph::GraphBuilder builder;
 		return builder.set_source(src_state)
 			.connect(dst_state, params ? &graph_params : nullptr)
+			.build_graph()
+			.release();
+	} catch (...) {
+		handle_exception(std::current_exception());
+		return nullptr;
+	}
+}
+
+zimg_filter_graph *zimg_filter_graph_build_with_lut(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut)
+{
+	zassert_d(src_format, "null pointer");
+	zassert_d(dst_format, "null pointer");
+
+	try {
+		if (!lut)
+			zimg::error::throw_<zimg::error::IllegalArgument>("null pointer");
+
+		// Color meaning is never inferred for LUT-enabled graphs.
+		if (src_format->color_primaries == ZIMG_PRIMARIES_UNSPECIFIED ||
+		    src_format->transfer_characteristics == ZIMG_TRANSFER_UNSPECIFIED ||
+		    dst_format->color_primaries == ZIMG_PRIMARIES_UNSPECIFIED ||
+		    dst_format->transfer_characteristics == ZIMG_TRANSFER_UNSPECIFIED) {
+			zimg::error::throw_<zimg::error::IllegalArgument>("primaries and transfer characteristics must be explicitly specified");
+		}
+
+		// Greyscale LUT output is not supported yet.
+		if (dst_format->color_family == ZIMG_COLOR_GREY)
+			zimg::error::throw_<zimg::error::IllegalArgument>("3D LUT is not supported for greyscale output");
+
+		// Validates the descriptor and takes an owned snapshot before the
+		// caller is allowed to mutate or release the source table.
+		std::shared_ptr<const zimg::graph::Lut3D> lut_snapshot = zimg::graph::Lut3D::create_snapshot(lut);
+
+		zimg::graph::GraphBuilder::state src_state;
+		zimg::graph::GraphBuilder::state dst_state;
+		zimg::graph::GraphBuilder::params graph_params;
+
+		std::unique_ptr<zimg::resize::Filter> filters[2];
+
+		std::tie(src_state, dst_state) = import_graph_state(*src_format, *dst_format);
+
+		// The stock importer erases colorspace definitions when source and
+		// destination match exactly. The LUT pipeline needs the real target
+		// primaries and transfer, so translate the triplets explicitly.
+		auto explicit_colorspace = [](const zimg_image_format &format)
+		{
+			zimg::colorspace::ColorspaceDefinition csp{};
+			csp.transfer = translate_transfer(format.transfer_characteristics);
+			csp.primaries = translate_primaries(format.color_primaries);
+			// RGB samples carry no YUV matrix; accept either RGB or the
+			// defaulted unspecified matrix and canonicalize to RGB.
+			if (format.color_family == ZIMG_COLOR_RGB)
+				csp.matrix = zimg::colorspace::MatrixCoefficients::RGB;
+			else
+				csp.matrix = translate_matrix(format.matrix_coefficients);
+			return csp;
+		};
+
+		src_state.colorspace = explicit_colorspace(*src_format);
+		dst_state.colorspace = explicit_colorspace(*dst_format);
+
+		if (params)
+			graph_params = import_graph_params(*params, filters);
+
+		zimg::graph::GraphBuilder builder;
+		return builder.set_source(src_state)
+			.connect_with_lut(dst_state, params ? &graph_params : nullptr, std::move(lut_snapshot))
 			.build_graph()
 			.release();
 	} catch (...) {

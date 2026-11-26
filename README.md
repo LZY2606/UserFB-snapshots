@@ -60,6 +60,96 @@ supported for upsampling and downsampling. Full support is provided for
 various coordinate systems, including the various chroma siting conventions
 (e.g. JPEG and MPEG2) as well as interlaced images.
 
+### 3D LUT
+
+A tetrahedrally interpolated 3D lookup table can be inserted into the filter
+graph with `zimg_filter_graph_build_with_lut`. The LUT is applied after
+resampling and linear conversion to the target primaries, but before transfer
+encoding, YUV conversion, chroma subsampling, and depth quantization. Both
+formats must explicitly define primaries and transfer; greyscale output is not
+supported. The graph copies the table during construction, so the caller may
+release it immediately afterwards.
+
+C example:
+
+```c
+#include "zimg.h"
+#include <stdlib.h>
+
+/* size^3 RGB triplets, R fastest, then G, then B. */
+static zimg_filter_graph *build_lut_graph(unsigned w, unsigned h,
+                                          const float *table, unsigned size)
+{
+    zimg_image_format src, dst;
+    zimg_image_format_default(&src, ZIMG_API_VERSION);
+    src.width = w;
+    src.height = h;
+    src.pixel_type = ZIMG_PIXEL_FLOAT;
+    src.color_family = ZIMG_COLOR_RGB;
+    src.matrix_coefficients = ZIMG_MATRIX_RGB;
+    src.transfer_characteristics = ZIMG_TRANSFER_LINEAR;
+    src.color_primaries = ZIMG_PRIMARIES_BT709;
+    dst = src; /* Any destination format works; YUV/integer outputs too. */
+
+    zimg_lut3d lut;
+    lut.size = size;
+    lut.data = table;
+    lut.data_count = (size_t)3 * size * size * size;
+    for (int c = 0; c < 3; ++c) {
+        lut.domain_min[c] = 0.0f;
+        lut.domain_max[c] = 1.0f;
+    }
+
+    return zimg_filter_graph_build_with_lut(&src, &dst, NULL, &lut);
+}
+```
+
+Processing uses the same planar `zimg_image_buffer` convention as
+`zimg_filter_graph_process` (planes R, G, B, optional A):
+
+```c
+size_t tmp_size;
+zimg_filter_graph_get_tmp_size(graph, &tmp_size);
+void *tmp = NULL;
+posix_memalign(&tmp, 64, tmp_size ? tmp_size : 64);
+
+zimg_image_buffer_const in = { ZIMG_API_VERSION };
+zimg_image_buffer out = { ZIMG_API_VERSION };
+for (int p = 0; p < 3; ++p) {
+    in.plane[p].data = src_plane[p];
+    in.plane[p].stride = src_stride;
+    in.plane[p].mask = ZIMG_BUFFER_MAX;
+    out.plane[p].data = dst_plane[p];
+    out.plane[p].stride = dst_stride;
+    out.plane[p].mask = ZIMG_BUFFER_MAX;
+}
+zimg_filter_graph_process(graph, &in, &out, tmp, NULL, NULL, NULL, NULL);
+```
+
+C++ example using the header-only wrapper:
+
+```cpp
+#include "zimg++.hpp"
+
+zimgxx::zimage_format src, dst;
+src.width = dst.width = width;
+src.height = dst.height = height;
+src.pixel_type = dst.pixel_type = ZIMG_PIXEL_FLOAT;
+src.color_family = dst.color_family = ZIMG_COLOR_RGB;
+src.matrix_coefficients = dst.matrix_coefficients = ZIMG_MATRIX_RGB;
+src.transfer_characteristics = dst.transfer_characteristics = ZIMG_TRANSFER_LINEAR;
+src.color_primaries = dst.color_primaries = ZIMG_PRIMARIES_BT709;
+
+zimg_lut3d lut{ size, table, 3ULL * size * size * size,
+                { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } };
+
+zimgxx::FilterGraph graph =
+    zimgxx::FilterGraph::build_with_lut(src, dst, &lut);
+size_t tmp_size = graph.get_tmp_size();
+/* ...allocate aligned tmp and zimgxx::zimage_buffer planes, then... */
+graph.process(in_buf, out_buf, tmp.get());
+```
+
 Performance
 -----
 "z" is optimized for Intel(R) Architecture and features faster processing times

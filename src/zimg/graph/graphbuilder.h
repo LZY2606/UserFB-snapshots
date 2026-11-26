@@ -36,8 +36,9 @@ namespace zimg::unresize {
 struct UnresizeConversion;
 }
 
-
 namespace zimg::graph {
+
+class Lut3D;
 
 /**
  * Observer interface for debugging filter instantiation.
@@ -188,6 +189,24 @@ public:
 	 * @params observer observer
 	 */
 	GraphBuilder &connect(const state &target, const params *params, FilterObserver *observer = nullptr);
+
+	/**
+	 * Convert current graph node to target format while inserting a 3D LUT at
+	 * the canonical linear-RGB insertion point.
+	 *
+	 * The source is first connected to a floating-point 4:4:4 RGB intermediate
+	 * at the target resolution with linear transfer and target primaries,
+	 * reusing the existing premultiplication rules for spatial processing. The
+	 * LUT is then applied to unpremultiplied color, alpha is recombined per the
+	 * target alpha type, and the remaining transfer/matrix/subsampling/depth
+	 * conversion completes the path to @p target.
+	 *
+	 * @param target final image format
+	 * @param params filter instantiation parameters
+	 * @param lut owned LUT snapshot
+	 * @params observer observer
+	 */
+	GraphBuilder &connect_with_lut(const state &target, const params *params, std::shared_ptr<const Lut3D> lut, FilterObserver *observer = nullptr);
 
 	/**
 	 * Finalize and return a partial graph.

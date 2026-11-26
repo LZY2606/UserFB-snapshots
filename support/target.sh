@@ -1,5 +1,5 @@
 set -euo pipefail
-build=$(mktemp -d)
+build=$(mktemp -d 2>/dev/null || mktemp -d "${TMPDIR:-/tmp}/zimg-target.XXXXXX")
 trap 'rm -rf "$build"' EXIT
 bash support/build.sh support/target_main.cpp "$build/target"
 "$build/target" > "$build/result" 2>&1 || { cat "$build/result"; exit 1; }

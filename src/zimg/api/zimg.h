@@ -679,6 +679,59 @@ ZIMG_VISIBILITY
 zimg_filter_graph *zimg_filter_graph_build(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params);
 
 
+/**
+ * Descriptor for a three-dimensional lookup table.
+ *
+ * The table contains {@p size}<sup>3</sup> RGB triplets stored consecutively in
+ * @p data. The R grid coordinate varies fastest, followed by G, then B.
+ * @p data_count is the number of floats pointed to by @p data and must equal
+ * <tt>3 * size * size * size</tt>.
+ *
+ * Input coordinates are normalized independently per channel from
+ * [@p domain_min, @p domain_max] to grid coordinates [0, size - 1]. Values
+ * outside the domain are clamped to the boundary. Domain endpoints and table
+ * values must be finite; each domain interval must be strictly increasing.
+ *
+ * The table is interpreted as linear-light RGB relative to the target primaries
+ * and white point. The graph copies the table into an owned snapshot during
+ * construction; the caller may release or mutate the descriptor storage as
+ * soon as this function returns.
+ *
+ * @since API 2.4 (target extension)
+ */
+typedef struct zimg_lut3d {
+	unsigned size;          /**< Number of grid points per channel, in [2, 65]. */
+	const float *data;      /**< Table values, R fastest, then G, then B. */
+	size_t data_count;      /**< Number of floats in @p data. */
+	float domain_min[3];    /**< Lower domain bound for R, G, B. */
+	float domain_max[3];    /**< Upper domain bound for R, G, B. */
+} zimg_lut3d;
+
+/**
+ * Create a graph converting the specified formats and applying a 3D LUT.
+ *
+ * This is identical to {@link zimg_filter_graph_build}, except that @p lut is
+ * inserted into the filter graph after spatial resampling and linear
+ * colorimetric conversion to the target primaries, but before transfer
+ * encoding, YUV matrix conversion, chroma subsampling, and depth quantization.
+ * The LUT is evaluated with tetrahedral interpolation.
+ *
+ * Both source and destination formats must explicitly specify primaries and
+ * transfer characteristics. Greyscale destinations are not supported.
+ *
+ * Upon failure, a NULL pointer is returned and the failure reason can be
+ * obtained with {@link zimg_get_last_error}.
+ *
+ * @param[in] src_format input image format
+ * @param[in] dst_format output image format
+ * @param[in] params filter parameters, may be NULL
+ * @param[in] lut 3D LUT descriptor
+ * @return graph handle, or NULL on failure
+ */
+ZIMG_VISIBILITY
+zimg_filter_graph *zimg_filter_graph_build_with_lut(const zimg_image_format *src_format, const zimg_image_format *dst_format, const zimg_graph_builder_params *params, const zimg_lut3d *lut);
+
+
 #ifdef ZIMG_GRAPHENGINE_API
 /**
  * Handle to an incomplete filter graph.

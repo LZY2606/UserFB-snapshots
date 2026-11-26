@@ -16,6 +16,7 @@
 #include "filtergraph.h"
 #include "graphbuilder.h"
 #include "graphengine_except.h"
+#include "lut3d.h"
 #include "simple_filters.h"
 
 
@@ -1072,6 +1073,98 @@ private:
 			error::throw_<error::InternalError>("failed to connect graph");
 	}
 public:
+	void connect_with_lut(const state &target_desc, const params &params, FilterObserver &observer,
+	                      std::shared_ptr<const Lut3D> lut)
+	{
+		if (!m_state.planes[0].width)
+			error::throw_<error::InternalError>("graph not initialized");
+
+		internal_state target{ target_desc };
+		bool carry_alpha = m_state.has_alpha() || target.has_alpha();
+
+		// Canonical pre-LUT state: target-resolution floating-point 4:4:4 RGB
+		// with linear transfer and target primaries. Alpha, when present, is
+		// straight (unpremultiplied) at the LUT input.
+		state pre_desc = target_desc;
+		pre_desc.type = PixelType::FLOAT;
+		pre_desc.depth = pixel_depth(PixelType::FLOAT);
+		pre_desc.subsample_w = 0;
+		pre_desc.subsample_h = 0;
+		pre_desc.color = ColorFamily::RGB;
+		pre_desc.colorspace = colorspace::ColorspaceDefinition{
+			colorspace::MatrixCoefficients::RGB,
+			colorspace::TransferCharacteristics::LINEAR,
+			target_desc.colorspace.primaries,
+		};
+		pre_desc.alpha = carry_alpha ? AlphaType::STRAIGHT : AlphaType::NONE;
+		pre_desc.active_left = 0.0;
+		pre_desc.active_top = 0.0;
+		pre_desc.active_width = target_desc.width;
+		pre_desc.active_height = target_desc.height;
+
+		internal_state pre{ pre_desc };
+
+		// Reuse the stock negotiation: existing premultiplication rules govern
+		// spatial/interpolation processing, and the resulting state is
+		// unpremultiplied straight color where the LUT is inserted.
+		connect_internal(pre, params, observer);
+		iassert(m_state == pre);
+		check_is_444_float(carry_alpha);
+
+		// Insert the tetrahedral 3D LUT on the three RGB planes.
+		{
+			auto filter = std::make_unique<Lut3DFilter>(
+				m_state.planes[PLANE_Y].width, m_state.planes[PLANE_Y].height, std::move(lut));
+			graphengine::node_id id = m_graph.add_transform(m_graph.save_filter(std::move(filter)), m_ids.data());
+			m_ids[PLANE_Y] = { id, 0 };
+			m_ids[PLANE_U] = { id, 1 };
+			m_ids[PLANE_V] = { id, 2 };
+		}
+
+		if (carry_alpha) {
+			iassert(m_state.has_alpha());
+			iassert(m_state.alpha == AlphaType::STRAIGHT);
+
+			if (target.alpha == AlphaType::STRAIGHT) {
+				// Preserve straight color, but make alpha-zero pixels black so
+				// that a non-zero LUT mapping of black can not leak through.
+				auto filter = std::make_unique<AlphaZeroFilter>(
+					m_state.planes[PLANE_Y].width, m_state.planes[PLANE_Y].height);
+				for (int p = 0; p < 3; ++p) {
+					graphengine::node_dep_desc deps[2] = { m_ids[p], m_ids[PLANE_A] };
+					m_ids[p] = { m_graph.add_transform(filter.get(), deps), 0 };
+				}
+				m_graph.save_filter(std::move(filter));
+			} else {
+				// Premultiplied destination, or alpha being discarded (composite
+				// over black): recombine immediately. Multiplication by zero
+				// also enforces black at alpha zero.
+				premultiply(observer);
+			}
+		}
+
+		if (m_state.has_alpha() && !target.has_alpha()) {
+			observer.discard_alpha();
+			drop_plane(PLANE_A);
+			m_state.alpha = AlphaType::NONE;
+		}
+
+		// Remaining stages: target transfer, YUV matrix, chroma subsampling and
+		// depth quantization. Alpha policy has already been resolved.
+		connect_color_channels(target, params, observer);
+
+		if (m_state.has_alpha()) {
+			iassert(m_state.alpha == target.alpha);
+			connect_plane(target, params, observer, ConnectMode::ALPHA, true);
+		}
+
+		if (!m_state.has_alpha() && target.has_alpha())
+			add_opaque_alpha(target.alpha, observer);
+
+		if (m_state != target)
+			error::throw_<error::InternalError>("failed to connect LUT graph");
+	}
+public:
 	impl() :
 		m_ids(),
 		m_source_state{},
@@ -1238,6 +1331,31 @@ GraphBuilder &GraphBuilder::connect(const state &target, const params *params, F
 		observer = &default_observer;
 
 	get_impl()->connect(target, *params, *observer);
+	return *this;
+} catch (const graphengine::Exception &e) {
+	rethrow_graphengine_exception(e);
+} catch (const std::exception &e) {
+	error::throw_<error::InternalError>(e.what());
+}
+
+GraphBuilder &GraphBuilder::connect_with_lut(const state &target, const params *params, std::shared_ptr<const Lut3D> lut, FilterObserver *observer) try
+{
+	static const GraphBuilder::params default_params;
+	DefaultFilterObserver default_observer;
+
+	if (!lut)
+		error::throw_<error::IllegalArgument>("null 3D LUT");
+
+	validate_state(target);
+	if (target.active_left != 0 || target.active_top != 0 || target.active_width != target.width || target.active_height != target.height)
+		error::throw_<error::ResamplingNotAvailable>("active subregion not supported on target image");
+
+	if (!params)
+		params = &default_params;
+	if (!observer)
+		observer = &default_observer;
+
+	get_impl()->connect_with_lut(target, *params, *observer, std::move(lut));
 	return *this;
 } catch (const graphengine::Exception &e) {
 	rethrow_graphengine_exception(e);
