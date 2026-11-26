@@ -156,6 +156,8 @@ type StreamFile struct {
 	onFragmentDone   FragmentDoneCallback
 	onTrailingBoxes  TrailingBoxesCallback
 	maxFragments     int
+	continuousClock  bool
+	clocks           map[uint32]*continuousClock // continuous decode-time clock of each track ID
 	streamPos        uint64
 	preFragmentBoxes []Box // Boxes read by InitDecodeStream that precede the first moof
 }
@@ -172,7 +174,9 @@ type FragmentDoneCallback func(f *Fragment) error
 type TrailingBoxesCallback func(lastFrag *Fragment, boxes []Box) error
 
 // SampleAccessor provides access to samples within a fragment.
-// The decode times of a traf without tfdt are relative to the start of the fragment, as in Fragment.GetFullSamples.
+// The decode times of a traf without tfdt are relative to the start of the fragment, as in
+// Fragment.GetFullSamples, unless the stream was opened with WithContinuousClock, in which case every track
+// keeps its decode time across fragments and the accessor reports the continuous values.
 type SampleAccessor interface {
 	GetSample(trackID uint32, sampleNr uint32) (*FullSample, error)
 	GetSampleRange(trackID uint32, startSampleNr, endSampleNr uint32) ([]FullSample, error)
@@ -216,6 +220,15 @@ func WithMaxFragments(max int) StreamOption {
 	return func(sf *StreamFile) { sf.maxFragments = max }
 }
 
+// WithContinuousClock enables the continuous decode-time clock, see the package-level documentation of the
+// mode in continuous_clock.go. Each track then keeps the decode time of its next sample across fragments,
+// including those whose traf has no tfdt, and the SampleAccessor of every fragment reports those decode times.
+// The clocks live in the StreamFile, so dropping fragments from the sliding window neither resets nor mixes
+// them. It is off by default.
+func WithContinuousClock() StreamOption {
+	return func(sf *StreamFile) { sf.continuousClock = true }
+}
+
 // fragmentSampleAccessor implements SampleAccessor for a fragment using the boxSeekReader.
 type fragmentSampleAccessor struct {
 	fragment      *Fragment
@@ -251,10 +264,7 @@ func (fsa *fragmentSampleAccessor) GetSample(trackID uint32, sampleNr uint32) (*
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := fsa.fragment.effectiveBaseTime(traf)
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -341,10 +351,7 @@ func (fsa *fragmentSampleAccessor) GetSampleRange(trackID uint32, startSampleNr,
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := fsa.fragment.effectiveBaseTime(traf)
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -428,10 +435,7 @@ func (fsa *fragmentSampleAccessor) GetSamples(trackID uint32) ([]FullSample, err
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := fsa.fragment.effectiveBaseTime(traf)
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -530,10 +534,7 @@ func (fsa *fragmentSampleAccessor) appendSamples(dst []FullSample, buf []byte, t
 	dst = slices.Grow(dst, nrSamples)
 
 	// Second pass: read the selected samples of each trun into buf and append views of them.
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := fsa.fragment.effectiveBaseTime(traf)
 	sampleNr = 1
 	for _, trun := range traf.Truns {
 		offset := trunDataOffset(fsa.fragment.Moof.StartPos, tfhd, trun)
@@ -832,6 +833,17 @@ func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFra
 	frag.AddChild(moof)
 	frag.AddChild(mdatBox)
 
+	if sf.continuousClock {
+		// Evaluate and commit every track before the callback, so that the clocks tick even without a callback
+		// or when the callback reads only one track. The clocks belong to the StreamFile, not the fragment, so
+		// the sliding window dropping the fragment cannot reset or mix them.
+		clocks, err := advanceContinuousClocks(sf.clocks, frag, sf.trexForTrack)
+		if err != nil {
+			return err
+		}
+		sf.clocks = clocks
+	}
+
 	// Invoke callback if set
 	if sf.onFragmentReady != nil {
 		var mvex *MvexBox
@@ -889,6 +901,15 @@ func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFra
 
 	// Stream is now positioned at mdatEndPos, ready to read next box header
 	return nil
+}
+
+// trexForTrack returns the trex box of trackID from the init segment, or nil if there is none.
+func (sf *StreamFile) trexForTrack(trackID uint32) *TrexBox {
+	if sf.Moov == nil || sf.Moov.Mvex == nil {
+		return nil
+	}
+	trex, _ := sf.Moov.Mvex.GetTrex(trackID)
+	return trex
 }
 
 // dropOldestFragment removes the oldest fragment from the file structure.

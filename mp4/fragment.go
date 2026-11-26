@@ -29,6 +29,12 @@ type Fragment struct {
 	spareSenc *SencBox
 	spareSaiz *SaizBox
 	spareSaio *SaioBox
+
+	// clockBases holds the effective base decode time per track in continuous-clock mode, set once when the
+	// fragment is decoded or processed with that mode. Its presence also marks that the clocks have advanced
+	// for this fragment, so reading the samples again does not advance them. A nil map gives the default
+	// tfdt-relative behavior.
+	clockBases map[uint32]uint64
 }
 
 // NewFragment creates an empty MP4 Fragment.
@@ -239,7 +245,8 @@ func (f *Fragment) Size() uint64 {
 // GetFullSamples - Get full samples including media and accumulated time.
 // The decode times start at the tfdt time. A traf without tfdt has decode times relative to the start of the
 // fragment, since the absolute decode time of its first sample is the sum of the durations of all earlier samples
-// of the track.
+// of the track. A fragment decoded or processed with the continuous clock instead starts at that clock's current
+// value, so its samples keep their decode time across fragments even when the traf has no tfdt.
 func (f *Fragment) GetFullSamples(trex *TrexBox) ([]FullSample, error) {
 	samples, err := f.AppendFullSamples(nil, trex)
 	if err != nil {
@@ -265,10 +272,7 @@ func (f *Fragment) AppendFullSamples(dst []FullSample, trex *TrexBox) ([]FullSam
 		return dst, nil // This trackID may not exist for this fragment
 	}
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := f.effectiveBaseTime(traf)
 	origLen := len(dst)
 	walk := f.trunWalk(traf)
 	for _, trun := range traf.Truns {
@@ -339,9 +343,7 @@ func (f *Fragment) yieldSamples(trex *TrexBox, yield func(FullSample, error) boo
 		}
 	}
 	var decodeTime uint64
-	if traf.Tfdt != nil {
-		decodeTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	decodeTime = f.effectiveBaseTime(traf)
 	if walk != nil {
 		*walk = trunWalk{traf: traf} // start over
 	}

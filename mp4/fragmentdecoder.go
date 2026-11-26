@@ -19,10 +19,20 @@ import (
 // The mdat data of a decoded fragment views the slice it was decoded from, as with DecodeFileSR, so sample data
 // can be extracted without copying with Fragment.Samples or Fragment.AppendFullSamples.
 type FragmentDecoder struct {
-	// Moov is the movie box of the init segment, if known. It gives the per-sample IV size for parsing senc boxes.
+	// Moov is the movie box of the init segment, if known. It gives the per-sample IV size for parsing senc boxes,
+	// and, with ContinuousClock set, the trex default sample durations.
 	Moov *MoovBox
 
+	// ContinuousClock enables the continuous decode-time clock, see the package-level documentation of the
+	// mode in continuous_clock.go. With it, each track keeps the decode time of its next sample across
+	// fragments, including those whose traf has no tfdt. It is off by zero value, and the clocks are not
+	// advanced until a whole fragment has passed every check, so a failed or truncated DecodeSR leaves them
+	// at the last committed fragment.
+	ContinuousClock bool
+
 	frag Fragment
+	// clocks holds the continuous decode-time clock of each track ID.
+	clocks map[uint32]*continuousClock
 	// boxes holds the top-level boxes of the last fragment, in order, and spareBoxes the storage for the next.
 	boxes, spareBoxes []Box
 	// cands holds the boxes that the next fragment can decode into: those of the last fragment and those of
@@ -136,7 +146,33 @@ func (d *FragmentDecoder) DecodeSR(sr bits.SliceReader, startPos uint64) (*Fragm
 		}
 	}
 	f.StartPos = moof.StartPos
+	if d.ContinuousClock {
+		// The whole fragment has decoded, so all clocks can be evaluated and committed together. An error here
+		// leaves the clocks and the fragment untouched, so retrying with a complete fragment continues from the
+		// last committed one.
+		clocks, err := advanceContinuousClocks(d.clocks, f, d.trexForTrack)
+		if err != nil {
+			return nil, err
+		}
+		d.clocks = clocks
+	}
 	return f, nil
+}
+
+// trexForTrack returns the trex box of trackID from the init segment, or nil if there is none.
+func (d *FragmentDecoder) trexForTrack(trackID uint32) *TrexBox {
+	if d.Moov == nil || d.Moov.Mvex == nil {
+		return nil
+	}
+	trex, _ := d.Moov.Mvex.GetTrex(trackID)
+	return trex
+}
+
+// ResetContinuousClocks clears the continuous decode-time clocks of every track. The next fragment then starts
+// each track's clock again, from its tfdt or from zero when the traf has none. It does not change any box.
+func (d *FragmentDecoder) ResetContinuousClocks() {
+	clear(d.clocks)
+	d.clocks = nil
 }
 
 // Boxes returns the top-level boxes of the last fragment that DecodeSR decoded, in order.

@@ -127,6 +127,82 @@ It describes
 
 Sample numbers in the APIs start at 1, as in the ISOBMFF standard.
 
+### Continuous decode-time clock
+
+Some recorders write a `tfdt` box only at the start of a track or when they re-anchor the time, and leave it out
+of the following fragments. In the default decoding mode such a fragment gets sample decode times relative to
+zero. The optional continuous-clock mode instead keeps, per track, the decode time of the next sample in the
+track's own timescale:
+
+* the first `traf` of a track without a `tfdt` starts at zero;
+* a `tfdt`, read as its full 64-bit value, re-anchors the clock forwards or backwards;
+* the clock then advances by the durations of all samples of all `trun` of the `traf`, taking trun sample
+  fields, then `tfhd` defaults behind their presence flags (an explicit zero counts), then the track's `trex`
+  defaults;
+* a track absent from a fragment keeps its clock, an empty `traf` without `tfdt` does not move it, and an empty
+  `traf` with a `tfdt` only re-anchors it.
+
+The mode changes only the returned `DecodeTime` values. No `tfdt` box is added or modified, composition offsets
+and media bytes stay untouched, and re-encoding a decoded fragment produces the same bytes. The default mode is
+unchanged.
+
+With the sequential `FragmentDecoder`, enable it through the configurable field and clear all track clocks with
+`ResetContinuousClocks`:
+
+```go
+var d mp4.FragmentDecoder
+d.Moov = init.Moov            // provides the trex default sample durations
+d.ContinuousClock = true
+for {
+    frag, err := d.DecodeSR(sr, pos)
+    if errors.Is(err, io.EOF) {
+        break
+    }
+    if err != nil {
+        return err // a truncated or invalid fragment leaves every clock at its last committed value
+    }
+    samples, err := frag.GetFullSamples(trex) // DecodeTime now continues across fragments
+    if err != nil {
+        return err
+    }
+    // ...
+}
+d.ResetContinuousClocks() // the next fragments start every track clock again
+```
+
+With `StreamFile`, enable it through the `WithContinuousClock` option. The clocks live in the `StreamFile`, so
+the sliding-window fragment retention neither resets nor mixes them, and every track is advanced before the
+callback, whether or not the callback reads its samples:
+
+```go
+sf, err := mp4.InitDecodeStream(r,
+    mp4.WithContinuousClock(),
+    mp4.WithMaxFragments(1),
+    mp4.WithFragmentCallback(func(frag *mp4.Fragment, sa mp4.SampleAccessor) error {
+        for _, traf := range frag.Moof.Trafs {
+            samples, err := sa.GetSamples(traf.Tfhd.TrackID)
+            if err != nil {
+                return err
+            }
+            for _, s := range samples {
+                _ = s.DecodeTime // continuous across fragments, including those without tfdt
+            }
+        }
+        return nil
+    }),
+)
+if err != nil {
+    return err
+}
+if err := sf.ProcessFragments(); err != nil {
+    return err
+}
+```
+
+The same continuous decode times are returned by `Fragment.GetFullSamples`, `Fragment.AppendFullSamples`,
+`Fragment.Samples` and every `SampleAccessor` method (`GetSample`, `GetSampleRange`, `GetSamples`,
+`AppendSamples`, `AppendSampleRange`). Reading one fragment more than once does not advance the clocks again.
+
 ### Packages
 
 The packages in the mp4ff module are
@@ -154,7 +230,6 @@ The packages in the mp4ff module are
 ### Examples
 
 Example code for some common use cases is in the [examples](examples) directory:
-
 * [initcreator](examples/initcreator) creates typical init segments (ftyp + moov) for different video and
   audio codecs
 * [resegmenter](examples/resegmenter) reads a segmented file (CMAF track) and resegments it with other
