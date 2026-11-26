@@ -4,6 +4,7 @@
 #include "camera.h"
 #include "darray.h"
 #include "draw2d.h"
+#include "ellipsoid.h"
 #include "graphics.h"
 #include "image.h"
 #include "macro.h"

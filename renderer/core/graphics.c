@@ -425,24 +425,23 @@ static void interpolate_varyings(
     }
 }
 
-static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
-                          int backface, int index, float depth) {
-    vec4_t color;
-    int discard;
-
-    /* execute fragment shader */
-    discard = 0;
-    color = program->fragment_shader(program->shader_varyings,
-                                     program->shader_uniforms,
-                                     &discard,
-                                     backface);
-    if (discard) {
-        return;
+/*
+ * the single commit path shared by triangle and ellipsoid rasterization:
+ * take an already depth-tested fragment color, honor *discard, saturate,
+ * blend RGB against the destination when requested, then write color and
+ * depth. the destination alpha byte is deliberately left untouched, whether
+ * blending is enabled or not.
+ */
+int graphics_commit_fragment(framebuffer_t *framebuffer, int index,
+                             float depth, vec4_t color, int *discard,
+                             int enable_blend) {
+    if (*discard) {
+        return 0;
     }
     color = vec4_saturate(color);
 
     /* perform blending */
-    if (program->enable_blend) {
+    if (enable_blend) {
         /* out_color = src_color * src_alpha + dst_color * (1 - src_alpha) */
         unsigned char dst_r = framebuffer->color_buffer[index * 4 + 0];
         unsigned char dst_g = framebuffer->color_buffer[index * 4 + 1];
@@ -457,6 +456,22 @@ static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
     framebuffer->color_buffer[index * 4 + 1] = float_to_uchar(color.y);
     framebuffer->color_buffer[index * 4 + 2] = float_to_uchar(color.z);
     framebuffer->depth_buffer[index] = depth;
+    return 1;
+}
+
+static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
+                          int backface, int index, float depth) {
+    vec4_t color;
+    int discard;
+
+    /* execute fragment shader */
+    discard = 0;
+    color = program->fragment_shader(program->shader_varyings,
+                                     program->shader_uniforms,
+                                     &discard,
+                                     backface);
+    graphics_commit_fragment(framebuffer, index, depth, color, &discard,
+                             program->enable_blend);
 }
 
 static int rasterize_triangle(framebuffer_t *framebuffer, program_t *program,

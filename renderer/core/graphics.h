@@ -32,4 +32,14 @@ void *program_get_uniforms(program_t *program);
 /* graphics pipeline */
 void graphics_draw_triangle(framebuffer_t *framebuffer, program_t *program);
 
+/*
+ * single fragment commit path shared by all primitives: if *discard is zero,
+ * saturate the color, optionally blend RGB against the destination and write
+ * both color (RGB only, destination alpha byte preserved) and depth. index is
+ * y * width + x. returns 1 when the fragment was written, 0 when discarded.
+ */
+int graphics_commit_fragment(framebuffer_t *framebuffer, int index,
+                             float depth, vec4_t color, int *discard,
+                             int enable_blend);
+
 #endif
