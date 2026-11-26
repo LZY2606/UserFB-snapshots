@@ -26,4 +26,12 @@ set(SOURCES main.cpp our_gl.cpp model.cpp tgaimage.cpp)
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 
+# Sparse virtual texturing example; the legacy target above is unchanged.
+add_executable(virtual_texture
+    examples/virtual_texture.cpp
+    our_gl.cpp
+    tgaimage.cpp
+    virtual_texture.cpp)
+target_include_directories(virtual_texture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 file(GENERATE OUTPUT .gitignore CONTENT "*")

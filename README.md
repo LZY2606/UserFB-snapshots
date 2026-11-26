@@ -99,3 +99,79 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+
+## Sparse virtual texturing
+
+`virtual_texture.h/.cpp` add a second rendering path that streams texture data
+page by page instead of loading a full image. The legacy `IShader`,
+`rasterize` and command line draw are untouched; both paths share the
+coverage, barycentric and depth helpers in `our_gl.cpp`.
+
+A texture is described by a complete logical mip chain (`TextureDesc`): a
+power-of-two base size halved on each axis until 1x1, plus a fixed
+power-of-two page edge. The pool (`VirtualTexturePool`) only stores the pages
+that have actually been uploaded; full logical images are never allocated. A
+page is identified by `PageKey { texture_id, level, page_x, page_y }` and its
+content is row-major linear-RGB doubles covering the page's real extent (tail
+levels may be smaller than one page). The 1x1 last level is pinned in memory
+and cannot be evicted. Invalid sizes, keys, pixel counts or non-finite values
+are rejected before any mutation.
+
+```cpp
+vt::VirtualTexturePool pool({{/*id*/0, /*base*/16, 16, /*page*/4}});
+pool.upload({vt::PageKey{0, 0, 0, 0}, 4, 4, rgb});   // one 4x4 page
+auto snapshot = pool.snapshot();                     // owning, immutable
+```
+
+A `VirtualTextureFrame` owns the clip-space triangles, per-corner UVs and
+texture ids it is given, and binds one snapshot and one viewport. After all
+triangles are submitted, `generate()` rasterizes them with the same area
+culling, perspective-correct barycentrics and "larger z/w is closer" depth
+rule as the legacy path (depth ties keep the first face, discarded fragments
+never write depth). UVs are interpolated as a perspective quotient and their
+screen-space derivatives are analytical derivatives of that quotient, giving
+`rho` and a clamped fractional LOD.
+
+Sampling uses repeat wrapping with bilinear coordinates `(u*W-0.5, v*H-0.5)`;
+zero-weight taps are not read and taps may cross pages and periodic
+boundaries. If any page needed by the ideal LOD level is missing, the whole
+bilinear footprint is retried on coarser levels (taps recomputed on the
+original UV each time) until every tap is resident. The two LOD dwords are
+resolved independently and blended by the fractional LOD. Each fragment
+exposes its linear color, winning face id, depth, UV, derivatives, LOD, the
+ideal and actually used levels, and the frame returns the sorted,
+de-duplicated list of missing pages from visible fragments only.
+
+```cpp
+vt::VirtualTextureFrame frame(width, height, viewport, snapshot);
+frame.submit_triangle(/*texture*/0, /*discard*/false, clip, uv);
+frame.generate();
+const vt::FragmentInfo &f = frame.fragment(x, y);
+for (const vt::PageKey &k : frame.missing_pages()) /* stream this page */;
+```
+
+Snapshots and generated frames are immutable and self-contained: later
+uploads, replacements, evictions or global viewport changes never alter them,
+and two frames can be interleaved freely. An empty frame yields zero color,
+face id `-1` and an empty feedback list.
+
+### Virtual texture example and tests
+
+The example procedurally builds two small textures and two occluding
+triangles, then writes the blurry pre-streaming image, the sharp
+post-streaming image and the missing-page list into the given directory:
+
+```sh
+c++ -std=c++20 -O1 -I. examples/virtual_texture.cpp \
+    our_gl.cpp tgaimage.cpp virtual_texture.cpp -o virtual_texture
+./virtual_texture <output-directory>
+# writes before_loading.tga, after_loading.tga, missing_pages.txt
+```
+
+The task test suite lives in `tests/virtual_texture_cases.cpp` (groups
+`paging`, `footprint`, `visibility`) and runs together with the legacy
+baseline through:
+
+```sh
+bash task_support/run.sh target
+```
