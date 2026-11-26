@@ -143,9 +143,15 @@ struct material_data {
 // Instance.
 struct instance_data {
   // instance data
-  frame3f frame    = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
-  int     shape    = invalidid;
-  int     material = invalidid;
+  frame3f frame        = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
+  int     shape        = invalidid;
+  int     material     = invalidid;
+  // light-linking masks: an instance receives radiance only from emitters
+  // whose emission_mask has a non-zero bitwise-and with receive_mask;
+  // when the instance is itself an emitter, emission_mask selects the
+  // receiver groups it may contribute to
+  uint64_t receive_mask  = ~uint64_t{0};
+  uint64_t emission_mask = 1;
 };
 
 // Environment map.
@@ -154,6 +160,8 @@ struct environment_data {
   frame3f frame        = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
   vec3f   emission     = {0, 0, 0};
   int     emission_tex = invalidid;
+  // light-linking mask of this environment emitter
+  uint64_t emission_mask = 1;
 };
 
 // Subdiv data represented as face-varying primitives where
