@@ -12,6 +12,7 @@ install(
     index.md
     license.md
     lists.md
+    minimum_phase.md
     quality.md
     win32.md
     SRC.png

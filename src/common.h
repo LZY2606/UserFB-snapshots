@@ -129,6 +129,7 @@ typedef enum SRC_ERROR
 	SRC_ERR_NO_VARIABLE_RATIO,
 	SRC_ERR_SINC_PREPARE_DATA_BAD_LEN,
 	SRC_ERR_BAD_INTERNAL_STATE,
+	SRC_ERR_MINPHASE_BAD_RATIO,
 
 	/* This must be the last error number. */
 	SRC_ERR_MAX_ERROR
@@ -150,6 +151,9 @@ typedef struct SRC_STATE_VT_tag
 
 	/* State close. */
 	void			(*close) (SRC_STATE *state) ;
+
+	/* Optional converter-specific src_set_ratio validation. */
+	int				(*set_ratio) (SRC_STATE *state, double new_ratio) ;
 } SRC_STATE_VT ;
 
 struct SRC_STATE_tag
@@ -160,6 +164,7 @@ struct SRC_STATE_tag
 
 	SRC_ERROR	error ;
 	int		channels ;
+	int		converter_type ;
 
 	/* SRC_MODE_PROCESS or SRC_MODE_CALLBACK */
 	enum SRC_MODE	mode ;
@@ -191,6 +196,12 @@ const char* zoh_get_name (int src_enum) ;
 const char* zoh_get_description (int src_enum) ;
 
 SRC_STATE *zoh_state_new (int channels, SRC_ERROR *error) ;
+
+/* In src_min_phase.c */
+const char* minphase_get_name (int src_enum) ;
+const char* minphase_get_description (int src_enum) ;
+
+SRC_STATE *minphase_state_new (int channels, SRC_ERROR *error) ;
 
 /*----------------------------------------------------------
 ** SIMD optimized math functions.

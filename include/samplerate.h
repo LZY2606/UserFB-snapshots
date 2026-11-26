@@ -167,6 +167,7 @@ enum
 	SRC_SINC_FASTEST			= 2,
 	SRC_ZERO_ORDER_HOLD			= 3,
 	SRC_LINEAR					= 4,
+	SRC_SINC_MINIMUM_PHASE		= 5,
 } ;
 
 /*

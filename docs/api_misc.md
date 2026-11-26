@@ -23,7 +23,7 @@ has been defined for that error value.
 
 Secret Rabbit Code has a number of different converters which can be selected
 using the **converter_type** parameter when calling **src_simple** or
-**src_new**. Currently, the five converters available are:
+**src_new**. Currently, the six converters available are:
 
 ```c
 enum
@@ -32,7 +32,8 @@ enum
     SRC_SINC_MEDIUM_QUALITY     = 1,
     SRC_SINC_FASTEST            = 2,
     SRC_ZERO_ORDER_HOLD         = 3,
-    SRC_LINEAR                  = 4
+    SRC_LINEAR                  = 4,
+    SRC_SINC_MINIMUM_PHASE      = 5
 } ;
 ```
 
@@ -59,6 +60,11 @@ The details of these converters are as follows:
 - **SRC_LINEAR** - A linear converter. Again the quality is poor, but the
   conversion speed is blindingly fast. This interpolator is also not bandlimited, 
   and the user is responsible for adding anti-aliasing filtering.
+- **SRC_SINC_MINIMUM_PHASE** - A causal minimum-phase sinc lowpass for fixed
+  output/input ratios from 0.5 to 2.0. It concentrates energy near the start
+  of the impulse for low-latency monitoring. See
+  [Minimum-phase sinc converter](minimum_phase.md) for coefficient source,
+  accuracy and end-of-input zero-tail conventions.
 
 There are two functions that give either a (text string) name or description for
 each converter:

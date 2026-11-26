@@ -96,6 +96,10 @@ src_process (SRC_STATE *state, SRC_DATA *data)
 	if (data == NULL)
 		return SRC_ERR_BAD_DATA ;
 
+	/* Error returns must not leave stale consumption/production counts. */
+	data->input_frames_used = 0 ;
+	data->output_frames_gen = 0 ;
+
 	/* And that data_in and data_out are valid. */
 	if ((data->data_in == NULL && data->input_frames > 0)
 			|| (data->data_out == NULL && data->output_frames > 0))
@@ -246,6 +250,12 @@ src_set_ratio (SRC_STATE *state, double new_ratio)
 	if (is_bad_src_ratio (new_ratio))
 		return SRC_ERR_BAD_SRC_RATIO ;
 
+	if (state->vt != NULL && state->vt->set_ratio != NULL)
+	{	int converter_error = state->vt->set_ratio (state, new_ratio) ;
+		if (converter_error != SRC_ERR_NO_ERROR)
+			return converter_error ;
+		} ;
+
 	state->last_ratio = new_ratio ;
 
 	return SRC_ERR_NO_ERROR ;
@@ -296,6 +306,9 @@ src_get_name (int converter_type)
 	if ((desc = linear_get_name (converter_type)) != NULL)
 		return desc ;
 
+	if ((desc = minphase_get_name (converter_type)) != NULL)
+		return desc ;
+
 	return NULL ;
 } /* src_get_name */
 
@@ -310,6 +323,9 @@ src_get_description (int converter_type)
 		return desc ;
 
 	if ((desc = linear_get_description (converter_type)) != NULL)
+		return desc ;
+
+	if ((desc = minphase_get_description (converter_type)) != NULL)
 		return desc ;
 
 	return NULL ;
@@ -392,6 +408,8 @@ src_strerror (int error)
 				return "Internal error : Bad length in prepare_data ()." ;
 		case SRC_ERR_BAD_INTERNAL_STATE :
 				return "Error : Someone is trampling on my internal state." ;
+		case SRC_ERR_MINPHASE_BAD_RATIO :
+				return "Minimum phase converter requires a fixed src_ratio in [0.5, 2.0]." ;
 
 		case SRC_ERR_MAX_ERROR :
 				return "Placeholder. No error defined for this error number." ;
@@ -513,6 +531,9 @@ psrc_set_converter (int converter_type, int channels, int *error)
 		break ;
 	case SRC_LINEAR :
 		state = linear_state_new (channels, &temp_error) ;
+		break ;
+	case SRC_SINC_MINIMUM_PHASE :
+		state = minphase_state_new (channels, &temp_error) ;
 		break ;
 	default :
 		temp_error = SRC_ERR_BAD_CONVERTER ;

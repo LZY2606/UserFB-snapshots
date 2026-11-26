@@ -11,6 +11,9 @@ if(ALSA_FOUND)
   endif()
 endif()
 
+add_executable(minimum_phase_demo minimum_phase_demo.c)
+target_link_libraries(minimum_phase_demo PRIVATE samplerate ${MATH_LIBRARY})
+
 add_executable(timewarp-file timewarp-file.c)
 target_link_libraries(timewarp-file
   PRIVATE

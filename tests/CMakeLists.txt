@@ -33,6 +33,11 @@ add_executable(downsample_test downsample_test.c util.c util.h)
 target_link_libraries(downsample_test PRIVATE samplerate)
 add_test(NAME downsample_test COMMAND downsample_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)
 
+add_executable(minimum_phase_test minimum_phase_test.c)
+target_link_libraries(minimum_phase_test PRIVATE samplerate ${MATH_LIBRARY})
+add_test(NAME minimum_phase_test COMMAND minimum_phase_test
+         WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)
+
 add_executable(simple_test simple_test.c util.c util.h)
 target_link_libraries(simple_test PRIVATE samplerate)
 add_test(NAME simple_test COMMAND simple_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)
