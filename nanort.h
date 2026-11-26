@@ -1038,10 +1038,19 @@ class TriangleIntersector {
     int kz;
   } RayCoeff;
 
-  /// Do ray intersection stuff for `prim_index` th primitive and return hit
-  /// distance `t`, barycentric coordinate `u` and `v`.
-  /// Returns true if there's intersection.
-  bool Intersect(T *t_inout, const unsigned int prim_index) const {
+  /// Geometry-only candidate. `t` is the ray distance and `u`/`v` use the
+  /// same barycentric convention as TriangleIntersection.
+  struct TriangleCandidate {
+    T t;
+    T u;
+    T v;
+  };
+
+  /// Compute a watertight triangle candidate without committing it to the
+  /// intersector's accepted hit state. `max_t` is the current nearest
+  /// distance; candidates farther than `max_t` are rejected.
+  bool ComputeCandidate(unsigned int prim_index, T max_t,
+                         TriangleCandidate *candidate) const {
     if ((prim_index < trace_options_.prim_ids_range[0]) ||
         (prim_index >= trace_options_.prim_ids_range[1])) {
       return false;
@@ -1120,7 +1129,7 @@ class TriangleIntersector {
     const T rcpDet = static_cast<T>(1.0) / det;
     T tt = D * rcpDet;
 
-    if (tt > (*t_inout)) {
+    if (tt > max_t) {
       return false;
     }
 
@@ -1128,14 +1137,38 @@ class TriangleIntersector {
       return false;
     }
 
-    (*t_inout) = tt;
+    candidate->t = tt;
     // Use Möller-Trumbore style barycentric coordinates
     // U + V + W = 1.0 and interp(p) = U * p0 + V * p1 + W * p2
     // We want interp(p) = (1 - u - v) * p0 + u * v1 + v * p2;
     // => u = V, v = W.
-    u_ = V * rcpDet;
-    v_ = W * rcpDet;
+    candidate->u = V * rcpDet;
+    candidate->v = W * rcpDet;
 
+    return true;
+  }
+
+  /// Commit a candidate as the current closest in-leaf intersection.
+  /// `t_inout` may be NULL when only barycentric state is needed.
+  void CommitCandidate(const TriangleCandidate &candidate,
+                       T *t_inout) const {
+    if (t_inout) {
+      *t_inout = candidate.t;
+    }
+    u_ = candidate.u;
+    v_ = candidate.v;
+  }
+
+  /// Do ray intersection stuff for `prim_index` th primitive and return hit
+  /// distance `t`, barycentric coordinate `u` and `v`.
+  /// Returns true if there's intersection.
+  bool Intersect(T *t_inout, const unsigned int prim_index) const {
+    TriangleCandidate candidate;
+    if (!ComputeCandidate(prim_index, *t_inout, &candidate)) {
+      return false;
+    }
+
+    CommitCandidate(candidate, t_inout);
     return true;
   }
 

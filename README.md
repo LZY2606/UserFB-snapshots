@@ -118,6 +118,68 @@ For a builtin Triangle intersector,
 
 are required attributes.
 
+## Opacity-mapped / cutout triangles
+
+Include `nanort-opacity.h` in addition to `nanort.h` when leaves, fences, or
+other alpha-tested geometry should remain in the ordinary BVH.  The header
+provides `OpacityMesh<T>`, `OpacityMap<T>`, and `OpacityIntersector<T>` for
+`float` and `double`; the mesh keeps the same vertex/index/stride layout as
+`TriangleMesh`, so the existing `BVHAccel::Build` and `BVHAccel::Traverse`
+paths are unchanged:
+
+```cpp
+nanort::OpacityMap<float> opacity;
+opacity.Build(num_faces, face_uvs, alpha_pixels, width, height,
+              /*cutoff=*/128, /*micro_depth=*/4);
+
+nanort::OpacityMesh<float> mesh(vertices, faces, vertex_stride, &opacity);
+nanort::OpacityIntersector<float> intersector(mesh);
+nanort::TriangleIntersection<float> hit;
+bvh.Traverse(ray, intersector, &hit, trace_options);
+
+// Per-query statistics, reset by PrepareTraversal():
+// intersector.deterministic_hits, intersector.alpha_samples
+```
+
+Each original triangle has three face-corner UVs.  Texels are one byte,
+row-major, and a texel is surface when `alpha >= cutoff`.  UVs are clamped to
+`[0, 1]`; texel coordinates are `floor(u * width)` and
+`floor(v * height)`, clamped to the final texel.
+
+`OpacityMap` recursively quarters the barycentric triangle by edge midpoints.
+The requested depth is clamped to `0..5`; depth `d` produces `4^d` micro
+leaves.  Every leaf is classified as fully transparent, fully opaque, or
+mixed.  Classification is deliberately conservative: a leaf whose UV bounding
+rectangle can reach both alpha classes is marked mixed.  It is therefore safe
+to expand a thin or degenerate UV triangle into its UV rectangle and record
+extra mixed leaves, but a definite transparent/opaque leaf can never contain
+an unexpected isolated texel of the other class.  Mirrored, duplicate-corner,
+and degenerate UVs use the same bounding-rectangle rule.  Shared micro-edges
+may select either adjacent leaf because both definite labels are safe for the
+real sampler.
+
+The map owns copies of the corner UVs and texture pixels after `Build`,
+`BuildPrimitive`, or `BuildPerPrimitive`.  It does not retain the caller's
+pointers.  If UVs, pixels, dimensions, or cutoff change, call `Build`/
+`RebuildPrimitive` again explicitly; merely mutating the original arrays does
+not update the cache.
+
+A transparent deterministic candidate is rejected without writing the current
+nearest `t` or accepted barycentric `u,v`; mixed candidates perform one exact
+texel sample.  This streaming path keeps close rear layers working without
+ray-origin offsets or restarting rays from the root.  Ray intervals,
+`cull_back_face`, `skip_prim_id`, `prim_ids_range`, and padded vertex strides
+continue to use the normal triangle rules.  The returned `prim_id` is the
+original face id and therefore the correct key for its UV/material data.
+
+`examples/opacity_layers.cpp` demonstrates two close perforated layers, a
+colored wall, and finite point-light shadow rays:
+
+```sh
+c++ -std=c++17 -O2 -I. examples/opacity_layers.cpp -o opacity_layers
+./opacity_layers opacity_layers.ppm
+```
+
 
 ## Usage
 
