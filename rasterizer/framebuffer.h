@@ -31,6 +31,12 @@ struct Framebuffer
         return std::get<idx>(m_targets);
     }
 
+    template<std::size_t idx>
+    const auto& target() const
+    {
+        return std::get<idx>(m_targets);
+    }
+
     TargetStorage& targets()
     {
         return m_targets;

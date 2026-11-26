@@ -1,4 +1,4 @@
-add_executable( 11_pbr ${CMAKE_CURRENT_SOURCE_DIR}/demo_pbr.cpp)
+add_executable( 11_pbr ${CMAKE_CURRENT_SOURCE_DIR}/demo_pbr.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pbr_material.h)
 target_link_libraries( 11_pbr PRIVATE rasterizer_static utility )
 
 target_compile_features( 11_pbr PUBLIC cxx_std_20 )

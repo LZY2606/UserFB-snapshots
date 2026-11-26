@@ -21,5 +21,6 @@ Thumbs.db
 dist/
 build/
 debug/
+.task-build/
 compile_commands.json
 CMakeLists.txt.user

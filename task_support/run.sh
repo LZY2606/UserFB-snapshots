@@ -13,7 +13,7 @@ for file in rasterizer/*.cpp rasterizer/math/*.cpp; do
 done
 if [[ $mode == target ]]; then
   c++ -std=c++20 -O2 -I . -I rasterizer "${objects[@]}" task_support/driver.c checks/target.cpp -o .task-build/target
-  output_log=$(mktemp)
+  output_log=".task-build/target-output.$$.log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
