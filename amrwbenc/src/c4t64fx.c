@@ -47,6 +47,10 @@
 
 #include "q_pulse.h"
 
+#ifdef PULSE_TRACE
+#include "pulse_trace.h"
+#endif
+
 static Word16 tipos[36] = {
 	0, 1, 2, 3,                            /* starting point &ipos[0], 1st iter */
 	1, 2, 3, 0,                            /* starting point &ipos[4], 2nd iter */
@@ -814,6 +818,28 @@ void ACELP_4t64_fx(
 			k += NPMAXPT;
 		}
 	}
+#ifdef PULSE_TRACE
+	{
+		pulse_trace_sample pulse_trace_event;
+		i = 0;
+		while (i < PULSE_TRACE_NB_SAMPLES)
+		{
+			pulse_trace_event.code[i] = code[i];
+			i++;
+		}
+		i = 0;
+		while (i < PULSE_TRACE_NB_INDEX)
+		{
+			pulse_trace_event.index[i] = _index[i];
+			i++;
+		}
+		pulse_trace_event.magic = PULSE_TRACE_MAGIC;
+		pulse_trace_event.nbbits = nbbits;
+		pulse_trace_event.ser_size = ser_size;
+		pulse_trace_event.pulse_amplitude = val;
+		pulse_trace_callback(&pulse_trace_event);
+	}
+#endif
 	return;
 }
 
