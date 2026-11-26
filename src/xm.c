@@ -135,6 +135,24 @@ uint16_t xm_get_number_of_samples(const xm_context_t* ctx) {
 	return ctx->module.num_samples;
 }
 
+uint8_t xm_get_sample_channels(const xm_context_t* ctx, uint16_t sample) {
+	if(sample >= ctx->module.num_samples) return 0;
+	return ctx->samples[sample].channels;
+}
+
+xm_sample_point_t* xm_get_sample_waveform_channel(xm_context_t* ctx,
+                                                  uint16_t sample,
+                                                  uint8_t channel,
+                                                  uint32_t* length) {
+	if(length) *length = 0;
+	if(sample >= ctx->module.num_samples) return NULL;
+
+	xm_sample_t* s = ctx->samples + sample;
+	if(channel >= s->channels) return NULL;
+	if(length) *length = s->length;
+	return ctx->samples_data + s->index + (uint64_t)channel * s->length;
+}
+
 xm_sample_point_t* xm_get_sample_waveform(xm_context_t* ctx,
                                           uint16_t sample, uint32_t* length) {
 	assert(sample <= ctx->module.num_samples);

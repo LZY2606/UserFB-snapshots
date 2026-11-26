@@ -81,8 +81,8 @@ static void xm_key_off(xm_channel_context_t*) __attribute__((nonnull));
 
 static void xm_row(xm_context_t*) __attribute__((nonnull));
 
-static float xm_sample_at(const xm_context_t*, const xm_sample_t*, uint32_t) __attribute__((warn_unused_result)) __attribute__((nonnull)) __attribute__((const));
-static float xm_next_of_sample(xm_context_t*, xm_channel_context_t*) __attribute__((warn_unused_result)) __attribute__((nonnull));
+static float xm_sample_at(const xm_context_t*, uint32_t) __attribute__((warn_unused_result)) __attribute__((nonnull)) __attribute__((const));
+static void xm_next_of_sample(xm_context_t*, xm_channel_context_t*, float[2]) __attribute__((nonnull));
 static void xm_next_of_channel(xm_context_t*, xm_channel_context_t*, float*, float*) __attribute__((nonnull));
 static void xm_sample_unmixed(xm_context_t*, float*) __attribute__((nonnull));
 static void xm_sample(xm_context_t*, float*, float*) __attribute__((nonnull));
@@ -1042,12 +1042,14 @@ static void xm_trigger_note(xm_context_t* ctx, xm_channel_context_t* ch) {
 	if(ch->sample && ch->period) {
 		static_assert(RAMPING_POINTS <= UINT8_MAX);
 		for(uint8_t i = 0; i < RAMPING_POINTS; ++i) {
-			ch->end_of_previous_sample[i] =
-				xm_next_of_sample(ctx, ch);
+			float previous_frame[2];
+			xm_next_of_sample(ctx, ch, previous_frame);
+			ch->end_of_previous_sample[0][i] = previous_frame[0];
+			ch->end_of_previous_sample[1][i] = previous_frame[1];
 		}
 	} else {
 		__builtin_memset(ch->end_of_previous_sample, 0,
-		                 RAMPING_POINTS * sizeof(float));
+		                 sizeof(ch->end_of_previous_sample));
 	}
 	ch->frame_count = 0;
 	#endif
@@ -1842,17 +1844,18 @@ static void xm_tick_effects([[maybe_unused]] xm_context_t* ctx,
 	}
 }
 
-static float xm_sample_at(const xm_context_t* ctx,
-                          const xm_sample_t* sample, uint32_t k) {
-	assert(k < sample->length);
-	assert(sample->index + k < ctx->module.samples_data_length);
-	return SAMPLE_DATA(ctx, sample->index + k);
+static float xm_sample_at(const xm_context_t* ctx, uint32_t data_index) {
+	assert(data_index < ctx->module.samples_data_length);
+	return SAMPLE_DATA(ctx, data_index);
 }
 
-/* XXX: rename me or merge with xm_next_of_channel */
-static float xm_next_of_sample(xm_context_t* ctx, xm_channel_context_t* ch) {
+/* Returns one stereo frame from a tracker channel. Mono samples are returned
+ * identically on both planes. The sample phase is advanced at most once. */
+static void xm_next_of_sample(xm_context_t* ctx, xm_channel_context_t* ch,
+                              float out[2]) {
 	const xm_sample_t* smp = ch->sample;
 	assert(smp == NULL || smp->loop_length <= smp->length);
+	out[0] = out[1] = 0.f;
 
 	/* Zero-length samples are also handled here, since loop_length will
 	   always be zero for these */
@@ -1860,13 +1863,14 @@ static float xm_next_of_sample(xm_context_t* ctx, xm_channel_context_t* ch) {
 	   || (smp->loop_length == 0
 	       && ch->sample_position >= smp->length * SAMPLE_MICROSTEPS)) {
 		#if XM_RAMPING
-		/* Smoothly transition between old sample and silence */
-		if(ch->frame_count >= RAMPING_POINTS) return 0.f;
-		return XM_LERP(ch->end_of_previous_sample[ch->frame_count], .0f,
-		               (float)ch->frame_count / (float)RAMPING_POINTS);
-		#else
-		return 0.f;
+		if(ch->frame_count >= RAMPING_POINTS) return;
+		float ramp = (float)ch->frame_count / (float)RAMPING_POINTS;
+		out[0] = XM_LERP(ch->end_of_previous_sample[0][ch->frame_count],
+		                  .0f, ramp);
+		out[1] = XM_LERP(ch->end_of_previous_sample[1][ch->frame_count],
+		                  .0f, ramp);
 		#endif
+		return;
 	}
 
 	if(smp->loop_length
@@ -1918,28 +1922,45 @@ static float xm_next_of_sample(xm_context_t* ctx, xm_channel_context_t* ch) {
 
 	assert(a < smp->length);
 	assert(b < smp->length);
-	float u = (float)xm_sample_at(ctx, smp, a);
 
-	#if XM_LINEAR_INTERPOLATION
-	/* u = sample_at(a), v = sample_at(b), t = lerp factor (0..1) */
-	u = XM_LERP(u, (float)xm_sample_at(ctx, smp, b), t);
-	#endif
+	float u[2];
+	for(uint8_t plane = 0; plane < smp->channels; ++plane) {
+		uint32_t plane_index = smp->index
+			+ (uint32_t)plane * smp->length;
+		assert(plane_index + a < ctx->module.samples_data_length);
+		u[plane] = xm_sample_at(ctx, plane_index + a);
+
+		#if XM_LINEAR_INTERPOLATION
+		/* u = sample_at(a), v = sample_at(b), t = lerp factor (0..1) */
+		u[plane] = XM_LERP(u[plane],
+		                   xm_sample_at(ctx, plane_index + b), t);
+		#endif
+	}
+	if(smp->channels == 1) u[1] = u[0];
 
 	#if XM_RAMPING
 	if(ch->frame_count < RAMPING_POINTS) {
 		/* Smoothly transition between old and new sample. */
-		return XM_LERP(ch->end_of_previous_sample[ch->frame_count], u,
-		               (float)ch->frame_count / (float)RAMPING_POINTS);
+		float ramp = (float)ch->frame_count / (float)RAMPING_POINTS;
+		out[0] = XM_LERP(ch->end_of_previous_sample[0][ch->frame_count],
+		                 u[0], ramp);
+		out[1] = XM_LERP(ch->end_of_previous_sample[1][ch->frame_count],
+		                 u[1], ramp);
+		return;
 	}
 	#endif
 
 	ch->sample_position += ch->step;
-	return u;
+	out[0] = u[0];
+	out[1] = u[1];
 }
 
 static void xm_next_of_channel(xm_context_t* ctx, xm_channel_context_t* ch,
                                float* out_left, float* out_right) {
-	const float fval = xm_next_of_sample(ctx, ch) * AMPLIFICATION;
+	float sample_value[2];
+	xm_next_of_sample(ctx, ch, sample_value);
+	sample_value[0] *= AMPLIFICATION;
+	sample_value[1] *= AMPLIFICATION;
 
 	if(CHANNEL_MUTED(ch)
 	   || (INSTRUMENT(ch) != NULL && INSTRUMENT_MUTED(INSTRUMENT(ch)))
@@ -1948,8 +1969,8 @@ static void xm_next_of_channel(xm_context_t* ctx, xm_channel_context_t* ch,
 		return;
 	}
 
-	*out_left += fval * ch->actual_volume[0];
-	*out_right += fval * ch->actual_volume[1];
+	*out_left += sample_value[0] * ch->actual_volume[0];
+	*out_right += sample_value[1] * ch->actual_volume[1];
 
 	#if XM_RAMPING
 	ch->frame_count++;

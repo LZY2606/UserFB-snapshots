@@ -271,11 +271,13 @@ struct xm_sample_s {
 	uint32_t latest_trigger;
 	#endif
 
-	/* ctx->samples_data[index..(index+length)] */
+	/* ctx->samples_data[index..(index+length-1)] is the first (or only)
+	   plane. For stereo samples, the second plane follows immediately:
+	   ctx->samples_data[index+length..(index+2*length-1)]. */
 	uint32_t index;
-	uint32_t length; /* same as loop_end (seeking beyond a loop with 9xx is
-	                    invalid anyway) */
-	uint32_t loop_length; /* is zero for sample without looping */
+	uint32_t length; /* in frames, same as loop_end for looped samples */
+	uint32_t loop_length; /* in frames; zero for sample without looping */
+	uint8_t channels; /* 1 (mono) or 2 (two planes) */
 
 	#if HAS_FEATURE(FEATURE_PINGPONG_LOOPS)
 	#define PING_PONG(smp) ((smp)->ping_pong)
@@ -583,7 +585,7 @@ struct xm_channel_context_s {
 	float target_volume[2];
 	uint32_t frame_count; /* Gets reset after every note */
 	static_assert(RAMPING_POINTS % 2 == 1);
-	float end_of_previous_sample[RAMPING_POINTS];
+	float end_of_previous_sample[2][RAMPING_POINTS];
 	#endif
 
 	uint16_t period; /* 1/64 semitone increments (linear frequencies) */

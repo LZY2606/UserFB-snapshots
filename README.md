@@ -156,7 +156,28 @@ Known inaccuracies
 * (S3M only) Note cut (SCy), finetune (S2y), tone portamento (Gxx), waveform control (S3y/S4y) effects are implemented incorrectly
 * (S3M only) Old stereo control (SAy) might not behave correctly
 * (S3M only) 16 bit samples are supported (not in base ST3)
-* (S3M only) Stereo samples are not supported (not in base ST3)
+* (S3M only) Stereo PCM samples are supported as separate left/right planes
+
+Stereo sample interface
+=======================
+
+A **frame** contains one scalar point for every plane of a sample: one point
+for mono samples and left/right points for stereo samples. Lengths and
+`out_length` values are frame counts.
+
+`xm_get_sample_waveform()` remains available and returns the mono plane or the
+stereo left plane. Use `xm_get_sample_channels()` to distinguish mono from
+stereo, and `xm_get_sample_waveform_channel(ctx, sample, channel, &length)` to
+get a stable, writable left (`0`) or right (`1`) plane. The tracker channel
+still has one phase; both planes share interpolation, looping, offset and
+retrigger state. The existing channel pan gains multiply the corresponding
+planes, while mono data is copied to both outputs.
+
+`xm_save_context()` writes LIBXMIF version `0` for mono-only modules and
+version `1` when stereo planes are present. Version 1 sets sample flag bit 1,
+stores the right plane immediately after the retained left plane, and records
+the total number of scalar points at header offset `0x10`. Version 0 remains
+mono-only and version 1 mono records still contain one plane.
 
 To report more, please [open an issue](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug).
 

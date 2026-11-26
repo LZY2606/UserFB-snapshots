@@ -323,10 +323,62 @@ uint16_t xm_get_number_of_samples(const xm_context_t*)
 __attribute__((warn_unused_result))
 __attribute__((nonnull));
 
-/** Get the internal buffer for a given sample waveform.
+/** Sample frames, planes and panning.
+ *
+ * xm_sample_point_t is one scalar sample point. A frame is the collection
+ * of planes at the same sample position: one plane for mono samples and two
+ * planes for stereo samples (plane 0 is left, plane 1 is right). Lengths and
+ * out_length values are always frame counts, not scalar-point or byte counts.
+ *
+ * Both stereo planes share one tracker-note phase and are interpolated,
+ * looped, offset and retriggered together. The existing channel pan gains
+ * are applied separately: left plane times the left gain and right plane
+ * times the right gain. A mono plane is copied to both output sides, so an
+ * equal left/right stereo sample is bit-for-bit equivalent to mono under the
+ * same conditions, with no extra center-pan compensation.
+ *
+ * LIBXMIF save version 0 is mono-only. Version 1 is written when a module
+ * contains a stereo sample; sample flags bit 1 then marks stereo, record
+ * indices point at the left plane, and the right plane follows the retained
+ * left plane. Header offset 0x10 counts all scalar points (frames times
+ * planes). Version 1 mono records still have one plane.
+ */
+
+/** Get the number of stored planes in a sample: 1 for mono samples and 2
+ * for stereo samples. Sample frames always contain one scalar point per
+ * stored plane.
+ *
+ * @note Sample numbers go from 0 to xm_get_number_of_samples(...)-1.
+ *
+ * @returns 0 for an invalid sample number, otherwise 1 or 2
+ */
+uint8_t xm_get_sample_channels(const xm_context_t*, uint16_t sample)
+__attribute__((warn_unused_result))
+__attribute__((nonnull));
+
+/** Get the internal buffer for one sample plane.
+ *
+ * Channel 0 is the only plane of mono samples and the left plane of stereo
+ * samples. Channel 1 is the right plane of stereo samples. Each plane has
+ * out_length frames. The returned pointer is stable and writable; edits are
+ * heard by the next generate call.
+ *
+ * @note Sample numbers go from 0 to xm_get_number_of_samples(...)-1.
+ *
+ * @returns pointer to the requested plane, or NULL on an invalid sample or
+ * channel number. If out_length is non-NULL, it is set to 0 on error.
+ */
+xm_sample_point_t* xm_get_sample_waveform_channel(xm_context_t*,
+                                                  uint16_t sample,
+                                                  uint8_t channel,
+                                                  uint32_t* out_length)
+__attribute__((warn_unused_result));
+
+/** Get the left/mono internal buffer for a given sample waveform.
  *
  * This buffer can be read from or written to, at any time, but the
- * length cannot change.
+ * length cannot change. For stereo samples this returns the left plane;
+ * out_length is still the number of frames in that plane.
  *
  * @note Sample numbers go from 0 to xm_get_number_of_samples(...)-1.
  *
