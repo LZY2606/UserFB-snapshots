@@ -37,6 +37,7 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "yocto_color.h"
 #include "yocto_geometry.h"
@@ -736,9 +737,24 @@ bbox3f compute_bounds(const scene_data& scene) {
 // -----------------------------------------------------------------------------
 namespace yocto {
 
-void tesselate_subdiv(
-    shape_data& shape, subdiv_data& subdiv_, const scene_data& scene) {
+static shape_data tesselate_subdiv_data(
+    const subdiv_data& subdiv_, const scene_data& scene) {
   auto subdiv = subdiv_;
+
+  if (subdiv.orientation_cover) {
+    auto cage             = fvshape_data{};
+    cage.quadspos         = subdiv.quadspos;
+    cage.quadstexcoord    = subdiv.quadstexcoord;
+    cage.positions        = subdiv.positions;
+    cage.texcoords        = subdiv.texcoords;
+    auto cover            = make_orientation_cover(cage);
+    subdiv.quadspos       = std::move(cover.quadspos);
+    subdiv.quadstexcoord  = std::move(cover.quadstexcoord);
+    subdiv.positions      = std::move(cover.positions);
+    subdiv.texcoords      = std::move(cover.texcoords);
+    subdiv.quadsnorm      = {};
+    subdiv.normals        = {};
+  }
 
   if (subdiv.subdivisions > 0) {
     if (subdiv.catmullclark) {
@@ -768,11 +784,28 @@ void tesselate_subdiv(
       subdiv.normals   = {};
       subdiv.quadsnorm = {};
     }
+  } else if (subdiv.orientation_cover) {
+    // The cover has no input normal topology. Rebuild smooth normals even at
+    // subdivision level zero; flat-shaded output carries no vertex normals.
+    if (subdiv.smooth) {
+      subdiv.normals   = quads_normals(subdiv.quadspos, subdiv.positions);
+      subdiv.quadsnorm = subdiv.quadspos;
+    } else {
+      subdiv.normals   = {};
+      subdiv.quadsnorm = {};
+    }
   }
 
   if (subdiv.displacement != 0 && subdiv.displacement_tex != invalidid) {
-    if (subdiv.texcoords.empty())
+    if (subdiv.displacement_tex < 0 ||
+        subdiv.displacement_tex >= (int)scene.textures.size())
+      throw std::invalid_argument("invalid displacement texture reference");
+    if (subdiv.texcoords.empty() ||
+        subdiv.quadstexcoord.size() != subdiv.quadspos.size())
       throw std::runtime_error("missing texture coordinates");
+
+    auto& displacement_texture =
+        scene.textures[subdiv.displacement_tex];
 
     // facevarying case
     auto offset = vector<float>(subdiv.positions.size(), 0);
@@ -781,10 +814,9 @@ void tesselate_subdiv(
       auto qpos = subdiv.quadspos[fid];
       auto qtxt = subdiv.quadstexcoord[fid];
       for (auto i : range(4)) {
-        auto& displacement_tex = scene.textures[subdiv.displacement_tex];
-        auto  disp             = mean(
-            eval_texture(displacement_tex, subdiv.texcoords[qtxt[i]], false));
-        if (!displacement_tex.pixelsb.empty()) disp -= 0.5f;
+        auto disp = mean(
+            eval_texture(displacement_texture, subdiv.texcoords[qtxt[i]], false));
+        if (!displacement_texture.pixelsb.empty()) disp -= 0.5f;
         offset[qpos[i]] += subdiv.displacement * disp;
         count[qpos[i]] += 1;
       }
@@ -799,16 +831,41 @@ void tesselate_subdiv(
     }
   }
 
-  shape = {};
+  auto shape = shape_data{};
   split_facevarying(shape.quads, shape.positions, shape.normals,
       shape.texcoords, subdiv.quadspos, subdiv.quadsnorm, subdiv.quadstexcoord,
       subdiv.positions, subdiv.normals, subdiv.texcoords);
+  return shape;
 }
 
 void tesselate_subdivs(scene_data& scene) {
-  // tesselate shapes
-  for (auto& subdiv : scene.subdivs) {
-    tesselate_subdiv(scene.shapes[subdiv.shape], subdiv, scene);
+  // Validate every destination before generating any shape. Duplicate
+  // destinations would otherwise make publication order observable.
+  auto destination_shapes = vector<int>(scene.subdivs.size());
+  auto used_destinations  = std::unordered_set<int>{};
+  for (auto subdiv_id = (size_t)0; subdiv_id < scene.subdivs.size();
+      subdiv_id++) {
+    auto shape_id = scene.subdivs[subdiv_id].shape;
+    if (shape_id < 0 || shape_id >= (int)scene.shapes.size())
+      throw std::invalid_argument("tesselate_subdivs: shape index out of bounds");
+    if (!used_destinations.insert(shape_id).second)
+      throw std::invalid_argument(
+          "tesselate_subdivs: multiple subdivs write the same shape");
+    destination_shapes[subdiv_id] = shape_id;
+  }
+
+  // Generate into owned shapes first. A failure in any cage therefore leaves
+  // all published scene shapes and all source subdiv data untouched.
+  auto generated_shapes = vector<shape_data>{};
+  generated_shapes.reserve(scene.subdivs.size());
+  for (const auto& subdiv : scene.subdivs) {
+    generated_shapes.push_back(tesselate_subdiv_data(subdiv, scene));
+  }
+
+  for (auto subdiv_id = (size_t)0; subdiv_id < scene.subdivs.size();
+      subdiv_id++) {
+    scene.shapes[destination_shapes[subdiv_id]] =
+        std::move(generated_shapes[subdiv_id]);
   }
 }
 

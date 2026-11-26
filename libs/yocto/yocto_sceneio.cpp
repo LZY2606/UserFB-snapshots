@@ -3240,6 +3240,7 @@ static bool load_json_scene_version40(const string& filename,
         get_opt(element, "subdivisions", subdiv.subdivisions);
         get_opt(element, "catmullclark", subdiv.catmullclark);
         get_opt(element, "smooth", subdiv.smooth);
+        get_opt(element, "orientation_cover", subdiv.orientation_cover);
         get_opt(element, "displacement", subdiv.displacement);
         get_tex(element, "displacement_tex", subdiv.displacement_tex);
       }
@@ -3504,6 +3505,7 @@ static bool load_json_scene_version41(const string& filename, json_value& json,
         get_opt(element, "subdivisions", subdiv.subdivisions);
         get_opt(element, "catmullclark", subdiv.catmullclark);
         get_opt(element, "smooth", subdiv.smooth);
+        get_opt(element, "orientation_cover", subdiv.orientation_cover);
         get_opt(element, "displacement", subdiv.displacement);
         get_ref(
             element, "displacement_tex", subdiv.displacement_tex, texture_map);
@@ -3611,7 +3613,7 @@ static bool load_json_scene_version41(const string& filename, json_value& json,
   trim_memory(scene);
 
   // done
-  return false;
+  return true;
 }
 
 // Load a scene in the builtin JSON format.
@@ -3622,7 +3624,8 @@ static bool load_json_scene(
   if (!load_json(filename, json, error)) return false;
 
   // check version
-  if (!json.contains("asset") || !json.at("asset").contains("version"))
+  if (!json.contains("asset") || !json.at("asset").contains("version") ||
+      json.at("asset").at("version") == "4.0")
     return load_json_scene_version40(filename, json, scene, error, noparallel);
   if (json.contains("asset") && json.at("asset").contains("version") &&
       json.at("asset").at("version") == "4.1")
@@ -3637,6 +3640,7 @@ static bool load_json_scene(
   auto shape_filenames   = vector<string>{};
   auto texture_filenames = vector<string>{};
   auto subdiv_filenames  = vector<string>{};
+  auto texture_map       = unordered_map<string, int>{};
 
   // errors
   auto parse_error = [&filename, &error]() {
@@ -3687,6 +3691,13 @@ static bool load_json_scene(
         auto&                  uri     = texture_filenames.emplace_back();
         get_opt(element, "name", name);
         get_opt(element, "uri", uri);
+        if (!name.empty()) {
+          texture_map.emplace(name, (int)scene.textures.size() - 1);
+        } else {
+          auto default_name = get_element_name(
+              "texture", (int)scene.textures.size() - 1, group.size());
+          texture_map.emplace(default_name, (int)scene.textures.size() - 1);
+        }
         get_opt(element, "linear", texture.linear);
         get_opt(element, "nearest", texture.nearest);
         get_opt(element, "clamp", texture.clamp);
@@ -3745,8 +3756,28 @@ static bool load_json_scene(
         get_opt(element, "subdivisions", subdiv.subdivisions);
         get_opt(element, "catmullclark", subdiv.catmullclark);
         get_opt(element, "smooth", subdiv.smooth);
+        get_opt(element, "orientation_cover", subdiv.orientation_cover);
         get_opt(element, "displacement", subdiv.displacement);
-        get_opt(element, "displacement_tex", subdiv.displacement_tex);
+        if (element.contains("displacement_tex")) {
+          auto& reference = element.at("displacement_tex");
+          if (reference.is_number_integer() ||
+              reference.is_number_unsigned()) {
+            subdiv.displacement_tex = reference.get<int>();
+          } else if (reference.is_string()) {
+            auto name = reference.get<string>();
+            if (name.empty()) {
+              subdiv.displacement_tex = invalidid;
+            } else {
+              auto it = texture_map.find(name);
+              if (it == texture_map.end())
+                throw std::invalid_argument(
+                    "unknown texture reference " + name);
+              subdiv.displacement_tex = it->second;
+            }
+          } else {
+            throw std::invalid_argument("invalid displacement texture reference");
+          }
+        }
       }
     }
     if (json.contains("instances")) {
@@ -3785,6 +3816,10 @@ static bool load_json_scene(
         }
       }
     }
+  } catch (const std::exception& exception) {
+    parse_error();
+    error += string{": "} + exception.what();
+    return false;
   } catch (...) {
     return parse_error();
   }
@@ -4009,10 +4044,11 @@ static bool save_json_scene(const string& filename, const scene_data& scene,
       set_val(
           element, "catmullclark", subdiv.catmullclark, default_.catmullclark);
       set_val(element, "smooth", subdiv.smooth, default_.smooth);
+      set_val(element, "orientation_cover", subdiv.orientation_cover,
+          default_.orientation_cover);
       set_val(
           element, "displacement", subdiv.displacement, default_.displacement);
-      set_val(element, "displacement_tex",
-          get_texture_name(scene, subdiv.displacement_tex), "");
+      set_ref(element, "displacement_tex", subdiv.displacement_tex);
     }
   }
 

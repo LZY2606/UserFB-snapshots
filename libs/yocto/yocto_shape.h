@@ -168,6 +168,11 @@ fvshape_data shape_to_fvshape(const shape_data& shape);
 fvshape_data subdivide_fvshape(
     const fvshape_data& shape, int subdivisions, bool catmullclark);
 
+// Build the orientable double cover of a combinatorial two-manifold cage.
+// Triangles are encoded as quads with z == w. The returned cage owns its
+// data and has empty normal topology.
+fvshape_data make_orientation_cover(const fvshape_data& source);
+
 // Shape statistics
 vector<string> fvshape_stats(const fvshape_data& shape, bool verbose = false);
 

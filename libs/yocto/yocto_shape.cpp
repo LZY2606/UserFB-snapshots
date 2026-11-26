@@ -34,7 +34,10 @@
 
 #include <algorithm>
 #include <deque>
+#include <map>
 #include <memory>
+#include <numeric>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -2613,6 +2616,347 @@ void split_facevarying(vector<vec4i>& split_quads,
       split_texcoords[index] = texcoords[vert.z];
     }
   }
+}
+
+namespace {
+
+// Deterministic disjoint set used to reconstruct lifted corner vertices.
+struct orientation_cover_dsu {
+  vector<int> parent;
+  vector<int> size;
+
+  explicit orientation_cover_dsu(int n) : parent(n), size(n, 1) {
+    iota(parent.begin(), parent.end(), 0);
+  }
+
+  int find(int x) {
+    while (parent[x] != x) {
+      parent[x] = parent[parent[x]];
+      x         = parent[x];
+    }
+    return x;
+  }
+
+  void unite(int a, int b) {
+    a = find(a);
+    b = find(b);
+    if (a == b) return;
+    if (size[a] < size[b]) std::swap(a, b);
+    parent[b] = a;
+    size[a] += size[b];
+  }
+};
+
+struct source_edge_reference {
+  int face;
+  int corner;
+  int start;
+  int end;
+};
+
+vector<int> orientation_cover_ring_key(const vector<int>& ring) {
+  auto best = vector<int>{};
+  auto n    = (int)ring.size();
+  for (auto reversed : {false, true}) {
+    auto ordered = vector<int>{};
+    ordered.reserve(n);
+    if (!reversed) {
+      ordered = ring;
+    } else {
+      ordered.push_back(ring.front());
+      for (auto i = n - 1; i > 0; i--) ordered.push_back(ring[i]);
+    }
+    for (auto shift = 0; shift < n; shift++) {
+      auto candidate = vector<int>{};
+      candidate.reserve(n);
+      for (auto i = 0; i < n; i++)
+        candidate.push_back(ordered[(shift + i) % n]);
+      if (best.empty() || candidate < best) best = candidate;
+    }
+  }
+  return best;
+}
+
+}  // namespace
+
+fvshape_data make_orientation_cover(const fvshape_data& source) {
+  auto invalid = [](const string& message) {
+    return std::invalid_argument{"make_orientation_cover: " + message};
+  };
+
+  const auto position_count = (int)source.positions.size();
+  const auto face_count     = (int)source.quadspos.size();
+
+  for (auto& position : source.positions) {
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+        !std::isfinite(position.z))
+      throw invalid("non-finite position");
+  }
+  for (auto& texcoord : source.texcoords) {
+    if (!std::isfinite(texcoord.x) || !std::isfinite(texcoord.y))
+      throw invalid("non-finite texture coordinate");
+  }
+
+  auto arity       = vector<int>(face_count, 4);
+  auto used_pos    = vector<char>(position_count, false);
+  auto face_keys   = std::set<vector<int>>{};
+  auto source_edges =
+      std::map<pair<int, int>, vector<source_edge_reference>>{};
+
+  auto check_position_index = [&](int index) {
+    if (index < 0 || index >= position_count)
+      throw invalid("position index out of bounds");
+  };
+
+  for (auto face_id = 0; face_id < face_count; face_id++) {
+    auto& quad = source.quadspos[face_id];
+    check_position_index(quad.x);
+    check_position_index(quad.y);
+    check_position_index(quad.z);
+    check_position_index(quad.w);
+
+    auto triangle = quad.z == quad.w;
+    auto n        = triangle ? 3 : 4;
+    arity[face_id] = n;
+
+    auto ring = vector<int>{};
+    for (auto corner = 0; corner < n; corner++) {
+      auto index = (&quad.x)[corner];
+      check_position_index(index);
+      for (auto previous : ring) {
+        if (previous == index)
+          throw invalid("repeated position in face interior");
+      }
+      ring.push_back(index);
+      used_pos[index] = true;
+    }
+    used_pos[quad.w] = true;
+
+    auto key = orientation_cover_ring_key(ring);
+    if (!face_keys.insert(key).second) throw invalid("duplicate face");
+
+    for (auto corner = 0; corner < n; corner++) {
+      auto start = ring[corner];
+      auto end   = ring[(corner + 1) % n];
+      auto edge  = std::minmax(start, end);
+      source_edges[{edge.first, edge.second}].push_back(
+          {face_id, corner, start, end});
+    }
+  }
+
+  for (auto& [edge, references] : source_edges) {
+    if (references.size() > 2) throw invalid("three or more faces on edge");
+  }
+
+  // Verify that every source position has one connected face fan.
+  auto source_dsu = orientation_cover_dsu(face_count * 4);
+  for (auto face_id = 0; face_id < face_count; face_id++) {
+    if (arity[face_id] == 3)
+      source_dsu.unite(face_id * 4 + 2, face_id * 4 + 3);
+  }
+  for (auto& [edge, references] : source_edges) {
+    if (references.size() != 2) continue;
+    for (auto vertex : {edge.first, edge.second}) {
+      auto corner_of = [&](const source_edge_reference& reference) {
+        return reference.start == vertex
+                   ? reference.corner
+                   : (reference.corner + 1) % arity[reference.face];
+      };
+      auto c0 = corner_of(references[0]);
+      auto c1 = corner_of(references[1]);
+      source_dsu.unite(references[0].face * 4 + c0,
+          references[1].face * 4 + c1);
+    }
+  }
+  auto source_fan_root = vector<int>(position_count, -1);
+  for (auto face_id = 0; face_id < face_count; face_id++) {
+    auto& quad = source.quadspos[face_id];
+    for (auto corner = 0; corner < arity[face_id]; corner++) {
+      auto vertex = (&quad.x)[corner];
+      auto root   = source_dsu.find(face_id * 4 + corner);
+      if (source_fan_root[vertex] == -1) {
+        source_fan_root[vertex] = root;
+      } else if (source_fan_root[vertex] != root) {
+        throw invalid("position has multiple face fans");
+      }
+    }
+  }
+
+  // Validate texture topology. An empty quadstexcoord means no textures;
+  // orphaned texture coordinates without face topology are malformed.
+  auto has_uvs = !source.quadstexcoord.empty();
+  if (has_uvs) {
+    if ((int)source.quadstexcoord.size() != face_count)
+      throw invalid("texture face count does not match geometry face count");
+    if (source.texcoords.empty())
+      throw invalid("texture indices reference missing texture coordinates");
+    const auto uv_count = (int)source.texcoords.size();
+    for (auto face_id = 0; face_id < face_count; face_id++) {
+      auto& uv_quad = source.quadstexcoord[face_id];
+      for (auto corner = 0; corner < 4; corner++) {
+        auto index = (&uv_quad.x)[corner];
+        if (index < 0 || index >= uv_count)
+          throw invalid("texture index out of bounds");
+      }
+      auto geometry_triangle = arity[face_id] == 3;
+      auto texture_triangle  = uv_quad.z == uv_quad.w;
+      if (geometry_triangle != texture_triangle)
+        throw invalid("texture corner count does not match face corner count");
+    }
+  } else if (!source.texcoords.empty()) {
+    throw invalid("texture face count does not match geometry face count");
+  }
+
+  auto cover_source_quads = vector<vec4i>(face_count * 2);
+  for (auto face_id = 0; face_id < face_count; face_id++) {
+    auto& q = source.quadspos[face_id];
+    auto n  = arity[face_id];
+    cover_source_quads[2 * face_id] = q;
+    if (n == 4) {
+      cover_source_quads[2 * face_id + 1] = {q.x, q.w, q.z, q.y};
+    } else {
+      cover_source_quads[2 * face_id + 1] = {q.x, q.z, q.y, q.y};
+    }
+  }
+
+  auto cover_dsu = orientation_cover_dsu(face_count * 8);
+  for (auto cover_face = 0; cover_face < 2 * face_count; cover_face++) {
+    auto& q = cover_source_quads[cover_face];
+    if (q.z == q.w) cover_dsu.unite(cover_face * 4 + 2, cover_face * 4 + 3);
+  }
+
+  auto mirrored_corner = [](int corner, int n) {
+    if (corner == 0) return 0;
+    return n - corner;
+  };
+  auto unite_cover_corners = [&](int face0, bool negative0, int corner0,
+                                 int face1, bool negative1, int corner1) {
+    auto n0    = arity[face0];
+    auto n1    = arity[face1];
+    auto slot0 = negative0 ? mirrored_corner(corner0, n0) : corner0;
+    auto slot1 = negative1 ? mirrored_corner(corner1, n1) : corner1;
+    auto cover_face0 = 2 * face0 + (negative0 ? 1 : 0);
+    auto cover_face1 = 2 * face1 + (negative1 ? 1 : 0);
+    cover_dsu.unite(cover_face0 * 4 + slot0, cover_face1 * 4 + slot1);
+  };
+
+  for (auto& [edge, references] : source_edges) {
+    if (references.size() != 2) continue;
+    auto& r0 = references[0];
+    auto& r1 = references[1];
+    // When source directions agree, the positively oriented copy of one face
+    // has to be glued to the reversed copy of its neighbor. When directions
+    // disagree, positive-to-positive and negative-to-negative are correct.
+    auto same_direction = r0.start == r1.start;
+    for (auto vertex : {edge.first, edge.second}) {
+      auto corner_of = [&](const source_edge_reference& reference) {
+        return reference.start == vertex
+                   ? reference.corner
+                   : (reference.corner + 1) % arity[reference.face];
+      };
+      auto c0 = corner_of(r0);
+      auto c1 = corner_of(r1);
+      if (same_direction) {
+        unite_cover_corners(r0.face, false, c0, r1.face, true, c1);
+        unite_cover_corners(r0.face, true, c0, r1.face, false, c1);
+      } else {
+        unite_cover_corners(r0.face, false, c0, r1.face, false, c1);
+        unite_cover_corners(r0.face, true, c0, r1.face, true, c1);
+      }
+    }
+  }
+
+  auto first_lift  = vector<int>(position_count, -1);
+  auto second_lift = vector<int>(position_count, -1);
+  for (auto cover_face = 0; cover_face < 2 * face_count; cover_face++) {
+    for (auto slot = 0; slot < 4; slot++) {
+      auto vertex = (&cover_source_quads[cover_face].x)[slot];
+      auto root   = cover_dsu.find(cover_face * 4 + slot);
+      if (first_lift[vertex] == -1) {
+        first_lift[vertex] = root;
+      } else if (root != first_lift[vertex]) {
+        if (second_lift[vertex] == -1) {
+          second_lift[vertex] = root;
+        } else if (second_lift[vertex] != root) {
+          throw invalid("orientation cover has more than two vertex lifts");
+        }
+      }
+    }
+  }
+
+  auto result = fvshape_data{};
+  auto used_count = 0;
+  for (auto vertex = 0; vertex < position_count; vertex++) {
+    if (!used_pos[vertex]) continue;
+    if (first_lift[vertex] == -1 || second_lift[vertex] == -1)
+      throw invalid("orientation cover did not produce two vertex lifts");
+    used_count++;
+  }
+
+  auto root_to_lift = vector<int>(face_count * 8, -1);
+  result.positions.reserve(used_count * 2);
+  auto used_index = 0;
+  for (auto vertex = 0; vertex < position_count; vertex++) {
+    if (!used_pos[vertex]) continue;
+    auto lift0 = 2 * used_index;
+    auto lift1 = lift0 + 1;
+    root_to_lift[first_lift[vertex]]  = lift0;
+    root_to_lift[second_lift[vertex]] = lift1;
+    result.positions.push_back(source.positions[vertex]);
+    result.positions.push_back(source.positions[vertex]);
+    used_index++;
+  }
+
+  result.quadspos.resize(face_count * 2);
+  for (auto cover_face = 0; cover_face < 2 * face_count; cover_face++) {
+    for (auto slot = 0; slot < 4; slot++) {
+      auto root = cover_dsu.find(cover_face * 4 + slot);
+      auto lift = root_to_lift[root];
+      if (lift < 0) throw invalid("internal orientation cover vertex error");
+      (&result.quadspos[cover_face].x)[slot] = lift;
+    }
+  }
+
+  // Normals are intentionally not transformed. The generation pipeline
+  // reconstructs a consistent oriented normal field.
+  result.normals   = {};
+  result.quadsnorm = {};
+
+  if (has_uvs) {
+    auto cover_uv_quads = vector<vec4i>(face_count * 2);
+    for (auto face_id = 0; face_id < face_count; face_id++) {
+      auto& uv = source.quadstexcoord[face_id];
+      auto n   = arity[face_id];
+      cover_uv_quads[2 * face_id] = uv;
+      if (n == 4) {
+        cover_uv_quads[2 * face_id + 1] = {uv.x, uv.w, uv.z, uv.y};
+      } else {
+        cover_uv_quads[2 * face_id + 1] = {uv.x, uv.z, uv.y, uv.y};
+      }
+    }
+
+    result.quadstexcoord.resize(face_count * 2);
+    auto uv_lifts = std::map<pair<int, int>, int>{};
+    for (auto cover_face = 0; cover_face < 2 * face_count; cover_face++) {
+      for (auto slot = 0; slot < 4; slot++) {
+        auto geometry_lift = (&result.quadspos[cover_face].x)[slot];
+        auto source_uv     = (&cover_uv_quads[cover_face].x)[slot];
+        auto key           = std::make_pair(geometry_lift, source_uv);
+        auto it            = uv_lifts.find(key);
+        int  uv_lift;
+        if (it == uv_lifts.end()) {
+          uv_lift = (int)result.texcoords.size();
+          uv_lifts.emplace(key, uv_lift);
+          result.texcoords.push_back(source.texcoords[source_uv]);
+        } else {
+          uv_lift = it->second;
+        }
+        (&result.quadstexcoord[cover_face].x)[slot] = uv_lift;
+      }
+    }
+  }
+
+  return result;
 }
 
 // Weld vertices within a threshold.

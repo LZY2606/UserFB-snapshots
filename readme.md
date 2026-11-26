@@ -94,6 +94,46 @@ exceptions are only used to report "programmer errors", namely when
 preconditions or post conditions are violated in functions, just lime the
 standard library does.
 
+## Orientation covers and two-sided subdivision
+
+Thin two-sided strips such as ribbons and Möbius bands can be promoted to an
+orientable double cover before Catmull-Clark or linear subdivision:
+
+```cpp
+#include "libs/yocto/yocto_scene.h"
+#include "libs/yocto/yocto_shape.h"
+
+using namespace yocto;
+
+// The cage uses vec4 indices. Triangles are encoded with z == w.
+fvshape_data cage = ...;
+fvshape_data cover = make_orientation_cover(cage);
+
+scene_data scene = ...;
+scene.subdivs[0].orientation_cover = true;
+tesselate_subdivs(scene);  // validates and publishes all destinations together
+```
+
+For every source face, the cover keeps the original winding and adds a
+reversed copy. Shared source edges determine how those copies are glued.
+An orientable component therefore becomes two shells, while a Möbius band
+becomes one connected annulus. Each referenced source position has exactly
+two lifted vertices, and equal coordinates at different source indices are
+not welded. UV indices remain a separate topology: a texture corner is shared
+across a lifted geometric edge endpoint only when the corresponding source UV
+indices match at that endpoint; equal UV values alone are never welded.
+
+When the scene option is enabled, Yocto reconstructs consistent oriented
+normals after lifting. Displacement is evaluated after geometric subdivision
+but before the final face-varying UV/normal split. Each lift is displaced
+along its own oriented normal, so the two sides move in opposite directions.
+Corner contributions at a shared lift are still averaged with the usual
+upstream rule, and UV seams are split only afterwards, preventing geometric
+cracks. `smooth = false` produces no final vertex normals. The 4.2 JSON
+serialization stores `orientation_cover` and an integer
+`displacement_tex` index; missing old keys default the option to `false`,
+and old string texture references are resolved by texture name.
+
 ## License
 
 The library is released under the MIT license. We include various external
