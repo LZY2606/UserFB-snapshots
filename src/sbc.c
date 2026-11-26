@@ -905,6 +905,15 @@ int sbc_decode(struct sbc *sbc,
         }
     }
 
+#ifdef SBC_SYNTHESIS_CONTRACT
+    /* Read-only observation point for the synthesis regression test.
+     * Exposes the dequantized sub-band samples and per-channel scales
+     * immediately before synthesis; adds nothing to normal builds. */
+    sbc_contract_observe(sbc, frame->mode, sbc->nchannels,
+        sbc->nblocks, sbc->nsubbands, sb_samples[0],
+        frame->mode == SBC_MODE_MONO ? NULL : sb_samples[1], sb_scale);
+#endif
+
     synthesize(&sbc->dstates[0], sbc->nblocks, sbc->nsubbands,
         sb_samples[0], sb_scale[0], pcml, pitchl);
 
