@@ -7,7 +7,7 @@ bash task_support/build.sh
 if [[ $mode == target ]]; then
   ${CXX:-c++} -std=c++20 -I. -Iinclude -I.task-build/include -x c++ -c task_support/driver.c -o .task-build/driver.o
   ${CXX:-c++} -std=c++20 -I. -Iinclude -I.task-build/include test/task_label_names.cc .task-build/driver.o .task-build/libwabt.a -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/task-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

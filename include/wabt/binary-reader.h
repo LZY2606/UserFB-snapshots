@@ -413,6 +413,13 @@ class BinaryReaderDelegate {
   virtual Result OnLocalName(Index function_index,
                              Index local_index,
                              std::string_view local_name) = 0;
+  // Label names are an indirect name map grouped by function. The label index
+  // is the opening order of block/loop/if nodes, not a branch depth.
+  virtual Result OnLabelName(Index function_index,
+                             Index label_index,
+                             std::string_view label_name) {
+    return Result::Ok;
+  }
   virtual Result OnNameSubsection(Index index,
                                   NameSectionSubsection subsection_type,
                                   Offset subsection_size) = 0;

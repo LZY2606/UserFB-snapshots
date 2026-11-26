@@ -518,6 +518,15 @@ Result BinaryReaderLogging::OnLocalName(Index func_index,
   return reader_->OnLocalName(func_index, local_index, name);
 }
 
+Result BinaryReaderLogging::OnLabelName(Index func_index,
+                                        Index label_index,
+                                        std::string_view name) {
+  LOGF("OnLabelName(func_index: %" PRIindex ", label_index: %" PRIindex
+       ", name: \"" PRIstringview "\")\n",
+       func_index, label_index, WABT_PRINTF_STRING_VIEW_ARG(name));
+  return reader_->OnLabelName(func_index, label_index, name);
+}
+
 Result BinaryReaderLogging::OnNameSubsection(
     Index index,
     NameSectionSubsection subsection_type,

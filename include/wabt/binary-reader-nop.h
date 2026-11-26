@@ -457,6 +457,11 @@ class BinaryReaderNop : public BinaryReaderDelegate {
                      std::string_view local_name) override {
     return Result::Ok;
   }
+  Result OnLabelName(Index function_index,
+                     Index label_index,
+                     std::string_view label_name) override {
+    return Result::Ok;
+  }
   Result EndNamesSection() override { return Result::Ok; }
 
   Result OnNameSubsection(Index index,

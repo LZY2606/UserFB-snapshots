@@ -414,7 +414,7 @@ void WatWriter::WriteBrVar(const Var& var, NextChar next_char) {
     }
     next_char_ = next_char;
   } else {
-    WriteString(var.name(), next_char);
+    WriteName(var.name(), next_char);
   }
 }
 
@@ -451,7 +451,7 @@ void WatWriter::WriteBeginBlock(LabelType label_type,
   WritePutsSpace(text);
   bool has_label = !block.label.empty();
   if (has_label) {
-    WriteString(block.label, NextChar::Space);
+    WriteName(block.label, NextChar::Space);
   }
   WriteTypes(block.decl.sig.param_types, "param");
   WriteTypes(block.decl.sig.result_types, "result");
@@ -1009,7 +1009,7 @@ Result WatWriter::ExprVisitorDelegate::BeginTryTableExpr(TryTableExpr* expr) {
   writer_->WritePutsSpace(Opcode::TryTable_Opcode.GetName());
   bool has_label = !expr->block.label.empty();
   if (has_label) {
-    writer_->WriteString(expr->block.label, NextChar::Space);
+    writer_->WriteName(expr->block.label, NextChar::Space);
   }
   writer_->WriteTypes(expr->block.decl.sig.param_types, "param");
   writer_->WriteTypes(expr->block.decl.sig.result_types, "result");
@@ -1370,7 +1370,7 @@ void WatWriter::FlushExprTree(const ExprTree& expr_tree) {
       WritePutsSpace(Opcode::TryTable_Opcode.GetName());
       bool has_label = !try_table_expr->block.label.empty();
       if (has_label) {
-        WriteString(try_table_expr->block.label, NextChar::Space);
+        WriteName(try_table_expr->block.label, NextChar::Space);
       }
       WriteTypes(try_table_expr->block.decl.sig.param_types, "param");
       WriteTypes(try_table_expr->block.decl.sig.result_types, "result");

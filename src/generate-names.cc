@@ -29,6 +29,46 @@ namespace wabt {
 
 namespace {
 
+class ExistingLabelNameCollector : public ExprVisitor::DelegateNop {
+ public:
+  explicit ExistingLabelNameCollector(BindingHash* bindings)
+      : bindings_(bindings) {}
+
+  Result BeginBlockExpr(BlockExpr* expr) override {
+    Add(expr->block.label);
+    return Result::Ok;
+  }
+
+  Result BeginLoopExpr(LoopExpr* expr) override {
+    Add(expr->block.label);
+    return Result::Ok;
+  }
+
+  Result BeginIfExpr(IfExpr* expr) override {
+    Add(expr->true_.label);
+    return Result::Ok;
+  }
+
+  Result BeginTryExpr(TryExpr* expr) override {
+    Add(expr->block.label);
+    return Result::Ok;
+  }
+
+  Result BeginTryTableExpr(TryTableExpr* expr) override {
+    Add(expr->block.label);
+    return Result::Ok;
+  }
+
+ private:
+  void Add(const std::string& label) {
+    if (!label.empty()) {
+      bindings_->emplace(label, Binding(0));
+    }
+  }
+
+  BindingHash* bindings_;
+};
+
 class NameGenerator : public ExprVisitor::DelegateNop {
  public:
   NameGenerator(NameOpts opts);
@@ -98,6 +138,7 @@ class NameGenerator : public ExprVisitor::DelegateNop {
   Module* module_ = nullptr;
   ExprVisitor visitor_;
   Index label_count_ = 0;
+  BindingHash label_bindings_;
 
   Index num_func_imports_ = 0;
   Index num_table_imports_ = 0;
@@ -216,27 +257,32 @@ void NameGenerator::GenerateAndBindLocalNames(Func* func) {
 }
 
 Result NameGenerator::BeginBlockExpr(BlockExpr* expr) {
-  MaybeGenerateName("B", label_count_++, &expr->block.label);
+  MaybeGenerateAndBindName(&label_bindings_, "B", label_count_++,
+                           &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginTryExpr(TryExpr* expr) {
-  MaybeGenerateName("T", label_count_++, &expr->block.label);
+  MaybeGenerateAndBindName(&label_bindings_, "T", label_count_++,
+                           &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginTryTableExpr(TryTableExpr* expr) {
-  MaybeGenerateName("T", label_count_++, &expr->block.label);
+  MaybeGenerateAndBindName(&label_bindings_, "T", label_count_++,
+                           &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginLoopExpr(LoopExpr* expr) {
-  MaybeGenerateName("L", label_count_++, &expr->block.label);
+  MaybeGenerateAndBindName(&label_bindings_, "L", label_count_++,
+                           &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginIfExpr(IfExpr* expr) {
-  MaybeGenerateName("I", label_count_++, &expr->true_.label);
+  MaybeGenerateAndBindName(&label_bindings_, "I", label_count_++,
+                           &expr->true_.label);
   return Result::Ok;
 }
 
@@ -244,6 +290,11 @@ Result NameGenerator::VisitFunc(Index func_index, Func* func) {
   MaybeGenerateAndBindName(&module_->func_bindings, "f", func_index,
                            &func->name);
   GenerateAndBindLocalNames(func);
+
+  label_bindings_.clear();
+  ExistingLabelNameCollector label_collector(&label_bindings_);
+  ExprVisitor label_collector_visitor(&label_collector);
+  CHECK_RESULT(label_collector_visitor.VisitFunc(func));
 
   label_count_ = 0;
   CHECK_RESULT(visitor_.VisitFunc(func));

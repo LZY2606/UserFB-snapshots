@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <deque>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "wabt/binary-reader-nop.h"
@@ -43,6 +45,13 @@ struct LabelNode {
 
 LabelNode::LabelNode(LabelType label_type, ExprList* exprs, Expr* context)
     : label_type(label_type), exprs(exprs), context(context) {}
+
+struct PendingLabelName {
+  Index function_index;
+  Index label_index;
+  std::string name;
+  Location location;
+};
 
 class CodeMetadataExprQueue {
  private:
@@ -322,6 +331,9 @@ class BinaryReaderIR : public BinaryReaderNop {
   Result OnLocalName(Index function_index,
                      Index local_index,
                      std::string_view local_name) override;
+  Result OnLabelName(Index function_index,
+                     Index label_index,
+                     std::string_view label_name) override;
   Result OnNameEntry(NameSectionSubsection type,
                      Index index,
                      std::string_view name) override;
@@ -365,6 +377,8 @@ class BinaryReaderIR : public BinaryReaderNop {
                        std::string_view name,
                        Index table_index) override;
 
+  Result ApplyLabelNames(bool fail_on_custom_section_error);
+
  private:
   Location GetLocation() const;
   void PrintError(const char* format, ...);
@@ -395,6 +409,7 @@ class BinaryReaderIR : public BinaryReaderNop {
 
   Errors* errors_ = nullptr;
   Module* module_ = nullptr;
+  std::vector<PendingLabelName> label_names_;
 
   Func* current_func_ = nullptr;
   std::vector<LabelNode> label_stack_;
@@ -1778,6 +1793,151 @@ Result BinaryReaderIR::OnLocalName(Index func_index,
   return Result::Ok;
 }
 
+Result BinaryReaderIR::OnLabelName(Index function_index,
+                                   Index label_index,
+                                   std::string_view label_name) {
+  label_names_.push_back({function_index, label_index,
+                          std::string(label_name), GetLocation()});
+  return Result::Ok;
+}
+
+Result BinaryReaderIR::ApplyLabelNames(bool fail_on_custom_section_error) {
+  if (label_names_.empty()) {
+    return Result::Ok;
+  }
+
+  std::vector<std::vector<PendingLabelName*>> names_by_function(
+      module_->funcs.size());
+  for (PendingLabelName& name : label_names_) {
+    if (name.function_index >= module_->funcs.size()) {
+      std::string message =
+          StringPrintf("invalid label function index: %" PRIindex,
+                       name.function_index);
+      errors_->emplace_back(ErrorLevel::Error, name.location,
+                            std::string_view(), message);
+      return Result::Error;
+    }
+    names_by_function[name.function_index].push_back(&name);
+  }
+
+  for (Index func_index = 0; func_index < names_by_function.size();
+       ++func_index) {
+    std::vector<PendingLabelName*>& names = names_by_function[func_index];
+    if (names.empty()) {
+      continue;
+    }
+    if (func_index < module_->num_func_imports) {
+      std::string message =
+          StringPrintf("imported function %" PRIindex
+                       " cannot have a non-empty label name table",
+                       func_index);
+      errors_->emplace_back(ErrorLevel::Error, names.front()->location,
+                            std::string_view(), message);
+      return Result::Error;
+    }
+
+    Func* func = module_->funcs[func_index];
+    std::vector<std::string*> labels;
+
+    auto collect_exprs = [&](auto&& self, ExprList& exprs) -> void {
+      for (Expr& expr : exprs) {
+        switch (expr.type()) {
+          case ExprType::Block: {
+            Block& block = cast<BlockExpr>(&expr)->block;
+            labels.push_back(&block.label);
+            self(self, block.exprs);
+            break;
+          }
+          case ExprType::Loop: {
+            Block& block = cast<LoopExpr>(&expr)->block;
+            labels.push_back(&block.label);
+            self(self, block.exprs);
+            break;
+          }
+          case ExprType::If: {
+            IfExpr& if_expr = *cast<IfExpr>(&expr);
+            labels.push_back(&if_expr.true_.label);
+            self(self, if_expr.true_.exprs);
+            self(self, if_expr.false_);
+            break;
+          }
+          case ExprType::Try: {
+            TryExpr& try_expr = *cast<TryExpr>(&expr);
+            self(self, try_expr.block.exprs);
+            for (Catch& catch_ : try_expr.catches) {
+              self(self, catch_.exprs);
+            }
+            break;
+          }
+          case ExprType::TryTable: {
+            self(self, cast<TryTableExpr>(&expr)->block.exprs);
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    };
+    collect_exprs(collect_exprs, func->exprs);
+
+    std::vector<std::string> requested(labels.size());
+    for (PendingLabelName* entry : names) {
+      if (entry->label_index >= labels.size()) {
+        std::string message = StringPrintf(
+            "invalid label index %" PRIindex " for function %" PRIindex
+            " (label count: %" PRIindex ")",
+            entry->label_index, func_index,
+            static_cast<Index>(labels.size()));
+        ErrorLevel level = fail_on_custom_section_error
+                               ? ErrorLevel::Error
+                               : ErrorLevel::Warning;
+        errors_->emplace_back(level, entry->location, std::string_view(),
+                              message);
+        if (fail_on_custom_section_error) {
+          return Result::Error;
+        }
+        continue;
+      }
+      if (!entry->name.empty()) {
+        requested[entry->label_index] = MakeDollarName(entry->name);
+      }
+    }
+
+    std::unordered_set<std::string> reserved;
+    for (const std::string& name : requested) {
+      if (!name.empty()) {
+        reserved.insert(name);
+      }
+    }
+
+    std::unordered_set<std::string> used;
+    for (Index label_index = 0; label_index < requested.size();
+         ++label_index) {
+      const std::string& original = requested[label_index];
+      if (original.empty()) {
+        continue;
+      }
+
+      std::string unique = original;
+      if (used.insert(unique).second) {
+        *labels[label_index] = std::move(unique);
+        continue;
+      }
+
+      for (Index suffix = 1;; ++suffix) {
+        unique = original + "." + std::to_string(suffix);
+        if (!used.count(unique) && !reserved.count(unique)) {
+          used.insert(unique);
+          *labels[label_index] = std::move(unique);
+          break;
+        }
+      }
+    }
+  }
+
+  return Result::Ok;
+}
+
 Result BinaryReaderIR::OnTagType(Index index, Index sig_index) {
   auto field = std::make_unique<TagModuleField>(GetLocation());
   Tag& tag = field->tag;
@@ -1900,7 +2060,11 @@ Result ReadBinaryIr(const char* filename,
   // that would pop it is never read.
   assert(!options.skip_function_bodies);
   BinaryReaderIR reader(out_module, filename, errors);
-  return ReadBinary(data, &reader, options);
+  Result result = ReadBinary(data, &reader, options);
+  if (Failed(result)) {
+    return result;
+  }
+  return reader.ApplyLabelNames(options.fail_on_custom_section_error);
 }
 
 // TODO(sbc): Remove this old API. Use the ByteSpan overload instead.

@@ -330,6 +330,9 @@ class BinaryReaderLogging : public BinaryReaderDelegate {
   Result OnLocalName(Index function_index,
                      Index local_index,
                      std::string_view local_name) override;
+  Result OnLabelName(Index function_index,
+                     Index label_index,
+                     std::string_view label_name) override;
   Result OnNameSubsection(Index index,
                           NameSectionSubsection subsection_type,
                           Offset subsection_size) override;
