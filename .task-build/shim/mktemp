@@ -1,0 +1,6 @@
+#!/bin/sh
+# sandbox shim: plain "mktemp -d" must land in the writable TMPDIR
+if [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+  exec /usr/bin/mktemp -d "${TMPDIR:-/tmp}/mktemp.XXXXXXXX"
+fi
+exec /usr/bin/mktemp "$@"
