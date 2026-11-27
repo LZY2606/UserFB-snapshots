@@ -24,59 +24,6 @@ using namespace zz::arm64;
 #define arm64_trunc_page(x) ((x) & (~(0x1000 - 1)))
 #define arm64_round_page(x) trunc_page((x) + (0x1000 - 1))
 
-#if 0
-bool has_relo_label_at(relo_ctx_t *ctx, addr_t addr) {
-  if (ctx->label_map.count(addr)) {
-    return true;
-  }
-  return false;
-}
-
-PseudoLabel *relo_label_create_or_get(relo_ctx_t *ctx, addr_t addr) {
-  if (!ctx->label_map.count(addr)) {
-    auto *label = new PseudoLabel(addr);
-    ctx->label_map[addr] = label;
-  }
-  return ctx->label_map[addr];
-}
-
-int64_t relo_label_link_offset(relo_ctx_t *ctx, pcrel_type_t pcrel_type, int64_t offset) {
-  auto is_offset_undefined = [ctx](int64_t offset) -> bool {
-    if (ctx->buffer_cursor + offset < ctx->buffer || ctx->buffer_cursor + offset > ctx->buffer + ctx->buffer_size) {
-      return true;
-    }
-    return false;
-  };
-
-  auto is_offset_uninitialized = [ctx](int64_t offset) -> bool {
-    if (ctx->buffer_cursor + offset > ctx->buffer && ctx->buffer_cursor + offset < ctx->buffer + ctx->buffer_size) {
-      if (!ctx->relocated_offset_map.count(ctx->buffer_cursor + offset - ctx->buffer_cursor))
-        return true;
-    }
-    return false;
-  };
-
-  addr_t label_vmaddr = relo_cur_src_vmaddr(ctx) + offset;
-  if (pcrel_type == RELO_ARM64_RELOC_PAGE21) {
-    label_vmaddr = arm64_trunc_page(label_vmaddr);
-  }
-
-  auto *label = relo_label_create_or_get(ctx, label_vmaddr);
-  if (is_offset_undefined(offset)) { // pc relative target is beyond our scope
-    label->link_to(PseudoLabel::kLabelImm19, relo_cur_src_vmaddr(ctx), (addr_t)ctx->buffer_cursor - ctx->mapped_addr);
-    return 0;
-  } else if (is_offset_uninitialized(offset)) { // pc relative target is in our control, but not handle yet
-    label->link_to(PseudoLabel::kLabelImm19, relo_cur_src_vmaddr(ctx), (addr_t)ctx->buffer_cursor - ctx->mapped_addr);
-    return 0;
-  } else { // pc relative target is already handled
-    off_t off = ctx->buffer_cursor + offset - ctx->buffer;
-    off_t relocated_off = label->pos();
-    int64_t new_offset = relo_dst_offset_to_vmaddr(ctx, relocated_off) - relo_src_offset_to_vmaddr(ctx, off);
-    return new_offset;
-  }
-}
-#endif
-
 // ---
 
 static inline bool inst_is_b_bl(uint32_t instr) {
@@ -108,6 +55,10 @@ static inline bool inst_is_test_b(uint32_t instr) {
 }
 
 struct relo_ctx_t {
+  // Readable copy of the source instructions. This is the only memory the
+  // relocator is allowed to fetch from; it need not be mapped at origin->addr().
+  uint8_t *buffer;
+
   addr_t cursor;
   uint32_t relocated_insn_count;
 
@@ -115,7 +66,7 @@ struct relo_ctx_t {
   CodeMemBlock relocated{};
   CodeMemBuffer *relocated_buffer;
 
-  explicit relo_ctx_t(MemBlock *origin) : origin(origin) {
+  explicit relo_ctx_t(void *buffer, MemBlock *origin) : buffer((uint8_t *)buffer), origin(origin) {
     cursor = origin->addr();
   }
 
@@ -135,12 +86,19 @@ struct relo_ctx_t {
     return origin->addr();
   }
 
+  // Virtual address of the current source instruction, used for PC relative
+  // target calculation only. It is never dereferenced.
   addr_t origin_cursor() {
     return origin->addr() + relo_size();
   }
 
   uint32_t origin_off() {
     return (uintptr_t)cursor - origin->addr();
+  }
+
+  // Fetch the current source instruction from the caller supplied buffer.
+  uint32_t load_origin_inst() {
+    return *(uint32_t *)(buffer + origin_off());
   }
 
   addr_t relocated_start() {
@@ -164,6 +122,14 @@ struct relo_ctx_t {
 
 #define DEFINE_DATA_LABEL(data, name) auto name##_data_label = _ createDataLabel(data);
 
+// Emit an unsigned-offset load/store/prfm with base x17 and offset 0.
+// `op` is one of the LoadStoreOp OP_* encodings, so the access width and
+// register class come straight from the original instruction instead of
+// being forced to a 64-bit general purpose load.
+static inline uint32_t encode_unsigned_offset_x17(uint32_t op, int rt) {
+  return LoadStoreUnsignedOffsetFixed | op | (TMP_REG_0.code() << kRnShift) | (rt << kRtShift);
+}
+
 int relo_ctx_t::relocate(bool branch) {
   TurboAssembler turbo_assembler_;
 #undef _
@@ -174,7 +140,7 @@ int relo_ctx_t::relocate(bool branch) {
   while (relo_size() < preferred_relo_size()) {
     record_relo_start();
 
-    uint32_t inst = *(uint32_t *)origin_cursor();
+    uint32_t inst = load_origin_inst();
     if (inst_is_b_bl(inst)) {
       DEBUG_LOG("%d:relo <b_bl> at %p", relocated_insn_count++, origin_cursor());
 
@@ -197,16 +163,58 @@ int relo_ctx_t::relocate(bool branch) {
       addr_t dst = origin_cursor() + offset;
 
       int rt = decode_rt(inst);
-      char opc = bits(inst, 30, 31);
+      int opc = bits(inst, 30, 31);
+      int v = bit(inst, 26);
 
-      {
-        _ Mov(TMP_REG_0, dst);
-        if (opc == 0b00)
-          _ ldr(W(rt), MemOperand(TMP_REG_0, 0));
-        else if (opc == 0b01)
-          _ ldr(X(rt), MemOperand(TMP_REG_0, 0));
-        else {
+      // Resolve the original literal address into x17, then do a normal
+      // unsigned-offset access of the exact same register class and width.
+      // Only x17 is added to the clobber set; the destination register is
+      // written by the original instruction anyway.
+      _ Mov(TMP_REG_0, dst);
+
+      if (v == 0) {
+        // General purpose / prefetch space.
+        switch (opc) {
+        case 0b00:
+          // LDR Wt, literal: 32-bit load; rt == 31 encodes WZR (value discarded).
+          _ Emit(encode_unsigned_offset_x17(OP_W(LDR), rt));
+          break;
+        case 0b01:
+          // LDR Xt, literal: 64-bit load; rt == 31 encodes XZR.
+          _ Emit(encode_unsigned_offset_x17(OP_X(LDR), rt));
+          break;
+        case 0b10:
+          // LDRSW Xt, literal: 32-bit load, sign extended into 64 bits;
+          // rt == 31 encodes XZR.
+          _ Emit(encode_unsigned_offset_x17(OP(LDRSW), rt));
+          break;
+        case 0b11:
+          // PRFM prfop, literal: keep it a hint against the original data
+          // address, never turn it into a real load. The Rt field holds the
+          // prfop, not a register number.
+          _ Emit(encode_unsigned_offset_x17(OP(PRFM), rt));
+          break;
+        }
+      } else {
+        // SIMD/FP space. Rt == 31 is V31, a real vector register, unlike the
+        // general purpose case where 31 is the zero register.
+        switch (opc) {
+        case 0b00:
+          // LDR St, literal: 32-bit vector load, upper lanes keep original behavior.
+          _ Emit(encode_unsigned_offset_x17(OP_S(LDR), rt));
+          break;
+        case 0b01:
+          // LDR Dt, literal: 64-bit vector load, upper lanes keep original behavior.
+          _ Emit(encode_unsigned_offset_x17(OP_D(LDR), rt));
+          break;
+        case 0b10:
+          // LDR Qt, literal: full 128-bit (16 byte) vector load.
+          _ Emit(encode_unsigned_offset_x17(OP_Q(LDR), rt));
+          break;
+        case 0b11:
+          // Encoding reserved in the SIMD/FP literal space.
           UNIMPLEMENTED();
+          break;
         }
       }
     } else if (inst_is_adr(inst)) {
@@ -334,7 +342,7 @@ int relo_ctx_t::relocate(bool branch) {
 }
 
 void GenRelocateCode(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
-  relo_ctx_t ctx(origin);
+  relo_ctx_t ctx(buffer, origin);
   ctx.relocate(branch);
   *relocated = ctx.relocated;
 }
