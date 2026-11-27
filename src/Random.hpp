@@ -53,6 +53,15 @@ public:
            int32u getInt32u()                                             const;
 
            /**
+            * Copy another generator's state into this one.<br/><br/>
+            *
+            * Const, like the sampling queries: the state is mutable, so this
+            * lets code with a `const Random&` restore the caller's stream to a
+            * particular point in the sequence.
+            */
+           void  setState( const Random& other )                      const;
+
+           /**
             * Single precision, [0,1) interval (never returns 1).
             */
 //         real32 getReal32()                                             const;

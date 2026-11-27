@@ -76,6 +76,18 @@ Random::Random()
 
 /// queries --------------------------------------------------------------------
 
+void Random::setState
+(
+   const Random& other
+) const
+{
+   for( int i = 4;  i--; )
+   {
+      z_m[i] = other.z_m[i];
+   }
+}
+
+
 int32u Random::getInt32u() const
 {
    z_m[0] = ((z_m[0] & 0xFFFFFFFEu) << 18) ^ (((z_m[0] <<  6) ^ z_m[0]) >> 13);

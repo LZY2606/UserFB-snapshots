@@ -15,6 +15,9 @@
 #include <string>
 #include <stdexcept>
 #include <cstdlib>
+#include <cerrno>
+#include <cmath>
+#include <sstream>
 
 #include "Primitives.hpp"
 
@@ -22,6 +25,7 @@
 #include "Image.hpp"
 #include "Scene.hpp"
 #include "Camera.hpp"
+#include "GradientState.hpp"
 
 
 
@@ -55,6 +59,12 @@ const char HELP_MESSAGE[] =
 "\n"
 "usage:\n"
 "  minilight modelFilePathName\n"
+"  minilight modelFilePathName --gradient alpha\n"
+"\n"
+"The optional --gradient mode renders each iteration as a gradient-domain\n"
+"round (primal radiance plus right/up edge gradients) and reconstructs the\n"
+"image by solving an alpha-constrained Poisson system. alpha must be a\n"
+"positive finite number. The output is still a PPM file.\n"
 "\n"
 "The model text file format is:\n"
 "  #MiniLight\n"
@@ -91,6 +101,48 @@ const char HELP_MESSAGE[] =
 /// constants ------------------------------------------------------------------
 
 const char MODEL_FORMAT_ID[] = "#MiniLight";
+
+
+
+
+/// gradient option ------------------------------------------------------------
+
+/**
+ * Parse the --gradient argument value. Only decimal floating-point forms are
+ * accepted (no leading/trailing junk, not empty), and the value must be
+ * positive and finite.
+ */
+bool parseGradientAlpha
+(
+   const std::string& text,
+   real64&            alpha_o
+)
+{
+   if( text.empty() )
+   {
+      return false;
+   }
+
+   const char* begin = text.c_str();
+   char*       end   = 0;
+
+   errno = 0;
+   const real64 value = ::strtod( begin, &end );
+
+   // whole string consumed, nothing weird like overflow to infinity
+   if( (end == begin) || (end == 0) || ('\0' != *end) )
+   {
+      return false;
+   }
+
+   if( !(value > 0.0) || !::isfinite( value ) )
+   {
+      return false;
+   }
+
+   alpha_o = value;
+   return true;
+}
 
 
 
@@ -144,8 +196,42 @@ int main
          // get file names
          const std::string modelFilePathname( argv[1] );
          const std::string imageFilePathname( modelFilePathname + ".ppm" );
-         // HDRI
-         //const std::string imageFilePathname( modelFilePathname + ".rgbe" );
+
+         // gradient mode option
+         bool   isGradient  = false;
+         real64 gradientAlpha = 0.0;
+         {
+            int argIndex = 2;
+
+            while( argIndex < argc )
+            {
+               const std::string argument( argv[argIndex] );
+
+               if( "--gradient" == argument )
+               {
+                  if( argIndex + 1 >= argc )
+                  {
+                     throw std::invalid_argument(
+                        "--gradient requires an alpha value" );
+                  }
+
+                  if( !parseGradientAlpha( std::string(argv[argIndex + 1]),
+                     gradientAlpha ) )
+                  {
+                     throw std::invalid_argument(
+                        "gradient alpha must be a positive finite number" );
+                  }
+
+                  isGradient = true;
+                  argIndex += 2;
+               }
+               else
+               {
+                  throw std::invalid_argument(
+                     std::string("unrecognised argument: ") + argument );
+               }
+            }
+         }
 
          // open model file
          std::ifstream modelFile( modelFilePathname.c_str() );
@@ -172,6 +258,13 @@ int main
 
          modelFile.close();
 
+         // gradient-domain accumulation state, owned by this function
+         hxa7241_minilight::GradientState gradientState;
+         if( isGradient )
+         {
+            gradientState.reset( image.getWidth(), image.getHeight() );
+         }
+
          // setup ctrl-c/interruption/sigint handler
          ::signal( SIGINT, sigintHandler );
 
@@ -181,22 +274,57 @@ int main
             // display current frame number
             (std::cout << "\riteration: " << frameNo).flush();
 
-            // render a frame
-            camera.getFrame( scene, random, image );
+            if( isGradient )
+            {
+               // render one gradient-domain round
+               camera.getGradientFrame( scene, random, gradientState );
+            }
+            else
+            {
+               // render a frame
+               camera.getFrame( scene, random, image );
+            }
 
             // save image at twice error-halving rate, and at start and end
             if( ((frameNo & (frameNo - 1)) == 0) | (iterations == frameNo) )
             {
-               // open image file
-               std::ofstream imageFile( imageFilePathname.c_str(),
-                  std::ios::binary );
-               imageFile.exceptions( std::ios::badbit | std::ios::failbit |
-                  std::ios::eofbit );
+               if( isGradient )
+               {
+                  // solve from all rounds accumulated so far
+                  const hxa7241_minilight::GradientSolution solution(
+                     gradientState.reconstruct( gradientAlpha ) );
 
-               // write image frame to file
-               image.getFormatted( imageFile, frameNo );
+                  if( !solution.isConverged() )
+                  {
+                     std::ostringstream message;
+                     message << "gradient reconstruction did not converge"
+                        " (relative residual " << solution.getResidual() << ')';
+                     throw std::runtime_error( message.str() );
+                  }
 
-               imageFile.close();
+                  // open image file
+                  std::ofstream imageFile( imageFilePathname.c_str(),
+                     std::ios::binary );
+                  imageFile.exceptions( std::ios::badbit |
+                     std::ios::failbit | std::ios::eofbit );
+
+                  solution.getFormatted( imageFile );
+
+                  imageFile.close();
+               }
+               else
+               {
+                  // open image file
+                  std::ofstream imageFile( imageFilePathname.c_str(),
+                     std::ios::binary );
+                  imageFile.exceptions( std::ios::badbit |
+                     std::ios::failbit | std::ios::eofbit );
+
+                  // write image frame to file
+                  image.getFormatted( imageFile, frameNo );
+
+                  imageFile.close();
+               }
             }
          }
 

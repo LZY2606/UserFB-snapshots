@@ -15,6 +15,7 @@
 #include <iosfwd>
 
 #include "Vector3f.hpp"
+#include "GradientState.hpp"
 
 
 
@@ -51,6 +52,23 @@ public:
 
 
 /// commands -------------------------------------------------------------------
+   /**
+    * Render one progressive round into a caller-owned gradient state.<br/><br/>
+    *
+    * For each pixel, the base and every existing right/up neighbour start from
+    * the same copy of the incoming random state, so they share sub-pixel jitter
+    * and the following random sequence. Each then traces its own camera ray
+    * with the existing RayTracer transport. Gradients are neighbour radiance
+    * minus base radiance. When a pixel is finished, the caller's random
+    * parameter is advanced only to the state at the end of the base evaluation.
+    *
+    * Only genuine interior edges are accumulated: there are no synthetic
+    * border edges and no wraparound, and each edge is recorded once, at its
+    * left/bottom endpoint.
+    */
+           void  getGradientFrame( const Scene&,
+                                   const Random&,
+                                   GradientState& )                    const;
 
 
 /// queries --------------------------------------------------------------------
@@ -59,6 +77,19 @@ public:
            void  getFrame( const Scene&,
                            const Random&,
                            Image& )                                       const;
+
+           /**
+            * Make the sampling ray direction for pixel (x,y).<br/><br/>
+            *
+            * Consumes the two jitter values from the supplied random state
+            * exactly as getFrame does; callers that need the same sample
+            * elsewhere pass a copy of the state.
+            */
+           Vector3f getSampleDirection( real64            x,
+                                        real64            y,
+                                        int32             width,
+                                        int32             height,
+                                        Random&           random )         const;
 
 
 /// constants ------------------------------------------------------------------
