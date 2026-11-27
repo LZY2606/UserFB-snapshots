@@ -138,6 +138,7 @@ struct cr_color_node {
 		cr_cn_gradient,
 		cr_cn_color_mix,
 		cr_cn_color_ramp,
+		cr_cn_triplanar,
 	} type;
 
 	union {
@@ -227,6 +228,17 @@ struct cr_color_node {
 
 			int element_count;
 		} color_ramp;
+
+		struct cr_triplanar_params {
+			struct cr_color_node *source;
+			// Row-major affine transform from world space to texture
+			// space. Must be finite and invertible. An all-zero
+			// matrix selects the default, which is identity.
+			float world_to_texture[4][4];
+			// Blend sharpness, clamped to [1, 64]. 0 selects the
+			// default of 1.
+			float sharpness;
+		} triplanar;
 	} arg;
 };
 

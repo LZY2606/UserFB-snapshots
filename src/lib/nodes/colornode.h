@@ -37,6 +37,7 @@ struct colorNode {
 #include "converter/combinehsv.h"
 #include "converter/color_ramp.h"
 #include "textures/hsv_transform.h"
+#include "textures/triplanar.h"
 
 // const struct colorNode *unknownTextureNode(const struct node_storage *s);
 

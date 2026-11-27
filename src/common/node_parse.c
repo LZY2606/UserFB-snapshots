@@ -293,7 +293,9 @@ struct cr_color_node *cr_color_node_build(const struct cJSON *desc) {
 	}
 
 	//FIXME: No good way to know if it's a color, so just check if it's got "r" in there.
-	if (cJSON_HasObjectItem(desc, "r")) {
+	//Note: Only when no "type" is given, otherwise e.g. a serialized "rgb" node,
+	//which also has an "r" key, would be misinterpreted as a constant color.
+	if (!cJSON_HasObjectItem(desc, "type") && cJSON_HasObjectItem(desc, "r")) {
 		// This is actually still a color object.
 		struct color c = color_parse(desc);
 		return cn_alloc((struct cr_color_node){
@@ -421,6 +423,37 @@ struct cr_color_node *cr_color_node_build(const struct cJSON *desc) {
 				}
 			});
 		}
+		if (stringEquals(type->valuestring, "triplanar")) {
+			struct cr_color_node node = {
+				.type = cr_cn_triplanar,
+				.arg.triplanar = {
+					.source = cr_color_node_build(cJSON_GetObjectItem(desc, "source")),
+					.world_to_texture = {
+						{ 1.0f, 0.0f, 0.0f, 0.0f },
+						{ 0.0f, 1.0f, 0.0f, 0.0f },
+						{ 0.0f, 0.0f, 1.0f, 0.0f },
+						{ 0.0f, 0.0f, 0.0f, 1.0f },
+					},
+					.sharpness = 1.0f,
+				}
+			};
+			const cJSON *mtx = cJSON_GetObjectItem(desc, "world_to_texture");
+			if (cJSON_IsArray(mtx) && cJSON_GetArraySize(mtx) == 4) {
+				for (int r = 0; r < 4; ++r) {
+					const cJSON *row = cJSON_GetArrayItem(mtx, r);
+					if (!cJSON_IsArray(row) || cJSON_GetArraySize(row) != 4) break;
+					for (int c = 0; c < 4; ++c) {
+						const cJSON *elem = cJSON_GetArrayItem(row, c);
+						if (cJSON_IsNumber(elem))
+							node.arg.triplanar.world_to_texture[r][c] = (float)elem->valuedouble;
+					}
+				}
+			}
+			const cJSON *sharpness = cJSON_GetObjectItem(desc, "sharpness");
+			if (cJSON_IsNumber(sharpness))
+				node.arg.triplanar.sharpness = (float)sharpness->valuedouble;
+			return cn_alloc(node);
+		}
 	}
 
 	logr(warning, "Failed to parse textureNode. Here's a dump:\n");
@@ -491,6 +524,10 @@ void cr_color_node_free(struct cr_color_node *d) {
 			cr_value_node_free(d->arg.color_ramp.factor);
 			if (d->arg.color_ramp.elements)
 				free(d->arg.color_ramp.elements);
+			break;
+		case cr_cn_triplanar:
+			cr_color_node_free(d->arg.triplanar.source);
+			break;
 	}
 	free(d);
 }
