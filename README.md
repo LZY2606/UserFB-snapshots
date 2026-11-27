@@ -16,6 +16,34 @@ library    | description  | link
 
 There are more libraries too but they're probably less useful; scroll to the bottom of this README.
 
+## solid orientation in par_shapes
+
+`par_shapes_orient_solid(mesh, face_depth)` repairs the winding of a mesh
+that holds one or more closed triangle shells, as produced by importers that
+glue shells together with arbitrary per-face winding.  Connectivity is
+determined by vertex indices only; positions are never welded.  The caller
+guarantees that every shell is a self-intersection-free embedded surface and
+that distinct shells neither intersect nor touch.
+
+The function makes the two triangles on either side of every shared edge
+wind oppositely, then assigns each connected shell a nesting depth using
+containment tests against the actual triangle surfaces: 0 for shells not
+enclosed by any other, 1 for the walls of cavities inside a solid, 2 for
+solids inside those cavities, and so on.  Shells at even depth are wound so
+their front faces point away from the bounded region they enclose; shells at
+odd depth point into it.  Face order and the first index of every face are
+preserved — only the second and third index of a face may be swapped — and
+points, texture coordinates, and their counts are never modified.  If the
+mesh has normals they are recomputed from the final winding; otherwise they
+stay null.  If `face_depth` is not null it must point to `ntriangles` ints
+owned by the caller, which receive the per-face depth on success.
+
+The function returns false without modifying the mesh or `face_depth` when
+the input is invalid: out-of-range indices, non-finite positions, zero-area
+or duplicated faces, edges shared by other than two faces, vertex fans that
+do not form a single ring, or topology that cannot be oriented consistently.
+A null mesh or negative counts return false; an empty mesh returns true.
+
 ## tests
 
 To run tests, you need CMake and pkg-config.  On macOS, these can be installed with homebrew:

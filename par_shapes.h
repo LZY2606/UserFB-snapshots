@@ -156,6 +156,33 @@ void par_shapes_merge_and_free(par_shapes_mesh* dst, par_shapes_mesh* src);
 // a Cornell Box.  Pass 0 for nfaces to reverse every face in the mesh.
 void par_shapes_invert(par_shapes_mesh*, int startface, int nfaces);
 
+// Recover a consistent solid boundary orientation for a mesh that holds one
+// or more closed triangle shells, as produced by importers that glue shells
+// together with arbitrary per-face winding.  Connectivity is determined by
+// vertex indices only; positions are never welded.  The caller guarantees
+// that every shell is a self-intersection-free embedded surface and that
+// distinct shells neither intersect nor touch.  The function first makes
+// the two triangles on either side of every shared edge wind in opposite
+// directions, then assigns each connected shell a nesting depth (0 for
+// shells not enclosed by any other, 1 for the walls of cavities inside a
+// solid, 2 for solids inside those cavities, and so on) using containment
+// tests against the actual triangle surfaces.  Shells at even depth are
+// wound so their front faces point away from the bounded region they
+// enclose; shells at odd depth point into it.  Face order and the first
+// index of every face are preserved; only the second and third index of a
+// face may be swapped.  Points, texture coordinates, and their counts are
+// never modified.  If the mesh has normals they are recomputed from the
+// final winding (area-weighted, unit length; vertices not referenced by
+// any face get zero normals); otherwise normals stay null.  If face_depth
+// is not null it must point to ntriangles ints, which receive the nesting
+// depth of each face on success.  Returns false without modifying the mesh
+// or face_depth when the input is invalid: out-of-range indices, non-finite
+// positions, zero-area or duplicated faces, edges shared by other than two
+// faces, vertex fans that do not form a single ring, or topology that
+// cannot be oriented consistently.  A null mesh or negative counts return
+// false; an empty mesh (no triangles) returns true.
+bool par_shapes_orient_solid(par_shapes_mesh* mesh, int* face_depth);
+
 // Remove all triangles whose area is less than minarea.
 void par_shapes_remove_degenerate(par_shapes_mesh*, float minarea);
 
@@ -891,6 +918,408 @@ void par_shapes_invert(par_shapes_mesh* m, int face, int nfaces)
         PAR_SWAP(PAR_SHAPES_T, tri[0], tri[2]);
         tri += 3;
     }
+}
+
+typedef struct {
+    int lo, hi;  // Sorted vertex indices of the undirected edge.
+    int face;    // Index of the triangle that owns this half-edge.
+    int slot;    // Local slot of the edge within its triangle (0, 1, or 2).
+    int forward; // Nonzero if the triangle traverses the edge from lo to hi.
+} par_shapes__edge;
+
+static int par_shapes__cmp_edges(void const* pa, void const* pb)
+{
+    par_shapes__edge const* a = (par_shapes__edge const*) pa;
+    par_shapes__edge const* b = (par_shapes__edge const*) pb;
+    if (a->lo != b->lo) return a->lo < b->lo ? -1 : 1;
+    if (a->hi != b->hi) return a->hi < b->hi ? -1 : 1;
+    return 0;
+}
+
+typedef struct {
+    int a, b, c; // Sorted vertex indices of a triangle.
+} par_shapes__facekey;
+
+static int par_shapes__cmp_facekeys(void const* pa, void const* pb)
+{
+    par_shapes__facekey const* a = (par_shapes__facekey const*) pa;
+    par_shapes__facekey const* b = (par_shapes__facekey const*) pb;
+    if (a->a != b->a) return a->a < b->a ? -1 : 1;
+    if (a->b != b->b) return a->b < b->b ? -1 : 1;
+    if (a->c != b->c) return a->c < b->c ? -1 : 1;
+    return 0;
+}
+
+typedef struct {
+    int firstface;   // Any triangle in the shell.
+    int depth;       // Number of shells that enclose this one.
+    int invert;      // Nonzero if every triangle in the shell must flip.
+    double aabb[6];  // Bounding box of the shell.
+    double volume;   // Signed volume after making the shell consistent.
+    double probe[3]; // Point on the shell used for containment queries.
+} par_shapes__shellinfo;
+
+// Signed solid angle of triangle abc as seen from the origin.
+static double par_shapes__solid_angle(double ax, double ay, double az,
+    double bx, double by, double bz, double cx, double cy, double cz)
+{
+    double la = sqrt(ax * ax + ay * ay + az * az);
+    double lb = sqrt(bx * bx + by * by + bz * bz);
+    double lc = sqrt(cx * cx + cy * cy + cz * cz);
+    double det = ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) +
+        az * (bx * cy - by * cx);
+    double den = la * lb * lc + (ax * bx + ay * by + az * bz) * lc +
+        (bx * cx + by * cy + bz * cz) * la + (cx * ax + cy * ay + cz * az) * lb;
+    return 2.0 * atan2(det, den);
+}
+
+bool par_shapes_orient_solid(par_shapes_mesh* mesh, int* face_depth)
+{
+    if (!mesh) {
+        return false;
+    }
+    int np = mesh->npoints;
+    int nf = mesh->ntriangles;
+    if (np < 0 || nf < 0) {
+        return false;
+    }
+    if (nf == 0) {
+        return true;
+    }
+    if (!mesh->points || !mesh->triangles) {
+        return false;
+    }
+    PAR_SHAPES_T* tris = mesh->triangles;
+    float const* pts = mesh->points;
+    for (int i = 0; i < 3 * nf; i++) {
+        int64_t index = (int64_t) tris[i];
+        if (index < 0 || index >= np) {
+            return false;
+        }
+    }
+    for (int i = 0; i < 3 * np; i++) {
+        if (!isfinite(pts[i])) {
+            return false;
+        }
+    }
+    bool ok = false;
+    int nshells = 0;
+    float* newnormals = 0;
+    par_shapes__edge* edges = 0;
+    par_shapes__facekey* fkeys = 0;
+    par_shapes__shellinfo* shells = 0;
+    int* nbr = 0;
+    int* vstart = 0;
+    int* vcursor = 0;
+    int* vfaces = 0;
+    int* shell = 0;
+    int* queue = 0;
+    int* fgen = 0;
+    char* eq = 0;
+    char* flip = 0;
+    char* inbox = 0;
+    double* wsum = 0;
+    for (int f = 0; f < nf; f++) {
+        int i0 = tris[3 * f], i1 = tris[3 * f + 1], i2 = tris[3 * f + 2];
+        if (i0 == i1 || i1 == i2 || i0 == i2) {
+            goto cleanup;
+        }
+        double ux = pts[3 * i1] - pts[3 * i0];
+        double uy = pts[3 * i1 + 1] - pts[3 * i0 + 1];
+        double uz = pts[3 * i1 + 2] - pts[3 * i0 + 2];
+        double vx = pts[3 * i2] - pts[3 * i0];
+        double vy = pts[3 * i2 + 1] - pts[3 * i0 + 1];
+        double vz = pts[3 * i2 + 2] - pts[3 * i0 + 2];
+        double cx = uy * vz - uz * vy;
+        double cy = uz * vx - ux * vz;
+        double cz = ux * vy - uy * vx;
+        if (cx * cx + cy * cy + cz * cz == 0) {
+            goto cleanup; // Zero-area face.
+        }
+    }
+    edges = PAR_MALLOC(par_shapes__edge, 3 * nf);
+    fkeys = PAR_MALLOC(par_shapes__facekey, nf);
+    nbr = PAR_MALLOC(int, 3 * nf);
+    eq = PAR_MALLOC(char, 3 * nf);
+    vstart = PAR_MALLOC(int, (np + 1));
+    vcursor = PAR_MALLOC(int, np);
+    vfaces = PAR_MALLOC(int, 3 * nf);
+    shell = PAR_MALLOC(int, nf);
+    queue = PAR_MALLOC(int, nf);
+    fgen = PAR_CALLOC(int, nf);
+    flip = PAR_MALLOC(char, nf);
+    if (!edges || !fkeys || !nbr || !eq || !vstart || !vcursor || !vfaces ||
+        !shell || !queue || !fgen || !flip) {
+        goto cleanup;
+    }
+    for (int f = 0; f < nf; f++) {
+        int i0 = tris[3 * f], i1 = tris[3 * f + 1], i2 = tris[3 * f + 2];
+        par_shapes__facekey* key = fkeys + f;
+        key->a = PAR_MIN(i0, PAR_MIN(i1, i2));
+        key->c = PAR_MAX(i0, PAR_MAX(i1, i2));
+        key->b = i0 + i1 + i2 - key->a - key->c;
+        for (int k = 0; k < 3; k++) {
+            int va = tris[3 * f + k];
+            int vb = tris[3 * f + (k + 1) % 3];
+            par_shapes__edge* e = edges + 3 * f + k;
+            e->lo = PAR_MIN(va, vb);
+            e->hi = PAR_MAX(va, vb);
+            e->face = f;
+            e->slot = k;
+            e->forward = va < vb;
+        }
+    }
+    qsort(fkeys, nf, sizeof(par_shapes__facekey), par_shapes__cmp_facekeys);
+    for (int f = 1; f < nf; f++) {
+        if (fkeys[f].a == fkeys[f - 1].a && fkeys[f].b == fkeys[f - 1].b &&
+            fkeys[f].c == fkeys[f - 1].c) {
+            goto cleanup; // Duplicated face.
+        }
+    }
+    qsort(edges, 3 * nf, sizeof(par_shapes__edge), par_shapes__cmp_edges);
+    for (int e = 0; e < 3 * nf; ) {
+        int e2 = e + 1;
+        while (e2 < 3 * nf && edges[e2].lo == edges[e].lo &&
+            edges[e2].hi == edges[e].hi) {
+            e2++;
+        }
+        if (e2 - e != 2) {
+            goto cleanup; // Open edge, or edge shared by too many faces.
+        }
+        par_shapes__edge const* e0 = edges + e;
+        par_shapes__edge const* e1 = edges + e + 1;
+        char same = e0->forward != e1->forward;
+        nbr[3 * e0->face + e0->slot] = e1->face;
+        nbr[3 * e1->face + e1->slot] = e0->face;
+        eq[3 * e0->face + e0->slot] = same;
+        eq[3 * e1->face + e1->slot] = same;
+        e = e2;
+    }
+    for (int v = 0; v <= np; v++) {
+        vstart[v] = 0;
+    }
+    for (int i = 0; i < 3 * nf; i++) {
+        vstart[tris[i] + 1]++;
+    }
+    for (int v = 0; v < np; v++) {
+        vstart[v + 1] += vstart[v];
+        vcursor[v] = vstart[v];
+    }
+    for (int f = 0; f < nf; f++) {
+        for (int k = 0; k < 3; k++) {
+            vfaces[vcursor[tris[3 * f + k]]++] = f;
+        }
+    }
+    for (int v = 0; v < np; v++) {
+        int nfaces = vstart[v + 1] - vstart[v];
+        if (nfaces == 0) {
+            continue;
+        }
+        int head = 0, tail = 0, visited = 0, gen = v + 1;
+        int f0 = vfaces[vstart[v]];
+        fgen[f0] = gen;
+        queue[tail++] = f0;
+        while (head < tail) {
+            int f = queue[head++];
+            int k = tris[3 * f] == v ? 0 : (tris[3 * f + 1] == v ? 1 : 2);
+            int g0 = nbr[3 * f + k];
+            int g1 = nbr[3 * f + (k + 2) % 3];
+            visited++;
+            if (fgen[g0] != gen) {
+                fgen[g0] = gen;
+                queue[tail++] = g0;
+            }
+            if (fgen[g1] != gen) {
+                fgen[g1] = gen;
+                queue[tail++] = g1;
+            }
+        }
+        if (visited != nfaces) {
+            goto cleanup; // Vertex fan is not a single ring.
+        }
+    }
+    nshells = 0;
+    for (int f = 0; f < nf; f++) {
+        shell[f] = -1;
+    }
+    for (int f0 = 0; f0 < nf; f0++) {
+        if (shell[f0] >= 0) {
+            continue;
+        }
+        int head = 0, tail = 0;
+        shell[f0] = nshells;
+        flip[f0] = 0;
+        queue[tail++] = f0;
+        while (head < tail) {
+            int f = queue[head++];
+            for (int k = 0; k < 3; k++) {
+                int g = nbr[3 * f + k];
+                char want = eq[3 * f + k] ? flip[f] : (char) (1 - flip[f]);
+                if (shell[g] < 0) {
+                    shell[g] = nshells;
+                    flip[g] = want;
+                    queue[tail++] = g;
+                } else if (flip[g] != want) {
+                    goto cleanup; // Cannot be oriented consistently.
+                }
+            }
+        }
+        nshells++;
+    }
+    shells = PAR_MALLOC(par_shapes__shellinfo, nshells);
+    wsum = PAR_MALLOC(double, nshells);
+    inbox = PAR_MALLOC(char, nshells);
+    if (!shells || !wsum || !inbox) {
+        goto cleanup;
+    }
+    for (int s = 0; s < nshells; s++) {
+        shells[s].firstface = -1;
+        shells[s].depth = 0;
+        shells[s].invert = 0;
+        shells[s].volume = 0;
+        shells[s].aabb[0] = shells[s].aabb[1] = shells[s].aabb[2] = DBL_MAX;
+        shells[s].aabb[3] = shells[s].aabb[4] = shells[s].aabb[5] = -DBL_MAX;
+    }
+    for (int f = 0; f < nf; f++) {
+        par_shapes__shellinfo* sh = shells + shell[f];
+        int i0 = tris[3 * f], i1 = tris[3 * f + 1], i2 = tris[3 * f + 2];
+        if (flip[f]) {
+            PAR_SWAP(int, i1, i2);
+        }
+        double ax = pts[3 * i0], ay = pts[3 * i0 + 1], az = pts[3 * i0 + 2];
+        double bx = pts[3 * i1], by = pts[3 * i1 + 1], bz = pts[3 * i1 + 2];
+        double cx = pts[3 * i2], cy = pts[3 * i2 + 1], cz = pts[3 * i2 + 2];
+        if (sh->firstface < 0) {
+            sh->firstface = f;
+            sh->probe[0] = ax;
+            sh->probe[1] = ay;
+            sh->probe[2] = az;
+        }
+        double xs[3] = {ax, bx, cx};
+        double ys[3] = {ay, by, cy};
+        double zs[3] = {az, bz, cz};
+        for (int k = 0; k < 3; k++) {
+            sh->aabb[0] = PAR_MIN(sh->aabb[0], xs[k]);
+            sh->aabb[1] = PAR_MIN(sh->aabb[1], ys[k]);
+            sh->aabb[2] = PAR_MIN(sh->aabb[2], zs[k]);
+            sh->aabb[3] = PAR_MAX(sh->aabb[3], xs[k]);
+            sh->aabb[4] = PAR_MAX(sh->aabb[4], ys[k]);
+            sh->aabb[5] = PAR_MAX(sh->aabb[5], zs[k]);
+        }
+        sh->volume += (ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) +
+            az * (bx * cy - by * cx)) / 6.0;
+    }
+    for (int s = 0; s < nshells; s++) {
+        double px = shells[s].probe[0];
+        double py = shells[s].probe[1];
+        double pz = shells[s].probe[2];
+        for (int t = 0; t < nshells; t++) {
+            double const* bb = shells[t].aabb;
+            wsum[t] = 0;
+            inbox[t] = t != s && px >= bb[0] && py >= bb[1] && pz >= bb[2] &&
+                px <= bb[3] && py <= bb[4] && pz <= bb[5];
+        }
+        for (int f = 0; f < nf; f++) {
+            int t = shell[f];
+            if (!inbox[t]) {
+                continue;
+            }
+            int i0 = tris[3 * f], i1 = tris[3 * f + 1], i2 = tris[3 * f + 2];
+            if (flip[f]) {
+                PAR_SWAP(int, i1, i2);
+            }
+            double ax = pts[3 * i0] - px;
+            double ay = pts[3 * i0 + 1] - py;
+            double az = pts[3 * i0 + 2] - pz;
+            double bx = pts[3 * i1] - px;
+            double by = pts[3 * i1 + 1] - py;
+            double bz = pts[3 * i1 + 2] - pz;
+            double cx = pts[3 * i2] - px;
+            double cy = pts[3 * i2 + 1] - py;
+            double cz = pts[3 * i2 + 2] - pz;
+            wsum[t] += par_shapes__solid_angle(ax, ay, az, bx, by, bz,
+                cx, cy, cz);
+        }
+        for (int t = 0; t < nshells; t++) {
+            if (inbox[t] && fabs(wsum[t]) > 2.0 * PAR_PI) {
+                shells[s].depth++;
+            }
+        }
+    }
+    for (int s = 0; s < nshells; s++) {
+        int outward = (shells[s].depth & 1) == 0;
+        shells[s].invert = outward != (shells[s].volume > 0);
+    }
+    if (mesh->normals) {
+        newnormals = PAR_CALLOC(float, 3 * np);
+        if (!newnormals) {
+            goto cleanup;
+        }
+    }
+    for (int f = 0; f < nf; f++) {
+        if ((flip[f] != 0) != (shells[shell[f]].invert != 0)) {
+            PAR_SWAP(PAR_SHAPES_T, tris[3 * f + 1], tris[3 * f + 2]);
+        }
+    }
+    if (newnormals) {
+        for (int f = 0; f < nf; f++) {
+            int i0 = tris[3 * f], i1 = tris[3 * f + 1], i2 = tris[3 * f + 2];
+            double ux = pts[3 * i1] - pts[3 * i0];
+            double uy = pts[3 * i1 + 1] - pts[3 * i0 + 1];
+            double uz = pts[3 * i1 + 2] - pts[3 * i0 + 2];
+            double vx = pts[3 * i2] - pts[3 * i0];
+            double vy = pts[3 * i2 + 1] - pts[3 * i0 + 1];
+            double vz = pts[3 * i2 + 2] - pts[3 * i0 + 2];
+            float cx = (float) (uy * vz - uz * vy);
+            float cy = (float) (uz * vx - ux * vz);
+            float cz = (float) (ux * vy - uy * vx);
+            newnormals[3 * i0] += cx;
+            newnormals[3 * i0 + 1] += cy;
+            newnormals[3 * i0 + 2] += cz;
+            newnormals[3 * i1] += cx;
+            newnormals[3 * i1 + 1] += cy;
+            newnormals[3 * i1 + 2] += cz;
+            newnormals[3 * i2] += cx;
+            newnormals[3 * i2 + 1] += cy;
+            newnormals[3 * i2 + 2] += cz;
+        }
+        for (int v = 0; v < np; v++) {
+            float* n = newnormals + 3 * v;
+            double len = sqrt(n[0] * (double) n[0] + n[1] * (double) n[1] +
+                n[2] * (double) n[2]);
+            if (len > 0) {
+                n[0] = (float) (n[0] / len);
+                n[1] = (float) (n[1] / len);
+                n[2] = (float) (n[2] / len);
+            }
+        }
+        PAR_FREE(mesh->normals);
+        mesh->normals = newnormals;
+        newnormals = 0;
+    }
+    if (face_depth) {
+        for (int f = 0; f < nf; f++) {
+            face_depth[f] = shells[shell[f]].depth;
+        }
+    }
+    ok = true;
+cleanup:
+    PAR_FREE(newnormals);
+    PAR_FREE(wsum);
+    PAR_FREE(inbox);
+    PAR_FREE(shells);
+    PAR_FREE(flip);
+    PAR_FREE(fgen);
+    PAR_FREE(queue);
+    PAR_FREE(shell);
+    PAR_FREE(vfaces);
+    PAR_FREE(vcursor);
+    PAR_FREE(vstart);
+    PAR_FREE(eq);
+    PAR_FREE(nbr);
+    PAR_FREE(fkeys);
+    PAR_FREE(edges);
+    return ok;
 }
 
 par_shapes_mesh* par_shapes_create_icosahedron()

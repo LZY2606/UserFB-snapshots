@@ -1,0 +1,14 @@
+CASE topology scrambled_shell_restored checks=27
+CASE topology inverted_sphere_restored checks=6
+CASE topology invalid_topology_rejected checks=10
+CASE topology invalid_scalars_rejected checks=7
+GROUP topology cases=4 checks=50 COMPLETE
+CASE nesting three_nested_shells checks=488
+CASE nesting separate_concave_shells checks=47
+CASE nesting shell_in_torus_hole checks=1571
+GROUP nesting cases=3 checks=2106 COMPLETE
+CASE publication rigid_transform_face_order checks=423
+CASE publication normals_recomputed checks=14
+CASE publication failure_preserves_input checks=37
+GROUP publication cases=3 checks=474 COMPLETE
+TARGET_COMPLETE cases=10

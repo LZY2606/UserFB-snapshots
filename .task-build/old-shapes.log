@@ -1,0 +1,40 @@
+
+  cylinders and spheres
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should fail when the number of stacks or slices is invalid
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m should generate correct number of vertices
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m should have expected number of triangles
+[39;49m
+
+  par_shapes_create_plane
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should not have NaN's
+[39;49m
+
+  par_shapes_export
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should generate an OBJ file
+[39;49m
+
+  par_shapes_merge
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should concatenate two meshes
+[39;49m
+
+  par_shapes_clone
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should reuse a mesh when growing and shrinking
+[39;49m
+
+  transforms
+[39;49;32;49m    ✓[39;49m[39;49;37;49m should support translation
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m should support rotation
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m should support non-uniform scale
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m should support degenerate scale
+[39;49m
+
+  misc shapes
+[39;49;32;49m    ✓[39;49m[39;49;37;49m create an orientable disk in 3-space
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m create a rock on the Y plane
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m create a polyhedron on the Y plane
+[39;49m[39;49;32;49m    ✓[39;49m[39;49;37;49m create a rounded cylinder via composition
+[39;49m
+
+  lsystems
+[39;49;32;49m    ✓[39;49m[39;49;37;49m export a tree-like shape
+[39;49m
