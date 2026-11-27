@@ -39,11 +39,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <numeric>
 #include <random>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -198,6 +201,12 @@ public:
 	Image image(const Output& output) const override;
 
 	Graphics graphics(const Output& output) const;
+
+	// Accessors used by the constrained solver (run_constrained).
+	int                       n()        const { return _n; }
+	bool                      periodic() const { return _periodic_out; }
+	const Palette&            palette()  const { return _palette; }
+	const std::vector<Pattern>& patterns() const { return _patterns; }
 
 private:
 	int                       _n;
@@ -984,6 +993,584 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif
 
 	LOG_F(INFO, "Unfinished after %lu iterations", limit);
 	return Result::kUnfinished;
+}
+
+// ============================================================================
+// Constrained solving
+//
+// Pixel pins and per-region color budgets layered on top of the existing
+// OverlappingModel. Pattern extraction, pattern weights and the overlap
+// compatibility/propagation table are all reused as-is; this only adds
+// pixel-level color domains, budget counting and a full backtracking search
+// around the existing overlap propagation.
+// ============================================================================
+
+struct PixelPin
+{
+	size_t x, y;
+	RGBA   color;
+};
+
+struct ColorBudget
+{
+	size_t x0, y0, x1, y1; // Half-open rectangle [x0, x1) x [y0, y1), output pixels
+	RGBA   color;
+	size_t min_count, max_count;
+};
+
+struct TextureConstraints
+{
+	std::vector<PixelPin>    pins;
+	std::vector<ColorBudget> budgets;
+};
+
+namespace constrained_detail {
+
+// One (anchor, local offset) pair that really covers a physical output pixel.
+struct Cover
+{
+	size_t anchor; // flat index into the anchor list
+	int    dx, dy; // local offset inside the N x N pattern
+};
+
+struct InternalBudget
+{
+	int                  color; // palette index
+	size_t               lo, hi;
+	std::vector<size_t>  pixels; // flat output pixel indices
+};
+
+struct Snapshot
+{
+	std::vector<Bool>              wave;
+	std::vector<Bool>              changes;
+	std::vector<std::bitset<256>>  domains;
+	std::mt19937                   rng;
+};
+
+struct SearchFrame
+{
+	Snapshot snapshot; // state just before the decision
+	size_t   slot;     // anchor flat index where the decision was made
+	int      chosen;   // pattern forced by the decision
+};
+
+class ConstrainedSolver
+{
+public:
+	ConstrainedSolver(Output* output, const OverlappingModel& model,
+	                  const TextureConstraints& constraints, size_t seed)
+		: _out(output), _model(model), _seed(seed)
+	{
+		_n = model.n();
+		_W = model._width;
+		_H = model._height;
+		_T = model._num_patterns;
+		_periodic = model.periodic();
+		_palette = &model.palette();
+		_patterns = &model.patterns();
+
+		validate(constraints); // throws std::invalid_argument before any mutation
+
+		// Root state: the caller's wave (including any pre-existing bans, e.g.
+		// a foundation) is itself a root constraint and must be preserved.
+		_root_wave.resize(_out->_wave.size());
+		_root_changes.resize(_W * _H);
+		copy_wave_to(_root_wave);
+		copy_changes_to(_root_changes);
+
+		build_color_lookup();
+		build_anchors_and_covers();
+		compile_constraints(constraints);
+
+		_domains.assign(_W * _H, std::bitset<256>());
+		_gen.seed(static_cast<std::mt19937::result_type>(_seed));
+	}
+
+	Result solve()
+	{
+		// Apply pins at the root.
+		for (const auto& pin : _pins) {
+			if (!restrict_pixel_color(pin.first, pin.second)) {
+				restore_root();
+				return Result::kFail;
+			}
+		}
+
+		std::vector<SearchFrame> stack;
+
+		while (true) {
+			if (!propagate_to_fixpoint()) {
+				// Contradiction in the current branch: restore the state of
+				// the nearest decision and try the next alternative there.
+				if (stack.empty()) {
+					restore_root();
+					return Result::kFail;
+				}
+				SearchFrame frame = std::move(stack.back());
+				stack.pop_back();
+				restore(frame.snapshot);
+				// The chosen pattern is now known to fail in this branch.
+				ban_pattern(frame.slot, frame.chosen);
+				continue;
+			}
+
+			// Fixpoint reached: pick an anchor with more than one candidate.
+			size_t slot;
+			int     chosen;
+			const int decision = pick_decision(&slot, &chosen);
+			if (decision < 0) {
+				if (stack.empty()) { restore_root(); return Result::kFail; }
+				SearchFrame frame = std::move(stack.back());
+				stack.pop_back();
+				restore(frame.snapshot);
+				ban_pattern(frame.slot, frame.chosen);
+				continue;
+			}
+			if (decision == 0) {
+				return Result::kSuccess; // every anchor is frozen
+			}
+
+			SearchFrame frame;
+			frame.snapshot = capture();
+			frame.slot     = slot;
+			frame.chosen   = chosen;
+			stack.push_back(std::move(frame));
+
+			// Apply the observation: keep only the chosen pattern.
+			const auto ax = _anchors[slot].first;
+			const auto ay = _anchors[slot].second;
+			for (int t = 0; t < _T; ++t) {
+				if (t != chosen) {
+					ban_pattern(slot, t);
+				}
+			}
+			_out->_changes.set(ax, ay, true);
+		}
+	}
+
+private:
+	void validate(const TextureConstraints& constraints) const
+	{
+		auto fail = [](const char* msg) { throw std::invalid_argument(msg); };
+
+		if (_n < 1 || _W < static_cast<size_t>(_n) || _H < static_cast<size_t>(_n)) {
+			fail("OverlappingModel requires N >= 1 and output width/height >= N");
+		}
+		if (_out->_wave.size() != _W * _H * _T) {
+			fail("output wave dimensions do not match the model");
+		}
+		if (_out->_changes.width() != _W || _out->_changes.height() != _H) {
+			fail("output change grid dimensions do not match the model");
+		}
+		if (_palette->size() > MAX_COLORS) {
+			fail("palette too large");
+		}
+
+		auto color_index = [&](RGBA color) -> int {
+			for (size_t i = 0; i < _palette->size(); ++i) {
+				if ((*_palette)[i] == color) { return static_cast<int>(i); }
+			}
+			return -1;
+		};
+
+		for (const auto& pin : constraints.pins) {
+			if (pin.x >= _W || pin.y >= _H) { fail("pin is outside the output"); }
+			if (color_index(pin.color) < 0)  { fail("pin color is not in the model palette"); }
+		}
+
+		for (const auto& budget : constraints.budgets) {
+			if (budget.x0 > _W || budget.x1 > _W || budget.y0 > _H || budget.y1 > _H) {
+				fail("budget rectangle is outside the output");
+			}
+			if (budget.x0 >= budget.x1 || budget.y0 >= budget.y1) {
+				fail("budget rectangle must be a non-empty half-open rectangle");
+			}
+			if (budget.min_count > budget.max_count) {
+				fail("budget min_count must not exceed max_count");
+			}
+			const size_t area = (budget.x1 - budget.x0) * (budget.y1 - budget.y0);
+			if (budget.max_count > area) {
+				fail("budget max_count must not exceed the number of pixels in the rectangle");
+			}
+			if (color_index(budget.color) < 0) {
+				fail("budget color is not in the model palette");
+			}
+		}
+	}
+
+	void build_color_lookup()
+	{
+		_color_of_rgba.clear();
+		for (size_t i = 0; i < _palette->size(); ++i) {
+			const RGBA c = (*_palette)[i];
+			const uint32_t key = uint32_t(c.r) | (uint32_t(c.g) << 8)
+			                   | (uint32_t(c.b) << 16) | (uint32_t(c.a) << 24);
+			_color_of_rgba[key] = static_cast<int>(i);
+		}
+	}
+
+	int palette_index(RGBA color) const
+	{
+		const uint32_t key = uint32_t(color.r) | (uint32_t(color.g) << 8)
+		                   | (uint32_t(color.b) << 16) | (uint32_t(color.a) << 24);
+		const auto it = _color_of_rgba.find(key);
+		return it == _color_of_rgba.end() ? -1 : it->second;
+	}
+
+	void build_anchors_and_covers()
+	{
+		// Active anchors: every slot that may hold a pattern. Non-periodic
+		// outputs skip on_boundary slots; periodic outputs use every slot and
+		// wrap pixel coordinates modulo width/height.
+		for (size_t y = 0; y < _H; ++y) {
+			for (size_t x = 0; x < _W; ++x) {
+				if (_model.on_boundary(static_cast<int>(x), static_cast<int>(y))) { continue; }
+				_anchors.emplace_back(x, y);
+			}
+		}
+
+		_covers.assign(_W * _H, {});
+		for (size_t s = 0; s < _anchors.size(); ++s) {
+			const size_t ax = _anchors[s].first;
+			const size_t ay = _anchors[s].second;
+			for (int dy = 0; dy < _n; ++dy) {
+				for (int dx = 0; dx < _n; ++dx) {
+					size_t px = ax + dx;
+					size_t py = ay + dy;
+					if (_periodic) {
+						px %= _W;
+						py %= _H;
+					}
+					// For non-periodic outputs the anchor check above
+					// guarantees ax + n <= W and ay + n <= H, so every pixel,
+					// including the right and bottom edge, is in range.
+					_covers[py * _W + px].push_back(Cover{s, dx, dy});
+				}
+			}
+		}
+	}
+
+	void compile_constraints(const TextureConstraints& constraints)
+	{
+		_pins.reserve(constraints.pins.size());
+		for (const auto& pin : constraints.pins) {
+			_pins.emplace_back(pin.y * _W + pin.x, palette_index(pin.color));
+		}
+
+		_budgets.reserve(constraints.budgets.size());
+		for (const auto& budget : constraints.budgets) {
+			InternalBudget ib;
+			ib.color = palette_index(budget.color);
+			ib.lo    = budget.min_count;
+			ib.hi    = budget.max_count;
+			for (size_t y = budget.y0; y < budget.y1; ++y) {
+				for (size_t x = budget.x0; x < budget.x1; ++x) {
+					ib.pixels.push_back(y * _W + x);
+				}
+			}
+			// Budgets are kept separate on purpose, even identical ones.
+			_budgets.push_back(std::move(ib));
+		}
+	}
+
+	bool pattern_allowed(size_t slot, int t) const
+	{
+		const auto ax = static_cast<int>(_anchors[slot].first);
+		const auto ay = static_cast<int>(_anchors[slot].second);
+		return _out->_wave.get(ax, ay, t) != 0;
+	}
+
+	void ban_pattern(size_t slot, int t)
+	{
+		if (!pattern_allowed(slot, t)) { return; }
+		const auto ax = _anchors[slot].first;
+		const auto ay = _anchors[slot].second;
+		_out->_wave.set(ax, ay, t, false);
+		_out->_changes.set(ax, ay, true);
+	}
+
+	// Remove every covering pattern at this pixel whose local color is not
+	// `color`. Returns false if that leaves the pixel with no possible color.
+	bool restrict_pixel_color(size_t pixel, int color)
+	{
+		bool any = false;
+		for (const Cover& cover : _covers[pixel]) {
+			const int offset = cover.dy * _n + cover.dx;
+			for (int t = 0; t < _T; ++t) {
+				if (!pattern_allowed(cover.anchor, t)) { continue; }
+				if ((*_patterns)[t][offset] != static_cast<ColorIndex>(color)) {
+					ban_pattern(cover.anchor, t);
+				} else {
+					any = true;
+				}
+			}
+		}
+		return any;
+	}
+
+	// Recompute the color domain of every physical pixel as the intersection
+	// of the colors of the currently allowed covering patterns, then ban
+	// covering patterns that contradict the new domain. Empty intersection
+	// (or an anchor with no candidate pattern) is a contradiction.
+	bool recompute_domains()
+	{
+		for (size_t pixel = 0; pixel < _W * _H; ++pixel) {
+			std::bitset<256> domain;
+			if (_covers[pixel].empty()) { continue; } // unused boundary slot area
+			bool first = true;
+			for (const Cover& cover : _covers[pixel]) {
+				std::bitset<256> here;
+				const int offset = cover.dy * _n + cover.dx;
+				for (int t = 0; t < _T; ++t) {
+					if (pattern_allowed(cover.anchor, t)) {
+						here.set((*_patterns)[t][offset]);
+					}
+				}
+				if (first) { domain = here; first = false; }
+				else       { domain &= here; }
+			}
+			if (domain.none()) { return false; }
+
+			if (domain != _domains[pixel]) {
+				_domains[pixel] = domain;
+				for (const Cover& cover : _covers[pixel]) {
+					const int offset = cover.dy * _n + cover.dx;
+					for (int t = 0; t < _T; ++t) {
+						if (pattern_allowed(cover.anchor, t) &&
+						    !domain.test((*_patterns)[t][offset])) {
+							ban_pattern(cover.anchor, t);
+						}
+					}
+				}
+			}
+		}
+
+		for (size_t slot = 0; slot < _anchors.size(); ++slot) {
+			bool any = false;
+			for (int t = 0; t < _T; ++t) {
+				if (pattern_allowed(slot, t)) { any = true; break; }
+			}
+			if (!any) { return false; }
+		}
+		return true;
+	}
+
+	// Count budget pixels on current color domains and apply the two
+	// equality-triggered restrictions. Returns false on contradiction.
+	bool process_budgets()
+	{
+		for (const InternalBudget& budget : _budgets) {
+			size_t forced   = 0; // pixels whose domain is exactly this color
+			size_t possible = 0; // pixels whose domain still contains it
+			for (const size_t pixel : budget.pixels) {
+				if (_domains[pixel].test(budget.color)) {
+					++possible;
+					if (_domains[pixel].count() == 1) { ++forced; }
+				}
+			}
+
+			if (forced > budget.hi || possible < budget.lo) { return false; }
+
+			if (forced == budget.hi) {
+				// The quota is already used up: this color must disappear
+				// from every still-undecided pixel of the region.
+				for (const size_t pixel : budget.pixels) {
+					if (!_domains[pixel].test(budget.color)) { continue; }
+					if (_domains[pixel].count() == 1)        { continue; }
+					for (const Cover& cover : _covers[pixel]) {
+						const int offset = cover.dy * _n + cover.dx;
+						for (int t = 0; t < _T; ++t) {
+							if (pattern_allowed(cover.anchor, t) &&
+							    (*_patterns)[t][offset] == static_cast<ColorIndex>(budget.color)) {
+								ban_pattern(cover.anchor, t);
+							}
+						}
+					}
+				}
+			}
+
+			if (possible == budget.lo) {
+				// Every pixel that can still supply the color is needed:
+				// pin them to this color.
+				for (const size_t pixel : budget.pixels) {
+					if (!_domains[pixel].test(budget.color)) { continue; }
+					if (_domains[pixel].count() == 1)        { continue; }
+					if (!restrict_pixel_color(pixel, budget.color)) { return false; }
+				}
+			}
+		}
+		return true;
+	}
+
+	bool propagate_to_fixpoint()
+	{
+		// Alternate pixel-domain/budget propagation with the existing overlap
+		// propagation until neither side changes anything. The fixpoint is
+		// detected on the total number of allowed candidates: domain/budget
+		// bans set change flags that overlap propagation may clear without
+		// issuing bans of its own, so its return value alone is not enough.
+		while (true) {
+			const size_t allowed_before = count_allowed();
+			if (!recompute_domains()) { return false; }
+			if (!process_budgets())   { return false; }
+			_model.propagate(_out);
+			if (count_allowed() == allowed_before) { return true; }
+		}
+	}
+
+	size_t count_allowed() const
+	{
+		size_t total = 0;
+		for (size_t slot = 0; slot < _anchors.size(); ++slot) {
+			const auto ax = static_cast<int>(_anchors[slot].first);
+			const auto ay = static_cast<int>(_anchors[slot].second);
+			for (int t = 0; t < _T; ++t) {
+				total += _out->_wave.get(ax, ay, t) ? 1u : 0u;
+			}
+		}
+		return total;
+	}
+
+	// Weighted minimum-entropy decision, matching the existing observe() rule.
+	// Returns 1 and fills the outputs when a decision was made, 0 when every
+	// anchor is frozen, and -1 on an empty candidate set (contradiction).
+	int pick_decision(size_t* out_slot, int* out_chosen)
+	{
+		std::uniform_real_distribution<double> dis(0.0, 1.0);
+		double min_entropy = std::numeric_limits<double>::infinity();
+		size_t best_slot = kInvalidIndex;
+		bool contradiction = false;
+
+		for (size_t slot = 0; slot < _anchors.size(); ++slot) {
+			size_t count = 0;
+			double entropy = 0;
+			for (int t = 0; t < _T; ++t) {
+				if (pattern_allowed(slot, t)) {
+					++count;
+					entropy += _model._pattern_weight[t];
+				}
+			}
+			if (count == 0) { contradiction = true; continue; }
+			if (count == 1) { continue; } // already frozen
+
+			entropy += 0.5 * dis(_gen); // same tie-breaking bias as observe()
+			if (entropy < min_entropy) {
+				min_entropy = entropy;
+				best_slot = slot;
+			}
+		}
+
+		if (contradiction) { return -1; }
+		if (best_slot == kInvalidIndex) { return 0; }
+
+		std::vector<double> distribution(_T);
+		for (int t = 0; t < _T; ++t) {
+			distribution[t] = pattern_allowed(best_slot, t) ? _model._pattern_weight[t] : 0.0;
+		}
+		RandomDouble random_double = [&]() { return dis(_gen); };
+		*out_slot   = best_slot;
+		*out_chosen = static_cast<int>(spin_the_bottle(std::move(distribution), random_double()));
+		return 1;
+	}
+
+	Snapshot capture() const
+	{
+		Snapshot snapshot;
+		snapshot.wave.resize(_out->_wave.size());
+		snapshot.changes.resize(_W * _H);
+		copy_wave_to(snapshot.wave);
+		copy_changes_to(snapshot.changes);
+		snapshot.domains = _domains;
+		snapshot.rng = _gen;
+		return snapshot;
+	}
+
+	void copy_wave_to(std::vector<Bool>& dst) const
+	{
+		for (size_t i = 0; i < _out->_wave.size(); ++i) {
+			dst[i] = wave_at(i);
+		}
+	}
+
+	Bool wave_at(size_t linear) const
+	{
+		// Array3D index layout: x * H * T + y * T + t
+		const size_t t = linear % _T;
+		const size_t y = (linear / _T) % _H;
+		const size_t x = linear / (_T * _H);
+		return _out->_wave.get(x, y, t);
+	}
+
+	void set_wave_at(size_t linear, Bool value)
+	{
+		const size_t t = linear % _T;
+		const size_t y = (linear / _T) % _H;
+		const size_t x = linear / (_T * _H);
+		_out->_wave.set(x, y, t, value);
+	}
+
+	void copy_changes_to(std::vector<Bool>& dst) const
+	{
+		for (size_t y = 0; y < _H; ++y) {
+			for (size_t x = 0; x < _W; ++x) {
+				dst[y * _W + x] = _out->_changes.get(x, y);
+			}
+		}
+	}
+
+	void restore(const Snapshot& snapshot)
+	{
+		for (size_t i = 0; i < snapshot.wave.size(); ++i) {
+			set_wave_at(i, snapshot.wave[i]);
+		}
+		for (size_t y = 0; y < _H; ++y) {
+			for (size_t x = 0; x < _W; ++x) {
+				_out->_changes.set(x, y, snapshot.changes[y * _W + x]);
+			}
+		}
+		_domains = snapshot.domains;
+		_gen = snapshot.rng;
+	}
+
+	void restore_root()
+	{
+		for (size_t i = 0; i < _root_wave.size(); ++i) {
+			set_wave_at(i, _root_wave[i]);
+		}
+		for (size_t y = 0; y < _H; ++y) {
+			for (size_t x = 0; x < _W; ++x) {
+				_out->_changes.set(x, y, _root_changes[y * _W + x]);
+			}
+		}
+	}
+
+	Output*                            _out;
+	const OverlappingModel&            _model;
+	size_t                             _seed;
+	int                                _n;
+	size_t                             _W, _H, _T;
+	bool                               _periodic;
+	const Palette*                     _palette;
+	const std::vector<Pattern>*        _patterns;
+	std::unordered_map<uint32_t, int>  _color_of_rgba;
+	std::vector<std::pair<size_t, size_t>> _anchors;
+	std::vector<std::vector<Cover>>    _covers;
+	std::vector<std::pair<size_t, int>> _pins;
+	std::vector<InternalBudget>        _budgets;
+	std::vector<std::bitset<256>>      _domains;
+	std::vector<Bool>                  _root_wave;
+	std::vector<Bool>                  _root_changes;
+	std::mt19937                       _gen;
+};
+
+} // namespace constrained_detail
+
+Result run_constrained(Output* output, const OverlappingModel& model,
+                       const TextureConstraints& constraints, size_t seed)
+{
+	constrained_detail::ConstrainedSolver solver(output, model, constraints, seed);
+	return solver.solve();
 }
 
 void run_and_write(const Options& options, const std::string& name, const configuru::Config& config, const Model& model)
