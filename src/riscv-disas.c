@@ -2263,14 +2263,25 @@ void inst_fetch(const uint8_t *data, rv_inst *instp, size_t *length)
     *instp = inst;
 }
 
+/* canonical structured decode */
+
+void rv_decode_inst(rv_isa isa, uint64_t pc, rv_inst inst, rv_decode *dec)
+{
+    memset(dec, 0, sizeof(*dec));
+    dec->pc = pc;
+    dec->inst = inst;
+    decode_inst_opcode(dec, isa);
+    decode_inst_operands(dec);
+    decode_inst_decompress(dec, isa);
+    /* deliberately stop before decode_inst_lift_pseudo() */
+}
+
 /* disassemble instruction */
 
 void disasm_inst(char *buf, size_t buflen, rv_isa isa, uint64_t pc, rv_inst inst)
 {
-    rv_decode dec = { .pc = pc, .inst = inst };
-    decode_inst_opcode(&dec, isa);
-    decode_inst_operands(&dec);
-    decode_inst_decompress(&dec, isa);
+    rv_decode dec;
+    rv_decode_inst(isa, pc, inst, &dec);
     decode_inst_lift_pseudo(&dec);
     decode_inst_format(buf, buflen, 32, &dec);
 }
