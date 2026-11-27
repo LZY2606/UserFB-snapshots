@@ -45,6 +45,8 @@ MIT License - see the LICENSE file in the source distribution.
   - (also known as subdivision)
 - Derivative
 - Degree elevation
+- NURBS surface lofting (tensor product control net with analytic
+  evaluation and derivatives)
 - Computation of rotation minimizing frames
 - Morphing
 - Serialization (JSON)
@@ -152,6 +154,46 @@ plt.show()
 Result:
 
 ![Getting Started](res/getting_started.png)
+
+### Lofting Section Curves (C)
+
+`tinyspline_surface.h` adds an owning NURBS loft surface. Given a set of
+clamped section curves (3D non-rational or 4D homogeneous control points),
+`ts_loft_surface_new` unifies their u basis (degree elevation plus knot
+insertion), interpolates the homogeneous control points along v with the
+uniform natural cubic convention (a ruled interpolation for two sections),
+and stores the resulting tensor product control net, knot vectors, and
+degrees. The surface keeps no reference to the input curves:
+
+```c
+#include "tinyspline_surface.h"
+
+tsBSpline sections[3];        /* clamped curves, degrees/control points/
+                                 interior knots/domains may all differ */
+tsLoftSurface surface = ts_loft_surface_init();
+tsStatus status;
+if (ts_loft_surface_new(sections, 3, &surface, &status) != TS_SUCCESS) {
+    fprintf(stderr, "%s\n", status.message);
+    return 1;
+}
+
+tsReal point[3], du[3], dv[3];
+ts_loft_surface_eval(&surface, 0.3, 0.5, point, du, dv, &status);
+/* Analytic first derivatives are returned in du and dv. A unit normal is
+ * the normalized cross product dv x du. The read-only tensor product net
+ * is available through ts_loft_surface_control_points_ptr. */
+ts_loft_surface_free(&surface);
+```
+
+The complete program in `examples/loft.c` samples the lofted surface with
+analytic normals and writes a Wavefront OBJ mesh. It takes an output
+directory as its only argument:
+
+```bash
+cc -std=c99 -I src examples/loft.c src/tinyspline_surface.c \
+    src/tinyspline.c src/parson.c -lm -o loft
+./loft /tmp/loft-output   # writes /tmp/loft-output/result.obj
+```
 
 ### Documentation
 

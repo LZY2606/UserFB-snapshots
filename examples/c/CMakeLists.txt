@@ -6,6 +6,10 @@ add_executable(json_export_c json_export.c)
 target_link_libraries(json_export_c PRIVATE tinyspline)
 set_target_properties(json_export_c PROPERTIES FOLDER "examples/c")
 
+add_executable(loft_c "${CMAKE_CURRENT_SOURCE_DIR}/../loft.c")
+target_link_libraries(loft_c PRIVATE tinyspline)
+set_target_properties(loft_c PROPERTIES FOLDER "examples/c")
+
 # ##############################################################################
 # GLUT's API supports only floats.
 # ##############################################################################
