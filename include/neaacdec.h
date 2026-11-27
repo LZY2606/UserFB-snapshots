@@ -228,6 +228,20 @@ NEAACDECAPI char NeAACDecInit2(NeAACDecHandle hDecoder,
 NEAACDECAPI char NeAACDecInitDRM(NeAACDecHandle *hDecoder, unsigned long samplerate,
                                  unsigned char channels);
 
+/* Replace the program configuration element of a decoder that was
+   initialized by NeAACDecInit2 with an explicit PCE (channelConfiguration
+   == 0). 'asc' is a complete AudioSpecificConfig whose PCE describes the
+   new layout; it takes effect between two complete NeAACDecDecode calls.
+   Channel elements (SCE/CPE, identified by their element_instance_tag)
+   that exist in both the old and the new PCE keep their synthesis
+   history (overlap buffer and previous window shape); new identities
+   start from zero history and removed identities release their resources.
+   Returns 0 on success, -1 on failure; on failure the active layout and
+   all decoder state are left untouched. */
+NEAACDECAPI int NeAACDecUpdatePCE(NeAACDecHandle hDecoder,
+                                  const unsigned char *asc,
+                                  unsigned long size);
+
 NEAACDECAPI void NeAACDecPostSeekReset(NeAACDecHandle hDecoder, long frame);
 
 NEAACDECAPI void NeAACDecClose(NeAACDecHandle hDecoder);

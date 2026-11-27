@@ -41,6 +41,11 @@ libfaad \- C library for AAC Decoding
 .B "char NEAACDECAPI NeAACDecInitDRM("
 .BI "NeAACDecHandle *" "hDecoder" ", unsigned long " "samplerate" ", unsigned char " "channels" ");"
 .HP
+/* Update the program configuration element between two frames */
+.B "int NEAACDECAPI NeAACDecUpdatePCE("
+.BI "NeAACDecHandle " "hDecoder" ", const unsigned char *" "asc" ","
+.BI "unsigned long " "size" ");"
+.HP
 .B "void NEAACDECAPI NeAACDecPostSeekReset("
 .BI "NeAACDecHandle " "hDecoder" ", long "frame" ");"
 .HP
@@ -198,6 +203,47 @@ Values for the channel configuration:
 #define DRMCH_SBR_STEREO    4
 .PP
 #define DRMCH_SBR_PS_STEREO 5
+.PP
+.B NeAACDecUpdatePCE
+.PP
+int NEAACDECAPI NeAACDecUpdatePCE(NeAACDecHandle hDecoder,
+                                  const unsigned char *asc,
+                                  unsigned long size);
+.PP
+Replaces the program configuration element of a decoder that was
+initialised by NeAACDecInit2 with an explicit PCE
+(channelConfiguration == 0). 'asc' is a complete AudioSpecificConfig
+whose PCE describes the new channel layout; the update takes effect
+between two complete NeAACDecDecode calls.
+.PP
+Channel elements are identified by their (type, element_instance_tag)
+pair; an SCE and a CPE with the same tag are two different identities.
+Identities that exist in both the old and the new PCE keep their
+synthesis history (overlap buffer and previous window shape) no matter
+where the new PCE places them, identities that only exist in the new PCE
+start from zero history, and the resources of retired identities are
+released. After a successful update the decoder matches bitstream
+elements by identity, so their order inside an access unit may differ
+from the PCE order and may change from frame to frame; every element of
+the active layout must appear exactly once per access unit. The
+interleaved PCM and the channel description follow the front, side and
+back order of the new PCE.
+.PP
+The accepted configurations are restricted to plain AAC-LC with 1024
+sample frames at the active sampling rate: front/side/back SCE and CPE
+elements only, 1 to 8 channels, at least one front element, and no LFE,
+associated data, coupling, mixdown or extension object signalling. The
+PCE profile and sampling rate must match the ASC, and no (type, tag)
+pair may be duplicated. The interface is available in floating point
+builds only.
+.PP
+Return values:
+.PP
+\-1 \[en] Error: the update was rejected; the active layout, the
+synthesis history and the frame counter are left untouched and decoding
+can continue with the previous configuration
+.PP
+0 \- OK
 .PP
 .B NeAACDecDecode
 .PP
@@ -518,9 +564,53 @@ if ((hInfo.error == 0) && (hInfo.samples > 0))
 .PP
 } while (more data available);
 .PP
-\ 
+\
 .PP
 NeAACDecClose(hAac);
+.PP
+.SH "FRAME-BOUNDARY LAYOUT UPDATE EXAMPLE"
+.PP
+When a recording switches its channel layout, a decoder that was
+initialised by NeAACDecInit2 with an explicit PCE can be moved to the
+new layout between two complete access units without reopening the
+handle, so the synthesis history of the surviving channel elements is
+preserved:
+.PP
+.nf
+
+unsigned long samplerate;
+unsigned char channels;
+NeAACDecFrameInfo hInfo;
+
+// Initialise with the current layout (explicit PCE, AAC-LC)
+if (NeAACDecInit2(hAac, asc, asc_size, &samplerate, &channels) != 0)
+{
+    // Handle error
+}
+
+for (;;)
+{
+    // Decode complete access units of the current layout
+    samplebuffer = NeAACDecDecode(hAac, &hInfo, buffer, buffer_size);
+
+    if (layout_change_announced)
+    {
+        // new_asc holds the complete AudioSpecificConfig of the new
+        // layout (channelConfiguration == 0, explicit PCE); the PCE
+        // profile, sampling rate and 1024 sample frame length must
+        // match the active configuration
+        if (NeAACDecUpdatePCE(hAac, new_asc, new_asc_size) != 0)
+        {
+            // Update rejected: the previous layout is still active
+            // and decoding continues unchanged
+        }
+        layout_change_announced = 0;
+    }
+}
+
+NeAACDecClose(hAac);
+
+.fi
 .SH "SEE ALSO"
 .PP
 \fBlibfaad_drm\fR(3),

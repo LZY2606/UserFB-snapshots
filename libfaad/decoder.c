@@ -420,6 +420,7 @@ char NeAACDecInit2(NeAACDecHandle hpDecoder,
     } else {
         *channels = hDecoder->pce.channels;
         hDecoder->pce_set = 1;
+        hDecoder->pce_init = 1;
     }
 #if (defined(PS_DEC) || defined(DRM_PS))
     hDecoder->ps_present_flag = mp4ASC.ps_present_flag;

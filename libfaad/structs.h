@@ -426,6 +426,12 @@ typedef struct
     uint8_t element_id[MAX_CHANNELS];
     uint8_t internal_channel[MAX_CHANNELS];
 
+    /* explicit PCE layout update (NeAACDecUpdatePCE) */
+    uint8_t pce_init;              /* initialized via Init2 with an explicit PCE */
+    uint8_t pce_update;            /* identity based element mapping is active */
+    int8_t pce_ele_slot[2][16];    /* [is_cpe][tag] -> element index, -1 if absent */
+    uint8_t pce_ele_seen[2][16];   /* per access unit element presence flags */
+
     /* Configuration data */
     NeAACDecConfiguration config;
 

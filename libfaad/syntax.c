@@ -329,6 +329,32 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
     uint8_t channels = hDecoder->fr_channels;
     uint8_t tag = 0;
 
+    if (hDecoder->pce_update)
+    {
+        int8_t ele;
+
+        /* an explicitly updated layout contains SCE/CPE elements only */
+        if (id_syn_ele != ID_SCE)
+        {
+            hInfo->error = 21;
+            return;
+        }
+
+        /* locate the element by its (type, tag) identity, not by the
+           order in which it appears in this access unit */
+        tag = (uint8_t)faad_showbits(ld, LEN_TAG);
+        ele = hDecoder->pce_ele_slot[0][tag];
+        if ((ele < 0) || hDecoder->pce_ele_seen[0][tag])
+        {
+            /* unknown or duplicated element */
+            hInfo->error = 21;
+            return;
+        }
+        hDecoder->pce_ele_seen[0][tag] = 1;
+        hDecoder->fr_ch_ele = (uint8_t)ele;
+        channels = hDecoder->pce.sce_channel[tag];
+    }
+
     /* One or two channels are used;
        exact number will be known after single_lfe_channel_element
     */
@@ -390,6 +416,25 @@ static void decode_cpe(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo, bitfi
 {
     uint8_t channels = hDecoder->fr_channels;
     uint8_t tag = 0;
+
+    if (hDecoder->pce_update)
+    {
+        int8_t ele;
+
+        /* locate the element by its (type, tag) identity, not by the
+           order in which it appears in this access unit */
+        tag = (uint8_t)faad_showbits(ld, LEN_TAG);
+        ele = hDecoder->pce_ele_slot[1][tag];
+        if ((ele < 0) || hDecoder->pce_ele_seen[1][tag])
+        {
+            /* unknown or duplicated element */
+            hInfo->error = 21;
+            return;
+        }
+        hDecoder->pce_ele_seen[1][tag] = 1;
+        hDecoder->fr_ch_ele = (uint8_t)ele;
+        channels = hDecoder->pce.cpe_channel[tag];
+    }
 
     if (channels+2 > MAX_CHANNELS)
     {
@@ -456,6 +501,9 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
     hDecoder->fr_ch_ele = 0;
     hDecoder->first_syn_ele = 25;
     hDecoder->has_lfe = 0;
+
+    if (hDecoder->pce_update)
+        memset(hDecoder->pce_ele_seen, 0, sizeof(hDecoder->pce_ele_seen));
 
 #ifdef ERROR_RESILIENCE
     if (hDecoder->object_type < ER_OBJECT_START)
@@ -539,6 +587,28 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
             if (ld->error != 0)
             {
                 hInfo->error = 32;
+                return;
+            }
+        }
+
+        if (hDecoder->pce_update)
+        {
+            uint8_t t;
+
+            /* every element of the active layout must appear exactly
+               once in a complete access unit */
+            for (t = 0; t < 16; t++)
+            {
+                if (((hDecoder->pce_ele_slot[0][t] >= 0) && !hDecoder->pce_ele_seen[0][t]) ||
+                    ((hDecoder->pce_ele_slot[1][t] >= 0) && !hDecoder->pce_ele_seen[1][t]))
+                {
+                    hInfo->error = 21;
+                    return;
+                }
+            }
+            if (hDecoder->fr_channels != hDecoder->pce.channels)
+            {
+                hInfo->error = 21;
                 return;
             }
         }
