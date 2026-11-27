@@ -276,6 +276,17 @@
           "Video",
           "Audio"
         ]
+      },
+      {
+        "title": "Throughput isolation by service location",
+        "description": "Example illustrating how to keep throughput and latency estimates per CDN service location.",
+        "href": "abr/service-location-isolation.html",
+        "image": "lib/img/bbb-4.jpg",
+        "labels": [
+          "VoD",
+          "Video",
+          "Audio"
+        ]
       }
     ]
   },

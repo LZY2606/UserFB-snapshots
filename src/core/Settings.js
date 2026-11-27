@@ -267,6 +267,7 @@ import Events from './events/Events.js';
  *                 },
  *                 throughput: {
  *                     averageCalculationMode: Constants.THROUGHPUT_CALCULATION_MODES.EWMA,
+ *                     isolateByServiceLocation: false,
  *                     lowLatencyDownloadTimeCalculationMode: Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING,
  *                     useResourceTimingApi: true,
  *                     useNetworkInformationApi: {
@@ -844,6 +845,12 @@ import Events from './events/Events.js';
  * For arithmetic and harmonic mean calculations we use a sliding window with the values defined in "sampleSettings"
  *
  * For exponential weighted moving average calculation the default values can be changed in "ewma"
+ * @property {boolean} [isolateByServiceLocation=false]
+ * If set to true, throughput and latency measurements are kept per service location and per media type.
+ * The current service location of a media type is the service location of the last accepted MediaSegment measurement.
+ * Estimates (arithmetic/harmonic means, EWMA values and latency) only take the samples of that service location into account.
+ * Measurements for the manifest (MPD), cached responses and requests without a valid download measurement never change the current service location.
+ * Configure this option before calling initialize(). Changing it during playback is not supported.
  * @property {string} [lowLatencyDownloadTimeCalculationMode=Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING]
  * Defines the effective download time estimation method we use for low latency streams that utilize the Fetch API and chunked transfer coding
  * @property {boolean} [useResourceTimingApi=true]
@@ -1321,6 +1328,7 @@ function Settings() {
                 },
                 throughput: {
                     averageCalculationMode: Constants.THROUGHPUT_CALCULATION_MODES.EWMA,
+                    isolateByServiceLocation: false,
                     lowLatencyDownloadTimeCalculationMode: Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING,
                     useResourceTimingApi: true,
                     useNetworkInformationApi: {

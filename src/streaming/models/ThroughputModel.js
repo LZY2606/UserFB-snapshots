@@ -55,6 +55,7 @@ function ThroughputModel(config) {
         latencyDict,
         ewmaThroughputDict,
         ewmaLatencyDict,
+        scopedState,
         ewmaHalfLife,
         logger;
 
@@ -85,7 +86,17 @@ function ThroughputModel(config) {
                 return;
             }
 
-            _createSettingsForMediaType(mediaType);
+            const isIsolated = _isIsolatedByServiceLocation();
+
+            if (!isIsolated) {
+                _createSettingsForMediaType(mediaType);
+            }
+
+            // In isolated mode only media downloads belong to a service location. The manifest request is
+            // intentionally not stored anywhere, it must neither switch the current scope nor pollute it.
+            if (isIsolated && httpRequest.type === HTTPRequest.MPD_TYPE) {
+                return;
+            }
 
             const latencyInMs = (httpRequest.tresponse.getTime() - httpRequest.trequest.getTime()) || 1;
             let throughputValues = _calculateThroughputValues(httpRequest, latencyInMs);
@@ -116,19 +127,148 @@ function ThroughputModel(config) {
 
             logger.debug(`Added throughput entry for ${mediaType}: ${throughputValues.value} kbit/s`)
             throughputValues.serviceLocation = httpRequest._serviceLocation;
-            throughputDict[mediaType].push(throughputValues);
-            latencyDict[mediaType].push({ value: latencyInMs });
-            _cleanupDict(mediaType);
+
+            let dicts;
+            if (isIsolated) {
+                // The service location of the last accepted media segment defines the current scope of this media type.
+                const serviceLocation = _normalizeServiceLocation(httpRequest._serviceLocation);
+                dicts = _getOrCreateScope(mediaType, serviceLocation);
+                _setCurrentServiceLocation(mediaType, serviceLocation);
+            } else {
+                dicts = {
+                    throughputDict: throughputDict[mediaType],
+                    latencyDict: latencyDict[mediaType],
+                    ewmaThroughputDict: ewmaThroughputDict[mediaType],
+                    ewmaLatencyDict: ewmaLatencyDict[mediaType]
+                };
+            }
+
+            dicts.throughputDict.push(throughputValues);
+            dicts.latencyDict.push({ value: latencyInMs });
+            _cleanupDict(dicts);
 
             eventBus.trigger(MediaPlayerEvents.THROUGHPUT_MEASUREMENT_STORED, { throughputValues })
 
-            if (httpRequest.type !== HTTPRequest.MPD_TYPE) {
-                _updateEwmaValues(ewmaThroughputDict[mediaType], throughputValues.value, settings.get().streaming.abr.throughput.ewma.weightDownloadTimeMultiplicationFactor * throughputValues.downloadTimeInMs, ewmaHalfLife.bandwidthHalfLife);
-                _updateEwmaValues(ewmaLatencyDict[mediaType], latencyInMs, 1, ewmaHalfLife.latencyHalfLife);
+            if (isIsolated || httpRequest.type !== HTTPRequest.MPD_TYPE) {
+                _updateEwmaValues(dicts.ewmaThroughputDict, throughputValues.value, settings.get().streaming.abr.throughput.ewma.weightDownloadTimeMultiplicationFactor * throughputValues.downloadTimeInMs, ewmaHalfLife.bandwidthHalfLife);
+                _updateEwmaValues(dicts.ewmaLatencyDict, latencyInMs, 1, ewmaHalfLife.latencyHalfLife);
             }
         } catch (e) {
             logger.error(e);
         }
+    }
+
+    /**
+     * Returns true if throughput and latency measurements shall be scoped by service location.
+     * @return {boolean}
+     * @private
+     */
+    function _isIsolatedByServiceLocation() {
+        return settings.get().streaming.abr.throughput.isolateByServiceLocation === true;
+    }
+
+    /**
+     * Service locations are distinguished by their original string. Missing values, null and the empty
+     * string all describe the same unnamed scope.
+     * @param {*} serviceLocation
+     * @return {string}
+     * @private
+     */
+    function _normalizeServiceLocation(serviceLocation) {
+        return (serviceLocation === undefined || serviceLocation === null || serviceLocation === '') ? '' : serviceLocation;
+    }
+
+    /**
+     * Returns the media type state used for isolated measurements. A Map is used so that a service
+     * location named e.g. "__proto__" is treated like any other regular scope.
+     * @param {MediaType} mediaType
+     * @return {object}
+     * @private
+     */
+    function _getMediaTypeScopeState(mediaType) {
+        let mediaTypeState = scopedState.get(mediaType);
+        if (!mediaTypeState) {
+            mediaTypeState = {
+                scopes: new Map(),
+                currentServiceLocation: null
+            };
+            scopedState.set(mediaType, mediaTypeState);
+        }
+        return mediaTypeState;
+    }
+
+    /**
+     * @param {MediaType} mediaType
+     * @param {string} serviceLocation
+     * @return {object}
+     * @private
+     */
+    function _getOrCreateScope(mediaType, serviceLocation) {
+        const mediaTypeState = _getMediaTypeScopeState(mediaType);
+        let scope = mediaTypeState.scopes.get(serviceLocation);
+        if (!scope) {
+            scope = {
+                throughputDict: [],
+                latencyDict: [],
+                ewmaThroughputDict: {
+                    fastEstimate: 0,
+                    slowEstimate: 0,
+                    totalWeight: 0
+                },
+                ewmaLatencyDict: {
+                    fastEstimate: 0,
+                    slowEstimate: 0,
+                    totalWeight: 0
+                }
+            };
+            mediaTypeState.scopes.set(serviceLocation, scope);
+        }
+        return scope;
+    }
+
+    /**
+     * @param {MediaType} mediaType
+     * @param {string} serviceLocation
+     * @private
+     */
+    function _setCurrentServiceLocation(mediaType, serviceLocation) {
+        _getMediaTypeScopeState(mediaType).currentServiceLocation = serviceLocation;
+    }
+
+    /**
+     * Returns the scope of the last accepted measurement for the media type or null if there is none.
+     * @param {MediaType} mediaType
+     * @param {string} dictName
+     * @return {*}
+     * @private
+     */
+    function _getCurrentScopeDict(mediaType, dictName) {
+        if (!mediaType) {
+            return undefined;
+        }
+        const mediaTypeState = scopedState.get(mediaType);
+        if (!mediaTypeState || mediaTypeState.currentServiceLocation === null) {
+            return undefined;
+        }
+        const scope = mediaTypeState.scopes.get(mediaTypeState.currentServiceLocation);
+        return scope ? scope[dictName] : undefined;
+    }
+
+    /**
+     * Returns the current service location of a media type. Returns null if no media measurement has
+     * been accepted for that media type yet, and the empty string for the unnamed scope.
+     * @param {MediaType} mediaType
+     * @return {string|null}
+     */
+    function getCurrentServiceLocation(mediaType) {
+        if (!mediaType) {
+            return null;
+        }
+        const mediaTypeState = scopedState.get(mediaType);
+        if (!mediaTypeState || mediaTypeState.currentServiceLocation === null) {
+            return null;
+        }
+        return mediaTypeState.currentServiceLocation;
     }
 
     /**
@@ -288,17 +428,19 @@ function ThroughputModel(config) {
     }
 
     /**
-     * Shift old entries once we reached the threshold
-     * @param {MediaType} mediaType
+     * Shift old entries once we reached the threshold. The window is applied to the dict that is being
+     * written to, which in isolated mode belongs to a single service location.
+     * @param {object} dicts
      * @private
      */
-    function _cleanupDict(mediaType) {
-        if (throughputDict[mediaType].length > settings.get().streaming.abr.throughput.sampleSettings.maxMeasurementsToKeep) {
-            throughputDict[mediaType].shift();
+    function _cleanupDict(dicts) {
+        const maxMeasurementsToKeep = settings.get().streaming.abr.throughput.sampleSettings.maxMeasurementsToKeep;
+        if (dicts.throughputDict.length > maxMeasurementsToKeep) {
+            dicts.throughputDict.shift();
         }
 
-        if (latencyDict[mediaType].length > settings.get().streaming.abr.throughput.sampleSettings.maxMeasurementsToKeep) {
-            latencyDict[mediaType].shift();
+        if (dicts.latencyDict.length > maxMeasurementsToKeep) {
+            dicts.latencyDict.shift();
         }
     }
 
@@ -322,12 +464,19 @@ function ThroughputModel(config) {
         if (!mediaType) {
             return throughputDict
         }
+        if (_isIsolatedByServiceLocation()) {
+            const dict = _getCurrentScopeDict(mediaType, 'throughputDict');
+            return dict || [];
+        }
         return throughputDict[mediaType];
     }
 
     function getEwmaThroughputDict(mediaType) {
         if (!mediaType) {
             return ewmaThroughputDict
+        }
+        if (_isIsolatedByServiceLocation()) {
+            return _getCurrentScopeDict(mediaType, 'ewmaThroughputDict');
         }
         return ewmaThroughputDict[mediaType]
     }
@@ -336,12 +485,19 @@ function ThroughputModel(config) {
         if (!mediaType) {
             return latencyDict
         }
+        if (_isIsolatedByServiceLocation()) {
+            const dict = _getCurrentScopeDict(mediaType, 'latencyDict');
+            return dict || [];
+        }
         return latencyDict[mediaType];
     }
 
     function getEwmaLatencyDict(mediaType) {
         if (!mediaType) {
             return ewmaLatencyDict
+        }
+        if (_isIsolatedByServiceLocation()) {
+            return _getCurrentScopeDict(mediaType, 'ewmaLatencyDict');
         }
         return ewmaLatencyDict[mediaType];
     }
@@ -358,10 +514,13 @@ function ThroughputModel(config) {
         latencyDict = {};
         ewmaThroughputDict = {};
         ewmaLatencyDict = {};
+        // Per media type service location state. Resetting removes the stored history and the current scope.
+        scopedState = new Map();
     }
 
     const instance = {
         addEntry,
+        getCurrentServiceLocation,
         getThroughputDict,
         getEwmaThroughputDict,
         getEwmaLatencyDict,

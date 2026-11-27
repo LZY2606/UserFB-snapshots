@@ -1287,6 +1287,21 @@ function MediaPlayer() {
     }
 
     /**
+     * Returns the current service location used for throughput and latency estimates of the given media type.
+     * Requires streaming.abr.throughput.isolateByServiceLocation to be enabled.
+     * Returns null if no MediaSegment measurement has been accepted for that media type yet (or if the option
+     * is disabled). Returns the empty string when the current scope is the unnamed service location.
+     *
+     * @param {MediaType} type
+     * @return {string|null} value
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getCurrentServiceLocation(type = Constants.VIDEO) {
+        return throughputController ? throughputController.getCurrentServiceLocation(type) : null;
+    }
+
+    /**
      * Sets whether withCredentials on XHR requests for a particular request
      * type is true or false
      *
@@ -2813,6 +2828,7 @@ function MediaPlayer() {
         getBufferLength,
         getCurrentLiveLatency,
         getCurrentRepresentationForType,
+        getCurrentServiceLocation,
         getCurrentSteeringResponseData,
         getCurrentTextTrackIndex,
         getCurrentTrackFor,

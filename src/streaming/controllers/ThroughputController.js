@@ -461,6 +461,22 @@ function ThroughputController() {
         return throughputModel.getThroughputDict(mediaType);
     }
 
+    /**
+     * Returns the current service location of the given media type.
+     * When throughput isolation by service location is disabled this always returns null.
+     * When enabled it returns the service location of the last accepted MediaSegment measurement
+     * for that media type, null if no such measurement exists yet, and the empty string for the
+     * unnamed service location.
+     * @param {MediaType} mediaType
+     * @return {string|null}
+     */
+    function getCurrentServiceLocation(mediaType) {
+        if (!throughputModel || !settings.get().streaming.abr.throughput.isolateByServiceLocation) {
+            return null;
+        }
+        return throughputModel.getCurrentServiceLocation(mediaType);
+    }
+
     function reset() {
         throughputModel.reset();
         _resetEvents();
@@ -472,6 +488,7 @@ function ThroughputController() {
         getAverageThroughput,
         getByteSizeWeightedArithmeticMean,
         getByteSizeWeightedHarmonicMean,
+        getCurrentServiceLocation,
         getDateWeightedArithmeticMean,
         getDateWeightedHarmonicMean,
         getEwma,
