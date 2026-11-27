@@ -17,10 +17,18 @@ void fixture_start(fixture_t *b,unsigned code) {
 }
 size_t fixture_size(const fixture_t *b) {return (b->bit+7)/8;}
 void fixture_sequence(fixture_t *b,unsigned w,unsigned h,unsigned rate,unsigned aspect) {
+  fixture_sequence_quant(b,w,h,rate,aspect,0,0);
+}
+void fixture_sequence_quant(fixture_t *b,unsigned w,unsigned h,unsigned rate,unsigned aspect,
+  int custom_intra,int custom_non_intra) {
   fixture_start(b,0xb3);fixture_bits(b,w,12);fixture_bits(b,h,12);
   fixture_bits(b,aspect,4);fixture_bits(b,rate,4);
   fixture_bits(b,1,18);fixture_bits(b,1,1);fixture_bits(b,20,10);
-  fixture_bits(b,0,1);fixture_bits(b,0,1);fixture_bits(b,0,1);
+  fixture_bits(b,0,1); /* constrained_parameters_flag */
+  fixture_bits(b,custom_intra?1:0,1); /* load_intra_quantiser_matrix */
+  if(custom_intra)for(unsigned i=0;i<64;i++)fixture_bits(b,16,8);
+  fixture_bits(b,custom_non_intra?1:0,1); /* load_non_intra_quantiser_matrix */
+  if(custom_non_intra)for(unsigned i=0;i<64;i++)fixture_bits(b,8,8);
   /* Valid user data gives the upstream conservative header look-ahead room. */
   fixture_start(b,0xb2);for(unsigned i=0;i<160;i++)fixture_bits(b,0x55,8);
 }
@@ -52,6 +60,48 @@ void fixture_intra(fixture_t *b,unsigned w,unsigned h,unsigned tr,unsigned gray)
   }
 }
 void fixture_end(fixture_t *b) {fixture_start(b,0xb7);fixture_bits(b,0,32);}
+void fixture_predictive(fixture_t *b,unsigned w,unsigned h,unsigned tr,int level) {
+  assert(level>=0 && level<=127);
+  fixture_start(b,0);fixture_bits(b,tr,10);fixture_bits(b,2,3);
+  fixture_bits(b,65535,16);
+  fixture_bits(b,1,1);fixture_bits(b,1,3); /* forward full_px=1, f_code=1 */
+  for(unsigned row=0;row<(h+15)/16;row++) {
+    fixture_start(b,row+1);fixture_bits(b,8,5);fixture_bits(b,0,1);
+    for(unsigned col=0;col<(w+15)/16;col++) {
+      fixture_bits(b,1,1); /* address increment */
+      if(level==0) {
+        fixture_bits(b,0x1,3); /* MB type 0x08: "001" (forward motion, no cbp) */
+        fixture_bits(b,1,1);fixture_bits(b,1,1); /* forward h/v motion vectors 0 */
+      }
+      else {
+        fixture_bits(b,1,1); /* MB type 0x0a: "1" (inter, motion, cbp) */
+        fixture_bits(b,1,1);fixture_bits(b,1,1); /* forward h/v motion vectors 0 */
+        fixture_bits(b,0x7,3); /* cbp 60: "111" -> the four luma blocks */
+        for(unsigned block=0;block<4;block++) {
+          fixture_bits(b,0x1,6); /* DCT escape: "000001" */
+          fixture_bits(b,0,6);   /* run = 0 */
+          fixture_bits(b,(unsigned)level,8); /* signed level */
+          fixture_bits(b,2,2);   /* end_of_block: "10" */
+        }
+      }
+    }
+  }
+}
+void fixture_bidirect(fixture_t *b,unsigned w,unsigned h,unsigned tr) {
+  fixture_start(b,0);fixture_bits(b,tr,10);fixture_bits(b,3,3);
+  fixture_bits(b,65535,16);
+  fixture_bits(b,1,1);fixture_bits(b,1,3); /* forward full_px=1, f_code=1 */
+  fixture_bits(b,1,1);fixture_bits(b,1,3); /* backward full_px=1, f_code=1 */
+  for(unsigned row=0;row<(h+15)/16;row++) {
+    fixture_start(b,row+1);fixture_bits(b,8,5);fixture_bits(b,0,1);
+    for(unsigned col=0;col<(w+15)/16;col++) {
+      fixture_bits(b,1,1);  /* address increment */
+      fixture_bits(b,0x2,2); /* MB type 0x0c: "10" (forward+backward, no cbp) */
+      fixture_bits(b,1,1);fixture_bits(b,1,1); /* forward h/v motion vectors 0 */
+      fixture_bits(b,1,1);fixture_bits(b,1,1); /* backward h/v motion vectors 0 */
+    }
+  }
+}
 void fixture_ps(fixture_t *b,const fixture_t *es) {
   size_t n=fixture_size(es);assert(n+1<65536);
   fixture_start(b,0xba);fixture_bits(b,2,4);fixture_bits(b,0,3);fixture_bits(b,1,1);

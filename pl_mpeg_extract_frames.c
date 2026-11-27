@@ -65,15 +65,26 @@ int main(int argc, char *argv[]) {
 	}
 
 	plm_set_audio_enabled(plm, FALSE);
-	
+
 	int w = plm_get_width(plm);
 	int h = plm_get_height(plm);
-	uint8_t *pixels = (uint8_t *)malloc(w * h * 3);
-	
+	size_t pixels_size = (size_t)w * h * 3;
+	uint8_t *pixels = (uint8_t *)malloc(pixels_size);
+
 	char bmp_name[16];
 	plm_frame_t *frame = NULL;
 
 	for (int i = 1; frame = plm_decode_video(plm); i++) {
+		// Concatenated sequences may change the resolution; grow the
+		// conversion buffer whenever the frame gets larger.
+		size_t frame_pixels_size = (size_t)frame->width * frame->height * 3;
+		if (frame_pixels_size > pixels_size) {
+			pixels_size = frame_pixels_size;
+			pixels = (uint8_t *)realloc(pixels, pixels_size);
+		}
+		w = frame->width;
+		h = frame->height;
+
 		plm_frame_to_bgr(frame, pixels, w * 3); // BMP expects BGR ordering
 
 		sprintf(bmp_name, "%06d.bmp", i);

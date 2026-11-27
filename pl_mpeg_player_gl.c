@@ -137,6 +137,7 @@ typedef struct {
 	
 	GLuint texture_rgb;
 	uint8_t *rgb_data;
+	size_t rgb_data_size;
 } app_t;
 
 app_t * app_create(const char *filename, int texture_mode);
@@ -251,7 +252,8 @@ app_t * app_create(const char *filename, int texture_mode) {
 	else {
 		self->texture_rgb = app_create_texture(self, 0, "texture_rgb");
 		int num_pixels = plm_get_width(self->plm) * plm_get_height(self->plm);
-		self->rgb_data = (uint8_t*)malloc(num_pixels * 3);
+		self->rgb_data_size = (size_t)num_pixels * 3;
+		self->rgb_data = (uint8_t*)malloc(self->rgb_data_size);
 	}
 	self->texture_crop_size = glGetUniformLocation(self->shader_program, "texture_crop_size");
 	
@@ -379,11 +381,13 @@ void app_update_texture(app_t *self, GLuint unit, GLuint texture, plm_plane_t *p
 
 void app_on_video(plm_t *mpeg, plm_frame_t *frame, void *user) {
 	app_t *self = (app_t *)user;
-	
+
 	// Hand the decoded data over to OpenGL. For the RGB texture mode, the
 	// YCrCb->RGB conversion is done on the CPU.
 
 	if (self->texture_mode == APP_TEXTURE_MODE_YCRCB) {
+		// glTexImage2D re-specifies the texture storage every frame, so a new
+		// sequence with different plane dimensions is handled transparently.
 		app_update_texture(self, GL_TEXTURE0, self->texture_y, &frame->y);
 		app_update_texture(self, GL_TEXTURE1, self->texture_cb, &frame->cb);
 		app_update_texture(self, GL_TEXTURE2, self->texture_cr, &frame->cr);
@@ -396,8 +400,16 @@ void app_on_video(plm_t *mpeg, plm_frame_t *frame, void *user) {
 		glUniform2f(self->texture_crop_size, cw, ch);
 	}
 	else {
+		// A concatenated sequence may have a larger frame. Grow the conversion
+		// buffer as needed; it stays valid until the next sequence switch.
+		size_t required_size = (size_t)frame->width * frame->height * 3;
+		if (required_size > self->rgb_data_size) {
+			self->rgb_data = (uint8_t*)realloc(self->rgb_data, required_size);
+			self->rgb_data_size = required_size;
+		}
+
 		plm_frame_to_rgb(frame, self->rgb_data, frame->width * 3);
-	
+
 		glBindTexture(GL_TEXTURE_2D, self->texture_rgb);
 		glTexImage2D(
 			GL_TEXTURE_2D, 0, GL_RGB, frame->width, frame->height, 0,

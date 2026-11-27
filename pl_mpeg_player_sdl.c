@@ -34,12 +34,17 @@ typedef struct {
 	plm_t *plm;
 	double last_time;
 	int wants_to_quit;
-	
+
 	SDL_Window *window;
 	SDL_Renderer *renderer;
 	SDL_Texture *texture;
 	SDL_Rect rectangle;
 	SDL_AudioDeviceID audio_device;
+
+	// Dimensions of the frame currently uploaded to the texture. A video
+	// stream may concatenate several sequences with different resolutions.
+	int frame_width;
+	int frame_height;
 } app_t;
 
 app_t * app_create(const char *filename);
@@ -119,14 +124,11 @@ app_t * app_create(const char *filename) {
 		SDL_RENDERER_PRESENTVSYNC
 	);
 
-	// Create SDL texture with YUV format
-	self->texture = SDL_CreateTexture(
-		self->renderer,
-		SDL_PIXELFORMAT_IYUV,
-		SDL_TEXTUREACCESS_STREAMING,
-		plm_get_width(self->plm),
- 		plm_get_height(self->plm)
-	);
+	// The texture is (re)created in app_on_video() so that concatenated
+	// sequences with a different resolution are picked up automatically.
+	self->frame_width = 0;
+	self->frame_height = 0;
+	self->texture = NULL;
 
 	// Adjust rectangle to video size
 	self->rectangle.w = plm_get_width(self->plm);
@@ -229,6 +231,30 @@ void app_update(app_t *self) {
 
 void app_on_video(plm_t *mpeg, plm_frame_t *frame, void *user) {
 	app_t *self = (app_t *)user;
+
+	// A new MPEG-1 sequence may use a different resolution. Recreate the
+	// texture and adapt the output geometry when the frame size changes.
+	if (
+		self->texture == NULL ||
+		(int)frame->y.width != self->frame_width ||
+		(int)frame->y.height != self->frame_height
+	) {
+		if (self->texture) {
+			SDL_DestroyTexture(self->texture);
+		}
+		self->texture = SDL_CreateTexture(
+			self->renderer,
+			SDL_PIXELFORMAT_IYUV,
+			SDL_TEXTUREACCESS_STREAMING,
+			frame->y.width,
+			frame->y.height
+		);
+		self->frame_width = frame->y.width;
+		self->frame_height = frame->y.height;
+		self->rectangle.w = frame->width;
+		self->rectangle.h = frame->height;
+		SDL_RenderSetLogicalSize(self->renderer, frame->width, frame->height);
+	}
 
 	SDL_UpdateYUVTexture(self->texture, NULL, frame->y.data, frame->y.width, frame->cb.data, frame->cb.width, frame->cr.data,  frame->cr.width);
 }

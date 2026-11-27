@@ -61,6 +61,44 @@ If you just want to quickly test the library, try this file:
 https://phoboslab.org/files/bjork-all-is-full-of-love.mpg
 
 
+## Concatenated video sequences
+
+A single stream may contain several MPEG-1 video sequences back to back. Each
+sequence carries its own sequence header and ends with a `sequence_end` code,
+and the next sequence starts with an I picture. The resolution, pixel aspect
+ratio, frame rate and quantizer matrices can change between sequences.
+
+PL_MPEG decodes such a stream as one continuous presentation. No external
+concatenating player is needed: `plm_video_decode()`, `plm_decode_video()` and
+the video decode callback all return the same ordered frames.
+
+- Frames of the previous sequence that were queued for display (including the
+  I/P/B reordering) are delivered once more with their original dimensions and
+  plane contents before the new sequence starts.
+- The new configuration is installed only when its first picture is decoded.
+  The three frame slots and macroblock planes are reallocated for the new
+  size, and prediction references never carry over from the previous sequence.
+- `frame->time` accumulates with each sequence's own frame period and is never
+  reset at a boundary. `plm_get_time()`/`plm_video_get_time()` report the time
+  of the next frame to display.
+- `plm_get_width()`, `plm_get_height()`, `plm_get_framerate()` and
+  `plm_get_pixel_aspect_ratio()` (and their `plm_video_*` counterparts) report
+  the parameters of the sequence whose frame was most recently delivered.
+- A frame returned by a decode call is borrowed until the next call, as before.
+  A repeated sequence header with identical parameters (without a
+  `sequence_end`) stays in the same sequence: it adds no picture and keeps the
+  existing references.
+- Data may be fed into a capacity buffer incrementally. A sequence header (or
+  its quantizer matrices) that has not fully arrived makes the decode call
+  return `NULL` until more bytes are written; no half header is consumed.
+- `plm_rewind()` restarts from the first sequence at time zero. Seeking and the
+  audio format are unchanged.
+
+Because the frame dimensions can change mid-stream, applications should size
+output buffers and textures from each delivered frame rather than caching the
+dimensions read once at startup.
+
+
 ## Limitations
 
 - no error reporting. PL_MPEG will silently ignore any invalid data.
