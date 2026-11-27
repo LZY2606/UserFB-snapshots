@@ -13,3 +13,6 @@ a wide variety of architectures and compilers.
 While written in C++, the library also provides a C-language interface wrapper.
 
 The full library documentation can be found in *[ELFIO - Tutorial and User Manual](http://elfio.sourceforge.net/elfio.pdf)*.
+
+The read-only section group / relation view (SHT_GROUP interpretation and
+the relation closure query) is documented in [doc/group_view.md](doc/group_view.md).

@@ -792,6 +792,142 @@ class dump
     }
 
     //------------------------------------------------------------------------------
+    //! Dumps the identities carried by the section group view: every group's
+    //! raw flags, members in their original order and the (symbol table,
+    //! symbol index, string table) signature triple. When 'included' is not
+    //! null, only groups and dangling sections whose indices it marks are
+    //! printed, so a closure view never leaks unrelated identities.
+    static void group_relations(
+        std::ostream& out, const elfio& reader,
+        const std::vector<bool>* included = nullptr )
+    {
+        const group_view view = make_group_view( reader );
+
+        out << "Section Groups:" << std::endl;
+        for ( const auto& group : view.groups ) {
+            if ( included != nullptr &&
+                 ( group.section_index >= included->size() ||
+                   !( *included )[group.section_index] ) ) {
+                continue;
+            }
+            out << "Group [" << DUMP_DEC_FORMAT( 5 )
+                << group.section_index << "] "
+                << DUMP_STR_FORMAT( 17 ) << group.section_name
+                << " flags=0x" << std::hex << group.flags
+                << " comdat=" << std::dec << ( group.comdat ? 1 : 0 )
+                << " flags_interpreted="
+                << ( group.flags_fully_interpreted ? 1 : 0 ) << std::endl;
+
+            if ( !group.unexplained_flags.empty() ) {
+                out << "  unexplained flags:";
+                for ( Elf_Word flag : group.unexplained_flags ) {
+                    out << " 0x" << std::hex << flag;
+                }
+                out << std::dec << std::endl;
+            }
+
+            const auto& sig = group.signature;
+            out << "  signature: symbol_table="
+                << sig.symbol_table << " symbol_index=" << sig.symbol_index
+                << " string_table=" << sig.string_table
+                << " resolved=" << ( sig.resolved ? 1 : 0 )
+                << " name=" << sig.name << std::endl;
+
+            for ( size_t i = 0; i < group.members.size(); ++i ) {
+                const Elf_Half member = group.members[i];
+                const section* msec = reader.sections[member];
+                out << "  member[" << DUMP_DEC_FORMAT( 3 ) << i
+                    << "] section=" << DUMP_DEC_FORMAT( 5 ) << member << " "
+                    << ( msec != nullptr ? msec->get_name() : std::string() )
+                    << std::endl;
+            }
+
+            for ( const auto& problem : group.problems ) {
+                out << "  problem: "
+                    << detail::group_problem_text( problem.kind )
+                    << " section=" << problem.group_section
+                    << " offset="
+                    << ( problem.word_offset == Elf_Xword( -1 )
+                             ? std::string( "sh_link/sh_info" )
+                             : std::to_string( problem.word_offset ) )
+                    << " value=0x" << std::hex << problem.word_value
+                    << std::dec;
+                if ( problem.other_section != 0 ) {
+                    out << " other_section=" << problem.other_section;
+                }
+                out << std::endl;
+            }
+        }
+
+        for ( Elf_Half dangling : view.dangling_group_sections ) {
+            if ( included != nullptr &&
+                 ( dangling >= included->size() ||
+                   !( *included )[dangling] ) ) {
+                continue;
+            }
+            out << "Dangling SHF_GROUP section: " << dangling << std::endl;
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    //! Dumps the relationship closure computed for a set of requested
+    //! physical section indices: the request itself, the stable-index
+    //! closure and every direct relation (type and both endpoints).
+    static void section_relations(
+        std::ostream&                 out,
+        const elfio&                  reader,
+        const std::vector<Elf_Half>&  requested )
+    {
+        const section_relation_view relations =
+            make_section_relations( reader, requested );
+
+        out << "Section Relations:" << std::endl;
+        if ( !relations.valid ) {
+            for ( const auto& error : relations.errors ) {
+                out << "  input error: section=" << error.requested_index
+                    << " " << error.message << std::endl;
+            }
+            return;
+        }
+
+        out << "Requested:";
+        for ( Elf_Half index : relations.requested ) {
+            out << " " << index;
+        }
+        out << std::endl;
+
+        out << "Closure:";
+        for ( Elf_Half index : relations.sections ) {
+            out << " [" << DUMP_DEC_FORMAT( 3 ) << index << "]";
+        }
+        out << std::endl;
+
+        for ( const auto& relation : relations.relations ) {
+            out << "Relation: "
+                << detail::relation_kind_text( relation.kind ) << " "
+                << relation.from << " -> " << relation.to << std::endl;
+        }
+
+        std::vector<bool> included( reader.sections.size(), false );
+        for ( Elf_Half index : relations.sections ) {
+            included[index] = true;
+        }
+        group_relations( out, reader, &included );
+    }
+
+    //------------------------------------------------------------------------------
+    //! Dumps every group identity and every direct section relationship
+    //! present in the file, without taking any selection.
+    static void section_relations( std::ostream& out, const elfio& reader )
+    {
+        std::vector<Elf_Half> all;
+        for ( Elf_Half i = 0; i < reader.sections.size(); ++i ) {
+            all.push_back( i );
+        }
+        section_relations( out, reader, all );
+    }
+
+    //------------------------------------------------------------------------------
     static void segment_headers( std::ostream& out, const elfio& reader )
     {
         Elf_Half n = reader.segments.size();
