@@ -504,6 +504,38 @@ int MP4E_set_pps(MP4E_mux_t *mux, int track_id, const void *pps, int bytes);
 */
 int MP4E_set_text_comment(MP4E_mux_t *mux, const char *comment);
 
+/**
+*   Rewrite an existing non-fragmented MP4 file in "fast start" layout:
+*   the movie index (moov box) is moved in front of the media data (mdat
+*   boxes), so a player can start before the whole file is downloaded.
+*   The file is not decoded and samples are not re-muxed: mdat payloads
+*   are copied byte-for-byte, only chunk offset tables (stco/co64) and
+*   box sizes inside moov are updated.
+*
+*   The input must be a complete, valid, self-contained, unencrypted,
+*   non-fragmented MP4 file of input_bytes size (input_bytes must not
+*   exceed INT64_MAX), with exactly one ftyp and one moov box and at
+*   least one mdat box.  Boxes with size == 0, compressed moov (cmov),
+*   movie fragments (moof) and external data references are rejected
+*   with MP4E_STATUS_BAD_ARGUMENTS.
+*
+*   read_callback(offset, buffer, size, token) performs random-access
+*   reads from the input; write_callback(offset, buffer, size, token)
+*   receives the output as a contiguous stream of writes starting at
+*   offset 0.  Both callbacks return 0 on success, nonzero on failure.
+*   Input and output must be different storages.  No single read or
+*   write of box payload exceeds 64 KiB; only the moov box is kept in
+*   memory, media data is streamed through a fixed-size buffer.
+*
+*   On any callback failure the function stops immediately and returns
+*   MP4E_STATUS_FILE_WRITE_ERROR.
+*
+*   return error code MP4E_STATUS_*
+*/
+int MP4E_faststart(uint64_t input_bytes, void *token,
+    int (*read_callback)(int64_t offset, void *buffer, size_t size, void *token),
+    int (*write_callback)(int64_t offset, const void *buffer, size_t size, void *token));
+
 #ifdef __cplusplus
 }
 #endif
@@ -537,6 +569,7 @@ enum
     BOX_mdhd    = FOUR_CHAR_INT( 'm', 'd', 'h', 'd' ),//MediaHeaderAtomType
     BOX_minf    = FOUR_CHAR_INT( 'm', 'i', 'n', 'f' ),//MediaInformationAtomType
     BOX_moov    = FOUR_CHAR_INT( 'm', 'o', 'o', 'v' ),//MovieAtomType
+    BOX_cmov    = FOUR_CHAR_INT( 'c', 'm', 'o', 'v' ),//CompressedMovieAtomType (not supported)
     BOX_mvhd    = FOUR_CHAR_INT( 'm', 'v', 'h', 'd' ),//MovieHeaderAtomType
     BOX_stsd    = FOUR_CHAR_INT( 's', 't', 's', 'd' ),//SampleDescriptionAtomType
     BOX_stsz    = FOUR_CHAR_INT( 's', 't', 's', 'z' ),//SampleSizeAtomType
@@ -3782,4 +3815,692 @@ void MP4D_printf_info(const MP4D_demux_t *mp4)
 }
 
 #endif // MP4D_PRINT_INFO_SUPPORTED
+
+/************************************************************************/
+/*                  Fast-start (moov first) file rewrite                */
+/************************************************************************/
+
+// Max payload bytes delivered to/received from the user callbacks at once
+#define MP4E_FS_IO_CHUNK    (64u * 1024u)
+
+typedef struct
+{
+    uint32_t type;
+    uint64_t pos;       // offset of the box in the input file
+    uint64_t size;      // full box size, header included
+    int      hdr;       // header size: 8 or 16 bytes
+    uint64_t out_pos;   // offset of the box in the output file (layout phase)
+} mp4e_fs_box_t;
+
+typedef struct
+{
+    uint64_t moov_off;  // offset of the table box inside the input moov image
+    int      hdr;       // header size of the table box
+    int      is_co64;   // the table is co64 in the input
+    int      upgrade;   // the table is written as co64 in the output
+    uint32_t count;
+    uint64_t *old_off;  // chunk offsets in the input file
+    uint64_t *new_off;  // chunk offsets in the output file
+} mp4e_fs_table_t;
+
+typedef struct
+{
+    unsigned char *data;
+    uint64_t len;
+    uint64_t cap;
+} mp4e_fs_buf_t;
+
+typedef struct
+{
+    uint64_t input_bytes;
+    void *token;
+    int (*read_cb)(int64_t, void *, size_t, void *);
+    int (*write_cb)(int64_t, const void *, size_t, void *);
+
+    mp4e_fs_box_t *box;     // top-level boxes, in input order
+    size_t nbox, capbox;
+    size_t ftyp, moov;      // indexes into box[], (size_t)-1 if absent
+    size_t nmdat;
+
+    unsigned char *moov_img;    // whole input moov box, header included
+    uint64_t moov_size;
+
+    mp4e_fs_table_t *tab;   // stco/co64 tables, in moov order
+    size_t ntab, captab;
+
+    mp4e_fs_buf_t out_moov; // rebuilt moov image
+} mp4e_fs_t;
+
+static uint32_t mp4e_fs_be32(const unsigned char *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint64_t mp4e_fs_be64(const unsigned char *p)
+{
+    return ((uint64_t)mp4e_fs_be32(p) << 32) | mp4e_fs_be32(p + 4);
+}
+
+static void mp4e_fs_put32(unsigned char *p, uint32_t v)
+{
+    p[0] = (unsigned char)(v >> 24); p[1] = (unsigned char)(v >> 16);
+    p[2] = (unsigned char)(v >> 8);  p[3] = (unsigned char)v;
+}
+
+static void mp4e_fs_put64(unsigned char *p, uint64_t v)
+{
+    mp4e_fs_put32(p, (uint32_t)(v >> 32));
+    mp4e_fs_put32(p + 4, (uint32_t)v);
+}
+
+static int mp4e_fs_read(mp4e_fs_t *fs, uint64_t pos, void *dst, size_t bytes)
+{
+    if (pos > (uint64_t)INT64_MAX)
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    if (fs->read_cb((int64_t)pos, dst, bytes, fs->token))
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    return MP4E_STATUS_OK;
+}
+
+// Read a (possibly large) range, chunking every callback to MP4E_FS_IO_CHUNK
+static int mp4e_fs_read_full(mp4e_fs_t *fs, uint64_t pos, unsigned char *dst, uint64_t bytes)
+{
+    while (bytes)
+    {
+        size_t chunk = (bytes > MP4E_FS_IO_CHUNK) ? MP4E_FS_IO_CHUNK : (size_t)bytes;
+        int err = mp4e_fs_read(fs, pos, dst, chunk);
+        if (err)
+            return err;
+        pos += chunk; dst += chunk; bytes -= chunk;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Parse a box header from src[0..avail). Rejects size == 0 ("till eof") boxes.
+static int mp4e_fs_box_header(const unsigned char *src, uint64_t avail, uint32_t *type, uint64_t *size, int *hdr)
+{
+    uint32_t s32;
+    if (avail < 8)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    s32 = mp4e_fs_be32(src);
+    *type = mp4e_fs_be32(src + 4);
+    if (s32 == 0)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (s32 == 1)
+    {
+        if (avail < 16)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        *size = mp4e_fs_be64(src + 8);
+        *hdr = 16;
+        if (*size < 16)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+    } else
+    {
+        *size = s32;
+        *hdr = 8;
+        if (*size < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+    }
+    return MP4E_STATUS_OK;
+}
+
+static int mp4e_fs_buf_put(mp4e_fs_buf_t *b, const void *src, uint64_t n)
+{
+    if (b->len + n > b->cap)
+    {
+        uint64_t cap = b->cap ? b->cap : 4096;
+        unsigned char *nd;
+        while (cap < b->len + n)
+        {
+            if (cap > ~(uint64_t)0 / 2)
+                return MP4E_STATUS_NO_MEMORY;
+            cap *= 2;
+        }
+        if ((size_t)cap != cap)
+            return MP4E_STATUS_NO_MEMORY;
+        nd = (unsigned char *)realloc(b->data, (size_t)cap);
+        if (!nd)
+            return MP4E_STATUS_NO_MEMORY;
+        b->data = nd;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->len, src, (size_t)n);
+    b->len += n;
+    return MP4E_STATUS_OK;
+}
+
+// Scan the top-level box sequence of the input file
+static int mp4e_fs_scan(mp4e_fs_t *fs)
+{
+    uint64_t pos = 0;
+    fs->ftyp = fs->moov = (size_t)-1;
+    fs->nmdat = 0;
+    while (pos < fs->input_bytes)
+    {
+        unsigned char hdr[16];
+        uint32_t type;
+        uint64_t size;
+        int hdr_bytes, err;
+        mp4e_fs_box_t *b;
+
+        if (fs->input_bytes - pos < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        err = mp4e_fs_read(fs, pos, hdr, 8);
+        if (err)
+            return err;
+        if (mp4e_fs_be32(hdr) == 1)
+        {
+            if (fs->input_bytes - pos < 16)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            err = mp4e_fs_read(fs, pos + 8, hdr + 8, 8);
+            if (err)
+                return err;
+        }
+        err = mp4e_fs_box_header(hdr, 16, &type, &size, &hdr_bytes);
+        if (err)
+            return err;
+        if (size > fs->input_bytes - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == BOX_moof || type == BOX_cmov)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+
+        if (fs->nbox == fs->capbox)
+        {
+            size_t cap = fs->capbox ? fs->capbox * 2 : 16;
+            mp4e_fs_box_t *nb = (mp4e_fs_box_t *)realloc(fs->box, cap * sizeof(*nb));
+            if (!nb)
+                return MP4E_STATUS_NO_MEMORY;
+            fs->box = nb;
+            fs->capbox = cap;
+        }
+        b = fs->box + fs->nbox;
+        b->type = type;
+        b->pos = pos;
+        b->size = size;
+        b->hdr = hdr_bytes;
+        b->out_pos = 0;
+
+        if (type == BOX_ftyp)
+        {
+            if (fs->ftyp != (size_t)-1)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            fs->ftyp = fs->nbox;
+        } else if (type == BOX_moov)
+        {
+            if (fs->moov != (size_t)-1)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            fs->moov = fs->nbox;
+        } else if (type == BOX_mdat)
+        {
+            fs->nmdat++;
+        }
+        fs->nbox++;
+        pos += size;
+    }
+    if (fs->ftyp == (size_t)-1 || fs->moov == (size_t)-1 || !fs->nmdat)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    return MP4E_STATUS_OK;
+}
+
+// Verify that all dref entries inside a dinf box are self-contained
+static int mp4e_fs_check_dinf(mp4e_fs_t *fs, uint64_t start, uint64_t bytes)
+{
+    uint64_t pos = start, end = start + bytes;
+    while (pos < end)
+    {
+        uint32_t type;
+        uint64_t size;
+        int hdr, err = mp4e_fs_box_header(fs->moov_img + pos, end - pos, &type, &size, &hdr);
+        if (err)
+            return err;
+        if (size > end - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == BOX_dref)
+        {
+            const unsigned char *p = fs->moov_img + pos + hdr;
+            uint64_t payload = size - hdr, eoff = 8;
+            uint32_t count, i;
+            if (payload < 8)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            count = mp4e_fs_be32(p + 4);
+            for (i = 0; i < count; i++)
+            {
+                uint32_t etype, flags;
+                uint64_t esize;
+                int ehdr;
+                err = mp4e_fs_box_header(p + eoff, payload - eoff, &etype, &esize, &ehdr);
+                if (err)
+                    return err;
+                if (esize > payload - eoff)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                // Only self-contained url /urn entries keep the file self-contained
+                if (etype != BOX_url && etype != BOX_urn)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                if (esize - (uint64_t)ehdr < 4)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                flags = mp4e_fs_be32(p + eoff + ehdr) & 0x00FFFFFF;
+                if (!(flags & 1))
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                eoff += esize;
+            }
+        }
+        pos += size;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Register one stco/co64 table found at moov_img offset `moff`
+static int mp4e_fs_add_table(mp4e_fs_t *fs, uint64_t moff, uint64_t size, int hdr, uint32_t type)
+{
+    const unsigned char *p = fs->moov_img + moff + hdr;
+    uint64_t payload = size - hdr, need;
+    int is_co64 = (type == BOX_co64);
+    uint32_t count, i;
+    mp4e_fs_table_t *t;
+
+    if (payload < 8)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    count = mp4e_fs_be32(p + 4);
+    need = 8 + (uint64_t)count * (is_co64 ? 8 : 4);
+    if (need > payload)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+
+    if (fs->ntab == fs->captab)
+    {
+        size_t cap = fs->captab ? fs->captab * 2 : 8;
+        mp4e_fs_table_t *nt = (mp4e_fs_table_t *)realloc(fs->tab, cap * sizeof(*nt));
+        if (!nt)
+            return MP4E_STATUS_NO_MEMORY;
+        fs->tab = nt;
+        fs->captab = cap;
+    }
+    t = fs->tab + fs->ntab;
+    memset(t, 0, sizeof(*t));
+    t->old_off = (uint64_t *)malloc((count ? count : 1) * sizeof(uint64_t));
+    // new_off is read by the first (stale) rebuild pass before any mapping
+    // has happened; keep it zeroed until then.
+    t->new_off = (uint64_t *)calloc((count ? count : 1), sizeof(uint64_t));
+    if (!t->old_off || !t->new_off)
+        return MP4E_STATUS_NO_MEMORY;
+    for (i = 0; i < count; i++)
+        t->old_off[i] = is_co64 ? mp4e_fs_be64(p + 8 + 8 * (uint64_t)i)
+                                : mp4e_fs_be32(p + 8 + 4 * (uint64_t)i);
+    t->moov_off = moff;
+    t->hdr = hdr;
+    t->is_co64 = is_co64;
+    t->upgrade = is_co64;   // co64 tables stay 64-bit; stco upgraded on demand
+    t->count = count;
+    fs->ntab++;
+    return MP4E_STATUS_OK;
+}
+
+// Walk moov/trak/mdia/minf/stbl of the input moov image, locating chunk
+// offset tables and rejecting constructs this rewriter does not support.
+// depth: 0 = moov, 1 = trak, 2 = mdia, 3 = minf, 4 = stbl payload.
+static int mp4e_fs_walk_moov(mp4e_fs_t *fs, uint64_t start, uint64_t bytes, int depth)
+{
+    uint64_t pos = start, end = start + bytes;
+    while (pos < end)
+    {
+        uint32_t type;
+        uint64_t size;
+        int hdr, err = mp4e_fs_box_header(fs->moov_img + pos, end - pos, &type, &size, &hdr);
+        if (err)
+            return err;
+        if (size > end - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == BOX_cmov || type == BOX_moof)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        switch (depth)
+        {
+        case 0: if (type == BOX_trak) err = mp4e_fs_walk_moov(fs, pos + hdr, size - hdr, 1); break;
+        case 1: if (type == BOX_mdia) err = mp4e_fs_walk_moov(fs, pos + hdr, size - hdr, 2); break;
+        case 2: if (type == BOX_minf) err = mp4e_fs_walk_moov(fs, pos + hdr, size - hdr, 3); break;
+        case 3:
+            if (type == BOX_stbl)
+                err = mp4e_fs_walk_moov(fs, pos + hdr, size - hdr, 4);
+            else if (type == BOX_dinf)
+                err = mp4e_fs_check_dinf(fs, pos + hdr, size - hdr);
+            break;
+        default:
+            if (type == BOX_stco || type == BOX_co64)
+                err = mp4e_fs_add_table(fs, pos, size, hdr, type);
+            break;
+        }
+        if (err)
+            return err;
+        pos += size;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Append a box header for `payload_bytes` of payload. Keeps the original
+// header width while the size still fits, upgrades to the 64-bit extended
+// form otherwise.
+static int mp4e_fs_put_box_header(mp4e_fs_buf_t *out, uint32_t type, uint64_t payload_bytes, int old_hdr)
+{
+    unsigned char h[16];
+    if (old_hdr != 16 && payload_bytes + 8 <= 0xFFFFFFFFull)
+    {
+        mp4e_fs_put32(h, (uint32_t)(payload_bytes + 8));
+        mp4e_fs_put32(h + 4, type);
+        return mp4e_fs_buf_put(out, h, 8);
+    }
+    mp4e_fs_put32(h, 1);
+    mp4e_fs_put32(h + 4, type);
+    mp4e_fs_put64(h + 8, payload_bytes + 16);
+    return mp4e_fs_buf_put(out, h, 16);
+}
+
+// Rebuild children of a container box from the input moov image into `out`,
+// rewriting chunk offset tables and adjusting ancestor box sizes.
+static int mp4e_fs_rewrite_children(mp4e_fs_t *fs, mp4e_fs_buf_t *out, uint64_t start, uint64_t bytes, int depth)
+{
+    uint64_t pos = start, end = start + bytes;
+    while (pos < end)
+    {
+        uint32_t type;
+        uint64_t size;
+        int hdr, err = mp4e_fs_box_header(fs->moov_img + pos, end - pos, &type, &size, &hdr);
+        if (err)
+            return err;
+        if (size > end - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+
+        if ((depth == 0 && type == BOX_trak) || (depth == 1 && type == BOX_mdia) ||
+            (depth == 2 && type == BOX_minf) || (depth == 3 && type == BOX_stbl))
+        {
+            mp4e_fs_buf_t tmp = { NULL, 0, 0 };
+            err = mp4e_fs_rewrite_children(fs, &tmp, pos + hdr, size - hdr, depth + 1);
+            if (!err)
+                err = mp4e_fs_put_box_header(out, type, tmp.len, hdr);
+            if (!err && tmp.len)
+                err = mp4e_fs_buf_put(out, tmp.data, tmp.len);
+            free(tmp.data);
+            if (err)
+                return err;
+        } else if (depth == 4 && (type == BOX_stco || type == BOX_co64))
+        {
+            mp4e_fs_table_t *t = NULL;
+            uint64_t payload;
+            uint32_t k;
+            size_t i;
+            for (i = 0; i < fs->ntab; i++)
+                if (fs->tab[i].moov_off == pos)
+                {
+                    t = fs->tab + i;
+                    break;
+                }
+            if (!t)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            payload = 8 + (uint64_t)t->count * (t->upgrade ? 8 : 4);
+            err = mp4e_fs_put_box_header(out, t->upgrade ? (uint32_t)BOX_co64 : type, payload, hdr);
+            if (!err)
+                err = mp4e_fs_buf_put(out, fs->moov_img + pos + hdr, 8); // version/flags + entry count
+            for (k = 0; k < t->count && !err; k++)
+            {
+                unsigned char e[8];
+                if (t->upgrade)
+                {
+                    mp4e_fs_put64(e, t->new_off[k]);
+                    err = mp4e_fs_buf_put(out, e, 8);
+                } else
+                {
+                    if (t->new_off[k] > 0xFFFFFFFFull)
+                        return MP4E_STATUS_BAD_ARGUMENTS;
+                    mp4e_fs_put32(e, (uint32_t)t->new_off[k]);
+                    err = mp4e_fs_buf_put(out, e, 4);
+                }
+            }
+            if (err)
+                return err;
+        } else
+        {
+            // Non-offset leaf boxes (and boxes outside the stco/co64 path)
+            // are preserved byte-for-byte, order included.
+            err = mp4e_fs_buf_put(out, fs->moov_img + pos, size);
+            if (err)
+                return err;
+        }
+        pos += size;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Rebuild the whole moov box with the current stco->co64 upgrade decisions
+static int mp4e_fs_rebuild_moov(mp4e_fs_t *fs)
+{
+    mp4e_fs_buf_t body = { NULL, 0, 0 };
+    uint32_t type;
+    uint64_t size;
+    int hdr, err = mp4e_fs_box_header(fs->moov_img, fs->moov_size, &type, &size, &hdr);
+    if (!err && type != BOX_moov)
+        err = MP4E_STATUS_BAD_ARGUMENTS;
+    if (!err)
+        err = mp4e_fs_rewrite_children(fs, &body, hdr, size - hdr, 0);
+    fs->out_moov.len = 0;
+    if (!err)
+        err = mp4e_fs_put_box_header(&fs->out_moov, BOX_moov, body.len, hdr);
+    if (!err && body.len)
+        err = mp4e_fs_buf_put(&fs->out_moov, body.data, body.len);
+    free(body.data);
+    return err;
+}
+
+// Assign output offsets: original ftyp, new moov, then the remaining
+// top-level boxes (free/skip dropped) in their original relative order.
+static void mp4e_fs_layout(mp4e_fs_t *fs)
+{
+    uint64_t pos = 0;
+    size_t i;
+    fs->box[fs->ftyp].out_pos = pos;
+    pos += fs->box[fs->ftyp].size;
+    fs->box[fs->moov].out_pos = pos;
+    pos += fs->out_moov.len;
+    for (i = 0; i < fs->nbox; i++)
+    {
+        mp4e_fs_box_t *b = fs->box + i;
+        if (i == fs->ftyp || i == fs->moov || b->type == BOX_free || b->type == BOX_skip)
+            continue;
+        b->out_pos = pos;
+        pos += b->size;
+    }
+}
+
+// Map every chunk offset onto the new position of the mdat payload it
+// belongs to.  Each mdat shifts by its own amount, so offsets cannot be
+// adjusted by a single constant.
+static int mp4e_fs_map_offsets(mp4e_fs_t *fs)
+{
+    size_t t, k, i;
+    for (t = 0; t < fs->ntab; t++)
+        for (k = 0; k < fs->tab[t].count; k++)
+        {
+            uint64_t off = fs->tab[t].old_off[k];
+            int found = 0;
+            for (i = 0; i < fs->nbox; i++)
+            {
+                mp4e_fs_box_t *b = fs->box + i;
+                uint64_t payload;
+                if (b->type != BOX_mdat)
+                    continue;
+                payload = b->pos + b->hdr;
+                if (off >= payload && off < b->pos + b->size)
+                {
+                    fs->tab[t].new_off[k] = b->out_pos + b->hdr + (off - payload);
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+        }
+    return MP4E_STATUS_OK;
+}
+
+static int mp4e_fs_write(mp4e_fs_t *fs, uint64_t pos, const void *src, size_t bytes)
+{
+    if (pos > (uint64_t)INT64_MAX)
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    if (fs->write_cb((int64_t)pos, src, bytes, fs->token))
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    return MP4E_STATUS_OK;
+}
+
+// Stream the planned output file through the write callback
+static int mp4e_fs_stream(mp4e_fs_t *fs)
+{
+    unsigned char *tmp = (unsigned char *)malloc(MP4E_FS_IO_CHUNK);
+    uint64_t out = 0;
+    size_t i;
+    int err = MP4E_STATUS_OK;
+    if (!tmp)
+        return MP4E_STATUS_NO_MEMORY;
+    // ftyp
+    if (!err)
+    {
+        uint64_t left = fs->box[fs->ftyp].size, pos = fs->box[fs->ftyp].pos;
+        while (left && !err)
+        {
+            size_t chunk = (left > MP4E_FS_IO_CHUNK) ? MP4E_FS_IO_CHUNK : (size_t)left;
+            err = mp4e_fs_read(fs, pos, tmp, chunk);
+            if (!err)
+                err = mp4e_fs_write(fs, out, tmp, chunk);
+            pos += chunk; out += chunk; left -= chunk;
+        }
+    }
+    // new moov, from memory
+    if (!err)
+    {
+        uint64_t left = fs->out_moov.len, done = 0;
+        while (left && !err)
+        {
+            size_t chunk = (left > MP4E_FS_IO_CHUNK) ? MP4E_FS_IO_CHUNK : (size_t)left;
+            err = mp4e_fs_write(fs, out, fs->out_moov.data + done, chunk);
+            done += chunk; out += chunk; left -= chunk;
+        }
+    }
+    // remaining top-level boxes, mdat payloads included, streamed
+    for (i = 0; i < fs->nbox && !err; i++)
+    {
+        mp4e_fs_box_t *b = fs->box + i;
+        uint64_t left, pos;
+        if (i == fs->ftyp || i == fs->moov || b->type == BOX_free || b->type == BOX_skip)
+            continue;
+        left = b->size;
+        pos = b->pos;
+        while (left && !err)
+        {
+            size_t chunk = (left > MP4E_FS_IO_CHUNK) ? MP4E_FS_IO_CHUNK : (size_t)left;
+            err = mp4e_fs_read(fs, pos, tmp, chunk);
+            if (!err)
+                err = mp4e_fs_write(fs, out, tmp, chunk);
+            pos += chunk; out += chunk; left -= chunk;
+        }
+    }
+    free(tmp);
+    return err;
+}
+
+int MP4E_faststart(uint64_t input_bytes, void *token,
+    int (*read_callback)(int64_t offset, void *buffer, size_t size, void *token),
+    int (*write_callback)(int64_t offset, const void *buffer, size_t size, void *token))
+{
+    mp4e_fs_t fs;
+    int err;
+    size_t i;
+
+    memset(&fs, 0, sizeof(fs));
+    if (!read_callback || !write_callback || input_bytes > (uint64_t)INT64_MAX)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    fs.input_bytes = input_bytes;
+    fs.token = token;
+    fs.read_cb = read_callback;
+    fs.write_cb = write_callback;
+
+    // All parameter checks and the whole layout plan happen before the
+    // first byte is delivered to the write callback.
+    err = mp4e_fs_scan(&fs);
+    if (!err)
+    {
+        fs.moov_size = fs.box[fs.moov].size;
+        if ((size_t)fs.moov_size != fs.moov_size)
+            err = MP4E_STATUS_NO_MEMORY;
+    }
+    if (!err)
+    {
+        fs.moov_img = (unsigned char *)malloc((size_t)fs.moov_size);
+        if (!fs.moov_img)
+            err = MP4E_STATUS_NO_MEMORY;
+    }
+    if (!err)
+        err = mp4e_fs_read_full(&fs, fs.box[fs.moov].pos, fs.moov_img, fs.moov_size);
+    if (!err)
+    {
+        uint32_t type;
+        uint64_t size;
+        int hdr;
+        err = mp4e_fs_box_header(fs.moov_img, fs.moov_size, &type, &size, &hdr);
+        if (!err && (type != BOX_moov || size != fs.moov_size))
+            err = MP4E_STATUS_BAD_ARGUMENTS;
+        if (!err)
+            err = mp4e_fs_walk_moov(&fs, hdr, size - hdr, 0);
+    }
+    if (!err)
+    {
+        // Upgrading one stco table to co64 grows the new moov, which moves
+        // every mdat and can push another table past UINT32_MAX.  Iterate
+        // upgrades + relayout until the layout is stable (upgrades only
+        // accumulate, so this terminates).  Each rebuild sizes the moov
+        // correctly for the current upgrade set, but the offset values
+        // inside it are stale until the map step below; once the layout
+        // no longer changes, a final rebuild writes the definitive
+        // offsets into the very same layout.
+        size_t iter;
+        for (iter = 0; iter <= fs.ntab; iter++)
+        {
+            int changed = 0;
+            err = mp4e_fs_rebuild_moov(&fs);
+            if (err)
+                break;
+            mp4e_fs_layout(&fs);
+            err = mp4e_fs_map_offsets(&fs);
+            if (err)
+                break;
+            for (i = 0; i < fs.ntab; i++)
+            {
+                mp4e_fs_table_t *t = fs.tab + i;
+                uint32_t k;
+                if (t->upgrade)
+                    continue;
+                for (k = 0; k < t->count; k++)
+                    if (t->new_off[k] > 0xFFFFFFFFull)
+                    {
+                        t->upgrade = 1;
+                        changed = 1;
+                        break;
+                    }
+            }
+            if (!changed)
+                break;
+        }
+        if (!err && iter > fs.ntab)
+            err = MP4E_STATUS_BAD_ARGUMENTS;
+        if (!err)
+            err = mp4e_fs_rebuild_moov(&fs);
+    }
+    if (!err)
+        err = mp4e_fs_stream(&fs);
+
+    for (i = 0; i < fs.ntab; i++)
+    {
+        free(fs.tab[i].old_off);
+        free(fs.tab[i].new_off);
+    }
+    free(fs.tab);
+    free(fs.box);
+    free(fs.moov_img);
+    free(fs.out_moov.data);
+    return err;
+}
 #endif
