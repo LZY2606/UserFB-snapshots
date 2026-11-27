@@ -1426,6 +1426,45 @@ otherwise.
 
 Retrieve the channel map contained in an AIFF or CAF Channel Layout chunk.
 
+For CAF, three kinds of `chan` chunk are understood:
+
+* a predefined layout tag, which is decoded with the same tables used when
+  writing;
+* `UseChannelBitmap`, where the set bits are taken from the lowest bit upwards
+  and correspond to the channels in that order;
+* `UseChannelDescriptions`, where the descriptions are used in the order they
+  appear on disk (never sorted by label). The channel count must equal the
+  number of descriptions, and every description must use one of the nine
+  supported discrete speaker roles listed below with zero flags and zero
+  coordinates.
+
+If a `chan` chunk is present but malformed (unsupported bitmap bits, a repeated
+role, a description count or bitmap population that does not match the audio
+channel count, or a description array truncated by its parent chunk), opening
+the file fails rather than returning a partial channel map. Unknown predefined
+layout tags continue to yield no channel map.
+
+### Supported CAF speaker roles
+
+CAF channel descriptions can describe any of the nine discrete speaker roles
+below. These are the only roles accepted by `SFC_SET_CHANNEL_MAP_INFO` when a
+custom layout has to be written:
+
+| Label | Channel map                  |
+|:------|:-----------------------------|
+| 1     | SF_CHANNEL_MAP_LEFT          |
+| 2     | SF_CHANNEL_MAP_RIGHT         |
+| 3     | SF_CHANNEL_MAP_CENTER        |
+| 4     | SF_CHANNEL_MAP_LFE           |
+| 5     | SF_CHANNEL_MAP_REAR_LEFT     |
+| 6     | SF_CHANNEL_MAP_REAR_RIGHT    |
+| 7     | SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER  |
+| 8     | SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER |
+| 9     | SF_CHANNEL_MAP_REAR_CENTER   |
+
+A channel map never reorders, mixes or resamples the audio; the PCM data
+stays interleaved exactly as it was written and read.
+
 ### Parameters
 
 sndfile
@@ -1481,6 +1520,17 @@ Channel map positions are defined in an enum in *sndfile.h*:
 ## SFC_SET_CHANNEL_MAP_INFO
 
 Set the channel map contained in an AIFF or CAF Channel Layout chunk.
+
+For CAF the map is stored with the first predefined layout tag that matches it.
+When no predefined tag matches, but every channel is one of the nine supported
+discrete speaker roles and no role repeats, the map is written as a
+`UseChannelDescriptions` array instead: each description is 20 bytes, entries
+come out in the order the caller supplied, and the flags and the three
+coordinates are written as zero. The audio samples are not reordered, mixed or
+resampled to match the map; the interleaved PCM keeps the order it was written
+in. To achieve this the map must be set before the first frame is written;
+after that the command is rejected. If the map is changed more than once before
+writing starts, the last setting is what ends up in the file.
 
 ### Parameters
 

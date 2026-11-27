@@ -66,6 +66,17 @@
 
 #define CAF_PEAK_CHUNK_SIZE(ch) 	((int) (sizeof (int) + ch * (sizeof (float) + 8)))
 
+/*
+** CAF 'chan' layout tags that do not carry a predefined layout. Both have a
+** zero low half (the channel count is implicit in the bitmap/description
+** array), so they can never collide with the predefined tags in chanmap.c.
+*/
+#define CAF_USE_CHANNEL_DESCRIPTIONS	0x00000000
+#define CAF_USE_CHANNEL_BITMAP			0x00010000
+
+#define CAF_CHANNEL_DESC_SIZE			20
+#define CAF_CHANNEL_DESC_MAP_COUNT		9
+
 /*------------------------------------------------------------------------------
 ** Typedefs.
 */
@@ -83,6 +94,10 @@ typedef struct
 typedef struct
 {	int			chanmap_tag ;
 
+	/* Set when the channel map has no predefined layout tag and has to be
+	** written as a UseChannelDescriptions array instead. */
+	int			chanmap_descriptions ;
+
 	ALAC_DECODER_INFO	alac ;
 } CAF_PRIVATE ;
 
@@ -95,6 +110,8 @@ static int	caf_read_header (SF_PRIVATE *psf) ;
 static int	caf_write_header (SF_PRIVATE *psf, int calc_length) ;
 static int	caf_write_tailer (SF_PRIVATE *psf) ;
 static int	caf_command (SF_PRIVATE *psf, int command, void *data, int datasize) ;
+static int	caf_channel_map_is_describable (const int * chan_map, int channels) ;
+static uint32_t caf_channel_map_to_label (int map) ;
 static int	caf_read_chanmap (SF_PRIVATE * psf, sf_count_t chunk_size) ;
 static int	caf_read_strings (SF_PRIVATE * psf, sf_count_t chunk_size) ;
 static void	caf_write_strings (SF_PRIVATE * psf, int location) ;
@@ -234,8 +251,24 @@ caf_command (SF_PRIVATE * psf, int command, void * UNUSED (data), int UNUSED (da
 
 	switch (command)
 	{	case SFC_SET_CHANNEL_MAP_INFO :
+			pcaf->chanmap_tag = 0 ;
+			pcaf->chanmap_descriptions = SF_FALSE ;
+
 			pcaf->chanmap_tag = aiff_caf_find_channel_layout_tag (psf->channel_map, psf->sf.channels) ;
-			return (pcaf->chanmap_tag != 0) ;
+			if (pcaf->chanmap_tag != 0)
+				return SF_TRUE ;
+
+			/* No predefined layout matches, but if every role is one of the
+			** supported discrete speakers and none repeats, the map can still be
+			** stored as a UseChannelDescriptions array. */
+			if (caf_channel_map_is_describable (psf->channel_map, psf->sf.channels))
+			{	pcaf->chanmap_tag = CAF_USE_CHANNEL_DESCRIPTIONS ;
+				pcaf->chanmap_descriptions = SF_TRUE ;
+				return SF_TRUE ;
+				} ;
+
+			pcaf->chanmap_tag = 0 ;
+			return SF_FALSE ;
 
 		default :
 			break ;
@@ -582,7 +615,7 @@ caf_write_header (SF_PRIVATE *psf, int calc_length)
 	DESC_CHUNK desc ;
 	sf_count_t current ;
 	uint32_t uk ;
-	int subformat, append_free_block = SF_TRUE ;
+	int k, subformat, append_free_block = SF_TRUE ;
 
 	if ((pcaf = psf->container_data) == NULL)
 		return SFE_INTERNAL ;
@@ -733,8 +766,24 @@ caf_write_header (SF_PRIVATE *psf, int calc_length)
 			psf_binheader_writef (psf, "Ef8", BHWf ((float) psf->peak_info->peaks [k].value), BHW8 (psf->peak_info->peaks [k].position)) ;
 		} ;
 
-	if (psf->channel_map && pcaf->chanmap_tag)
-		psf_binheader_writef (psf, "Em8444", BHWm (chan_MARKER), BHW8 ((sf_count_t) 12), BHW4 (pcaf->chanmap_tag), BHW4 (0), BHW4 (0)) ;
+	if (psf->channel_map && (pcaf->chanmap_tag || pcaf->chanmap_descriptions))
+	{	if (pcaf->chanmap_descriptions)
+		{	sf_count_t chunk_len = 12 + (sf_count_t) psf->sf.channels * CAF_CHANNEL_DESC_SIZE ;
+
+			psf_binheader_writef (psf, "Em84", BHWm (chan_MARKER), BHW8 (chunk_len), BHW4 (CAF_USE_CHANNEL_DESCRIPTIONS)) ;
+			psf_binheader_writef (psf, "E44", BHW4 (0), BHW4 ((uint32_t) psf->sf.channels)) ;
+			for (k = 0 ; k < psf->sf.channels ; k++)
+			{	float zero = 0.0f ;
+				/* Descriptions are emitted in the caller's channel order so the
+				** PCM data keeps its layout; the coordinates and flags are zero
+				** because only discrete speaker roles are supported. */
+				psf_binheader_writef (psf, "E4", BHW4 (caf_channel_map_to_label (psf->channel_map [k]))) ;
+				psf_binheader_writef (psf, "E4fff", BHW4 (0), BHWf (zero), BHWf (zero), BHWf (zero)) ;
+				} ;
+			}
+		else
+			psf_binheader_writef (psf, "Em8444", BHWm (chan_MARKER), BHW8 ((sf_count_t) 12), BHW4 (pcaf->chanmap_tag), BHW4 (0), BHW4 (0)) ;
+		} ;
 
 	/* Write custom headers. */
 	for (uk = 0 ; uk < psf->wchunks.used ; uk++)
@@ -754,7 +803,7 @@ caf_write_header (SF_PRIVATE *psf, int calc_length)
 	if (psf->error)
 		return psf->error ;
 
-	psf->dataoffset = psf->header.indx ;
+	psf->dataoffset = (sf_count_t) psf->header.indx ;
 	if (current < psf->dataoffset)
 		psf_fseek (psf, psf->dataoffset, SEEK_SET) ;
 	else if (current > 0)
@@ -793,17 +842,182 @@ caf_write_tailer (SF_PRIVATE *psf)
 	return 0 ;
 } /* caf_write_tailer */
 
+/*
+** The nine discrete speaker roles that CAF channel descriptions are
+** restricted to here. Apple's AudioChannelLabel values 1 to 9 map one to one
+** onto these roles.
+*/
+static int
+caf_channel_label_to_map (uint32_t label)
+{	switch (label)
+	{	case 1 : return SF_CHANNEL_MAP_LEFT ;
+		case 2 : return SF_CHANNEL_MAP_RIGHT ;
+		case 3 : return SF_CHANNEL_MAP_CENTER ;
+		case 4 : return SF_CHANNEL_MAP_LFE ;
+		case 5 : return SF_CHANNEL_MAP_REAR_LEFT ;
+		case 6 : return SF_CHANNEL_MAP_REAR_RIGHT ;
+		case 7 : return SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER ;
+		case 8 : return SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER ;
+		case 9 : return SF_CHANNEL_MAP_REAR_CENTER ;
+		default : break ;
+		} ;
+
+	return SF_CHANNEL_MAP_INVALID ;
+} /* caf_channel_label_to_map */
+
+static uint32_t
+caf_channel_map_to_label (int map)
+{	switch (map)
+	{	case SF_CHANNEL_MAP_LEFT : return 1 ;
+		case SF_CHANNEL_MAP_RIGHT : return 2 ;
+		case SF_CHANNEL_MAP_CENTER : return 3 ;
+		case SF_CHANNEL_MAP_LFE : return 4 ;
+		case SF_CHANNEL_MAP_REAR_LEFT : return 5 ;
+		case SF_CHANNEL_MAP_REAR_RIGHT : return 6 ;
+		case SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER : return 7 ;
+		case SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER : return 8 ;
+		case SF_CHANNEL_MAP_REAR_CENTER : return 9 ;
+		default : break ;
+		} ;
+
+	return 0 ;
+} /* caf_channel_map_to_label */
+
+/* Can this map be written as a UseChannelDescriptions array? Every role must
+** be one of the supported discrete speaker roles and no role may repeat. The
+** caller has already checked the number of channels. */
+static int
+caf_channel_map_is_describable (const int * chan_map, int channels)
+{	int k, j, label ;
+
+	if (chan_map == NULL || channels <= 0)
+		return 0 ;
+
+	for (k = 0 ; k < channels ; k++)
+	{	if ((label = (int) caf_channel_map_to_label (chan_map [k])) == 0)
+			return 0 ;
+		for (j = 0 ; j < k ; j++)
+			if ((int) caf_channel_map_to_label (chan_map [j]) == label)
+				return 0 ;
+		} ;
+
+	return 1 ;
+} /* caf_channel_map_is_describable */
+
 static int
 caf_read_chanmap (SF_PRIVATE * psf, sf_count_t chunk_size)
 {	const AIFF_CAF_CHANNEL_MAP * map_info ;
-	unsigned channel_bitmap, channel_decriptions, bytesread ;
-	int layout_tag ;
+	uint32_t layout_tag, channel_bitmap, channel_descriptions ;
+	int bytesread ;
 
-	bytesread = psf_binheader_readf (psf, "E444", &layout_tag, &channel_bitmap, &channel_decriptions) ;
+	bytesread = psf_binheader_readf (psf, "E444", &layout_tag, &channel_bitmap, &channel_descriptions) ;
+	if (bytesread != 12)
+	{	psf_log_printf (psf, "**** '%M' chunk truncated in its header.\n", chan_MARKER) ;
+		return SFE_MALFORMED_FILE ;
+		} ;
+
+	psf_log_printf (psf, "  Tag    : %x\n", layout_tag) ;
+
+	if (layout_tag == CAF_USE_CHANNEL_BITMAP)
+	{	int bits = 0, chan = 0 ;
+		unsigned bit ;
+
+		if (channel_bitmap & ~(unsigned) ((1u << CAF_CHANNEL_DESC_MAP_COUNT) - 1))
+		{	psf_log_printf (psf, "**** Channel bitmap %x contains unsupported bits.\n", channel_bitmap) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		for (bit = 0 ; bit < 32 ; bit++)
+			if (channel_bitmap & (1u << bit))
+				bits++ ;
+
+		if (bits != psf->sf.channels)
+		{	psf_log_printf (psf, "**** Channel bitmap has %d bits for %d channels.\n", bits, psf->sf.channels) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		free (psf->channel_map) ;
+		if ((psf->channel_map = calloc ((size_t) psf->sf.channels, sizeof (psf->channel_map [0]))) == NULL)
+			return SFE_MALLOC_FAILED ;
+
+		/* Low to high set bits map straight onto the channel order. */
+		for (bit = 0 ; bit < 32 && chan < psf->sf.channels ; bit++)
+			if (channel_bitmap & (1u << bit))
+				psf->channel_map [chan++] = caf_channel_label_to_map (bit + 1) ;
+
+		psf_log_printf (psf, "  Bitmap : 0x%x (%d channels)\n", channel_bitmap, bits) ;
+
+		if (bytesread < chunk_size)
+			psf_binheader_readf (psf, "j", chunk_size - bytesread) ;
+
+		return 0 ;
+		} ;
+
+	if (layout_tag == CAF_USE_CHANNEL_DESCRIPTIONS)
+	{	sf_count_t needed = 12 + (sf_count_t) channel_descriptions * CAF_CHANNEL_DESC_SIZE ;
+		uint32_t k, label, flags ;
+		float x, y, z ;
+		int * chan_map ;
+
+		psf_log_printf (psf, "  Descriptions : %u\n", channel_descriptions) ;
+
+		if (channel_descriptions != (uint32_t) psf->sf.channels)
+		{	psf_log_printf (psf, "**** %u channel descriptions for %d channels.\n",
+					channel_descriptions, psf->sf.channels) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		if (chunk_size < needed)
+		{	psf_log_printf (psf, "**** Channel descriptions truncated by chunk size %D (need %D).\n", chunk_size, needed) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		if ((chan_map = calloc ((size_t) psf->sf.channels, sizeof (chan_map [0]))) == NULL)
+			return SFE_MALLOC_FAILED ;
+
+		for (k = 0 ; k < channel_descriptions ; k++)
+		{	int map, j ;
+
+			bytesread += psf_binheader_readf (psf, "E44fff", &label, &flags, &x, &y, &z) ;
+			if (bytesread < 12 + (sf_count_t) (k + 1) * CAF_CHANNEL_DESC_SIZE)
+			{	psf_log_printf (psf, "**** Channel descriptions truncated by end of file.\n") ;
+				free (chan_map) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			if ((map = caf_channel_label_to_map (label)) == SF_CHANNEL_MAP_INVALID)
+			{	psf_log_printf (psf, "**** Unsupported channel description label %u.\n", label) ;
+				free (chan_map) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			if (flags != 0 || x != 0.0 || y != 0.0 || z != 0.0)
+			{	psf_log_printf (psf, "**** Channel description has non-zero flags or coordinates.\n") ;
+				free (chan_map) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			for (j = 0 ; j < (int) k ; j++)
+				if (chan_map [j] == map)
+				{	psf_log_printf (psf, "**** Duplicate channel description label %u.\n", label) ;
+					free (chan_map) ;
+					return SFE_MALFORMED_FILE ;
+					} ;
+
+			chan_map [k] = map ;
+			} ;
+
+		if (bytesread < chunk_size)
+			psf_binheader_readf (psf, "j", chunk_size - bytesread) ;
+
+		free (psf->channel_map) ;
+		psf->channel_map = chan_map ;
+
+		return 0 ;
+		} ;
 
 	map_info = aiff_caf_of_channel_layout_tag (layout_tag) ;
 
-	psf_log_printf (psf, "  Tag    : %x\n", layout_tag) ;
 	if (map_info)
 		psf_log_printf (psf, "  Layout : %s\n", map_info->name) ;
 

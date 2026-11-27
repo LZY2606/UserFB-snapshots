@@ -175,7 +175,7 @@ endif
 #############
 
 check_PROGRAMS += examples/make_sine examples/sfprocess examples/list_formats examples/generate examples/sndfilehandle \
-	examples/sndfile-to-text examples/sndfile-loopify
+	examples/sndfile-to-text examples/sndfile-loopify examples/caf_layout
 
 examples_sndfile_to_text_SOURCES = examples/sndfile-to-text.c
 examples_sndfile_to_text_LDADD = src/libsndfile.la
@@ -194,6 +194,9 @@ examples_list_formats_LDADD = src/libsndfile.la
 
 examples_generate_SOURCES = examples/generate.c
 examples_generate_LDADD = src/libsndfile.la
+
+examples_caf_layout_SOURCES = examples/caf_layout.c
+examples_caf_layout_LDADD = src/libsndfile.la
 
 examples_sndfilehandle_SOURCES = examples/sndfilehandle.cc
 examples_sndfilehandle_LDADD = src/libsndfile.la
@@ -222,7 +225,7 @@ check_PROGRAMS += tests/sfversion tests/floating_point_test tests/write_read_tes
 	tests/checksum_test tests/external_libs_test tests/rdwr_test tests/format_check_test $(CPP_TEST) \
 	tests/channel_test tests/long_read_write_test tests/stdin_test tests/stdout_test \
 	tests/dither_test tests/fix_this tests/largefile_test tests/benchmark tests/ogg_opus_test \
-	tests/mpeg_test
+	tests/mpeg_test tests/caf_layout_test
 
 BUILT_SOURCES += \
 	tests/write_read_test.c \
@@ -289,6 +292,10 @@ tests_aiff_rw_test_LDADD = src/libsndfile.la
 
 tests_command_test_SOURCES = tests/command_test.c tests/utils.c tests/utils.h
 tests_command_test_LDADD = src/libsndfile.la
+
+tests_caf_layout_test_SOURCES = tests/caf_layout_test.c task_support/driver.c
+tests_caf_layout_test_CPPFLAGS = -I$(srcdir)/task_support
+tests_caf_layout_test_LDADD = src/libsndfile.la
 
 tests_locale_test_SOURCES = tests/locale_test.c tests/utils.c tests/utils.h
 tests_locale_test_LDADD = src/libsndfile.la

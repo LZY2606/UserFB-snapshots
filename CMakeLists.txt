@@ -741,6 +741,11 @@ if (BUILD_EXAMPLES)
 	add_executable (generate examples/generate.c)
 	target_link_libraries (generate PRIVATE sndfile)
 
+# caf_layout
+
+	add_executable (caf_layout examples/caf_layout.c)
+	target_link_libraries (caf_layout PRIVATE sndfile)
+
 # sndfilehandle
 
 	add_executable (sndfilehandle examples/sndfilehandle.cc)
@@ -753,6 +758,7 @@ if (BUILD_EXAMPLES)
 		sfprocess
 		list_formats
 		generate
+		caf_layout
 		sndfilehandle
 		)
 
@@ -1045,6 +1051,17 @@ if (BUILD_TESTING)
 			$<$<BOOL:${LIBM_REQUIRED}>:m>
 		)
 	add_test (command_test command_test all)
+
+	### caf_layout_test
+
+	add_executable (caf_layout_test tests/caf_layout_test.c task_support/driver.c)
+	target_link_libraries (caf_layout_test
+		PRIVATE
+			sndfile
+			$<$<BOOL:${LIBM_REQUIRED}>:m>
+		)
+	target_include_directories (caf_layout_test PRIVATE task_support)
+	add_test (caf_layout_test caf_layout_test)
 
 	### floating_point_test
 
