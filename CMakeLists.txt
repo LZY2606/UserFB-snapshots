@@ -21,9 +21,13 @@ endif()
 
 find_package(OpenMP COMPONENTS CXX)
 
-set(SOURCES main.cpp our_gl.cpp model.cpp tgaimage.cpp)
+set(SOURCES main.cpp our_gl.cpp model.cpp tgaimage.cpp transparency.cpp)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+
+add_executable(transparency_example examples/transparency.cpp our_gl.cpp tgaimage.cpp transparency.cpp)
+target_include_directories(transparency_example PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(transparency_example PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 
 file(GENERATE OUTPUT .gitignore CONTENT "*")

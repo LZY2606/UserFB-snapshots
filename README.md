@@ -99,3 +99,85 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+
+## Weighted-blended transparency
+
+`transparency.h` adds an order-independent transparency path on top of the CPU
+rasterizer. Opaque geometry still goes through `rasterize()`/`IShader`; colored
+semi-transparent thin surfaces are submitted to a per-frame
+`TransparencyBuffer`, then composited over the finished opaque frame.
+
+Per pixel the buffer accumulates (all values in floating point, no sorting and
+no per-fragment quantization):
+
+```text
+A.rgb += RGB * alpha * w
+A.a   += alpha * w
+R     *= 1 - alpha
+```
+
+with `A.rgb = A.a = 0`, `R = 1` initially and
+
+```text
+w = clamp(0.01 + 8*alpha, 0.01, 8) * clamp(1 + z/w, 0.1, 2)
+```
+
+where `z/w` is the fragment's ndc depth. The average color is `A.rgb/A.a`, the
+coverage is `1-R`, and `composite()` blends that with the frozen opaque
+background. Fragments are never depth-sorted against each other, so drawing
+order does not matter and intersecting sheets blend correctly.
+
+### Calling order
+
+```cpp
+// 1. Draw all opaque geometry exactly as before.
+rasterize(clip, opaque_shader, framebuffer);   // writes framebuffer + zbuffer
+
+// 2. Create the per-frame transparent buffer, sized like color and depth.
+TransparencyBuffer transparency(width, height);
+transparency.clear();                          // explicit per-frame clear
+
+// 3. Freeze the opaque depth of this frame and submit transparent triangles.
+transparency.set_opaque_depth(zbuffer);        // or submit() after drawing more
+transparency.submit();
+transparency.triangle(transparent_clip, transparent_shader);
+
+// 4. Composite once onto the opaque RGB/RGBA(alpha=255) frame.
+transparency.composite(framebuffer);
+```
+
+`ITransparentShader::fragment` returns non-premultiplied linear RGB and alpha in
+`[0,1]` plus a `discard` flag. Transparent fragments are tested only against the
+frozen opaque depth (`depth <= opaque depth` counts as occluded), never write
+the opaque depth, and are never occluded by one another. `composite()` captures
+the background on first use, so calling it twice yields the same image; call
+`clear()` before starting the next frame. Accumulated values and `R` are
+readable via `accumulated_rgb()`, `accumulated_alpha()` and `transmittance()`.
+
+Run the self-contained demo with:
+
+```sh
+sh task_support/run.sh target          # tests + example
+# or directly:
+c++ -std=c++20 -O1 -I. examples/transparency.cpp transparency.cpp our_gl.cpp tgaimage.cpp -o example
+./example output.tga
+```
+
+### Scope of the approximation
+
+Weighted-blended transparency is an approximation, not a physically correct
+alpha compositor:
+
+- It is intended for thin, low-to-medium opacity surfaces (glass, smoke,
+  colored sheets). With many overlapping layers, or with strongly opaque
+  surfaces, the result may look washed out or lose ordering cues: the single
+  average color cannot represent a different layer order per pixel.
+- Because `R` multiplies `(1-alpha)`, many nearly opaque transparent layers
+  fade out coverage but still contribute to the average color; the blend is
+  symmetric in drawing order, so front-to-back cues are lost.
+- Depth is evaluated per fragment against the opaque depth only; transparent
+  geometry hidden by opaque geometry is skipped, and a transparent surface
+  exactly at the opaque depth is treated as occluded.
+- No view-frustum clipping is added: geometry must already be inside the
+  renderer's existing clip assumptions (`rasterize()` clips the bounding box to
+  the screen only).
