@@ -128,6 +128,99 @@ sure that the competing library is also tuned to produce a fully linear-phase
 response, has similar stop-band characteristics and similar sample-timing
 precision.
 
+## Planar Multi-Channel Resampling
+
+For planar (one contiguous buffer per channel) multi-channel streams the
+**r8b::CDSPResamplerBank** class converts any number of channels with a single
+shared scheduling clock. Unlike an array of `CDSPResampler` objects, where each
+channel advances its own fractional position, selects its own interpolation
+phase and evaluates polynomial coefficients separately, the bank performs this
+control work once per output frame and applies it to each channel's
+independent history. Half-band odd/even scheduling, latency deduction and
+block boundaries likewise run on the common frame clock. FFT transforms remain
+independent per channel. All heap memory is acquired in the constructor:
+`process()` and `clear()` neither allocate nor free memory, so the class is
+suitable for both offline audio graphs and real-time hosts.
+
+The constructor takes the channel count followed by the same parameters as
+`CDSPResampler`. `process()` receives an array of per-channel input pointers and
+the common input frame count, and returns the common output frame count together
+with internal per-channel output pointers that stay valid until the next
+`process()` or `clear()` call. Equal source and destination sample rates pass
+the input through unchanged; a zero-length call does not advance audio.
+
+The following self-contained, compilable example resamples six planar channels
+from 44.1 kHz to 48 kHz using self-generated PCM:
+
+```c++
+#include "CDSPResamplerBank.h"
+#include <cmath>
+
+int main()
+{
+	using namespace r8b;
+
+	const int ChannelCount = 6;
+	const int MaxInLen = 256;
+	const long long TotalFrames = 1024;
+
+	// All heap memory is acquired here; process() and clear() allocate none.
+
+	CDSPResamplerBank bank( ChannelCount, 44100.0, 48000.0, MaxInLen,
+		2.0, 206.91, fprLinearPhase );
+
+	double in[ ChannelCount ][ MaxInLen ];
+	double* ip[ ChannelCount ];
+	double* op[ ChannelCount ];
+
+	long long frame = 0;
+
+	while( frame < TotalFrames )
+	{
+		const int n = ( TotalFrames - frame < MaxInLen ?
+			(int)( TotalFrames - frame ) : MaxInLen );
+
+		for( int c = 0; c < ChannelCount; c++ )
+		{
+			ip[ c ] = in[ c ];
+
+			for( int i = 0; i < n; i++ )
+			{
+				// Planar PCM, one distinct self-generated stream per channel.
+
+				in[ c ][ i ] =
+					0.5 * std::sin(( frame + i ) * 0.131 + c * 1.7 );
+			}
+		}
+
+		// Phase selection and fractional coefficient evaluation happen once
+		// per output frame, shared by all six channels.
+
+		const int outFrames = bank.process( ip, n, op );
+
+		// op[ c ] points to internal storage valid only until the next
+		// process() or clear() call, so it is consumed immediately here.
+
+		for( int c = 0; c < ChannelCount; c++ )
+		{
+			for( int i = 0; i < outFrames; i++ )
+			{
+				const double sample = op[ c ][ i ];
+				( void ) sample; // write sample to the output stream here
+			}
+		}
+
+		frame += n;
+	}
+}
+```
+
+The internal control work is observable through
+`CDSPResamplerBank::getCounters()`, which reports the number of fractional
+phase advances, fractional polynomial coefficient evaluations and half-band
+scheduling runs. These counters are incremented where the work is performed and
+do not grow with the channel count.
+
 ## Dynamic Link Library
 
 The functions of this SRC library are also accessible in simplified form via
