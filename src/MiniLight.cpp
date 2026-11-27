@@ -54,7 +54,11 @@ const char HELP_MESSAGE[] =
 "MiniLight is a minimal global illumination renderer.\n"
 "\n"
 "usage:\n"
-"  minilight modelFilePathName\n"
+"  minilight modelFilePathName [--bidir N]\n"
+"\n"
+"With --bidir N the frame is rendered by the finite-depth bidirectional\n"
+"path tracer with at most N surface vertices per path (1 to 12). The\n"
+"scene's sky and ground environment must be black in that mode.\n"
 "\n"
 "The model text file format is:\n"
 "  #MiniLight\n"
@@ -138,11 +142,39 @@ int main
       {
          std::cout << BANNER_MESSAGE;
 
+         // parse arguments: model path plus optional "--bidir N"
+         std::string modelFilePathname;
+         int32       bidirMaxVertices = 0;
+         for( int i = 1;  i < argc;  ++i )
+         {
+            if( std::string(argv[i]) == "--bidir" )
+            {
+               if( (i + 1) >= argc )
+               {
+                  throw std::runtime_error( "--bidir needs a vertex count" );
+               }
+               bidirMaxVertices = static_cast<int32>( ::std::strtol(
+                  argv[ ++i ], 0, 10 ) );
+               if( (bidirMaxVertices < 1) | (bidirMaxVertices > 12) )
+               {
+                  throw std::runtime_error(
+                     "--bidir vertex count must be between 1 and 12" );
+               }
+            }
+            else if( modelFilePathname.empty() )
+            {
+               modelFilePathname = argv[i];
+            }
+         }
+         if( modelFilePathname.empty() )
+         {
+            std::cout << HELP_MESSAGE;
+            return EXIT_SUCCESS;
+         }
+
          // make random generator
          hxa7241_general::Random random;
 
-         // get file names
-         const std::string modelFilePathname( argv[1] );
          const std::string imageFilePathname( modelFilePathname + ".ppm" );
          // HDRI
          //const std::string imageFilePathname( modelFilePathname + ".rgbe" );
@@ -182,7 +214,14 @@ int main
             (std::cout << "\riteration: " << frameNo).flush();
 
             // render a frame
-            camera.getFrame( scene, random, image );
+            if( bidirMaxVertices > 0 )
+            {
+               camera.getFrame( scene, random, image, bidirMaxVertices );
+            }
+            else
+            {
+               camera.getFrame( scene, random, image );
+            }
 
             // save image at twice error-halving rate, and at start and end
             if( ((frameNo & (frameNo - 1)) == 0) | (iterations == frameNo) )

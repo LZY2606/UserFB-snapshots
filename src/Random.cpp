@@ -27,7 +27,7 @@ namespace
    const int32u SEED = 987654321;
 
    // minimum seeds
-   //const int32u SEED_MINS[4] = { 2, 8, 16, 128 };
+   const int32u SEED_MINS[4] = { 2, 8, 16, 128 };
 }
 
 
@@ -69,6 +69,19 @@ Random::Random()
       than 1, 7, 15, and 127 respectively. */
 
    z_m[0] = z_m[1] = z_m[2] = z_m[3] = SEED;
+}
+
+
+Random::Random
+(
+   int32u seed
+)
+{
+   /* *** VERY IMPORTANT ***
+      The initial seeds z1, z2, z3, z4  MUST be larger
+      than 1, 7, 15, and 127 respectively. */
+
+   for( int i = 4;  i--;  z_m[i] = (seed >= SEED_MINS[i]) ? seed : SEED ) {}
 }
 
 

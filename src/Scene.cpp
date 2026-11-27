@@ -133,6 +133,25 @@ Vector3f Scene::getDefaultEmission
 }
 
 
+const std::vector<Triangle>& Scene::getTriangles() const
+{
+   return triangles_m;
+}
+
+
+const std::vector<const Triangle*>& Scene::getEmitters() const
+{
+   return emitters_m;
+}
+
+
+bool Scene::isEnvironmentBlack() const
+{
+   // groundReflection_m is derived from skyEmission_m, but check both
+   return skyEmission_m.isZero() && groundReflection_m.isZero();
+}
+
+
 
 
 /// constants ------------------------------------------------------------------

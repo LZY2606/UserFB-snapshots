@@ -71,6 +71,11 @@ public:
 
            Vector3f getDefaultEmission( const Vector3f& backDirection )   const;
 
+           // read-only access used by bidirectional path tracing
+           const std::vector<Triangle>&         getTriangles()            const;
+           const std::vector<const Triangle*>&  getEmitters()             const;
+           bool     isEnvironmentBlack()                                 const;
+
 
 /// constants ------------------------------------------------------------------
    static  int32 TRIANGLES_MAX();

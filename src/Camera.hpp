@@ -60,6 +60,18 @@ public:
                            const Random&,
                            Image& )                                       const;
 
+           /**
+            * Bidirectional variant: renders one frame with
+            * Bidirectional(scene, bidirMaxVertices). The old getFrame is
+            * unchanged; this overload keeps the same per-pixel jitter
+            * consumption, while each pixel's two sub-paths use an
+            * independent Random copy.
+            */
+           void  getFrame( const Scene&,
+                           const Random&,
+                           Image&,
+                           int32          bidirMaxVertices )              const;
+
 
 /// constants ------------------------------------------------------------------
    static  real64 VIEW_ANGLE_MIN();

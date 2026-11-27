@@ -13,6 +13,7 @@
 
 #include "Random.hpp"
 #include "RayTracer.hpp"
+#include "Bidirectional.hpp"
 #include "Image.hpp"
 
 #include "Camera.hpp"
@@ -118,6 +119,59 @@ void Camera::getFrame
          // get radiance from RayTracer
          const Vector3f radiance( rayTracer.getRadiance(
             viewPosition_m, sampleDirection, random ) );
+
+         // add radiance to image
+         image_o.addToPixel( static_cast<int32>(x), static_cast<int32>(y),
+            radiance );
+      }
+   }
+}
+
+
+void Camera::getFrame
+(
+   const Scene&  scene,
+   const Random& random,
+   Image&        image_o,
+   int32         bidirMaxVertices
+) const
+{
+   const Bidirectional bidirectional( scene, bidirMaxVertices );
+
+   const real64 width  = static_cast<real64>(image_o.getWidth());
+   const real64 height = static_cast<real64>(image_o.getHeight());
+
+   // same pixel order and jitter consumption as the old getFrame; the
+   // bidirectional sub-paths of each pixel run on an independent Random copy,
+   // so this frame's stream advances exactly as the old one would
+   for( real64 y = height;  y-- > 0.0; )
+   {
+      for( real64 x = width;  x-- > 0.0; )
+      {
+         // make sample ray direction, stratified by pixels
+         Vector3f sampleDirection;
+         {
+            // make image plane XY displacement vector [-1,+1) coefficients,
+            // with sub-pixel jitter
+            const real64 xF = ((x + random.getReal64()) * 2.0 / width ) - 1.0;
+            const real64 yF = ((y + random.getReal64()) * 2.0 / height) - 1.0;
+
+            // make image plane offset vector,
+            // by scaling the view definition by the coefficients
+            const Vector3f offset( (right_m * xF) +
+               (up_m * yF * (height / width)) );
+
+            // add image offset vector to view direction
+            sampleDirection = (viewDirection_m +
+               (offset * ::tan(viewAngle_m * 0.5))).unitize();
+         }
+
+         // independent per-pixel sub-path randomness
+         Random pixelRandom( random );
+
+         // get radiance from the bidirectional tracer
+         const Vector3f radiance( bidirectional.getRadiance(
+            viewPosition_m, sampleDirection, pixelRandom ) );
 
          // add radiance to image
          image_o.addToPixel( static_cast<int32>(x), static_cast<int32>(y),

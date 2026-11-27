@@ -40,6 +40,13 @@ public:
              */
             Random();
 
+            /**
+             * Create Random object with an explicit seed.
+             * (Seeds below the component minimums fall back to the default
+             * seed, so the generator state is always valid.)
+             */
+            explicit Random( int32u seed );
+
 // use defaults
 //         ~Random();
 //          Random( const Random& );
