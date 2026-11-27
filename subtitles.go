@@ -303,12 +303,26 @@ func (c *Color) WebVTTString() string {
 		return ""
 	}
 	rgb := fmt.Sprintf("#%.6x", uint32(c.Red)<<16|uint32(c.Green)<<8|uint32(c.Blue))
+	// Every class name here is understood by newColorFromWebVTTString, so a
+	// color written this way survives a WebVTT round trip. The first group keeps
+	// the historical names used by the other formats.
 	colors := map[string]string{
 		"#00ffff": "cyan",    // narrator, thought
 		"#ffff00": "yellow",  // out of vision
 		"#ff0000": "red",     // noises
 		"#ff00ff": "magenta", // song
 		"#00ff00": "lime",    // foreign speak
+		"#000000": "black",
+		"#c0c0c0": "silver",
+		"#808080": "gray",
+		"#ffffff": "white",
+		"#800000": "maroon",
+		"#800080": "purple",
+		"#008000": "green",
+		"#808000": "olive",
+		"#000080": "navy",
+		"#0000ff": "blue",
+		"#008080": "teal",
 	}
 	return colors[rgb]
 }
@@ -847,9 +861,23 @@ func (l Line) String() string {
 // LineItem represents a formatted line item
 type LineItem struct {
 	InlineStyle *StyleAttributes
+	Ruby        *Ruby
 	StartAt     time.Duration
 	Style       *Style
 	Text        string
+}
+
+// Ruby represents the reading (annotation) paired with one or more base
+// LineItems. Consecutive LineItems sharing the same *Ruby value form a single
+// ruby pair: their Text fields, in order, are the base text, and Ruby.Text
+// holds the annotation runs. This lets a pair keep per-run colors on either
+// side while still reading back as one annotation.
+//
+// LineItem.Text and InlineStyle always describe the base text, so Line.String
+// and SRT output contain only the base. Ruby.Text is a normal []LineItem, so
+// annotation text and colors are edited through the same public fields.
+type Ruby struct {
+	Text []LineItem
 }
 
 // Add adds a duration to each time boundaries. As in the time package, duration can be negative.

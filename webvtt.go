@@ -441,36 +441,29 @@ func parseTextWebVTT(i string, sa *StyleAttributes) (o Line) {
 				sa.WebVTTTags = sa.WebVTTTags[:len(sa.WebVTTTags)-1]
 			}
 		case html.StartTagToken:
-			if matches := webVTTRegexpTag.FindStringSubmatch(string(tr.Raw())); len(matches) > 4 {
-				tagName := matches[2]
-
-				var classes []string
-				if matches[3] != "" {
-					classes = strings.Split(strings.Trim(matches[3], "."), ".")
-				}
-
-				annotation := ""
-				if matches[4] != "" {
-					annotation = strings.TrimSpace(matches[4])
-				}
-
-				if tagName == "v" {
+			tag, ok := parseWebVTTTag(string(tr.Raw()))
+			if ok {
+				if tag.Name == "v" {
 					if o.VoiceName == "" {
 						// Only get voicename of the first <v> appears in the line
-						o.VoiceName = annotation
+						o.VoiceName = tag.Annotation
 					} else {
 						// TODO: do something with other <v> instead of ignoring
-						log.Printf("astisub: found another voice name %q in %q. Ignore", annotation, i)
+						log.Printf("astisub: found another voice name %q in %q. Ignore", tag.Annotation, i)
 					}
 					continue
 				}
 
+				// Ruby is a complete closed construct with its own content model
+				// (base runs followed by <rt> annotations). Consume it here so its
+				// <rt> tags never leak into the outer tag stack.
+				if tag.Name == "ruby" {
+					o.Items = append(o.Items, parseRubyWebVTT(tr, sa)...)
+					continue
+				}
+
 				// Push the tag to stack
-				sa.WebVTTTags = append(sa.WebVTTTags, WebVTTTag{
-					Name:       tagName,
-					Classes:    classes,
-					Annotation: annotation,
-				})
+				sa.WebVTTTags = append(sa.WebVTTTags, tag)
 			}
 
 		case html.TextToken:
@@ -536,6 +529,130 @@ func parseTextWebVTTTextToken(sa *StyleAttributes, line string) (ret []LineItem)
 	}
 
 	return
+}
+
+// parseWebVTTTag parses a raw WebVTT start tag such as <c.red> or <v Bob>.
+func parseWebVTTTag(raw string) (tag WebVTTTag, ok bool) {
+	matches := webVTTRegexpTag.FindStringSubmatch(raw)
+	if len(matches) <= 4 {
+		return
+	}
+	tag.Name = matches[2]
+	if matches[3] != "" {
+		tag.Classes = strings.Split(strings.Trim(matches[3], "."), ".")
+	}
+	if matches[4] != "" {
+		tag.Annotation = strings.TrimSpace(matches[4])
+	}
+	return tag, true
+}
+
+// rubyStyleAttributes combines the surrounding tags with the tags that are
+// active inside one ruby run and converts them to style attributes.
+func rubyStyleAttributes(outer *StyleAttributes, tags []WebVTTTag) *StyleAttributes {
+	var all []WebVTTTag
+	if outer != nil {
+		all = append(all, outer.WebVTTTags...)
+	}
+	all = append(all, tags...)
+	if len(all) == 0 {
+		return nil
+	}
+	sa := &StyleAttributes{WebVTTTags: all}
+	sa.propagateWebVTTAttributes()
+	return sa
+}
+
+// parseRubyWebVTT parses the content of a <ruby> element whose start tag has
+// already been consumed. Base content (text and nested <c>/formatting runs) is
+// collected until the first <rt>; bases collected since the previous </rt>
+// pair with the reading of that <rt>. Content after the last </rt> is base
+// content without an annotation.
+//
+// A pair's base runs share one *Ruby value, which makes the pairing explicit in
+// the public model. Colors on either side live on each run's InlineStyle, so the
+// whole thing can be edited and written back as plain data.
+func parseRubyWebVTT(tr *html.Tokenizer, outer *StyleAttributes) (o []LineItem) {
+	var group []int // indexes in o of the current pair's base runs
+	var baseTags, readingTags []WebVTTTag
+	var reading []LineItem
+	var inReading bool
+
+	// flush pairs the bases seen since the previous </rt> with the reading.
+	flush := func() {
+		if len(reading) > 0 && len(group) > 0 {
+			var r = &Ruby{Text: reading}
+			for _, idx := range group {
+				o[idx].Ruby = r
+			}
+		}
+		group = nil
+		reading = nil
+		inReading = false
+		readingTags = nil
+	}
+
+	for {
+		token := tr.Next()
+		if err := tr.Err(); err != nil {
+			flush()
+			return
+		}
+
+		switch token {
+		case html.ErrorToken:
+			flush()
+			return
+		case html.StartTagToken:
+			tag, ok := parseWebVTTTag(string(tr.Raw()))
+			if !ok {
+				continue
+			}
+			if tag.Name == "rt" {
+				// A new reading starts. If one was already open, close it with
+				// the bases seen so far; otherwise the bases stay pending for
+				// this reading.
+				if inReading {
+					flush()
+				}
+				inReading = true
+				continue
+			}
+			if inReading {
+				readingTags = append(readingTags, tag)
+			} else {
+				baseTags = append(baseTags, tag)
+			}
+		case html.EndTagToken:
+			tag, _ := parseWebVTTTag(string(tr.Raw()))
+			switch {
+			case tag.Name == "ruby":
+				flush()
+				return
+			case tag.Name == "rt":
+				flush()
+			case inReading:
+				if len(readingTags) > 0 {
+					readingTags = readingTags[:len(readingTags)-1]
+				}
+			default:
+				if len(baseTags) > 0 {
+					baseTags = baseTags[:len(baseTags)-1]
+				}
+			}
+		case html.TextToken:
+			if inReading {
+				sa := rubyStyleAttributes(outer, readingTags)
+				reading = append(reading, parseTextWebVTTTextToken(sa, string(tr.Raw()))...)
+				continue
+			}
+			sa := rubyStyleAttributes(outer, baseTags)
+			for _, li := range parseTextWebVTTTextToken(sa, string(tr.Raw())) {
+				o = append(o, li)
+				group = append(group, len(o)-1)
+			}
+		}
+	}
 }
 
 // formatDurationWebVTT formats a .vtt duration
@@ -724,16 +841,46 @@ func (l Line) webVTTBytes() (c []byte) {
 		c = append(c, []byte("<v "+l.VoiceName+">")...)
 	}
 	for idx := 0; idx < len(l.Items); idx++ {
+		// A ruby pair is written as one <ruby> element: all base runs that share
+		// the *Ruby value come first, then one <rt> per annotation run.
+		if r := l.Items[idx].Ruby; r != nil {
+			start := idx
+			for idx+1 < len(l.Items) && l.Items[idx+1].Ruby == r {
+				idx++
+			}
+			c = append(c, l.rubyWebVTTBytes(l.Items[start:idx+1], r)...)
+			continue
+		}
 		var previous, next *LineItem
-		if idx > 0 {
+		// Ruby runs are written inside a self-contained <ruby> element, so they
+		// must not share open tags with their neighbors.
+		if idx > 0 && l.Items[idx-1].Ruby == nil {
 			previous = &l.Items[idx-1]
 		}
-		if idx < len(l.Items)-1 {
+		if idx < len(l.Items)-1 && l.Items[idx+1].Ruby == nil {
 			next = &l.Items[idx+1]
 		}
 		c = append(c, l.Items[idx].webVTTBytes(previous, next)...)
 	}
 	c = append(c, bytesLineSeparator...)
+	return
+}
+
+// rubyWebVTTBytes writes one ruby pair. Base runs keep their own colors; the
+// annotation is written as a single <rt> holding its runs.
+func (l Line) rubyWebVTTBytes(base []LineItem, r *Ruby) (c []byte) {
+	c = append(c, []byte("<ruby>")...)
+	for idx := range base {
+		c = append(c, base[idx].webVTTBytes(nil, nil)...)
+	}
+	if r != nil && len(r.Text) > 0 {
+		c = append(c, []byte("<rt>")...)
+		for idx := range r.Text {
+			c = append(c, r.Text[idx].webVTTBytes(nil, nil)...)
+		}
+		c = append(c, []byte("</rt>")...)
+	}
+	c = append(c, []byte("</ruby>")...)
 	return
 }
 

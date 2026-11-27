@@ -52,6 +52,52 @@ var buf = &bytes.Buffer{}
 s2.WriteToTTML(buf)
 ```
 
+# Ruby (furigana) annotations
+
+WebVTT `<ruby>`/`<rt>` and TTML `tts:ruby` are read and written through the
+regular `Line`/`LineItem` model. A pair is expressed by one `*Ruby` value shared
+by every base `LineItem` of that pair: their `Text` fields, in order, are the
+base text, and `Ruby.Text` holds the annotation runs. Base text lives in
+`LineItem.Text` and `LineItem.InlineStyle`, so `Line.String()`, SRT and the
+plain text of other formats never include the annotation.
+
+```go
+// Create a pair directly, without parsing anything.
+r := &astisub.Ruby{Text: []astisub.LineItem{{Text: "とうきょう"}}}
+sub := astisub.NewSubtitles()
+sub.Items = []*astisub.Item{{
+    StartAt: time.Second,
+    EndAt:   3 * time.Second,
+    Lines: []astisub.Line{
+        {Items: []astisub.LineItem{
+            {Text: "東", Ruby: r, InlineStyle: &astisub.StyleAttributes{TTMLColor: astisub.ColorGreen}},
+            {Text: "京", Ruby: r},
+        }},
+    },
+}}
+
+// Edit an existing pair: the reading and each run's color are normal fields.
+li := &sub.Items[0].Lines[0].Items[0]
+li.Ruby.Text = []astisub.LineItem{{Text: "Tokyo"}}
+li.InlineStyle.TTMLColor = astisub.ColorGreen
+
+// Both writers export the edits; both readers rebuild the same pairs.
+sub.WriteToTTML(w)
+sub.WriteToWebVTT(w)
+```
+
+WebVTT ruby with several colored runs per side, e.g.
+`<ruby><c.red>東</c><c.blue>京</c><rt>とうきょう</rt>駅<rt>えき</rt></ruby>`,
+is read as two pairs and written back the same way. TTML supports both a simple
+`container` holding one `base` and one `text`, and a grouped `container` with a
+`baseContainer` and a `textContainer` whose children pair by position. Inline
+`tts:color` inherits from outer to inner; when a pair has several runs they are
+written nested inside one `base`/`text` so the run boundaries and colors
+survive. Writers emit simple containers only.
+
+Not covered: double-sided ruby, ruby delimiters, line breaks inside a pair,
+timed spans and style references inside ruby.
+
 # Using the CLI
 
 If **astisub** has been installed properly you can:
