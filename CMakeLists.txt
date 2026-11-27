@@ -9,6 +9,7 @@ set(HEADERS
     renderer/core/api.h
     renderer/core/camera.h
     renderer/core/darray.h
+    renderer/core/decal.h
     renderer/core/draw2d.h
     renderer/core/graphics.h
     renderer/core/image.h
@@ -34,6 +35,7 @@ set(HEADERS
 set(SOURCES
     renderer/core/camera.c
     renderer/core/darray.c
+    renderer/core/decal.c
     renderer/core/draw2d.c
     renderer/core/graphics.c
     renderer/core/image.c

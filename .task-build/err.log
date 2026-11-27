@@ -1,0 +1,5 @@
+decal: color texture is required
+decal: singular local_to_world transform
+decal: local_to_world must be T*R*S with positive scale, no shear or reflection
+decal: local_to_world must be T*R*S with positive scale, no shear or reflection
+decals hold no state between frames

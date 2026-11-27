@@ -3,6 +3,7 @@
 
 #include "camera.h"
 #include "darray.h"
+#include "decal.h"
 #include "draw2d.h"
 #include "graphics.h"
 #include "image.h"

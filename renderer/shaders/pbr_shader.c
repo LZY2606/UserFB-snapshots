@@ -145,10 +145,17 @@ typedef struct {
     vec3_t emission;
 } material_t;
 
-static material_t get_pbrm_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
+static vec3_t get_normal_dir(pbr_varyings_t *varyings,
+                             pbr_uniforms_t *uniforms,
+                             int backface);
+
+static material_t get_pbrm_material(pbr_varyings_t *varyings,
+                                    pbr_uniforms_t *uniforms, int backface) {
     vec3_t diffuse, specular, basecolor;
     float alpha, roughness, metalness;
+    vec3_t normal_dir;
     material_t material;
+    vec2_t texcoord = varyings->texcoord;
 
     basecolor = vec3_from_vec4(uniforms->basecolor_factor);
     alpha = uniforms->basecolor_factor.w;
@@ -170,6 +177,28 @@ static material_t get_pbrm_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
         roughness *= sample.x;
     }
 
+    normal_dir = get_normal_dir(varyings, uniforms, backface);
+
+    if (uniforms->decals) {
+        decal_surface_t surface;
+        surface.basecolor = basecolor;
+        surface.normal = normal_dir;
+        surface.roughness = roughness;
+        surface.metalness = metalness;
+        /*
+         * the facing gate uses the interpolated geometric normal
+         * (varyings->world_normal), never the normal-mapped or
+         * back-face-flipped shading normal held in surface.normal
+         */
+        decal_collection_apply(uniforms->decals, varyings->world_position,
+                               varyings->world_normal, &surface);
+        basecolor = surface.basecolor;
+        roughness = surface.roughness;
+        metalness = surface.metalness;
+        normal_dir = surface.normal;
+    }
+
+    /* diffuse/specular are derived only after decal blending */
     diffuse = vec3_mul(basecolor, (1 - 0.04f) * (1 - metalness));
     specular = vec3_lerp(vec3_new(0.04f, 0.04f, 0.04f), basecolor, metalness);
 
@@ -178,6 +207,7 @@ static material_t get_pbrm_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
     material.specular = specular;
     material.alpha = alpha;
     material.roughness = roughness;
+    material.normal = normal_dir;
     return material;
 }
 
@@ -249,12 +279,15 @@ static material_t get_pixel_material(pbr_varyings_t *varyings,
     material_t material;
 
     if (uniforms->workflow == METALNESS_WORKFLOW) {
-        material = get_pbrm_material(uniforms, texcoord);
+        /*
+         * the metalness path also resolves the shading normal (and
+         * decal normal blending), so it must not be overwritten below
+         */
+        material = get_pbrm_material(varyings, uniforms, backface);
     } else {
         material = get_pbrs_material(uniforms, texcoord);
+        material.normal = get_normal_dir(varyings, uniforms, backface);
     }
-
-    material.normal = get_normal_dir(varyings, uniforms, backface);
 
     if (uniforms->occlusion_map) {
         vec4_t sample = texture_sample(uniforms->occlusion_map, texcoord);
@@ -680,4 +713,15 @@ model_t *pbrs_create_model(const char *mesh, mat4_t transform,
     uniforms->layer_view = -1;
 
     return model;
+}
+
+void pbr_set_decals(model_t *model, decal_collection_t *collection) {
+    /*
+     * the collection is borrowed: it is read-only during a draw and the
+     * model neither frees it nor clears the binding from update_model.
+     * pass NULL to unbind.
+     */
+    pbr_uniforms_t *uniforms =
+        (pbr_uniforms_t*)program_get_uniforms(model->program);
+    uniforms->decals = collection;
 }

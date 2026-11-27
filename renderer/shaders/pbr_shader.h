@@ -2,6 +2,7 @@
 #define PBR_SHADER_H
 
 #include "../core/api.h"
+#include "../core/decal.h"
 
 /* low-level api */
 
@@ -73,6 +74,8 @@ typedef struct {
     float alpha_cutoff;
     int shadow_pass;
     int layer_view;
+    /* projected decals, borrowed and read-only during a draw */
+    decal_collection_t *decals;
 } pbr_uniforms_t;
 
 vec4_t pbr_vertex_shader(void *attribs, void *varyings, void *uniforms);
@@ -123,5 +126,13 @@ model_t *pbrm_create_model(const char *mesh, mat4_t transform,
 model_t *pbrs_create_model(const char *mesh, mat4_t transform,
                            const char *skeleton, int attached,
                            pbrs_material_t *material, const char *env_name);
+
+/*
+ * binds a decal collection to a PBR model (high-level entry point).
+ * pass NULL to unbind. the collection and its textures stay owned by
+ * the caller and must remain alive while the model draws; model->update
+ * never clears this binding.
+ */
+void pbr_set_decals(model_t *model, decal_collection_t *collection);
 
 #endif
