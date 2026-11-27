@@ -192,6 +192,7 @@ class ModBaseT
 public:
   typedef MeshT Mesh;
   typedef CollapseInfoT<MeshT>                 CollapseInfo;
+  typedef typename MeshT::Point                Point;
 
   enum {
     ILLEGAL_COLLAPSE = -1, ///< indicates an illegal collapse
@@ -254,6 +255,35 @@ public: // common interface
     */
    virtual void postprocess_collapse(const CollapseInfoT<MeshT>& /* _ci */)
    {}
+
+   /** Whether this module can judge a collapse whose remaining vertex is
+    *  placed at a target position other than the classic endpoint p1.
+    *
+    *  The default is false; a module that returns true from this method
+    *  and is used as the priority module enables relocation in the
+    *  decimater.  Binary modules participating in relocation should
+    *  evaluate their constraint around CollapseInfoT::p_target.
+    */
+   virtual bool supports_relocation() const { return false; }
+
+   /** Whether this binary module can evaluate a collapse for a relocated
+    *  target position while keeping its two-endpoint semantics.
+    *
+    *  Only consulted when relocation is enabled in the decimater.  The
+    *  default is false, so arbitrary binary modules cannot be combined
+    *  with relocation.
+    */
+   virtual bool relocation_compatible() const { return false; }
+
+   /** Compute the target position of the remaining vertex for a candidate
+    *  collapse.  Only called for a non-binary priority module that
+    *  supports relocation.  The returned point must be valid for every
+    *  candidate; returning \c _ci.p1 keeps the classic behaviour.
+    */
+   virtual Point relocate(const CollapseInfoT<MeshT>& _ci)
+   {
+     return _ci.p1;
+   }
 
    /**
     * This provides a function that allows the setting of a percentage

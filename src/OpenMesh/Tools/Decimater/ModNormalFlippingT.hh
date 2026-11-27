@@ -112,15 +112,21 @@ public:
    */
   float collapse_priority(const CollapseInfo& _ci)
   {
-    // simulate collapse
-    Base::mesh().set_point(_ci.v0, _ci.p1);
+    // simulate collapse at the candidate's target position for the
+    // remaining vertex (which is _ci.p1 in classic mode)
+    Base::mesh().set_point(_ci.v0, _ci.p_target);
 
-    // check for flipping normals
-    typename Mesh::ConstVertexFaceIter vf_it(Base::mesh(), _ci.v0);
+    bool moved = (_ci.p_target - _ci.p1).sqrnorm() > 0.0;
+    if (moved)
+      Base::mesh().set_point(_ci.v1, _ci.p_target);
+
+    // check for flipping normals on all faces of both endpoints that
+    // survive the collapse
     typename Mesh::FaceHandle          fh;
     typename Mesh::Scalar              c(1.0);
 
-    for (; vf_it.is_valid(); ++vf_it)
+    typename Mesh::ConstVertexFaceIter vf_it(Base::mesh(), _ci.v0);
+    for (; vf_it.is_valid() && c >= min_cos_; ++vf_it)
     {
       fh = *vf_it;
       if (fh != _ci.fl && fh != _ci.fr)
@@ -129,17 +135,35 @@ public:
         typename Mesh::Normal n2 = Base::mesh().calc_face_normal(fh);
 
         c = dot(n1, n2);
+      }
+    }
 
-        if (c < min_cos_)
-          break;
+    if (c >= min_cos_ && _ci.relocating)
+    {
+      typename Mesh::ConstVertexFaceIter vf1_it(Base::mesh(), _ci.v1);
+      for (; vf1_it.is_valid() && c >= min_cos_; ++vf1_it)
+      {
+        fh = *vf1_it;
+        if (fh != _ci.fl && fh != _ci.fr)
+        {
+          typename Mesh::Normal n1 = Base::mesh().normal(fh);
+          typename Mesh::Normal n2 = Base::mesh().calc_face_normal(fh);
+
+          c = dot(n1, n2);
+        }
       }
     }
 
     // undo simulation changes
     Base::mesh().set_point(_ci.v0, _ci.p0);
+    if (moved)
+      Base::mesh().set_point(_ci.v1, _ci.p1);
 
     return float( (c < min_cos_) ? Base::ILLEGAL_COLLAPSE : Base::LEGAL_COLLAPSE );
   }
+
+  /// Relocation-aware binary module.
+  bool relocation_compatible() const { return true; }
 
   /// set the percentage of maximum normal deviation
   void set_error_tolerance_factor(double _factor) {

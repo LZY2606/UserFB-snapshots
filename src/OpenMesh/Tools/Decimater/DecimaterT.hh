@@ -161,6 +161,12 @@ private: //---------------------------------------------------- private methods
   /// Insert vertex in heap
   void heap_vertex(VertexHandle _vh);
 
+  /// Run the common decimation loop.  Stops when the heap is empty, the
+  /// collapse budget is exhausted, or (in face mode) the face target is
+  /// reached.  Leaves the heap in place for the caller to release.
+  size_t decimate_loop(size_t _n_collapses, bool _faces,
+                       size_t _nv, size_t _nf);
+
 private: //------------------------------------------------------- private data
 
 
@@ -174,6 +180,10 @@ private: //------------------------------------------------------- private data
   VPropHandleT<HalfedgeHandle>  collapse_target_;
   VPropHandleT<float>           priority_;
   VPropHandleT<int>             heap_position_;
+  // target position that was scored when a candidate was placed on the
+  // heap; the binary modules, the heap error and the final collapse must
+  // all agree on this position.
+  VPropHandleT<typename Mesh::Point> target_point_;
 
 };
 

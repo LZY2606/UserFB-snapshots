@@ -67,7 +67,7 @@ namespace Decimater {
 
 template<class Mesh>
 BaseDecimaterT<Mesh>::BaseDecimaterT(Mesh& _mesh) :
-    mesh_(_mesh), cmodule_(NULL), initialized_(false) {
+    mesh_(_mesh), cmodule_(NULL), initialized_(false), relocation_(false) {
   // default properties
   mesh_.request_vertex_status();
   mesh_.request_edge_status();
@@ -148,6 +148,30 @@ bool BaseDecimaterT<Mesh>::is_collapse_legal(const CollapseInfo& _ci) {
   // collapse passed all tests -> ok
   return true;
 }
+
+//-----------------------------------------------------------------------------
+
+template<class Mesh>
+void BaseDecimaterT<Mesh>::assign_target(CollapseInfo& _ci) {
+  if (relocation_ && !cmodule_->is_binary() &&
+      cmodule_->supports_relocation()) {
+    _ci.p_target = cmodule_->relocate(_ci);
+    _ci.relocating = true;
+  } else {
+    _ci.p_target = _ci.p1;
+    _ci.relocating = false;
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+template<class Mesh>
+void BaseDecimaterT<Mesh>::restore_target(CollapseInfo& _ci, const Point& _p) {
+  _ci.p_target = _p;
+  _ci.relocating = relocation_;
+}
+
+//-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
 
@@ -280,6 +304,25 @@ bool BaseDecimaterT<Mesh>::initialize() {
 
   // set pmodule as the current priority module
   cmodule_ = pmodule;
+
+  if (relocation_) {
+    // Relocation requires a non-binary priority module that can pick a
+    // target position, and every other module must accept the relocated
+    // candidate while keeping its own two-endpoint semantics.
+    if (pmodule->is_binary() || !pmodule->supports_relocation()) {
+      cmodule_ = NULL;
+      set_uninitialized();
+      return false;
+    }
+    for (ModuleListIterator m_it = all_modules_.begin(), m_end =
+        all_modules_.end(); m_it != m_end; ++m_it) {
+      if (*m_it != pmodule && !(*m_it)->relocation_compatible()) {
+        cmodule_ = NULL;
+        set_uninitialized();
+        return false;
+      }
+    }
+  }
 
   for (ModuleListIterator m_it = all_modules_.begin(), m_end =
       all_modules_.end(); m_it != m_end; ++m_it) {

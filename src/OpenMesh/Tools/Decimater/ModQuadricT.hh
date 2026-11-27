@@ -53,6 +53,7 @@
 //== INCLUDES =================================================================
 
 #include <float.h>
+#include <cmath>
 #include <OpenMesh/Tools/Decimater/ModBaseT.hh>
 #include <OpenMesh/Core/Utils/Property.hh>
 #include <OpenMesh/Core/Utils/vector_cast.hh>
@@ -81,6 +82,9 @@ public:
   // and the memberfunction name()
   DECIMATING_MODULE( ModQuadricT, MeshT, Quadric );
 
+  typedef typename Mesh::Point Point;
+  typedef typename Mesh::VertexHandle VertexHandle;
+
 public:
 
   /** Constructor
@@ -108,26 +112,59 @@ public: // inherited
 
   /** Compute collapse priority based on error quadrics.
    *
+   *  The error is evaluated at the target position carried by _ci.  In
+   *  the classic mode that is the remaining endpoint p1; with relocation
+   *  enabled it may be an unconstrained minimizer of the merged quadric.
+   *
    *  \see ModBaseT::collapse_priority() for return values
    *  \see set_max_err()
    */
   virtual float collapse_priority(const CollapseInfo& _ci)
   {
-    using namespace OpenMesh;
-
     typedef Geometry::QuadricT<double> Q;
 
     Q q = Base::mesh().property(quadrics_, _ci.v0);
     q += Base::mesh().property(quadrics_, _ci.v1);
 
-    double err = q(_ci.p1);
-
-    //min_ = std::min(err, min_);
-    //max_ = std::max(err, max_);
-
-    //double err = q( p );
+    double err = q(_ci.p_target);
 
     return float( (err < max_err_) ? err : float( Base::ILLEGAL_COLLAPSE ) );
+  }
+
+  /// Quadric-based priority modules can relocate the remaining vertex.
+  virtual bool supports_relocation() const { return true; }
+
+  /** Target position of the remaining vertex for a candidate collapse.
+   *
+   *  When relocation is disabled this is the classic endpoint p1.  When
+   *  it is enabled, an interior edge whose two endpoints are not on the
+   *  boundary, are unlocked and carry no feature flag is collapsed to the
+   *  unconstrained minimizer of the merged quadric.  If that 3x3 system is
+   *  numerically singular (relative to the largest matrix entry) or the
+   *  solution is not finite, the lowest-error of p1, p0 and their midpoint
+   *  is used, with p1 taking precedence on ties.  All other candidates are
+   *  left at p1.
+   */
+  virtual Point relocate(const CollapseInfo& _ci);
+
+  /** Compute the unconstrained minimizer of a merged quadric.
+   *
+   *  Returns the point minimizing \c _q.  If the 3x3 system is
+   *  numerically singular (its largest absolute entry is zero, or a pivot
+   *  falls below 1e-12 times that entry) or the solution is not finite,
+   *  the point with the lowest error among p1, p0 and their midpoint is
+   *  returned instead, preferring p1 on ties, then p0, then the midpoint.
+   *
+   *  This is exposed as a static helper so callers and tests can reason
+   *  about the placement independent of a particular mesh.
+   */
+  static Point optimal_position(const Geometry::QuadricT<double>& _q,
+                                const Point& _p0, const Point& _p1);
+
+  /// Read-only access to the accumulated quadric of a vertex.
+  const Geometry::QuadricT<double>& quadric(VertexHandle _vh) const
+  {
+    return const_cast<ModQuadricT*>(this)->Base::mesh().property(quadrics_, _vh);
   }
 
 

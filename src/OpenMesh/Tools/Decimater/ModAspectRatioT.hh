@@ -118,6 +118,12 @@ class ModAspectRatioT: public ModBaseT<MeshT> {
     /// update aspect ratio of one-ring
     void preprocess_collapse(const CollapseInfo& _ci);
 
+    /// refresh aspect ratio around the relocated retained vertex
+    void postprocess_collapse(const CollapseInfo& _ci);
+
+    /// Relocation-aware binary module.
+    bool relocation_compatible() const { return true; }
+
     /// set percentage of aspect ratio
     void set_error_tolerance_factor(double _factor);
 

@@ -1,0 +1,64 @@
+//-----------------------------------------------------------------------------
+
+/** \page relocation_docu Vertex Relocation during Decimation
+
+  The classic decimation modules perform a halfedge collapse that moves the
+  removed vertex onto the retained endpoint.  On curved surfaces the
+  optimal position for the merged vertex often lies somewhere between (or
+  beyond) the two endpoints, so an endpoint-only collapse cannot reach it.
+
+  \section relocation_enable Enabling relocation
+
+  OpenMesh::Decimater::BaseDecimaterT::set_relocation(bool) switches this
+  behaviour on or off.  The default is off, which preserves the original
+  calls, ordering and results exactly.  Changing the flag resets the
+  decimater; call initialize() again afterwards.
+
+  \code
+  decimater.set_relocation(true);
+  if (!decimater.initialize()) { ... }  // unsupported combination
+  \endcode
+
+  \section relocation_supported Supported configurations
+
+  Relocation is accepted only when
+
+  - the priority module is non-binary and reports
+    ModBaseT::supports_relocation() (true for
+    OpenMesh::Decimater::ModQuadricT), and
+  - every additional module reports
+    ModBaseT::relocation_compatible() (true for
+    OpenMesh::Decimater::ModNormalFlippingT and
+    OpenMesh::Decimater::ModAspectRatioT).
+
+  A binary Quadric module, an arbitrary binary module, or a custom priority
+  module without relocation support makes initialize() return false and
+  leaves the mesh untouched.
+
+  \section relocation_placement Target placement
+
+  For each candidate the priority module supplies a target position through
+  ModBaseT::relocate().  ModQuadricT places the retained vertex at the
+  unconstrained minimizer of the merged quadric when the interior edge's
+  two endpoints are not on the boundary, are unlocked and carry no feature
+  flag.  A 3x3 system is treated as numerically singular when a pivot falls
+  below 1e-12 times the largest absolute matrix entry (a zero matrix is
+  singular as well); a singular or non-finite solution falls back to the
+  lowest-error of p1, p0 and their midpoint, preferring p1, then p0, then
+  the midpoint on ties.  All other candidates stay at p1.  The max_err
+  bound is evaluated at the actual target position.
+
+  \section relocation_consistency Consistency of score and collapse
+
+  The target used to score a heap entry is stored with that entry and is
+  reused, together with the binary modules, when the entry is popped.  If
+  relocation changed the retained coordinate, the collapse applies the new
+  point before refreshing face normals and module caches, so later
+  candidates see the current geometry and the merged quadric.  A trial
+  evaluation never leaves coordinates, normals or cached values modified.
+
+  \section relocation_example Example
+
+  \include relocation.cc
+
+*/

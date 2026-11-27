@@ -89,5 +89,11 @@
 
 \include decimater.cc
 
+  \section DecimaterReloc Vertex relocation
+
+  Optionally the retained vertex may be placed away from either endpoint.
+  This is disabled by default.  See \ref relocation_docu for the supported
+  module combinations, the target-position rules and an example.
+
 */
 

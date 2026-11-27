@@ -76,6 +76,7 @@ DecimaterT<Mesh>::DecimaterT(Mesh& _mesh) :
   mesh_.add_property(collapse_target_);
   mesh_.add_property(priority_);
   mesh_.add_property(heap_position_);
+  mesh_.add_property(target_point_);
 }
 
 //-----------------------------------------------------------------------------
@@ -87,6 +88,7 @@ DecimaterT<Mesh>::~DecimaterT() {
   mesh_.remove_property(collapse_target_);
   mesh_.remove_property(priority_);
   mesh_.remove_property(heap_position_);
+  mesh_.remove_property(target_point_);
 
 }
 
@@ -106,10 +108,12 @@ void DecimaterT<Mesh>::heap_vertex(VertexHandle _vh) {
     CollapseInfo ci(mesh_, heh);
 
     if (this->is_collapse_legal(ci)) {
+      this->assign_target(ci);
       prio = this->collapse_priority(ci);
       if (prio >= 0.0 && prio < best_prio) {
         best_prio = prio;
         collapse_target = heh;
+        mesh_.property(target_point_, _vh) = ci.p_target;
       }
     }
   }
@@ -144,81 +148,17 @@ size_t DecimaterT<Mesh>::decimate(size_t _n_collapses) {
   if (!this->is_initialized())
     return 0;
 
-  typename Mesh::VertexIter v_it, v_end(mesh_.vertices_end());
-  typename Mesh::VertexHandle vp;
-  typename Mesh::HalfedgeHandle v0v1;
-  typename Mesh::VertexVertexIter vv_it;
-  typename Mesh::VertexFaceIter vf_it;
-  unsigned int n_collapses(0);
-
-  typedef std::vector<typename Mesh::VertexHandle> Support;
-  typedef typename Support::iterator SupportIterator;
-
-  Support support(15);
-  SupportIterator s_it, s_end;
-
   // check _n_collapses
   if (!_n_collapses)
     _n_collapses = mesh_.n_vertices();
 
-  // initialize heap
-  HeapInterface HI(mesh_, priority_, heap_position_);
-  heap_ = std::auto_ptr<DeciHeap>(new DeciHeap(HI));
-  heap_->reserve(mesh_.n_vertices());
-
-  for (v_it = mesh_.vertices_begin(); v_it != v_end; ++v_it) {
-    heap_->reset_heap_position(*v_it);
-    if (!mesh_.status(*v_it).deleted())
-      heap_vertex(*v_it);
-  }
-
-  // process heap
-  while ((!heap_->empty()) && (n_collapses < _n_collapses)) {
-    // get 1st heap entry
-    vp = heap_->front();
-    v0v1 = mesh_.property(collapse_target_, vp);
-    heap_->pop_front();
-
-    // setup collapse info
-    CollapseInfo ci(mesh_, v0v1);
-
-    // check topological correctness AGAIN !
-    if (!this->is_collapse_legal(ci))
-      continue;
-
-    // store support (= one ring of *vp)
-    vv_it = mesh_.vv_iter(ci.v0);
-    support.clear();
-    for (; vv_it.is_valid(); ++vv_it)
-      support.push_back(*vv_it);
-
-    // perform collapse
-    mesh_.collapse(v0v1);
-    ++n_collapses;
-
-    // update triangle normals
-    vf_it = mesh_.vf_iter(ci.v1);
-    for (; vf_it.is_valid(); ++vf_it)
-      if (!mesh_.status(*vf_it).deleted())
-        mesh_.set_normal(*vf_it, mesh_.calc_face_normal(*vf_it));
-
-    // post-process collapse
-    this->postprocess_collapse(ci);
-
-    // update heap (former one ring of decimated vertex)
-    for (s_it = support.begin(), s_end = support.end(); s_it != s_end; ++s_it) {
-      assert(!mesh_.status(*s_it).deleted());
-      heap_vertex(*s_it);
-    }
-  }
+  size_t result = decimate_loop(_n_collapses, false, 0, 0);
 
   // delete heap
   heap_.reset();
 
-
-
   // DON'T do garbage collection here! It's up to the application.
-  return n_collapses;
+  return result;
 }
 
 //-----------------------------------------------------------------------------
@@ -232,14 +172,31 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
   if (_nv >= mesh_.n_vertices() || _nf >= mesh_.n_faces())
     return 0;
 
+  size_t result = decimate_loop(0, true, _nv, _nf);
+
+  // delete heap
+  heap_.reset();
+
+  // DON'T do garbage collection here! It's up to the application.
+  return result;
+}
+
+//-----------------------------------------------------------------------------
+
+template<class Mesh>
+size_t DecimaterT<Mesh>::decimate_loop(size_t _n_collapses, bool _faces,
+                                       size_t _nv, size_t _nf) {
+
   typename Mesh::VertexIter v_it, v_end(mesh_.vertices_end());
   typename Mesh::VertexHandle vp;
   typename Mesh::HalfedgeHandle v0v1;
   typename Mesh::VertexVertexIter vv_it;
   typename Mesh::VertexFaceIter vf_it;
+  unsigned int n_collapses(0);
+  // Current live counts for the face-target loop; the requested targets
+  // themselves are _nv/_nf.
   size_t nv = mesh_.n_vertices();
   size_t nf = mesh_.n_faces();
-  unsigned int n_collapses = 0;
 
   typedef std::vector<typename Mesh::VertexHandle> Support;
   typedef typename Support::iterator SupportIterator;
@@ -259,7 +216,10 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
   }
 
   // process heap
-  while ((!heap_->empty()) && (_nv < nv) && (_nf < nf)) {
+  while (!heap_->empty()) {
+    if (_faces ? !(_nv < nv && _nf < nf) : !(n_collapses < _n_collapses))
+      break;
+
     // get 1st heap entry
     vp = heap_->front();
     v0v1 = mesh_.property(collapse_target_, vp);
@@ -272,25 +232,71 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
     if (!this->is_collapse_legal(ci))
       continue;
 
+    typename Mesh::Point target;
+    bool moved = false;
+    if (this->relocation()) {
+      // Use the very position that was scored when this candidate entered
+      // the heap.  Re-deriving it from the current mesh could disagree
+      // with the stored error and the binary modules.
+      target = mesh_.property(target_point_, vp);
+      this->restore_target(ci, target);
+      moved = (target - ci.p1).sqrnorm() > 0.0;
+
+      // The candidate may have become invalid while it sat on the heap.
+      // Re-run the modules against the same stored target position; this
+      // keeps the binary constraints and max_err checks consistent with
+      // the error that was used for ordering.
+      if (this->collapse_priority(ci) < 0.0)
+        continue;
+    }
+
     // store support (= one ring of *vp)
     vv_it = mesh_.vv_iter(ci.v0);
     support.clear();
     for (; vv_it.is_valid(); ++vv_it)
       support.push_back(*vv_it);
 
-    // adjust complexity in advance (need boundary status)
-    ++n_collapses;
-    --nv;
-    if (mesh_.is_boundary(ci.v0v1) || mesh_.is_boundary(ci.v1v0))
-      --nf;
-    else
-      nf -= 2;
+    // Moving the retained vertex also changes the faces on its other
+    // side; their candidates must be re-evaluated as well.  The retained
+    // vertex itself is re-queued too because its own position changed.
+    if (moved) {
+      support.push_back(ci.v1);
+      vv_it = mesh_.vv_iter(ci.v1);
+      for (; vv_it.is_valid(); ++vv_it) {
+        if (*vv_it != ci.v0)
+          support.push_back(*vv_it);
+      }
+    }
 
-    // pre-processing
-    this->preprocess_collapse(ci);
+    if (_faces) {
+      // adjust complexity in advance (need boundary status)
+      ++n_collapses;
+      --nv;
+      if (mesh_.is_boundary(ci.v0v1) || mesh_.is_boundary(ci.v1v0))
+        --nf;
+      else
+        nf -= 2;
+
+      // pre-processing
+      this->preprocess_collapse(ci);
+    } else {
+      if (this->relocation())
+        this->preprocess_collapse(ci);
+      ++n_collapses;
+    }
 
     // perform collapse
     mesh_.collapse(v0v1);
+
+    // apply the target position of the retained vertex before normals
+    // and module caches are refreshed
+    if (this->relocation() && moved) {
+      mesh_.set_point(ci.v1, target);
+      ci.p_target = target;
+      ci.relocating = true;
+    } else if (this->relocation()) {
+      ci.relocating = true;
+    }
 
     // update triangle normals
     vf_it = mesh_.vf_iter(ci.v1);
@@ -307,10 +313,6 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
       heap_vertex(*s_it);
     }
   }
-
-  // delete heap
-  heap_.reset();
-
 
   // DON'T do garbage collection here! It's up to the application.
   return n_collapses;

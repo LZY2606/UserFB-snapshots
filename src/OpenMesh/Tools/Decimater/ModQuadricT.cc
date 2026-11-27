@@ -55,6 +55,9 @@
 
 #include <OpenMesh/Tools/Decimater/ModQuadricT.hh>
 
+#include <algorithm>
+#include <cmath>
+
 
 //== NAMESPACE ===============================================================
 
@@ -144,6 +147,115 @@ void ModQuadricT<MeshT>::set_error_tolerance_factor(double _factor) {
       initialize();
     }
   }
+}
+
+//-----------------------------------------------------------------------------
+
+template<class MeshT>
+typename ModQuadricT<MeshT>::Point
+ModQuadricT<MeshT>::
+optimal_position(const Geometry::QuadricT<double>& _q,
+                 const Point& _p0, const Point& _p1)
+{
+  // The 3x3 block of the quadric is the symmetric matrix A below, the
+  // linear part is b.
+  const Geometry::QuadricT<double>& q = _q;
+
+  const double A[3][3] = {
+    { q.a(), q.b(), q.c() },
+    { q.b(), q.e(), q.f() },
+    { q.c(), q.f(), q.h() }
+  };
+  const double b[3] = { -q.d(), -q.g(), -q.i() };
+
+  // Relative singularity threshold: 1e-12 times the largest absolute
+  // entry of the matrix.  A zero matrix is singular as well.
+  double scale = 0.0;
+  for (int r = 0; r < 3; ++r)
+    for (int c = 0; c < 3; ++c)
+      scale = std::max(scale, std::fabs(A[r][c]));
+  const double threshold = 1e-12 * scale;
+
+  // Gaussian elimination with partial pivoting on the 3x3 system A x = b.
+  double m[3][4] = {
+    { A[0][0], A[0][1], A[0][2], b[0] },
+    { A[1][0], A[1][1], A[1][2], b[1] },
+    { A[2][0], A[2][1], A[2][2], b[2] }
+  };
+  bool singular = scale == 0.0;
+  for (int c = 0; c < 3 && !singular; ++c) {
+    int pivot = c;
+    for (int r = c + 1; r < 3; ++r)
+      if (std::fabs(m[r][c]) > std::fabs(m[pivot][c]))
+        pivot = r;
+    if (std::fabs(m[pivot][c]) <= threshold) {
+      singular = true;
+      break;
+    }
+    if (pivot != c)
+      for (int k = c; k < 4; ++k) {
+        double t = m[c][k]; m[c][k] = m[pivot][k]; m[pivot][k] = t;
+      }
+    for (int r = c + 1; r < 3; ++r) {
+      double f = m[r][c] / m[c][c];
+      for (int k = c; k < 4; ++k)
+        m[r][k] -= f * m[c][k];
+    }
+  }
+
+  Point solution;
+  bool finite = !singular;
+  if (finite) {
+    double x[3];
+    for (int r = 2; r >= 0; --r) {
+      double rhs = m[r][3];
+      for (int k = r + 1; k < 3; ++k)
+        rhs -= m[r][k] * x[k];
+      x[r] = rhs / m[r][r];
+      finite = finite && std::isfinite(x[r]);
+    }
+    if (finite)
+      solution = Point(x[0], x[1], x[2]);
+  }
+
+  if (finite)
+    return solution;
+
+  // Singular or non-finite: fall back to the lowest error among p1, p0 and
+  // their midpoint.  Ties prefer p1, then p0, then the midpoint.
+  const Point midpoint = (_p0 + _p1) * 0.5;
+  Point best = _p1;
+  double best_err = q(_p1);
+  double err = q(_p0);
+  if (err < best_err) { best_err = err; best = _p0; }
+  err = q(midpoint);
+  if (err < best_err) { best = midpoint; }
+  return best;
+}
+
+//-----------------------------------------------------------------------------
+
+template<class MeshT>
+typename ModQuadricT<MeshT>::Point
+ModQuadricT<MeshT>::
+relocate(const CollapseInfo& _ci)
+{
+  typedef Geometry::QuadricT<double> Q;
+  typedef typename Mesh::Point Point;
+
+  const Mesh& mesh = Base::mesh();
+
+  // Only interior edges between two non-boundary, unlocked, non-feature
+  // vertices may move the remaining vertex away from its endpoint.
+  if (mesh.is_boundary(_ci.v0) || mesh.is_boundary(_ci.v1) ||
+      mesh.status(_ci.v0).locked() || mesh.status(_ci.v1).locked() ||
+      mesh.status(_ci.v0).feature() || mesh.status(_ci.v1).feature() ||
+      mesh.is_boundary(_ci.v0v1) || mesh.is_boundary(_ci.v1v0))
+    return _ci.p1;
+
+  Q q = mesh.property(quadrics_, _ci.v0);
+  q += mesh.property(quadrics_, _ci.v1);
+  return optimal_position(q, _ci.p0, _ci.p1);
 }
 
 //=============================================================================

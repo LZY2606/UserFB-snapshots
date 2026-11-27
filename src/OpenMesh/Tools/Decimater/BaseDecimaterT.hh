@@ -89,6 +89,7 @@ public: //-------------------------------------------------------- public types
   typedef ModBaseT<MeshT>                Module;
   typedef std::vector< Module* >        ModuleList;
   typedef typename ModuleList::iterator ModuleListIterator;
+  typedef typename MeshT::Point          Point;
 
 public: //------------------------------------------------------ public methods
   BaseDecimaterT(Mesh& _mesh);
@@ -106,6 +107,33 @@ public: //------------------------------------------------------ public methods
 
   /// Returns whether decimater has been successfully initialized.
   bool is_initialized() const { return initialized_; }
+
+
+  /** Enable or disable relocation of the remaining vertex during a
+      collapse.
+
+      When relocation is enabled the priority module may choose a target
+      position for the remaining vertex that is independent of the two
+      original endpoints.  Only a non-binary priority module that reports
+      supports_relocation() is accepted, and all additional modules must
+      report relocation_compatible().  Otherwise initialize() fails and
+      leaves the mesh untouched.  The default is disabled, which preserves
+      the classic endpoint-only behaviour.
+
+      Changing this setting resets the initialization; call initialize()
+      again afterwards.
+   */
+  void set_relocation(bool _enable)
+  {
+    if (relocation_ != _enable) {
+      relocation_ = _enable;
+      set_uninitialized();
+    }
+  }
+
+  /// Returns whether relocation is enabled.
+  bool relocation() const { return relocation_; }
+
 
 
   /// Print information about modules to _os
@@ -190,6 +218,13 @@ protected: //---------------------------------------------------- private method
   ///            the bit will be disabled!
   bool is_collapse_legal(const CollapseInfo& _ci);
 
+  /// Fill CollapseInfoT::p_target for a candidate according to the
+  /// current relocation setting and the priority module.
+  void assign_target(CollapseInfo& _ci);
+
+  /// Restore the target position that a heap candidate was scored with.
+  void restore_target(CollapseInfo& _ci, const Point& _p);
+
   /// Calculate priority of an halfedge collapse (using the modules)
   float collapse_priority(const CollapseInfo& _ci);
 
@@ -233,6 +268,9 @@ private: //------------------------------------------------------- private data
 
   // Flag if all modules were initialized
   bool       initialized_;
+
+  // Flag if the remaining vertex may be relocated during collapses
+  bool       relocation_;
 
 
 };

@@ -129,10 +129,37 @@ void ModAspectRatioT<MeshT>::preprocess_collapse(const CollapseInfo& _ci) {
 //-----------------------------------------------------------------------------
 
 template<class MeshT>
+void ModAspectRatioT<MeshT>::postprocess_collapse(const CollapseInfo& _ci) {
+  // Only the relocation flow repositions the retained vertex; in classic
+  // mode leave the cache updates exactly as before.
+  if (!_ci.relocating)
+    return;
+
+  // The retained vertex may have moved; refresh the faces around it that
+  // survived the collapse so later candidates see the current geometry.
+  typename Mesh::FaceHandle fh;
+  typename Mesh::FVIter fv_it;
+
+  for (typename Mesh::VFIter vf_it = mesh_.vf_iter(_ci.v1); vf_it.is_valid(); ++vf_it) {
+    fh = *vf_it;
+    if (fh != _ci.fl && fh != _ci.fr) {
+      fv_it = mesh_.fv_iter(fh);
+      typename Mesh::Point& p0 = mesh_.point(*fv_it);
+      typename Mesh::Point& p1 = mesh_.point(*(++fv_it));
+      typename Mesh::Point& p2 = mesh_.point(*(++fv_it));
+
+      mesh_.property(aspect_, fh) = 1.0 / aspectRatio(p0, p1, p2);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+template<class MeshT>
 float ModAspectRatioT<MeshT>::collapse_priority(const CollapseInfo& _ci) {
   typename Mesh::VertexHandle v2, v3;
   typename Mesh::FaceHandle fh;
-  const typename Mesh::Point *p1(&_ci.p1), *p2, *p3;
+  const typename Mesh::Point *p1(&_ci.p_target), *p2, *p3;
   typename Mesh::Scalar r0, r1, r0_min(1.0), r1_min(1.0);
   typename Mesh::ConstVertexOHalfedgeIter voh_it(mesh_, _ci.v0);
 
@@ -159,6 +186,33 @@ float ModAspectRatioT<MeshT>::collapse_priority(const CollapseInfo& _ci) {
       if (!(v2 == _ci.v1 || v3 == _ci.v1))
         if ((r1 = 1.0 / aspectRatio(*p1, *p2, *p3)) < r1_min)
           r1_min = r1;
+    }
+  }
+
+  // With relocation the retained vertex may have moved; the faces on its
+  // side also change.  Evaluate the same two-endpoint rule on the union
+  // of faces around v0 and v1.
+  if (_ci.relocating) {
+    typename Mesh::ConstVertexFaceIter vf_it(mesh_, _ci.v1);
+    for (; vf_it.is_valid(); ++vf_it) {
+      fh = *vf_it;
+      if (fh == _ci.fl || fh == _ci.fr)
+        continue;
+
+      // aspect before
+      if ((r0 = mesh_.property(aspect_, fh)) < r0_min)
+        r0_min = r0;
+
+      // aspect after, replacing v0 and v1 by the target position
+      typename Mesh::Point p_after[3];
+      typename Mesh::ConstFaceVertexIter fv_it = mesh_.cfv_iter(fh);
+      int k = 0;
+      for (; fv_it.is_valid(); ++fv_it, ++k) {
+        typename Mesh::VertexHandle vh = *fv_it;
+        p_after[k] = (vh == _ci.v0 || vh == _ci.v1) ? *p1 : mesh_.point(vh);
+      }
+      if ((r1 = 1.0 / aspectRatio(p_after[0], p_after[1], p_after[2])) < r1_min)
+        r1_min = r1;
     }
   }
 

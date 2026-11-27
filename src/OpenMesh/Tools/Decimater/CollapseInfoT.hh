@@ -91,6 +91,12 @@ struct CollapseInfoT {
     typename Mesh::VertexHandle v1; ///< Remaining vertex
     typename Mesh::Point p0; ///< Position of removed vertex
     typename Mesh::Point p1; ///< Positions of remaining vertex
+    /// Target position of the remaining vertex for this candidate.  It
+    /// defaults to p1, i.e. the classic endpoint-only collapse.
+    typename Mesh::Point p_target;
+    /// True if p_target may differ from p1 and modules should evaluate
+    /// the candidate around this target position.
+    bool relocating;
     typename Mesh::FaceHandle fl; ///< Left face
     typename Mesh::FaceHandle fr; ///< Right face
     typename Mesh::VertexHandle vl; ///< Left vertex
@@ -129,8 +135,8 @@ inline CollapseInfoT<Mesh>::CollapseInfoT(Mesh& _mesh,
     typename Mesh::HalfedgeHandle _heh) :
     mesh(_mesh), v0v1(_heh), v1v0(_mesh.opposite_halfedge_handle(v0v1)), v0(
         _mesh.to_vertex_handle(v1v0)), v1(_mesh.to_vertex_handle(v0v1)), p0(
-        _mesh.point(v0)), p1(_mesh.point(v1)), fl(_mesh.face_handle(v0v1)), fr(
-        _mesh.face_handle(v1v0))
+        _mesh.point(v0)), p1(_mesh.point(v1)), p_target(p1), relocating(false),
+        fl(_mesh.face_handle(v0v1)), fr(_mesh.face_handle(v1v0))
 
 {
   // get vl
