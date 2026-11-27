@@ -139,6 +139,53 @@ The formant correction is not a sharp as monophonic algorithms (such such as PSO
 stretch.setFormantBase(200/sampleRate);
 ```
 
+## Multi-voice harmonizer
+
+When the same input becomes several harmonised voices (each sent to its own pan/mix bus), running several independent `SignalsmithStretch` instances repeats the same forward analysis once per voice.  `SignalsmithHarmonizer` shares that analysis:
+
+```cpp
+#include "signalsmith-harmonizer.h"
+
+signalsmith::stretch::SignalsmithHarmonizer<float> harmonizer(seed);
+// channels, voices, window, hop, split-computation flag
+harmonizer.configure(2, 4, 512, 128, /*splitComputation=*/false);
+
+// Every voice starts at transpose 1, formant 1, compensation off.
+harmonizer.setVoice(0, 1.0,  1.0,  false);
+harmonizer.setVoice(1, 1.25, 1.05, true);
+// ...
+harmonizer.setFormantBase(120.0f/sampleRate); // shared formant base
+```
+
+`process()` takes planar input with `channels` planes and planar output with `voices*channels` planes: voice `v`, channel `c` lands in `outputs[v*channels + c]`.  These are the per-voice signals *before* any mixing — no limiting or normalisation is applied, so you keep full control of gain and pan downstream.
+
+The shared work is the forward STFT only: for a given input position the current spectrum (and, when needed, the previous-time re-analysis) is computed once per channel, regardless of voice count.  Each voice keeps its own private frequency map, peak targets, phase predictions, formant-corrected energies and overlap-add history, so a voice's energy correction can never leak into another, and voices are not treated as extra channels of a single signal.  With static settings each voice is numerically identical to a standalone `SignalsmithStretch` configured with the same seed/window/mode.
+
+### Latency
+
+`inputLatency()` / `outputLatency()` match a standalone stretcher with the same configuration.  In split-computation mode the output latency still includes the extra one interval of delay, and the per-hop work (including every voice) is spread across the output interval rather than computed all at once and delayed.
+
+### Automation latching
+
+`setVoice()` and `setFormantBase()` are called between `process()` calls.  All pending settings are latched together once, at the start of each new synthesis hop:
+
+* the hop currently being computed (including a half-finished hop in split mode) always completes with the old, latched settings;
+* repeated calls before the next hop collapse to the last value, so a hop never mixes an old pitch map with a new phase prediction;
+* changing one voice never resets the others, nor clears that voice's own phase/tail history.
+
+### Seeking, flush and reset
+
+`seek()`, `flush()` and `reset()` follow the same semantics and finite-sound trimming rules as `SignalsmithStretch`.  The shared input advances exactly once on a `seek()`, and `reset()` clears all history (shared analysis and every voice's private state) while keeping the configuration and current voice settings.  After `configure()`, all workspaces are fixed-size: `process()`/`seek()`/`flush()`/`reset()` perform no heap allocation.
+
+### Example
+
+`examples/harmonizer-example.cpp` generates a short voice-like tone, runs three voices through one shared analysis, and mixes them with per-voice gains and equal-power pan into a stereo 16-bit WAV:
+
+```sh
+c++ -std=c++11 -O2 -I. -Ivendor/linear/include examples/harmonizer-example.cpp -o harmonizer-example
+./harmonizer-example harmonizer.wav
+```
+
 ## Compiling
 
 ⚠️ This has mostly been tested with AppleClang (Mac), and MSVC (Windows).  We aim to support other compilers though, so please get in touch if you have any problems.
