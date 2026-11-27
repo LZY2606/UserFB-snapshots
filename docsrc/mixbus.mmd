@@ -184,10 +184,54 @@ Setting the resampler does not change the resampler other busses or the main mix
     gMusicBus.setResampler(SoLoud::Soloud::RESAMPLER_POINT);
 
     
+### Bus sidechain compression (Soloud.setBusDucker)
+
+`Soloud.setBusDucker(target, detector, threshold, ratio, attack, release)`
+adds a sample-accurate sidechain compressor to a target bus, driven by
+another bus. The older DuckFilter, which bases its decision on the
+detector bus' visualization peak, remains available and is unchanged.
+
+The detector signal is the detector bus' PCM for the current frame, sampled
+*after* the detector has:
+
+1. mixed its child sound sources (and child busses),
+2. run its own filters, and
+3. applied its own sidechain compression,
+
+but *before* its parent bus applies the detector's own volume and pan.
+Consequently a detector bus with volume zero (or one with visualization
+disabled) still provides a control signal; being listened to never plays
+the bus a second time.
+
+For every output frame the detector's level `A` is the largest absolute
+sample over its channels. While `A` does not exceed the threshold the
+target gain is one; otherwise the target gain is
+
+    (threshold / A) ^ (1 - 1 / ratio)
+
+The gain follows the target one sample at a time in the natural log domain.
+When the target log gain is below the previous value the attack time
+constant is used, otherwise the release time constant is used:
+
+    coefficient = exp(-1 / (sampleRate * time))   // zero time -> coefficient 0
+    logGain     = coefficient * oldLogGain
+                  + (1 - coefficient) * targetLogGain
+    gain        = exp(logGain)
+
+The same gain multiplies every channel of the target bus. The target's own
+filters run before its compression.
+
+One detector bus may control several targets, and a bus may itself be a
+detector (so chains of duckers are possible). The detector's PCM, filter
+state and child source read positions are memoized per audio block: the
+audible route and every listener share the same computed result, so each
+source block is consumed exactly once whether the output is requested as one
+large mix() or as many small ones. If the detector bus stops, subsequent
+frames are detected as silence and the envelope releases normally.
+
 ### Inherited 3d audio interfaces
 
 Like all other audio sources, the bus inherits the 3d audio interfaces. Please refer to the 3d audio chapter for details on:
-
 - Bus.set3dMinMaxDistance()
 - Bus.set3dAttenuation()
 - Bus.set3dDopplerFactor()

@@ -198,6 +198,8 @@ namespace SoLoud
 		virtual result rewind();
 		// Get information. Returns 0 by default.
 		virtual float getInfo(unsigned int aInfoKey);
+		// True for BusInstance. Lets the sidechain machinery identify busses without RTTI.
+		virtual bool isBusInstance();
 	};
 
 	class Soloud;

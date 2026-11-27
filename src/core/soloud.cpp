@@ -148,6 +148,19 @@ namespace SoLoud
 		{
 			mVoice[i] = 0;
 		}
+		for (i = 0; i < VOICE_COUNT; i++)
+		{
+			mBusDucker[i].mActive = false;
+			mBusDucker[i].mTarget = 0;
+			mBusDucker[i].mDetector = 0;
+			mBusDucker[i].mThreshold = 0;
+			mBusDucker[i].mRatio = 1;
+			mBusDucker[i].mAttackCoeff = 0;
+			mBusDucker[i].mReleaseCoeff = 0;
+			mBusDucker[i].mLogGain = 0;
+		}
+		mMixStarted = false;
+		mSidechainActive = false;
 		mVoiceGroup = 0;
 		mVoiceGroupCount = 0;
 
@@ -609,6 +622,7 @@ namespace SoLoud
 			mResampleDataOwner[i] = NULL;
 		mFlags = aFlags;
 		mPostClipScaler = 0.95f;
+		resetSidechainPlans_internal();
 		switch (mChannels)
 		{
 		case 1:
@@ -1700,17 +1714,23 @@ namespace SoLoud
 					
 						// Run the per-stream filters to get our source data
 
-						for (j = 0; j < FILTERS_PER_STREAM; j++)
+						// In sidechain mode bus filters are applied by the memoized
+						// block builder (after the bus' own child mix); skip them here
+						// so they run exactly once.
+						if (!(mSidechainActive && voice->isBusInstance()))
 						{
-							if (voice->mFilter[j])
+							for (j = 0; j < FILTERS_PER_STREAM; j++)
 							{
-								voice->mFilter[j]->filter(
-									voice->mResampleData[0],
-									SAMPLE_GRANULARITY,
-									SAMPLE_GRANULARITY,
-									voice->mChannels,
-									voice->mSamplerate,
-									mStreamTime);
+								if (voice->mFilter[j])
+								{
+									voice->mFilter[j]->filter(
+										voice->mResampleData[0],
+										SAMPLE_GRANULARITY,
+										SAMPLE_GRANULARITY,
+										voice->mChannels,
+										voice->mSamplerate,
+										mStreamTime);
+								}
 							}
 						}
 					}
@@ -2125,6 +2145,9 @@ namespace SoLoud
 
 		lockAudioMutex_internal();
 
+		// Sidechain configuration is only accepted before the first mix.
+		mMixStarted = true;
+
 		// Process faders. May change scratch size.
 		int i;
 		for (i = 0; i < (signed)mHighestVoice; i++)
@@ -2192,8 +2215,29 @@ namespace SoLoud
 
 		if (mActiveVoiceDirty)
 			calcActiveVoices_internal();
-	
-		mixBus_internal(mOutputScratch.mData, aSamples, aStride, mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler);
+
+		if (mSidechainActive)
+		{
+			// Advance every root voice one SAMPLE_GRANULARITY block at a time, so
+			// all busses stay on the same global audio block. A detector block is
+			// therefore still cached when its target block is built in the same
+			// pass, and every source block is consumed exactly once regardless of
+			// how the requested frame count is split across mix() calls.
+			unsigned int produced = 0;
+			while (produced < aSamples)
+			{
+				unsigned int chunk = aSamples - produced;
+				if (chunk > SAMPLE_GRANULARITY)
+					chunk = SAMPLE_GRANULARITY;
+				mixBus_internal(mOutputScratch.mData + produced, chunk, aStride,
+					mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler);
+				produced += chunk;
+			}
+		}
+		else
+		{
+			mixBus_internal(mOutputScratch.mData, aSamples, aStride, mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler);
+		}
 
 		for (i = 0; i < FILTERS_PER_STREAM; i++)
 		{

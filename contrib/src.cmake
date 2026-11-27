@@ -66,6 +66,7 @@ set (CORE_SOURCES
 	${CORE_PATH}/soloud_filter.cpp
 	${CORE_PATH}/soloud_misc.cpp
 	${CORE_PATH}/soloud_queue.cpp
+	${CORE_PATH}/soloud_sidechain.cpp
 	${CORE_PATH}/soloud_thread.cpp
 )
 

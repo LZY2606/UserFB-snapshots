@@ -335,6 +335,7 @@ sources = [
 "src/core/soloud_file.cpp",
 "src/core/soloud_filter.cpp",
 "src/core/soloud_queue.cpp",
+"src/core/soloud_sidechain.cpp",
 "src/core/soloud_thread.cpp",
 "src/c_api/soloud.def",
 "src/c_api/soloud_c.cpp",

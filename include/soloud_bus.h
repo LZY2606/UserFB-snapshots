@@ -38,6 +38,17 @@ namespace SoLoud
 		unsigned int mScratchSize;
 		AlignedFloatBuffer mScratch;
 
+		// Sidechain support: memoized post-filter, post-sidechain output blocks.
+		// Each entry holds SAMPLE_GRANULARITY frames * mChannels floats, produced
+		// once and shared by the audible route and every bus listening to this bus.
+		AlignedFloatBuffer mSidechainCache[2];
+		// Block index stored in each cache slot; UINT_MAX means the slot is empty.
+		unsigned int mSidechainCacheBlock[2];
+		// Number of SAMPLE_GRANULARITY-sized blocks this bus has produced so far.
+		unsigned int mSidechainBlockCounter;
+		// Next unread frame inside the current cached block.
+		unsigned int mSidechainReadOffset;
+
 		// Approximate volume for channels.
 		float mVisualizationChannelVolume[MAX_CHANNELS];
 		// Mono-mixed wave data for visualization and for visualization FFT input
@@ -46,6 +57,7 @@ namespace SoLoud
 		BusInstance(Bus *aParent);
 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize);
 		virtual bool hasEnded();
+		virtual bool isBusInstance();
 		virtual ~BusInstance();
 	};
 

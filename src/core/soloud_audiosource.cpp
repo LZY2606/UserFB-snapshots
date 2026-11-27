@@ -348,6 +348,11 @@ namespace SoLoud
 	    return 0;
 	}
 
+	bool AudioSourceInstance::isBusInstance()
+	{
+		return false;
+	}
+
 
 };
 

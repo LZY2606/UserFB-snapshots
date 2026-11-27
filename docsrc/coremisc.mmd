@@ -77,6 +77,46 @@ Setting the global filter to NULL will clear the global filter. The
 default maximum number of global filters active is 4, but this can be
 changed in a global constant in soloud.h (and rebuilding SoLoud).
 
+### Soloud.setBusDucker()
+
+Configures a sample-accurate sidechain compressor ("ducker") between two
+live mixing busses.
+
+    result r = soloud.setBusDucker(musicBus, voiceBus,
+                                   0.3f,  // threshold
+                                   4.0f,  // ratio
+                                   0.002f,// attack seconds
+                                   0.005f);// release seconds
+
+Both handles must resolve, in this engine instance, to a single currently
+playing Bus voice. A plain sound source, a voice group, a stale handle and
+the bus' own handle are all rejected with INVALID_PARAMETER. Each target
+bus has at most one detector; calling setBusDucker() again on the same
+target replaces the previous connection and restores the initial gain to
+unity (1.0).
+
+The parameters are validated as follows, with any failure returning
+INVALID_PARAMETER and leaving the previous connection untouched:
+
+- threshold must be finite and greater than zero,
+- ratio must be finite and at least one,
+- attack and release times must be finite and non-negative.
+
+A configuration is also rejected if it closes a cycle. The dependency graph
+combines the bus containment edges (a parent bus must mix its child busses
+first) with the sidechain edges (a target depends on its detector); either
+kind of edge participating in a cycle is invalid, so a child bus cannot
+listen to one of its own ancestor busses, even if the sidechain edges alone
+would be acyclic.
+
+Sidechains are an offline, pre-configured routing feature. All busses must
+be started before the first mix() call, and the connections must be
+installed after the routing is complete but before the first mix; calling
+setBusDucker() once mixing has started returns INVALID_PARAMETER.
+
+See the "Bus sidechain compression" section of the mixing busses chapter
+for the signal flow and the exact detection point.
+
 ### Soloud.calcFFT()
 
 Calculates FFT of the currently playing sound (post-clipping) and

@@ -25,25 +25,35 @@ freely, subject to the following restrictions:
 #include "soloud.h"
 #include "soloud_fft.h"
 #include "soloud_internal.h"
+#include <climits>
+#include <cstring>
 
 namespace SoLoud
 {
 	BusInstance::BusInstance(Bus *aParent)
 	{
 		mParent = aParent;
-		mFlags |= PROTECTED | INAUDIBLE_TICK;		
+		mFlags |= PROTECTED | INAUDIBLE_TICK;
 		for (int i = 0; i < MAX_CHANNELS; i++)
 			mVisualizationChannelVolume[i] = 0;
 		for (int i = 0; i < 256; i++)
 			mVisualizationWaveData[i] = 0;
 		mScratchSize = SAMPLE_GRANULARITY;
 		mScratch.init(mScratchSize * MAX_CHANNELS);
+		// Sidechain caches are allocated in Soloud::setBusDucker, so scenes
+		// without sidechains pay no extra memory.
+		for (int slot = 0; slot < 2; slot++)
+		{
+			mSidechainCacheBlock[slot] = UINT_MAX;
+		}
+		mSidechainBlockCounter = 0;
+		mSidechainReadOffset = 0;
 	}
-	
+
 	unsigned int BusInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize)
 	{
 		int handle = mParent->mChannelHandle;
-		if (handle == 0) 
+		if (handle == 0)
 		{
 			// Avoid reuse of scratch data if this bus hasn't played anything yet
 			unsigned int i;
@@ -51,10 +61,45 @@ namespace SoLoud
 				aBuffer[i] = 0;
 			return aSamplesToRead;
 		}
-		
+
 		Soloud *s = mParent->mSoloud;
-		
-		s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);
+
+		if (s->mSidechainActive && mSidechainCache[0].mData != 0)
+		{
+			// Sidechain mode: serve every request from the memoized block cache.
+			// At play speed 1 with point resampling the parent mixer asks for
+			// block-aligned runs of at most SAMPLE_GRANULARITY frames.
+			unsigned int produced = 0;
+			while (produced < aSamplesToRead)
+			{
+				if (mSidechainReadOffset == 0)
+				{
+					s->sidechainBlock_internal(this, mSidechainBlockCounter);
+				}
+				unsigned int block = mSidechainBlockCounter;
+				float *cached = mSidechainCache[block & 1].mData;
+				unsigned int chunk = aSamplesToRead - produced;
+				if (chunk > SAMPLE_GRANULARITY - mSidechainReadOffset)
+					chunk = SAMPLE_GRANULARITY - mSidechainReadOffset;
+				for (unsigned int ch = 0; ch < mChannels; ch++)
+				{
+					memcpy(aBuffer + ch * aBufferSize + produced,
+						cached + ch * SAMPLE_GRANULARITY + mSidechainReadOffset,
+						chunk * sizeof(float));
+				}
+				mSidechainReadOffset += chunk;
+				produced += chunk;
+				if (mSidechainReadOffset == SAMPLE_GRANULARITY)
+				{
+					mSidechainBlockCounter++;
+					mSidechainReadOffset = 0;
+				}
+			}
+		}
+		else
+		{
+			s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);
+		}
 
 		int i;
 		if (mParent->mFlags & AudioSource::VISUALIZATION_DATA)
@@ -105,10 +150,35 @@ namespace SoLoud
 		return 0;
 	}
 
+	bool BusInstance::isBusInstance()
+	{
+		return true;
+	}
+
 	BusInstance::~BusInstance()
 	{
 		Soloud *s = mParent->mSoloud;
 		int i;
+		// Detach a ducker plan that targeted this exact play instance. Plans are
+		// bound to handles, not slots, so a later voice reusing the slot must not
+		// inherit a stale connection.
+		if (s && mParent->mChannelHandle)
+		{
+			int slot = (mParent->mChannelHandle & 0xfff) - 1;
+			if (slot >= 0 && slot < VOICE_COUNT &&
+				s->mBusDucker[slot].mActive &&
+				s->mBusDucker[slot].mTarget == mParent->mChannelHandle)
+			{
+				s->mBusDucker[slot].mActive = false;
+				s->mBusDucker[slot].mTarget = 0;
+				s->mBusDucker[slot].mDetector = 0;
+				bool active = false;
+				for (i = 0; i < VOICE_COUNT; i++)
+					if (s->mBusDucker[i].mActive)
+						active = true;
+				s->mSidechainActive = active;
+			}
+		}
 		for (i = 0; i < (signed)s->mHighestVoice; i++)
 		{
 			if (s->mVoice[i] && s->mVoice[i]->mBusHandle == mParent->mChannelHandle)

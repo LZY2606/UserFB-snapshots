@@ -389,6 +389,14 @@ namespace SoLoud
 		// Set global filters. Set to NULL to clear the filter.
 		void setGlobalFilter(unsigned int aFilterId, Filter *aFilter);
 
+		// Configure a sample-accurate sidechain compressor (ducker). aTarget is
+		// compressed while aDetector's signal exceeds aThreshold. Both handles
+		// must resolve to a single, live Bus voice of this engine. Reconfiguring
+		// a target replaces its previous connection and resets the gain to 1.
+		// Only valid before the first mix() call; see documentation for details.
+		result setBusDucker(handle aTarget, handle aDetector, float aThreshold,
+			float aRatio, float aAttackSeconds, float aReleaseSeconds);
+
 		// Enable or disable visualization data gathering
 		void setVisualizationEnable(bool aEnable);
 
@@ -468,6 +476,22 @@ namespace SoLoud
 		void mapResampleBuffers_internal();
 		// Perform mixing for a specific bus
 		void mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler);
+		// Produce one memoized SAMPLE_GRANULARITY block of a bus, running its
+		// filters and sidechain processing. Recurses through detector busses.
+		void sidechainBlock_internal(BusInstance *aBus, unsigned int aBlockIndex);
+		// Apply one ducker's per-sample log-domain envelope to a produced block.
+		void sidechainEnvelope_internal(unsigned int aVoice, float *aBuffer,
+			unsigned int aSamples, unsigned int aStride, unsigned int aBlockIndex);
+		// Resolve a handle to a live BusInstance, or NULL.
+		BusInstance *busFromHandle_internal(handle aBusHandle);
+		// Validate that adding a target->detector edge keeps the combined
+		// containment/sidechain graph acyclic.
+		bool sidechainGraphAcyclic_internal(handle aTarget, handle aDetector);
+		// Allocate and reset the memoized block caches of every live bus.
+		// Runs at configuration time so the audio path never allocates.
+		void prepareSidechainCaches_internal();
+		// Reset all sidechain plans and per-instance caches (used by deinit).
+		void resetSidechainPlans_internal();
 		// Find a free voice, stopping the oldest if no free voice is found.
 		int findFreeVoice_internal();
 		// Converts handle to voice, if the handle is valid. Returns -1 if not.
@@ -589,6 +613,27 @@ namespace SoLoud
 		unsigned int mActiveVoiceCount;
 		// Active voices list needs to be recalculated
 		bool mActiveVoiceDirty;
+
+		// Sidechain ducker configuration, bound to live play instances (handles),
+		// not voice slots. All allocated at configuration time; the audio thread
+		// never allocates or frees heap memory for these.
+		struct BusDucker
+		{
+			bool mActive;
+			handle mTarget;
+			handle mDetector;
+			float mThreshold;
+			float mRatio;
+			float mAttackCoeff;
+			float mReleaseCoeff;
+			// Log of the current gain; 0 means unity. Persists across blocks.
+			float mLogGain;
+		};
+		BusDucker mBusDucker[VOICE_COUNT];
+		// True once the first mix() has run; setBusDucker is rejected afterwards.
+		bool mMixStarted;
+		// True while at least one ducker plan is active.
+		bool mSidechainActive;
 	};
 };
 
