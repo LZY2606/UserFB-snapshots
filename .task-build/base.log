@@ -1,0 +1,6 @@
+CR N=1000 ratio=2.000 initial_delay=0 accepted=1000 frames=500 logical=500 drained_delay=0
+VR N=0 ratio=2.000 initial_delay=0 accepted=0 frames=0 logical=0 drained_delay=0
+VR N=1 ratio=2.000 initial_delay=0 accepted=1 frames=1 logical=1 drained_delay=0
+VR N=1000 ratio=2.000 initial_delay=0 accepted=1000 frames=500 logical=500 drained_delay=0
+VR N=1000 ratio=0.750 initial_delay=0 accepted=1000 frames=1333 logical=1333 drained_delay=0
+BASELINE_OK real_pcm_converted

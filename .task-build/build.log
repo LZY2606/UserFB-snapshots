@@ -1,0 +1,16 @@
+[  9%] Building C object src/CMakeFiles/soxr.dir/data-io.c.o
+[ 18%] Building C object src/CMakeFiles/soxr.dir/soxr.c.o
+[ 27%] Building C object src/CMakeFiles/soxr.dir/dbesi0.c.o
+[ 36%] Building C object src/CMakeFiles/soxr.dir/filter.c.o
+[ 45%] Building C object src/CMakeFiles/soxr.dir/fft4g64.c.o
+[ 54%] Building C object src/CMakeFiles/soxr.dir/cr.c.o
+[ 63%] Building C object src/CMakeFiles/soxr.dir/cr32.c.o
+[ 72%] Building C object src/CMakeFiles/soxr.dir/fft4g32.c.o
+[ 81%] Building C object src/CMakeFiles/soxr.dir/cr64.c.o
+[ 90%] Building C object src/CMakeFiles/soxr.dir/vr32.c.o
+[100%] Linking C static library libsoxr.a
+[100%] Built target soxr
+[ 84%] Built target soxr
+[ 92%] Building C object tests/CMakeFiles/1-delay-clear.dir/1-delay-clear.c.o
+[100%] Linking C executable 1-delay-clear
+[100%] Built target 1-delay-clear

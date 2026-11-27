@@ -5,10 +5,21 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${PROJECT_C_FLAGS}")
 link_libraries (${PROJECT_NAME} ${LIBM_LIBRARIES})
 
 file (GLOB SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.c)
+# vr_endpoint.c is a task driver test with its own main() in task_support;
+# build it separately (below) rather than as a standalone executable.
+list (REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/vr_endpoint.c)
 foreach (fe ${SOURCES})
   get_filename_component (f ${fe} NAME_WE)
   add_executable (${f} ${fe})
 endforeach ()
+
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vr_endpoint.c)
+  add_executable (vr_endpoint vr_endpoint.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/../task_support/driver.c)
+  target_include_directories (vr_endpoint PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../task_support)
+  add_test (vr_endpoint vr_endpoint)
+endif ()
 
 # Can't use c89 for this file:
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")

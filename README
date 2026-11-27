@@ -43,6 +43,41 @@ configuration to resample between 44100Hz and 48000Hz, the latency is
 around 1000 output samples, i.e. roughly 20ms (though passband and FFT-
 size configuration parameters may be used to reduce this figure).
 
+Variable-rate, finite-length segments
+-------------------------------------
+
+The variable-rate engine (a quality spec. with the SOXR_VR flag) treats a
+stream as a sequence of finite segments and keeps an authoritative logical
+clock, independent of the internal filter buffering.  With the initial
+input/output ratio r, output frame k is centred on source time c_k =
+S_k + r_k/2, where S_k is the sum of the ratios used by the preceding frames
+and r_k is frame k's own ratio.  A length-L call to soxr_set_io_ratio(target,
+L) ramps the ratio from the next frame's value to target over L frames
+(r_k = r0 + (target-r0)*k/L), then holds target; L = 0 changes the ratio on
+the next frame.  Ratios are limited to the inclusive range [1/8, 8].
+
+For an input of N frames, exactly the output frames whose source centre does
+not exceed N are delivered: internal zero-padding only feeds the filter tail
+and never lengthens the result, so the normal tail is preserved rather than
+truncated.  End-of-input is signalled in the same two ways for both streaming
+styles:
+
+  * soxr_process: pass NULL for the input buffer (a non-NULL, zero-length
+    call supplies no data and does not end the segment);
+  * a registered input function: return a data length of 0 (leaving the data
+    pointer non-NULL).
+
+After end-of-input, keep calling soxr_process/soxr_output to drain the filter
+tail; repeated draining once empty produces no further sound.  soxr_delay()
+returns, as an integer number of output frames, how much more sound would be
+delivered if the input ended now -- including frames already waiting in the
+output FIFO, with any ratio slew followed to its target and held.  It is zero
+on a freshly created or cleared resampler and once fully drained, and a query
+neither consumes sound nor advances a slew.  After end-of-input, non-empty
+input and ratio changes are rejected (the error is recoverable and the
+undelivered sound is left intact); call soxr_clear() to start a fresh segment
+with the same configuration.
+
 For build and installation instructions, see the file `INSTALL'; for
 copyright and licensing information, see the file `LICENCE'.
 

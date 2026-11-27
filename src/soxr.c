@@ -88,6 +88,13 @@ struct soxr {
   size_t clips;
   unsigned long seed;
   int flushing;
+
+  /* Variable-rate (SOXR_VR) finite-segment bookkeeping.  The VR engine keeps
+   * its own authoritative logical clock; here we only track the segment
+   * end-point and reject invalid use once a segment has ended. */
+  int vr_enabled;       /* The active engine is the variable-rate one.       */
+  int vr_eof;           /* The current segment has seen end-of-input.        */
+  double vr_ratio;      /* Logical I/O ratio most recently requested.        */
 };
 
 
@@ -466,6 +473,10 @@ soxr_t soxr_create(
     }
 #endif
     memcpy(&p->control_block, control_block, sizeof(p->control_block));
+    /* Only the variable-rate engine allows run-time ratio changes, so a
+     * non-null ratio setter uniquely identifies SOXR_VR. */
+    p->vr_enabled = p->control_block[8] != 0;
+    p->vr_ratio = io_ratio;
 
     if (p->num_channels && io_ratio!=0)
       error = soxr_set_io_ratio(p, io_ratio, 0);
@@ -574,14 +585,24 @@ soxr_error_t soxr_set_io_ratio(soxr_t p, double io_ratio, size_t slew_len)
   if (!p)                 return "invalid soxr_t pointer";
   if ((error = p->error)) return error;
   if (!p->num_channels)   return "must set # channels before O/I ratio";
-  if (io_ratio <= 0)      return "I/O ratio out-of-range";
+  if (!isfinite(io_ratio) || io_ratio <= 0)
+    return "I/O ratio out-of-range";
+  /* Variable-rate ratios are constrained to [1/8, 8]. */
+  if (p->vr_enabled) {
+    io_ratio = range_limit(io_ratio, 1. / 8, 8.);
+    if (p->vr_eof)
+      return "cannot vary I/O ratio after end-of-input";
+  }
   if (!p->channel_ptrs) {
     p->io_ratio = io_ratio;
+    p->vr_ratio = io_ratio;
     return initialise(p);
   }
   if (p->control_block[8]) {
     for (i = 0; !error && i < p->num_channels; ++i)
       resampler_set_io_ratio(p->resamplers[i], io_ratio, slew_len);
+    if (!error)
+      p->vr_ratio = io_ratio;
     return error;
   }
   return fabs(p->io_ratio - io_ratio) < 1e-15? 0 :
@@ -613,8 +634,17 @@ soxr_error_t soxr_clear(soxr_t p) /* TODO: this, properly. */
     memcpy(p->control_block, tmp.control_block, sizeof(p->control_block));
     p->deinterleave = tmp.deinterleave;
     p->interleave = tmp.interleave;
+    p->vr_enabled = tmp.vr_enabled;
+    p->vr_eof = 0;
+    p->vr_ratio = tmp.vr_ratio;
+    p->io_ratio = tmp.io_ratio;
+    /* Re-create the variable-rate engine at the most recently requested
+     * ratio, not the maximum ratio given at creation.  Constant-rate engines
+     * simply re-use their fixed io_ratio. */
+    if (p->vr_enabled)
+      p->io_ratio = p->vr_ratio;
     return (p->q_spec.flags & RESET_ON_CLEAR)?
-      soxr_set_io_ratio(p, tmp.io_ratio, 0) : 0;
+      soxr_set_io_ratio(p, p->io_ratio, 0) : 0;
   }
   return "invalid soxr_t pointer";
 }
@@ -637,6 +667,8 @@ static size_t soxr_input(soxr_t p, void const * in, size_t len)
   if (!in && len) {p->error = "null input buffer pointer"; return 0;}
   if (!len) {
     p->flushing = true;
+    if (p->vr_enabled)
+      p->vr_eof = 1; /* Input function reported end-of-input. */
     return 0;
   }
   if (separated)
@@ -769,6 +801,20 @@ soxr_error_t soxr_process(soxr_t p,
       ilen = soxr_i_for_o(p, olen, ilen0);
     else
       ilen = ilen0/*, olen = soxr_o_for_i(p, ilen, olen)*/;
+  }
+
+  /* Variable-rate finite segments: once end-of-input has been signalled,
+   * further non-empty input or a ratio change are explicitly rejected (the
+   * still-undelivered sound is left untouched), while draining may continue.
+   * A non-NULL, zero-length feed carries no data and never ends a segment. */
+  if (p->vr_enabled) {
+    if (p->vr_eof && in && ilen > 0) {
+      if (idone0) *idone0 = 0;
+      if (odone0) *odone0 = 0;
+      return "unexpected input after end-of-input";
+    }
+    if (flush_requested)
+      p->vr_eof = 1;
   }
   p->flushing |= ilen == ilen0 && flush_requested;
 

@@ -1,0 +1,18 @@
+CASE length counts checks=459
+CASE length chunk_invariance checks=2319
+CASE length query_invisible checks=261
+CASE length delay_model checks=28
+CASE length tail_preserved checks=220
+CASE length multichannel checks=5914
+CASE length endpoint_rules checks=42
+GROUP length cases=7 checks=9243 COMPLETE
+CASE slew basic_counts checks=2436
+CASE slew reschedule checks=559
+CASE slew pcm_invariant checks=1656
+CASE slew range_clamp checks=1370
+GROUP slew cases=4 checks=6021 COMPLETE
+CASE callback matches_process checks=159
+CASE callback chunk_invariance checks=1053
+CASE callback multichannel checks=808
+GROUP callback cases=3 checks=2020 COMPLETE
+TARGET_COMPLETE cases=14
