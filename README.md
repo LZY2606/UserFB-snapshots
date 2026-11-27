@@ -38,6 +38,63 @@ $ build/test_shapes
 $ build/test_octasphere
 ```
 
+## adaptive parametric surfaces
+
+`par_shapes_create_adaptive` tessellates a `par_shapes_fn` parametric surface
+with local subdivision instead of one uniform `slices x stacks` grid, so a
+small bump no longer forces the whole parameter domain to the finest level.
+
+```c
+par_shapes_adaptive* result = par_shapes_create_adaptive(
+    my_surface, userdata,
+    0.002f,  // tolerance
+    7,       // max depth, must be in [2, 8]
+    true,    // wrap_u: the u = 0 and u = 1 sides are the same position
+    true);   // wrap_v: likewise for v
+if (!result) {
+    // generation failed; nothing was allocated for the caller to free
+}
+par_shapes_mesh* mesh = result->mesh;
+for (int i = 0; i < result->nleaves; i++) {
+    par_shapes_adaptive_leaf leaf = result->leaves[i];
+    // leaf covers [ix/2^d,(ix+1)/2^d] x [iy/2^d,(iy+1)/2^d];
+    // leaf.center is the mesh point at its true surface center.
+}
+par_shapes_free_adaptive(result); // frees the mesh, leaves and struct
+```
+
+How it works, and what to rely on:
+
+- **Error estimate.** The domain starts as a 4x4 grid of depth-2 cells. Each
+  cell samples its four corners, four edge midpoints and center. The error
+  `eta` is the largest Euclidean distance between the five interior *true*
+  points and the bilinear surface through the four corners. A cell with
+  `eta > tolerance` splits into four equal children, down to `max_depth`.
+  This is a sampling estimate, not a bound over the whole surface: a callback
+  that oscillates between the nine sample points is not detected.
+- **2:1 balance.** Splitting propagates across shared edges so neighbouring
+  leaves differ in depth by at most one; periodic sides count as neighbours.
+  A fine/coarse boundary shares its edge midpoint, so there are no
+  T-junctions, duplicate faces or zero-area triangles.
+- **Periodic topology.** When `wrap_u`/`wrap_v` is set the caller guarantees
+  matching positions and tangents across that axis. Refinement stays
+  synchronized on both sides, the 0 and 1 UV seam vertices remain distinct
+  render vertices but share one position and one smooth normal, and the four
+  corner copies of a doubly periodic surface are handled. Non-periodic points
+  are never welded even when their world positions coincide.
+- **Normals.** Area-weighted normals are accumulated by parameter identity
+  (so seam replicas agree) and unitized; every referenced vertex gets a
+  unit normal, and close opposing sheets keep independent normals.
+- **Failure and ownership.** The returned struct, its `mesh` and `leaves` are
+  independently owned by the caller. Invalid arguments, depth exhaustion,
+  non-finite callback output, allocation or index-capacity overflow, and
+  degenerate triangles all return `NULL` after releasing every intermediate
+  allocation; the function never silently relaxes `tolerance` or raises
+  `max_depth`. `par_shapes_free_adaptive(NULL)` is safe.
+
+See `examples/adaptive.c` for a complete program that writes an OBJ and
+prints the leaf-depth distribution.
+
 ## code formatting
 
 This library's code style is strictly enforced to be vertically dense (no consecutive newlines) and 100 columns or less.

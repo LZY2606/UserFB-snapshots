@@ -17,8 +17,12 @@ case "$mode" in
   test -s support/target.c
   test -s examples/adaptive.c
   for bits in 16 32; do
-   extra=(); if [[ "$bits" == 32 ]]; then extra=(-include stdint.h -DPAR_SHAPES_T=uint32_t); fi
-   "$cc" "${flags[@]}" "${extra[@]}" support/driver.c support/target.c -lm -o build/target
+   if [[ "$bits" == 32 ]]; then
+    "$cc" "${flags[@]}" -include stdint.h -DPAR_SHAPES_T=uint32_t \
+      support/driver.c support/target.c -lm -o build/target
+   else
+    "$cc" "${flags[@]}" support/driver.c support/target.c -lm -o build/target
+   fi
    for group in refine transition seams failure; do build/target "$group"; done
   done
   "$cc" "${flags[@]}" examples/adaptive.c -lm -o build/adaptive

@@ -99,6 +99,63 @@ typedef void (*par_shapes_fn)(float const*, float*, void*);
 par_shapes_mesh* par_shapes_create_parametric(par_shapes_fn, int slices,
     int stacks, void* userdata);
 
+// One leaf of an adaptively refined parametric surface.  It covers the
+// parameter-domain square [ix/2^depth,(ix+1)/2^depth] x
+// [iy/2^depth,(iy+1)/2^depth], and "center" stores the point index of the
+// true surface point at the leaf center, around which its triangle fan is
+// built.
+typedef struct par_shapes_adaptive_leaf_s {
+    int depth;
+    int ix;
+    int iy;
+    int center;
+} par_shapes_adaptive_leaf;
+
+// Result of par_shapes_create_adaptive.  The mesh, the leaf array and this
+// struct are independently owned by the caller, which must release them with
+// par_shapes_free_adaptive (or by freeing the mesh and leaf array separately).
+typedef struct par_shapes_adaptive_s {
+    par_shapes_mesh* mesh;
+    int nleaves;
+    par_shapes_adaptive_leaf* leaves;
+} par_shapes_adaptive;
+
+// Adaptively tessellate a parametric surface.
+//
+// The parameter domain is the unit square, matching the two tcoord
+// components and the callback's input.  It starts as a 4x4 grid of depth-2
+// cells.  For each cell the nine points at the four corners, four edge
+// midpoints and center are sampled; the error eta is the maximum Euclidean
+// distance between the five latter (true) points and the bilinear
+// interpolant through the four corners.  A cell with eta > tolerance is
+// split into four equal children, recursively.  This is a sampling estimate,
+// not a guarantee about the whole surface: a callback can oscillate between
+// the nine sample points without being detected.
+//
+// Refinement propagates across shared edges so that leaves sharing a
+// positive-length edge never differ in depth by more than one; periodic
+// sides are neighbours when wrap_u / wrap_v is set.  If a cell still exceeds
+// the tolerance at max_depth, the whole generation fails and null is
+// returned.  max_depth must be in [2,8] and tolerance a finite positive
+// number.
+//
+// When wrap_u / wrap_v is true the caller guarantees that the two ends of
+// that axis are the same smooth surface position with matching tangents.
+// The refinements on both sides stay synchronized and the boundary vertices
+// correspond one-to-one, while distinct render vertices with UV 0 and UV 1
+// are preserved.  Non-periodic parameter points are never merged even when
+// their world positions coincide; no spatial-epsilon welding is performed.
+//
+// On any failure (bad arguments, depth exhaustion, non-finite callback
+// output, allocation or index-capacity overflow, a degenerate triangle)
+// null is returned and every intermediate allocation is released.
+par_shapes_adaptive* par_shapes_create_adaptive(par_shapes_fn fn,
+    void* userdata, float tolerance, int max_depth, bool wrap_u, bool wrap_v);
+
+// Release an adaptive result, including its mesh and leaf array.  Safe to
+// call with null.
+void par_shapes_free_adaptive(par_shapes_adaptive* result);
+
 // Generate points for a 20-sided polyhedron that fits in the unit sphere.
 // Texture coordinates and normals are not generated.
 par_shapes_mesh* par_shapes_create_icosahedron();
@@ -2151,6 +2208,774 @@ void par_shapes_remove_degenerate(par_shapes_mesh* mesh, float mintriarea)
     mesh->ntriangles = ntriangles;
     PAR_FREE(mesh->triangles);
     mesh->triangles = triangles;
+}
+
+// -----------------------------------------------------------------------------
+// ADAPTIVE PARAMETRIC SURFACES
+// -----------------------------------------------------------------------------
+
+typedef struct {
+    int depth, ix, iy;
+    int corners[4];     // point indices, ordered SW, SE, NE, NW
+    int edges[4];       // point indices, ordered S, E, N, W
+    int center;         // point index
+} par_shapes__acell;
+
+typedef struct {
+    par_shapes_fn fn;
+    void* userdata;
+    float tolerance;
+    int maxdepth;
+    bool wrap_u, wrap_v;
+    int ncells;
+    int capcells;
+    par_shapes__acell* cells;
+    int nverts;
+    int capverts;
+    float* points;      // 3-tuples
+    float* tcoords;     // 2-tuples
+    int* vmap;          // level-8 key (ku*257+kv) to vertex index, or -1
+    int* canonical;     // canonical (non-replica) point index per vertex
+    int* grid;          // per-level leaf index, -1 when empty
+    bool failed;
+} par_shapes__abuilder;
+
+static bool par_shapes__finite3(float const* p)
+{
+    return isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]);
+}
+
+// Offset of a depth level in the leaf grid: sum of 4^k for k in [2, depth).
+static int par_shapes__agrid_base(int depth)
+{
+    return ((1 << (2 * depth)) - 16) / 3;
+}
+
+// Vertex keys use the deepest possible node level: edge midpoints of a
+// max-depth (8) leaf sit one level deeper, so keys span 0..512 per axis and
+// a fixed table gives O(1) lookup.
+#define PAR_SHAPES__ALEVEL 9
+#define PAR_SHAPES__AKEY(ku, kv) ((ku) * 513 + (kv))
+
+// Locate a vertex by its level-8 parameter key.  The 0 and 256 keys of a
+// periodic axis are distinct render vertices even though they share one
+// canonical surface position.
+static int par_shapes__afind(par_shapes__abuilder const* b, int ku, int kv)
+{
+    return b->vmap[PAR_SHAPES__AKEY(ku, kv)];
+}
+
+static bool par_shapes__aensure(par_shapes__abuilder* b, int newverts)
+{
+    if (newverts > b->capverts) {
+        int cap = b->capverts ? b->capverts : 256;
+        while (cap < newverts) {
+            cap *= 2;
+            if (cap <= b->capverts) {
+                return false;
+            }
+        }
+        float* p = PAR_SHAPES_REALLOC(float, b->points, 3 * cap,
+            3 * b->capverts);
+        float* t = PAR_SHAPES_REALLOC(float, b->tcoords, 2 * cap,
+            2 * b->capverts);
+        int* c = PAR_SHAPES_REALLOC(int, b->canonical, cap, b->capverts);
+        if (!p || !t || !c) {
+            // A non-null realloc already released the old block; null the
+            // member so cleanup does not free it twice.
+            PAR_FREE(p);
+            PAR_FREE(t);
+            PAR_FREE(c);
+            if (p) {
+                b->points = 0;
+            }
+            if (t) {
+                b->tcoords = 0;
+            }
+            if (c) {
+                b->canonical = 0;
+            }
+            return false;
+        }
+        b->points = p;
+        b->tcoords = t;
+        b->canonical = c;
+        b->capverts = cap;
+    }
+    return true;
+}
+
+// Create the vertex for a level-8 parameter key.  "replica_of" is the
+// canonical point index when this is a periodic duplicate, else -1.
+static int par_shapes__avertex(par_shapes__abuilder* b, int ku, int kv,
+    int replica_of)
+{
+    if (!par_shapes__aensure(b, b->nverts + 1)) {
+        b->failed = true;
+        return -1;
+    }
+    float uv[2] = {ku / 512.0f, kv / 512.0f};
+    int idx = b->nverts;
+    b->tcoords[2 * idx + 0] = uv[0];
+    b->tcoords[2 * idx + 1] = uv[1];
+    if (replica_of >= 0) {
+        b->canonical[idx] = b->canonical[replica_of];
+        b->points[3 * idx + 0] = b->points[3 * replica_of + 0];
+        b->points[3 * idx + 1] = b->points[3 * replica_of + 1];
+        b->points[3 * idx + 2] = b->points[3 * replica_of + 2];
+    } else {
+        float xyz[3];
+        b->fn(uv, xyz, b->userdata);
+        if (!par_shapes__finite3(xyz)) {
+            b->failed = true;
+            return -1;
+        }
+        b->canonical[idx] = idx;
+        b->points[3 * idx + 0] = xyz[0];
+        b->points[3 * idx + 1] = xyz[1];
+        b->points[3 * idx + 2] = xyz[2];
+    }
+    b->vmap[PAR_SHAPES__AKEY(ku, kv)] = idx;
+    b->nverts++;
+    return idx;
+}
+
+// Find an existing vertex for a dyadic node, creating it (and any periodic
+// replicas) when absent.  Coordinates are cell-grid indices at "depth"; the
+// high end of a periodic axis (coord equal to the grid size) becomes a
+// distinct UV-1 render vertex sharing the UV-0 canonical position.
+static int par_shapes__aget(par_shapes__abuilder* b, int depth, int cu,
+    int cv)
+{
+    int shift = PAR_SHAPES__ALEVEL - depth;
+    int ku = cu << shift;
+    int kv = cv << shift;
+    int idx = par_shapes__afind(b, ku, kv);
+    if (idx >= 0) {
+        return idx;
+    }
+    if (b->failed) {
+        return -1;
+    }
+    int cku = ku;
+    int ckv = kv;
+    if (b->wrap_u && cku == 512) {
+        cku = 0;
+    }
+    if (b->wrap_v && ckv == 512) {
+        ckv = 0;
+    }
+    int canon = -1;
+    if (cku != ku || ckv != kv) {
+        canon = par_shapes__afind(b, cku, ckv);
+    }
+    if (canon < 0) {
+        canon = par_shapes__avertex(b, cku, ckv, -1);
+        if (canon < 0) {
+            return -1;
+        }
+    }
+    if (ku == cku && kv == ckv) {
+        return canon;
+    }
+    return par_shapes__avertex(b, ku, kv, canon);
+}
+
+static float par_shapes__aeta(par_shapes__abuilder* b,
+    par_shapes__acell const* cell, float corner[4][3])
+{
+    float worst = 0;
+    // Local parameters of the five interior samples: S, E, N, W midpoints
+    // then the center, each paired with its bilinear weights (s, t).
+    static float const st[5][2] = {
+        {0.5f, 0.0f}, {1.0f, 0.5f}, {0.5f, 1.0f}, {0.0f, 0.5f}, {0.5f, 0.5f}
+    };
+    int mids[5] = {
+        cell->edges[0], cell->edges[1], cell->edges[2], cell->edges[3],
+        cell->center
+    };
+    for (int k = 0; k < 5; k++) {
+        float s = st[k][0];
+        float t = st[k][1];
+        float w[4] = {
+            (1 - s) * (1 - t), s * (1 - t), s * t, (1 - s) * t
+        };
+        float bil[3] = {0, 0, 0};
+        for (int c = 0; c < 4; c++) {
+            for (int j = 0; j < 3; j++) {
+                bil[j] += w[c] * corner[c][j];
+            }
+        }
+        float const* p = b->points + 3 * mids[k];
+        float dx = p[0] - bil[0];
+        float dy = p[1] - bil[1];
+        float dz = p[2] - bil[2];
+        float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (d > worst) {
+            worst = d;
+        }
+    }
+    return worst;
+}
+
+static bool par_shapes__apush_cell(par_shapes__abuilder* b,
+    par_shapes__acell const* cell)
+{
+    if (b->ncells >= b->capcells) {
+        int cap = b->capcells ? b->capcells : 64;
+        while (cap <= b->ncells) {
+            cap *= 2;
+        }
+        par_shapes__acell* p = PAR_SHAPES_REALLOC(par_shapes__acell,
+            b->cells, cap, b->capcells);
+        if (!p) {
+            b->failed = true;
+            return false;
+        }
+        b->cells = p;
+        b->capcells = cap;
+    }
+    int q = 1 << cell->depth;
+    int wix = b->wrap_u ? ((cell->ix % q) + q) % q : cell->ix;
+    int wiy = b->wrap_v ? ((cell->iy % q) + q) % q : cell->iy;
+    b->grid[par_shapes__agrid_base(cell->depth) + wiy * q + wix] =
+        b->ncells;
+    b->cells[b->ncells++] = *cell;
+    return true;
+}
+
+// Build the nine vertices of a cell and measure its error.
+static float par_shapes__abuild_cell(par_shapes__abuilder* b, int depth,
+    int ix, int iy, par_shapes__acell* cell)
+{
+    cell->depth = depth;
+    cell->ix = ix;
+    cell->iy = iy;
+    int cu[4] = {ix, ix + 1, ix + 1, ix};
+    int cv[4] = {iy, iy, iy + 1, iy + 1};
+    for (int k = 0; k < 4; k++) {
+        cell->corners[k] = par_shapes__aget(b, depth, cu[k], cv[k]);
+        if (cell->corners[k] < 0) {
+            return -1;
+        }
+    }
+    // Edge midpoints live one level deeper: S, E, N, W.
+    int mu[4] = {2 * ix + 1, 2 * ix + 2, 2 * ix + 1, 2 * ix};
+    int mv[4] = {2 * iy, 2 * iy + 1, 2 * iy + 2, 2 * iy + 1};
+    for (int k = 0; k < 4; k++) {
+        cell->edges[k] = par_shapes__aget(b, depth + 1, mu[k], mv[k]);
+        if (cell->edges[k] < 0) {
+            return -1;
+        }
+    }
+    cell->center = par_shapes__aget(b, depth + 1, 2 * ix + 1, 2 * iy + 1);
+    if (cell->center < 0) {
+        return -1;
+    }
+    float corner[4][3];
+    for (int k = 0; k < 4; k++) {
+        int ci = b->canonical[cell->corners[k]];
+        corner[k][0] = b->points[3 * ci + 0];
+        corner[k][1] = b->points[3 * ci + 1];
+        corner[k][2] = b->points[3 * ci + 2];
+    }
+    return par_shapes__aeta(b, cell, corner);
+}
+
+// Find a leaf cell by its domain node through the per-level grid.
+static par_shapes__acell* par_shapes__afind_cell(par_shapes__abuilder* b,
+    int depth, int ix, int iy)
+{
+    int q = 1 << depth;
+    ix = b->wrap_u ? ((ix % q) + q) % q : ix;
+    iy = b->wrap_v ? ((iy % q) + q) % q : iy;
+    int slot = b->grid[par_shapes__agrid_base(depth) + iy * q + ix];
+    return slot < 0 ? 0 : b->cells + slot;
+}
+
+// Point location: return the leaf covering the level-"depth" grid point
+// (fx, fy), walking to coarser levels when no leaf occupies that node.
+static par_shapes__acell* par_shapes__alocate(par_shapes__abuilder* b,
+    int depth, int fx, int fy)
+{
+    for (int k = depth; k >= 2; k--) {
+        int shift = depth - k;
+        par_shapes__acell* cell =
+            par_shapes__afind_cell(b, k, fx >> shift, fy >> shift);
+        if (cell) {
+            return cell;
+        }
+    }
+    return 0;
+}
+
+// Refine a cell into its four children, testing each child's error.  A
+// child that still fails at max_depth sets the global failure flag.
+static void par_shapes__asplit(par_shapes__abuilder* b,
+    par_shapes__acell const* parent)
+{
+    int depth = parent->depth + 1;
+    if (depth > b->maxdepth) {
+        b->failed = true;
+        return;
+    }
+    for (int a = 0; a < 2; a++) {
+        for (int c = 0; c < 2; c++) {
+            par_shapes__acell child;
+            float eta = par_shapes__abuild_cell(b, depth,
+                2 * parent->ix + a, 2 * parent->iy + c, &child);
+            if (eta < 0) {
+                b->failed = true;
+                return;
+            }
+            if (eta > b->tolerance) {
+                if (depth == b->maxdepth) {
+                    b->failed = true;
+                    return;
+                }
+                par_shapes__asplit(b, &child);
+            } else {
+                if (!par_shapes__apush_cell(b, &child)) {
+                    return;
+                }
+            }
+            if (b->failed) {
+                return;
+            }
+        }
+    }
+}
+
+// Remove a leaf from the cell list and grid, fixing the relocated entry.
+static void par_shapes__aremove_cell(par_shapes__abuilder* b,
+    par_shapes__acell* cell)
+{
+    int d = cell->depth;
+    int q = 1 << d;
+    int wix = b->wrap_u ? ((cell->ix % q) + q) % q : cell->ix;
+    int wiy = b->wrap_v ? ((cell->iy % q) + q) % q : cell->iy;
+    b->grid[par_shapes__agrid_base(d) + wiy * q + wix] = -1;
+    int slot = (int) (cell - b->cells);
+    int last = b->ncells - 1;
+    *cell = b->cells[last];
+    b->ncells--;
+    if (slot != last) {
+        int mq = 1 << cell->depth;
+        int mix = b->wrap_u ? ((cell->ix % mq) + mq) % mq : cell->ix;
+        int miy = b->wrap_v ? ((cell->iy % mq) + mq) % mq : cell->iy;
+        b->grid[par_shapes__agrid_base(cell->depth) + miy * mq + mix] = slot;
+    }
+}
+
+// Enforce the 2:1 balance rule: whenever two leaves share a positive-length
+// edge and differ by more than one depth, split the coarser one.  Point
+// location finds coarser neighbours that occupy a whole region.  New
+// children are error-tested and may fail at max_depth.  Returns false on
+// failure.
+static bool par_shapes__abalance(par_shapes__abuilder* b)
+{
+    static int const step[4][2] = {
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    };
+    bool changed = true;
+    while (changed && !b->failed) {
+        changed = false;
+        for (int i = 0; i < b->ncells; i++) {
+            par_shapes__acell* cell = b->cells + i;
+            int d = cell->depth;
+            int q = 1 << d;
+            for (int e = 0; e < 4; e++) {
+                int nix = cell->ix + step[e][0];
+                int niy = cell->iy + step[e][1];
+                if ((!b->wrap_u && (nix < 0 || nix >= q)) ||
+                    (!b->wrap_v && (niy < 0 || niy >= q))) {
+                    continue;
+                }
+                if (b->wrap_u) {
+                    nix = (nix + q) % q;
+                }
+                if (b->wrap_v) {
+                    niy = (niy + q) % q;
+                }
+                par_shapes__acell* n = par_shapes__alocate(b, d, nix, niy);
+                if (!n) {
+                    continue;
+                }
+                if (n->depth < d - 1) {
+                    par_shapes__acell coarse = *n;
+                    par_shapes__aremove_cell(b, n);
+                    par_shapes__asplit(b, &coarse);
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed || b->failed) {
+                break;
+            }
+        }
+    }
+    return !b->failed;
+}
+
+// Whether the leaf across edge e of cell is one level finer.  The 2:1
+// balance guarantees the neighbour region is then occupied by level-(d+1)
+// leaves, so we probe the two edge-adjacent child cells directly.
+static bool par_shapes__afiner_neighbor(par_shapes__abuilder* b,
+    par_shapes__acell const* cell, int e)
+{
+    int d = cell->depth;
+    if (d >= b->maxdepth) {
+        // No leaf can live below the maximum depth.
+        return false;
+    }
+    int q = 1 << d;
+    static int const step[4][2] = {
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    };
+    int nix = cell->ix + step[e][0];
+    int niy = cell->iy + step[e][1];
+    if ((!b->wrap_u && (nix < 0 || nix >= q)) ||
+        (!b->wrap_v && (niy < 0 || niy >= q))) {
+        return false;
+    }
+    if (b->wrap_u) {
+        nix = (nix + q) % q;
+    }
+    if (b->wrap_v) {
+        niy = (niy + q) % q;
+    }
+    int c0u = 2 * nix;
+    int c0v = 2 * niy;
+    if (e == 3) {
+        c0u = 2 * nix + 1;
+    }
+    if (e == 0) {
+        c0v = 2 * niy + 1;
+    }
+    if (e == 0 || e == 2) {
+        return par_shapes__afind_cell(b, d + 1, c0u, c0v) != 0 ||
+            par_shapes__afind_cell(b, d + 1, c0u + 1, c0v) != 0;
+    }
+    return par_shapes__afind_cell(b, d + 1, c0u, c0v) != 0 ||
+        par_shapes__afind_cell(b, d + 1, c0u, c0v + 1) != 0;
+}
+
+// Gather the boundary loop of a leaf: four corners, with the shared edge
+// midpoint inserted on any side whose neighbour is one level finer.
+static int par_shapes__aloop(par_shapes__abuilder* b,
+    par_shapes__acell const* cell, int loop[8], int* nloop)
+{
+    int n = 0;
+    for (int e = 0; e < 4; e++) {
+        loop[n++] = cell->corners[e];
+        if (par_shapes__afiner_neighbor(b, cell, e)) {
+            loop[n++] = cell->edges[e];
+        }
+    }
+    *nloop = n;
+    return n;
+}
+
+static bool par_shapes__acapacity_ok(int nverts, int ntris)
+{
+    if (nverts < 0 || ntris < 0) {
+        return false;
+    }
+    long long maxidx = (long long) ((PAR_SHAPES_T) -1);
+    if ((long long) nverts > maxidx) {
+        return false;
+    }
+    if ((long long) ntris > (maxidx - 2) / 3) {
+        return false;
+    }
+    return true;
+}
+
+par_shapes_adaptive* par_shapes_create_adaptive(par_shapes_fn fn,
+    void* userdata, float tolerance, int max_depth, bool wrap_u, bool wrap_v)
+{
+    if (!fn || !isfinite(tolerance) || tolerance <= 0.0f ||
+        max_depth < 2 || max_depth > 8) {
+        return 0;
+    }
+    par_shapes__abuilder b;
+    memset(&b, 0, sizeof(b));
+    b.fn = fn;
+    b.userdata = userdata;
+    b.tolerance = tolerance;
+    b.maxdepth = max_depth;
+    b.wrap_u = wrap_u;
+    b.wrap_v = wrap_v;
+
+    // Leaf lookup grid covering depth levels 2..max_depth.
+    int grid_slots = par_shapes__agrid_base(max_depth + 1);
+    b.grid = PAR_MALLOC(int, grid_slots);
+    b.vmap = PAR_MALLOC(int, 513 * 513);
+    if (!b.grid || !b.vmap) {
+        PAR_FREE(b.grid);
+        PAR_FREE(b.vmap);
+        return 0;
+    }
+    for (int i = 0; i < grid_slots; i++) {
+        b.grid[i] = -1;
+    }
+    for (int i = 0; i < 513 * 513; i++) {
+        b.vmap[i] = -1;
+    }
+
+    // Initial 4x4 grid of depth-2 cells, refined independently by error.
+    for (int ix = 0; ix < 4 && !b.failed; ix++) {
+        for (int iy = 0; iy < 4 && !b.failed; iy++) {
+            par_shapes__acell cell;
+            float eta = par_shapes__abuild_cell(&b, 2, ix, iy, &cell);
+            if (eta < 0) {
+                b.failed = true;
+                break;
+            }
+            if (eta > tolerance) {
+                if (max_depth == 2) {
+                    b.failed = true;
+                    break;
+                }
+                par_shapes__asplit(&b, &cell);
+            } else {
+                par_shapes__apush_cell(&b, &cell);
+            }
+        }
+    }
+
+    // Propagate refinement so neighbouring leaves differ by at most one
+    // depth level across every shared edge, periodic sides included.
+    if (!b.failed) {
+        par_shapes__abalance(&b);
+    }
+
+    // Owning pointers and counters are declared up front so the cleanup
+    // label below stays reachable from C++ as well as C99.
+    par_shapes_adaptive* result = 0;
+    par_shapes_mesh* mesh = 0;
+    PAR_SHAPES_T* triangles = 0;
+    float* normals = 0;
+    int* remap = 0;
+    par_shapes_adaptive_leaf* leaves = 0;
+    int nleaves = 0;
+    int ntris = 0;
+    int npoints = 0;
+    int face_count = 0;
+    if (b.failed) {
+        goto cleanup;
+    }
+
+    // Each leaf emits one triangle fan around its center vertex.
+    nleaves = b.ncells;
+    for (int i = 0; i < nleaves; i++) {
+        int loop[8], nloop;
+        par_shapes__aloop(&b, b.cells + i, loop, &nloop);
+        ntris += nloop;
+    }
+    if (!par_shapes__acapacity_ok(b.nverts, ntris)) {
+        goto cleanup;
+    }
+
+    mesh = PAR_CALLOC(par_shapes_mesh, 1);
+    triangles = PAR_MALLOC(PAR_SHAPES_T, 3 * (size_t) ntris);
+    remap = PAR_MALLOC(int, b.nverts);
+    if (!mesh || !triangles || !remap) {
+        goto cleanup;
+    }
+
+    // Compact the vertices, dropping any node that never got referenced.
+    for (int i = 0; i < b.nverts; i++) {
+        remap[i] = -1;
+    }
+    for (int i = 0; i < nleaves; i++) {
+        par_shapes__acell const* cell = b.cells + i;
+        int loop[8], nloop;
+        par_shapes__aloop(&b, cell, loop, &nloop);
+        int center = cell->center;
+        if (remap[center] < 0) {
+            remap[center] = npoints++;
+        }
+        for (int k = 0; k < nloop; k++) {
+            if (remap[loop[k]] < 0) {
+                remap[loop[k]] = npoints++;
+            }
+        }
+    }
+    if (!par_shapes__acapacity_ok(npoints, ntris) || npoints == 0) {
+        goto cleanup;
+    }
+    mesh->points = PAR_MALLOC(float, 3 * (size_t) npoints);
+    mesh->tcoords = PAR_MALLOC(float, 2 * (size_t) npoints);
+    if (!mesh->points || !mesh->tcoords) {
+        goto cleanup;
+    }
+    mesh->npoints = npoints;
+    for (int i = 0; i < b.nverts; i++) {
+        if (remap[i] < 0) {
+            continue;
+        }
+        int j = remap[i];
+        mesh->points[3 * j + 0] = b.points[3 * i + 0];
+        mesh->points[3 * j + 1] = b.points[3 * i + 1];
+        mesh->points[3 * j + 2] = b.points[3 * i + 2];
+        mesh->tcoords[2 * j + 0] = b.tcoords[2 * i + 0];
+        mesh->tcoords[2 * j + 1] = b.tcoords[2 * i + 1];
+    }
+
+    // Emit fans.  Winding follows the positive UV orientation, so the
+    // outward normal is dP/du cross dP/dv at smooth points.
+    mesh->ntriangles = ntris;
+    mesh->triangles = triangles;
+    triangles = 0;
+    for (int i = 0; i < nleaves; i++) {
+        par_shapes__acell const* cell = b.cells + i;
+        int loop[8], nloop;
+        par_shapes__aloop(&b, cell, loop, &nloop);
+        int cidx = remap[cell->center];
+        for (int k = 0; k < nloop; k++) {
+            int a = remap[loop[k]];
+            int c = remap[loop[(k + 1) % nloop]];
+            mesh->triangles[3 * face_count + 0] = (PAR_SHAPES_T) cidx;
+            mesh->triangles[3 * face_count + 1] = (PAR_SHAPES_T) a;
+            mesh->triangles[3 * face_count + 2] = (PAR_SHAPES_T) c;
+            face_count++;
+        }
+    }
+
+    // Reject any degenerate triangle rather than emitting a broken fan.
+    for (int f = 0; f < mesh->ntriangles; f++) {
+        PAR_SHAPES_T const* tri = mesh->triangles + 3 * f;
+        if (tri[0] == tri[1] || tri[0] == tri[2] || tri[1] == tri[2]) {
+            goto cleanup;
+        }
+        float const* pa = mesh->points + 3 * tri[0];
+        float const* pb = mesh->points + 3 * tri[1];
+        float const* pc = mesh->points + 3 * tri[2];
+        float e1[3] = {pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]};
+        float e2[3] = {pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]};
+        float cross[3];
+        par_shapes__cross3(cross, e1, e2);
+        if (!par_shapes__finite3(cross) ||
+            par_shapes__dot3(cross, cross) <= 0.0f) {
+            goto cleanup;
+        }
+    }
+
+    // Area-weighted normals accumulated by canonical parameter identity, so
+    // periodic replicas share one smooth normal; open boundaries do not cross.
+    normals = PAR_CALLOC(float, 3 * (size_t) npoints);
+    if (!normals) {
+        goto cleanup;
+    }
+    for (int f = 0; f < mesh->ntriangles; f++) {
+        PAR_SHAPES_T const* tri = mesh->triangles + 3 * f;
+        float const* pa = mesh->points + 3 * tri[0];
+        float const* pb = mesh->points + 3 * tri[1];
+        float const* pc = mesh->points + 3 * tri[2];
+        float e1[3] = {pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]};
+        float e2[3] = {pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]};
+        float cross[3];
+        par_shapes__cross3(cross, e1, e2);
+        for (int k = 0; k < 3; k++) {
+            normals[3 * tri[k] + 0] += cross[0];
+            normals[3 * tri[k] + 1] += cross[1];
+            normals[3 * tri[k] + 2] += cross[2];
+        }
+    }
+    // Sum each replica into its canonical vertex, then unitize and copy the
+    // canonical normal back onto every replica.
+    for (int i = 0; i < b.nverts; i++) {
+        if (remap[i] < 0) {
+            continue;
+        }
+        int canon = b.canonical[i];
+        if (canon != i && remap[canon] >= 0) {
+            for (int k = 0; k < 3; k++) {
+                normals[3 * remap[canon] + k] +=
+                    normals[3 * remap[i] + k];
+                normals[3 * remap[i] + k] = 0.0f;
+            }
+        }
+    }
+    for (int i = 0; i < b.nverts; i++) {
+        if (remap[i] < 0 || b.canonical[i] != i) {
+            continue;
+        }
+        float* n = normals + 3 * remap[i];
+        float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(len > 0.0f) || !isfinite(len)) {
+            goto cleanup;
+        }
+        float inv = 1.0f / len;
+        n[0] *= inv;
+        n[1] *= inv;
+        n[2] *= inv;
+    }
+    for (int i = 0; i < b.nverts; i++) {
+        if (remap[i] < 0 || b.canonical[i] == i) {
+            continue;
+        }
+        int canon = b.canonical[i];
+        float const* src = normals + 3 * remap[canon];
+        float* dst = normals + 3 * remap[i];
+        dst[0] = src[0];
+        dst[1] = src[1];
+        dst[2] = src[2];
+    }
+    // Every referenced vertex must end with a unit normal.
+    for (int j = 0; j < npoints; j++) {
+        float const* n = normals + 3 * j;
+        float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(fabsf(len - 1.0f) < 1e-4f)) {
+            goto cleanup;
+        }
+    }
+    mesh->normals = normals;
+    normals = 0;
+
+    leaves = PAR_MALLOC(par_shapes_adaptive_leaf, (size_t) nleaves);
+    result = PAR_CALLOC(par_shapes_adaptive, 1);
+    if (!leaves || !result) {
+        PAR_FREE(leaves);
+        leaves = 0;
+        goto cleanup;
+    }
+    for (int i = 0; i < nleaves; i++) {
+        leaves[i].depth = b.cells[i].depth;
+        leaves[i].ix = b.cells[i].ix;
+        leaves[i].iy = b.cells[i].iy;
+        leaves[i].center = remap[b.cells[i].center];
+    }
+    result->mesh = mesh;
+    result->nleaves = nleaves;
+    result->leaves = leaves;
+    mesh = 0;
+
+cleanup:
+    PAR_FREE(b.cells);
+    PAR_FREE(b.points);
+    PAR_FREE(b.tcoords);
+    PAR_FREE(b.vmap);
+    PAR_FREE(b.canonical);
+    PAR_FREE(b.grid);
+    PAR_FREE(triangles);
+    PAR_FREE(normals);
+    PAR_FREE(remap);
+    if (mesh) {
+        par_shapes_free_mesh(mesh);
+    }
+    return result;
+}
+
+void par_shapes_free_adaptive(par_shapes_adaptive* result)
+{
+    if (!result) {
+        return;
+    }
+    par_shapes_free_mesh(result->mesh);
+    PAR_FREE(result->leaves);
+    PAR_FREE(result);
 }
 
 #endif // PAR_SHAPES_IMPLEMENTATION
