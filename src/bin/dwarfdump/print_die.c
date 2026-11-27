@@ -1488,22 +1488,55 @@ print_one_die_section(Dwarf_Debug dbg,Dwarf_Bool is_info,
                         macro units, so no need to check here. */
                     if (!glflags.gf_do_check_dwarf &&
                         mres == DW_DLV_OK) {
+                        /*  Both the main and the supplementary
+                            object can have units at the same
+                            offset, so walk each object in turn. */
+                        Dwarf_Debug walk_owners[2];
+                        unsigned walk_owner_count = 0;
+                        unsigned walk_owner_i = 0;
+                        Dwarf_Debug tied_dbg = 0;
+                        Dwarf_Error tied_err = 0;
+                        int tres2 = dwarf_get_tied_dbg(dbg,
+                            &tied_dbg,&tied_err);
+
+                        if (tres2 == DW_DLV_ERROR) {
+                            DROP_ERROR_INSTANCE(dbg,tres2,tied_err);
+                            tied_dbg = 0;
+                        }
+                        walk_owners[walk_owner_count++] = dbg;
+                        if (tied_dbg && tied_dbg != dbg) {
+                            walk_owners[walk_owner_count++] = tied_dbg;
+                        }
+                        for (walk_owner_i = 0;
+                            walk_owner_i < walk_owner_count;
+                            ++walk_owner_i) {
+                        Dwarf_Debug walk_owner =
+                            walk_owners[walk_owner_i];
+
                         for (;;) {
                             /* Never returns DW_DLV_ERROR */
                             mres = get_next_unprinted_macro_offset(
-                                &macro_check_tree, &import_offset);
+                                &macro_check_tree, walk_owner,
+                                &import_offset);
                             if (mres != DW_DLV_OK) {
                                 break;
                             }
                             macro_import_stack_cleanout();
-                            mres = print_macros_5style_this_cu(dbg,
-                                cu_die2,
-                                srcfiles,srcfiles_cnt,
-                                glflags.gf_do_print_dwarf,
-                                FALSE /* no descend_into_imports */,
-                                in_import_list,
-                                import_offset,
-                                pod_err);
+                            if (walk_owner == dbg) {
+                                mres = print_macros_5style_this_cu(dbg,
+                                    cu_die2,
+                                    srcfiles,srcfiles_cnt,
+                                    glflags.gf_do_print_dwarf,
+                                    FALSE /* no descend_into_imports */,
+                                    in_import_list,
+                                    import_offset,
+                                    pod_err);
+                            } else {
+                                mres = print_macros_5style_no_cu(
+                                    walk_owner,
+                                    import_offset,
+                                    pod_err);
+                            }
                             if (mres == DW_DLV_ERROR) {
                                 struct esb_s m;
 
@@ -1523,6 +1556,7 @@ print_one_die_section(Dwarf_Debug dbg,Dwarf_Bool is_info,
                                 break;
                             }
                             macro_import_stack_cleanout();
+                        }
                         }
                     }
                     glflags.current_section_id = oldsection;

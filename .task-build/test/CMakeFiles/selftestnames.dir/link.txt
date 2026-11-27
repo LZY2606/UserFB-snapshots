@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selftestnames.dir/test_getname.c.o CMakeFiles/selftestnames.dir/__/src/lib/libdwarf/dwarf_names.c.o -o selftestnames

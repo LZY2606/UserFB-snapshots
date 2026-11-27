@@ -116,6 +116,7 @@ static int _dwarf_internal_macro_context_by_offset(Dwarf_Debug dbg,
     const char *comp_dir,
     const char *comp_name,
     Dwarf_CU_Context cu_context,
+    Dwarf_Bool no_cu_restrictions,
     Dwarf_Error * error);
 
 static int _dwarf_internal_macro_context(Dwarf_Die die,
@@ -133,6 +134,24 @@ is_std_moperator(Dwarf_Small op)
 {
     if (op >= 1 && op <= DW_MACRO_undef_strx) {
         return TRUE;
+    }
+    return FALSE;
+}
+
+/*  The operators accepted when there is no CU context to supply
+    string index tables or file tables. */
+static int
+no_cu_moperator_ok(Dwarf_Small op)
+{
+    switch(op) {
+    case DW_MACRO_define:
+    case DW_MACRO_undef:
+    case DW_MACRO_define_strp:
+    case DW_MACRO_undef_strp:
+    case DW_MACRO_import:
+        return TRUE;
+    default:
+        break;
     }
     return FALSE;
 }
@@ -400,6 +419,28 @@ _dwarf_get_macro_ops_count_internal(Dwarf_Macro_Context macro_context,
             const Dwarf_Small *forms = ourform->mf_formbytes;
             Dwarf_Unsigned forms_length = 0;
 
+            if (macro_context->mc_no_cu_context &&
+                !no_cu_moperator_ok(op)) {
+                dwarfstring ms;
+                const char *name = "<unknown>";
+
+                dwarf_get_MACRO_name(op,&name);
+                dwarfstring_constructor(&ms);
+                dwarfstring_append(&ms,
+                    "DW_DLE_INTERFACE_NOT_SUPPORTED: operator ");
+                dwarfstring_append_printf_s(&ms,"%s ",(char *)name);
+                dwarfstring_append_printf_u(&ms,
+                    "0x%x",(unsigned)op);
+                dwarfstring_append_printf_u(&ms,
+                    " at macro unit offset 0x%" DW_PR_DUx
+                    " is not supported without a CU context",
+                    macro_context->mc_section_offset);
+                _dwarf_error_string(dbg,error,
+                    DW_DLE_INTERFACE_NOT_SUPPORTED,
+                    dwarfstring_string(&ms));
+                dwarfstring_destructor(&ms);
+                return DW_DLV_ERROR;
+            }
             res = _dwarf_skim_forms(dbg,macro_context,mdata,
                 formcount,forms,
                 section_end,
@@ -1289,6 +1330,7 @@ _dwarf_internal_macro_context(Dwarf_Die die,
         comp_dir,
         comp_name,
         cu_context,
+        /* no_cu_restrictions */ FALSE,
         error);
     /*  In case of ERROR or NO_ENTRY srcfiles2 is already freed. */
     return lres;
@@ -1306,6 +1348,7 @@ _dwarf_internal_macro_context_by_offset(Dwarf_Debug dbg,
     const char *comp_dir,
     const char *comp_name,
     Dwarf_CU_Context cu_context,
+    Dwarf_Bool no_cu_restrictions,
     Dwarf_Error * error)
 {
     Dwarf_Unsigned line_table_offset = 0;
@@ -1422,6 +1465,62 @@ _dwarf_internal_macro_context_by_offset(Dwarf_Debug dbg,
         flags& MACRO_OP_TABLE_FLAG?TRUE:FALSE;
     offset_size = macro_context->mc_offset_size_flag?8:4;
     macro_context->mc_offset_size = offset_size;
+    /*  Remember the restriction so later operator walks enforce
+        it as well. */
+    macro_context->mc_no_cu_context = no_cu_restrictions;
+    if (no_cu_restrictions) {
+        if (version != DW_MACRO_VERSION5) {
+            dwarfstring ms;
+
+            dwarfstring_constructor(&ms);
+            dwarfstring_append_printf_u(&ms,
+                "DW_DLE_INTERFACE_NOT_SUPPORTED: "
+                "macro version %u",(unsigned)version);
+            dwarfstring_append_printf_u(&ms,
+                " at macro unit offset 0x%" DW_PR_DUx
+                " needs a CU context, only DWARF5"
+                " macro units are supported here",
+                macro_offset);
+            _dwarf_error_string(dbg,error,
+                DW_DLE_INTERFACE_NOT_SUPPORTED,
+                dwarfstring_string(&ms));
+            dwarfstring_destructor(&ms);
+            dwarf_dealloc_macro_context(macro_context);
+            return DW_DLV_ERROR;
+        }
+        if (macro_context->mc_debug_line_offset_flag) {
+            dwarfstring ms;
+
+            dwarfstring_constructor(&ms);
+            dwarfstring_append_printf_u(&ms,
+                "DW_DLE_INTERFACE_NOT_SUPPORTED: "
+                "macro unit at offset 0x%" DW_PR_DUx
+                " has a line offset,"
+                " which needs a CU context",macro_offset);
+            _dwarf_error_string(dbg,error,
+                DW_DLE_INTERFACE_NOT_SUPPORTED,
+                dwarfstring_string(&ms));
+            dwarfstring_destructor(&ms);
+            dwarf_dealloc_macro_context(macro_context);
+            return DW_DLV_ERROR;
+        }
+        if (macro_context->mc_operands_table_flag) {
+            dwarfstring ms;
+
+            dwarfstring_constructor(&ms);
+            dwarfstring_append_printf_u(&ms,
+                "DW_DLE_INTERFACE_NOT_SUPPORTED: "
+                "macro unit at offset 0x%" DW_PR_DUx
+                " has a custom operands table,"
+                " which needs a CU context",macro_offset);
+            _dwarf_error_string(dbg,error,
+                DW_DLE_INTERFACE_NOT_SUPPORTED,
+                dwarfstring_string(&ms));
+            dwarfstring_destructor(&ms);
+            dwarf_dealloc_macro_context(macro_context);
+            return DW_DLV_ERROR;
+        }
+    }
     if (macro_context->mc_debug_line_offset_flag) {
         cur_offset = (offset_size+ macro_data) - section_base;
         if (cur_offset >= section_size) {
@@ -1603,6 +1702,42 @@ dwarf_get_macro_context_by_offset(Dwarf_Die cu_die,
         &macro_unit_offset_out,
         macro_ops_count_out,
         macro_ops_data_length,
+        error);
+    return res;
+}
+
+/*  Like dwarf_get_macro_context_by_offset but the object
+    is specified with a Dwarf_Debug rather than a Dwarf_Die,
+    so no CU at all is needed.  That means the string index
+    tables and file tables of a CU are unavailable, and the
+    accepted macro unit forms are restricted accordingly. */
+int
+dwarf_get_macro_context_by_debug(Dwarf_Debug dbg,
+    Dwarf_Unsigned offset,
+    Dwarf_Unsigned      * version_out,
+    Dwarf_Macro_Context * macro_context,
+    Dwarf_Unsigned      * macro_ops_count_out,
+    Dwarf_Unsigned      * macro_ops_data_length,
+    Dwarf_Error * error)
+{
+    int res = 0;
+
+    CHECK_DBG(dbg,error,"dwarf_get_macro_context_by_debug()");
+    if (error) {
+        *error = 0;
+    }
+    res = _dwarf_internal_macro_context_by_offset(dbg,
+        offset,
+        version_out,
+        macro_context,
+        macro_ops_count_out,
+        macro_ops_data_length,
+        /* srcfiles */ 0,
+        /* srcfilescount */ 0,
+        /* comp_dir */ 0,
+        /* comp_name */ 0,
+        /* cu_context */ 0,
+        /* no_cu_restrictions */ TRUE,
         error);
     return res;
 }

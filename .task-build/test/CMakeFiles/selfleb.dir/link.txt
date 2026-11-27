@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfleb.dir/test_dwarf_leb.c.o CMakeFiles/selfleb.dir/__/src/lib/libdwarf/dwarf_leb.c.o -o selfleb

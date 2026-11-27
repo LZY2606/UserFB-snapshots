@@ -1349,6 +1349,9 @@ process_one_file(
         print_error(dbg, "dwarf_set_tied_dbg() failed",
             dres, onef_err);
     }
+    /*  Remember which Dwarf_Debug is which object so macro
+        reports can distinguish and measure each separately. */
+    record_macro_objects(dbg,dbgtied);
 
     /*  Get .text and .debug_ranges info if in check mode.
         Depending on the section count and layout

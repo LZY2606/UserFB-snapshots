@@ -883,6 +883,42 @@
     groups are used, so @e libdwarf is based on
     observations of what compilers generate.
 
+    @section dwsec_suppmacros Supplementary macro objects
+
+    A supplementary object is opened like any other object and
+    bound with dwarf_set_tied_dbg().  It can contain only
+    .debug_macro and .debug_str and have no CU at all.  A macro
+    unit in it is reached from a DW_MACRO_import_sup operator in
+    the main object's macro unit.
+
+    dwarf_get_macro_context_by_debug() reads such a unit with no
+    CU context.  Its arguments and return values match
+    dwarf_get_macro_context_by_offset() except that the first
+    argument is the Dwarf_Debug of the object holding the unit.
+    Free the context with dwarf_dealloc_macro_context().
+
+    The supported scope is deliberately narrow: DWARF5 macro
+    units only, with no line-offset field and no custom operands
+    table, and only DW_MACRO_define, DW_MACRO_undef,
+    DW_MACRO_define_strp, DW_MACRO_undef_strp, DW_MACRO_import,
+    and the terminating zero.  DW_MACRO_define_strx,
+    DW_MACRO_undef_strx, DW_MACRO_start_file, and
+    DW_MACRO_end_file return DW_DLV_ERROR because the string
+    index table and file table belong to a CU that may not
+    exist.  No main-CU tables are borrowed to interpret the
+    supplementary unit.
+
+    The DWARF5 strp strings resolve against the supplementary
+    object's own .debug_str.  dwarfdump follows
+    DW_MACRO_import_sup this way for both --print-macinfo and
+    --check-macros, keeps a plain DW_MACRO_import in its current
+    object, keeps the caller's file frame, distinguishes the
+    main and supplementary objects at the same offset, and
+    reports a true loop within one object while leaving the
+    other imports and later units to be processed.
+
+    See @ref examplep6 for a C example.
+
     @section dwsec_separatedebug  Details on separate DWARF object access
 
     There are, at present, three distinct approaches
@@ -1160,6 +1196,14 @@
     @section dwsec_changes Recent Changes
 
     We list these with newest first.
+
+    <b>Unreleased: supplementary macro context</b>
+
+    Added dwarf_get_macro_context_by_debug(), a CU-less
+    counterpart of dwarf_get_macro_context_by_offset(), and
+    taught dwarfdump to follow DW_MACRO_import_sup into a bound
+    supplementary object for --print-macinfo and --check-macros.
+    The two CU-based macro entry points are unchanged.
 
     <b>Changes 2.0.0 to 2.1.0</b>
 

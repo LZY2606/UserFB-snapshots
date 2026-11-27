@@ -1,0 +1,82 @@
+-- Building dwarfgen    ... OFF
+-- Building dwarfexample... OFF
+-- Building api tests   ... 
+-- HAVE_UINTPTR_T 1: uintptr_t defined in stdint.h... YES
+-- uintptr_t value considered NO 
+-- HAVE_INTPTR_T 1: intptr_t defined in stdint.h... YES
+-- intptr_t value considered NO 
+-- ENABLE_DECOMPRESSION : OFF
+-- Build with zlib and zstd: NO
+-- CMAKE_SIZEOF_VOID_P ... : 8
+-- Compiler warning options... NO
+-- Install prefix ... /usr/local
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125Y1073/attempts/20261127T160952349288Z/repo/.task-build
+[100%] Built target dwarf
+[ 52%] Built target dwarf
+[100%] Built target dwarfdump
+[100%] Built target selfmacrocheck
+MAIN_DEFINE text=MAIN_OWNER 1 line=1
+IMPORT_SUP offset=0 tied=yes
+SUPPLEMENTARY macro=yes cu=no
+BASELINE_OK existing macro API and tied relation
+  Macro unit count test1: 1
+  Macro Offsets start at 0x000000c8 and end at 0x000000c8
+  Macro Offsets internal unused space: 0x00000000
+  Macro Offsets total    unused space: 0x000007d0
+  Macro unit count test 2: 2
+  Macro Offsets start at 0x000000c8 and end at 0x000001c2
+  Macro Offsets internal unused space: 0x00000032
+  Macro Offsets total    unused space: 0x00000708
+
+  Expect an ERROR about overlap with the end of section
+  Macro unit count test 3: 3
+  Macro Offsets start at 0x00000000 and end at 0x00000834
+ ERROR: For offset 0x000007d0 2000 there is an overlap with the end of section 0x00000834 2100
+  Macro Offsets internal unused space: 0x00000064
+  Macro Offsets total    unused space: 0x00000064
+
+  Expect an ERROR about offset 50 having 2 primaries
+  and Expect an ERROR about offset 50 having 2
+  primaries and a secondary
+  and Expect an ERROR about crazy overlap 60
+
+  Macro unit count test 4: 3
+
+ERROR: For offset 0x00000032 50 there is a primary reference count of 0x00000002 2
+
+ERROR: For offset 0x00000032 50 there is a nonzero primary count of 0x00000002 2 with a secondary count of 0x00000001 1
+  Macro Offsets start at 0x00000032 and end at 0x000000c8
+ ERROR: For offset 0x0000003c 60 there is a crazy overlap with the previous end offset of 0x00000064 100 (previous start offset of 0x00000032) 50
+  Macro Offsets internal unused space: 0x00000082
+  Macro Offsets total    unused space: 0x000007bc
+PASS macrocheck selftest
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000000 in main object
+Macro data from CU-DIE at .debug_info offset 0x0000000c:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000000
+  MacroInformationEntries count: 5, bytes length: 16
+   [  0] 0x03 DW_MACRO_start_file   line 1 file number 0 ./main.c
+   [  1] 0x05 DW_MACRO_define_strp  line 1 str offset 0x00000000 MAIN_OWNER 1
+   [  2] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+   [  3] 0x04 DW_MACRO_end_file   
+   [  4] 0x00 end-of-macros        op offset 0x00000016 macro unit length 23 next byte offset 0x00000017
+
+.debug_macro: Macro info for imported macro unit at macro Offset 0x00000000 in supplementary object
+          Nested import level: 0
+          Macro version      : 5
+          macro section offset 0x00000000
+  MacroInformationEntries count: 2, bytes length: 7
+   [  0] 0x05 DW_MACRO_define_strp  line 1 str offset 0x00000000 SUP_OWNER 9
+   [  1] 0x00 end-of-macros        op offset 0x00000009 macro unit length 10 next byte offset 0x0000000a
+  Macro unit count DWARF5 .debug_macro <main object>: 1
+  Macro Offsets start at 0x00000000 and end at 0x00000017
+  Macro unit count DWARF5 .debug_macro <supplementary object>: 1
+  Macro Offsets start at 0x00000000 and end at 0x0000000a
+Maximum nest depth of DW_MACRO_start_file: 1
+Maximum nest depth of DW_MACRO_import    : 1
+

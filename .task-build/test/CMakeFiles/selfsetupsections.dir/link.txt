@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfsetupsections.dir/test_setupsections.c.o CMakeFiles/selfsetupsections.dir/__/src/lib/libdwarf/dwarf_setup_sections.c.o -o selfsetupsections

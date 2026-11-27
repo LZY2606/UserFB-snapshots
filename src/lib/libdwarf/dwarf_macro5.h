@@ -145,6 +145,12 @@ struct Dwarf_Macro_Context_s {
 
     Dwarf_Debug      mc_dbg;
     Dwarf_CU_Context mc_cu_context;
+
+    /*  TRUE when the context was read without any CU context,
+        as by dwarf_get_macro_context_by_debug().  Then only
+        a restricted set of operators and no line-offset or
+        operands table are accepted. */
+    Dwarf_Bool       mc_no_cu_context;
 };
 
 int _dwarf_macro_constructor(Dwarf_Debug dbg, void *m);

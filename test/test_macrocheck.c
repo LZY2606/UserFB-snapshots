@@ -27,6 +27,11 @@
 
 #include "dd_macrocheck.c"
 #include "dd_minimal.h"
+
+/*  A stand-in owner token: the macrocheck map only compares the
+    Dwarf_Debug value, it never dereferences it. */
+static int fake_owner_object;
+#define FAKEOWNER ((Dwarf_Debug)&fake_owner_object)
 #include <stdlib.h> /* for exit() */
 void dd_minimal_count_global_error(void) {}
 
@@ -39,7 +44,7 @@ main(void)
     int isdwarf5=FALSE;
 
     /* Test 1 */
-    add_macro_import(&base,TRUE,200,0,0);
+    add_macro_import(&base,FAKEOWNER,TRUE,200,0,0);
     count = macro_count_recs(&base);
     if (count != 1) {
         printf("FAIL: expect count 1, got %" DW_PR_DUu "\n",count);
@@ -48,9 +53,9 @@ main(void)
     print_macrocheck_statistics("test1",&base,isdwarf5,2000);
 
     /* Test two */
-    add_macro_area_len(&base,200,100);
-    add_macro_import(&base,FALSE,350,0,0);
-    add_macro_area_len(&base,350,100);
+    add_macro_area_len(&base,FAKEOWNER,200,100);
+    add_macro_import(&base,FAKEOWNER,FALSE,350,0,0);
+    add_macro_area_len(&base,FAKEOWNER,350,100);
     count = macro_count_recs(&base);
     if (count != 2) {
         printf("FAIL: expect count 2, got %" DW_PR_DUu "\n",count);
@@ -61,15 +66,15 @@ main(void)
 
     /* Test three */
     basefailcount = failcount;
-    add_macro_import(&base,TRUE,0,0,0);
-    add_macro_area_len(&base,0,1000);
-    add_macro_import(&base,FALSE,2000,0,0);
-    add_macro_area_len(&base,2000,100);
-    mark_macro_offset_printed(&base,2000);
-    add_macro_import(&base,FALSE,1000,0,0);
-    add_macro_area_len(&base,1000,900);
-    add_macro_import(&base,FALSE,1000,0,0);
-    add_macro_area_len(&base,1000,900);
+    add_macro_import(&base,FAKEOWNER,TRUE,0,0,0);
+    add_macro_area_len(&base,FAKEOWNER,0,1000);
+    add_macro_import(&base,FAKEOWNER,FALSE,2000,0,0);
+    add_macro_area_len(&base,FAKEOWNER,2000,100);
+    mark_macro_offset_printed(&base,FAKEOWNER,2000);
+    add_macro_import(&base,FAKEOWNER,FALSE,1000,0,0);
+    add_macro_area_len(&base,FAKEOWNER,1000,900);
+    add_macro_import(&base,FAKEOWNER,FALSE,1000,0,0);
+    add_macro_area_len(&base,FAKEOWNER,1000,900);
     count = macro_count_recs(&base);
     if (count != 3) {
         printf("FAIL: expect count 3, got %" DW_PR_DUu "\n",count);
@@ -88,13 +93,13 @@ main(void)
 
     /* Test Four */
     basefailcount = failcount;
-    add_macro_import(&base,TRUE,50,0,0);
-    add_macro_import(&base,TRUE,50,0,0);
-    add_macro_area_len(&base,50,50);
-    add_macro_import(&base,FALSE,200,0,0);
-    add_macro_import(&base,FALSE,50,0,0);
-    add_macro_import(&base,FALSE,60,0,0);
-    add_macro_area_len(&base,60,10);
+    add_macro_import(&base,FAKEOWNER,TRUE,50,0,0);
+    add_macro_import(&base,FAKEOWNER,TRUE,50,0,0);
+    add_macro_area_len(&base,FAKEOWNER,50,50);
+    add_macro_import(&base,FAKEOWNER,FALSE,200,0,0);
+    add_macro_import(&base,FAKEOWNER,FALSE,50,0,0);
+    add_macro_import(&base,FAKEOWNER,FALSE,60,0,0);
+    add_macro_area_len(&base,FAKEOWNER,60,10);
     printf( "\n  Expect an ERROR about offset 50 having "
         "2 primaries\n");
     printf( "  and Expect an ERROR about offset 50 having 2\n"

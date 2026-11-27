@@ -128,6 +128,18 @@ destroy_macro_globals(void)
     macfile_stack_next_to_use = 0;
 }
 
+/*  The object (main or tied/supplementary) whose macro unit is
+    being followed.  On entry to a CU this is the object owning
+    the CU; a DW_MACRO_import_sup switches to the tied object
+    and a DW_MACRO_import stays in the current object. */
+struct macro_follow_state_s {
+    Dwarf_Debug mfs_owner; /* object the current unit lives in */
+    Dwarf_Debug mfs_supp;  /* tied/supplementary object, or 0 */
+};
+
+static int macro_follow_state_for(Dwarf_Debug dbg,
+    struct macro_follow_state_s *follow);
+
 static int
 print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     char **dwarf_srcfiles,
@@ -139,8 +151,10 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         If false is the set for the CU itself.  */,
     Dwarf_Unsigned offset,
     Dwarf_Unsigned lineno,
-    unsigned fileno,
+    unsigned filenum,
     int level,
+    int no_cu /* TRUE: read via Dwarf_Debug, no CU exists */,
+    struct macro_follow_state_s *follow,
     Dwarf_Error *err);
 
 static const char *nonameavail = "<no-name-available>";
@@ -673,6 +687,36 @@ print_split_macro_value(const char *m_in)
     esb_destructor(&m);
 }
 
+/*  report_import_error prints a diagnostic that names the
+    object (main or supplementary) and offset of a macro unit
+    whose import could not be followed, and keeps going. */
+static void
+report_import_error(const char *what, Dwarf_Debug owner,
+    Dwarf_Unsigned offset, int res, Dwarf_Error lerr)
+{
+    const char *label = macrocheck_owner_label(owner);
+    struct esb_s m;
+
+    esb_constructor(&m);
+    esb_append_printf_s(&m,"%s",(char *)what);
+    if (label) {
+        esb_append_printf_s(&m," in %s",(char *)label);
+    } else {
+        esb_append(&m," in the main object");
+    }
+    esb_append_printf_u(&m,
+        " at macro offset 0x%" DW_PR_XZEROS DW_PR_DUx,offset);
+    if (lerr) {
+        print_error_and_continue(esb_get_string(&m),res,lerr);
+    } else {
+        /*  A diagnostic with no Dwarf_Error instance. */
+        glflags.gf_count_major_errors++;
+        printf("%s ERROR:  %s.\n",glflags.program_name,
+            sanitized(esb_get_string(&m)));
+    }
+    esb_destructor(&m);
+}
+
 static int
 print_macro_ops(Dwarf_Debug dbg,
     Dwarf_Die cu_die,
@@ -686,6 +730,7 @@ print_macro_ops(Dwarf_Debug dbg,
     Dwarf_Unsigned macro_unit_offset /* of this set*/,
     Dwarf_Unsigned *macro_unit_length /* return val */,
     int level,
+    struct macro_follow_state_s *follow,
     Dwarf_Error *err)
 {
     unsigned k = 0;
@@ -978,7 +1023,11 @@ print_macro_ops(Dwarf_Debug dbg,
             break;
             }
         case DW_MACRO_import: {
+            /*  A plain import stays in the current object. */
             int mres = 0;
+            unsigned saveddepth = macro_import_stack_depth();
+            unsigned savedfilestack = macfile_stack_next_to_use;
+
             lres = dwarf_get_macro_import(mcontext,
                 k,&offset,err);
             if (lres != DW_DLV_OK) {
@@ -1002,18 +1051,23 @@ print_macro_ops(Dwarf_Debug dbg,
                 macfile_entry *mac_e = 0;
                 mac_e = macfile_from_array_index(
                     macfile_array_next_to_use-1);
-                mres = macro_import_stack_present(offset);
+                mres = macro_import_stack_present(
+                    follow->mfs_owner,offset);
                 if (mres == DW_DLV_OK) {
+                    const char *label =
+                        macrocheck_owner_label(follow->mfs_owner);
                     printf("ERROR: While Printing DWARF5 macros "
                         "we find a recursive nest of imports "
                         " noted with offset 0x%"
-                        DW_PR_XZEROS DW_PR_DUx " so we stop now. \n",
-                        offset);
+                        DW_PR_XZEROS DW_PR_DUx " in %s"
+                        " so we stop now. \n",
+                        offset,label?label:"the main object");
                     print_macro_import_stack();
                     glflags.gf_count_major_errors++;
-                    return DW_DLV_NO_ENTRY;
+                    break;
                 }
-                mres = print_macros_5style_this_cu_inner(dbg,
+                mres = print_macros_5style_this_cu_inner(
+                    follow->mfs_owner,
                     cu_die,
                     dwarf_srcfiles,srcfiles_count,
                     FALSE /* turns off do_print_dwarf */,
@@ -1023,25 +1077,34 @@ print_macro_ops(Dwarf_Debug dbg,
                     mac_e->ms_line,
                     macfile_array_next_to_use-1,
                     level+1,
+                    /* no_cu: a unit in the supplementary object
+                       needs the Dwarf_Debug interface */
+                    (follow->mfs_owner == follow->mfs_supp),
+                    follow,
                     err);
+                macro_import_stack_restore(saveddepth);
+                /*  The imported block ran in the caller's file
+                    frame; on return the caller's frame is
+                    current again.  The define/undef work it did
+                    stays in the check tree. */
+                macfile_stack_next_to_use = savedfilestack;
                 if (mres == DW_DLV_ERROR) {
-                    struct esb_s m;
-
-                    esb_constructor(&m);
-                    esb_append_printf_u(&m,
-                        "ERROR: Printing DWARF5 macros "
-                        " at offset 0x%x "
-                        "for the import CU failed. ",
-                        offset);
-                    print_error_and_continue(esb_get_string(&m),
-                        mres,*err);
+                    report_import_error(
+                        "ERROR: Printing DWARF5 macros"
+                        " for the import failed",
+                        follow->mfs_owner,offset,mres,*err);
                     DROP_ERROR_INSTANCE(dbg,mres,*err);
-                    esb_destructor(&m);
                 }
             }
             break;
             }
         case DW_MACRO_import_sup: {
+            /*  The supplementary object owns this macro unit. */
+            int mres = 0;
+            unsigned saveddepth = macro_import_stack_depth();
+            unsigned savedfilestack = macfile_stack_next_to_use;
+            Dwarf_Debug supowner = follow->mfs_supp;
+
             lres = dwarf_get_macro_import(mcontext,
                 k,&offset,err);
             if (lres != DW_DLV_OK) {
@@ -1051,15 +1114,69 @@ print_macro_ops(Dwarf_Debug dbg,
                 esb_destructor(&mtext);
                 return lres;
             }
-#if 0 /* Possibly future use .debug_sup */
-            add_macro_import_sup();
-                /* The supplementary object file is not available,
-                So we cannot check the import references
-                or know the size. As of December 2020 */
-#endif
             if (do_print_dwarf) {
-                printf("  sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx "\n"
-                    ,offset);
+                esb_append_printf_u(&mtext,
+                    "  sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx,
+                    offset);
+            }
+            esb_append(&mtext,"\n");
+            if (do_print_dwarf) {
+                printf("%s",sanitized(esb_get_string(&mtext)));
+            }
+            if (!supowner) {
+                report_import_error(
+                    "ERROR: DW_MACRO_import_sup has no tied"
+                    " supplementary object",
+                    follow->mfs_owner,offset,DW_DLV_ERROR,0);
+                break;
+            }
+            if (!descend_into_import) {
+                /*  Recorded for the later per-offset pass. */
+                break;
+            }
+            if (macro_import_stack_present(supowner,offset) ==
+                DW_DLV_OK) {
+                const char *label =
+                    macrocheck_owner_label(supowner);
+                printf("ERROR: While Printing DWARF5 macros "
+                    "we find a recursive nest of imports "
+                    " noted with offset 0x%"
+                    DW_PR_XZEROS DW_PR_DUx " in %s"
+                    " so we stop now. \n",
+                    offset,label?label:"the supplementary object");
+                print_macro_import_stack();
+                glflags.gf_count_major_errors++;
+                break;
+            }
+            {
+                macfile_entry *mac_e = 0;
+                mac_e = macfile_from_array_index(
+                    macfile_array_next_to_use-1);
+                mres = print_macros_5style_this_cu_inner(
+                    supowner,
+                    cu_die,
+                    /*  The supplementary block has no line table
+                        of its own; keep the caller's file frame. */
+                    dwarf_srcfiles,srcfiles_count,
+                    FALSE /* turns off do_print_dwarf */,
+                    descend_into_import,
+                    TRUE /* by offset */,
+                    offset,
+                    mac_e->ms_line,
+                    macfile_array_next_to_use-1,
+                    level+1,
+                    /* no_cu */ TRUE,
+                    follow,
+                    err);
+                macro_import_stack_restore(saveddepth);
+                macfile_stack_next_to_use = savedfilestack;
+                if (mres == DW_DLV_ERROR) {
+                    report_import_error(
+                        "ERROR: Printing DWARF5 macros"
+                        " for the supplementary import failed",
+                        supowner,offset,mres,*err);
+                    DROP_ERROR_INSTANCE(dbg,mres,*err);
+                }
             }
             break;
             }
@@ -1072,6 +1189,9 @@ print_macro_ops(Dwarf_Debug dbg,
 /*  We follow imports if building_primary_tree
     and in that case following imports we
     turn do_print_dwarf FALSE.
+    no_cu TRUE means dbg has no CU for this macro unit
+    (the supplementary object), so the context is read with
+    dwarf_get_macro_context_by_debug().
 */
 static int
 print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
@@ -1086,6 +1206,8 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Unsigned lineno,
     unsigned filenum,
     int level,
+    int no_cu,
+    struct macro_follow_state_s *follow,
     Dwarf_Error *err)
 {
     int lres = 0;
@@ -1098,9 +1220,29 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Off dieprint_cu_goffset = 0;
     Dwarf_Off cudie_local_offset = 0;
     int atres = 0;
+    int do_print_here = do_print_dwarf;
+    unsigned stackdepth_on_entry = macro_import_stack_depth();
+    /*  The object this unit lives in, not necessarily the one
+        the follow state started with.  A plain import stays
+        here; import_sup switches object. */
+    struct macro_follow_state_s thisfollow = *follow;
 
+    thisfollow.mfs_owner = dbg;
+    if (no_cu) {
+        /*  Everything in this object is read through its own
+            Dwarf_Debug; there is no CU to use. */
+        thisfollow.mfs_supp = dbg;
+    }
     glflags.current_section_id = DEBUG_MACRO;
-    if (!by_offset) {
+    if (no_cu) {
+        lres = dwarf_get_macro_context_by_debug(dbg,
+            offset,
+            &version,&macro_context,
+            &number_of_ops,
+            &ops_total_byte_len,
+            err);
+        macro_unit_offset = offset;
+    } else if (!by_offset) {
         lres = dwarf_get_macro_context(cu_die,
             &version,&macro_context,
             &macro_unit_offset,
@@ -1121,29 +1263,50 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         return lres;
     }
     if (lres == DW_DLV_ERROR) {
-        print_error_and_continue("Unable to dwarf_get_macro_context()"
-            " for the DWARF 5 style macro",
+        const char *label = macrocheck_owner_label(dbg);
+        struct esb_s m;
+
+        esb_constructor(&m);
+        esb_append(&m,
+            "Unable to dwarf_get_macro_context()"
+            " for the DWARF 5 style macro");
+        if (label) {
+            esb_append_printf_s(&m," in %s",(char *)label);
+        }
+        esb_append_printf_u(&m,
+            " at macro offset 0x%" DW_PR_XZEROS DW_PR_DUx,
+            offset);
+        print_error_and_continue(esb_get_string(&m),
             lres,*err);
+        esb_destructor(&m);
         return lres;
     }
     /*  If we fail to get the offsets we won't worry about it. */
-    atres = dwarf_die_offsets(cu_die,&dieprint_cu_goffset,
-        &cudie_local_offset,err);
-    DROP_ERROR_INSTANCE(dbg,atres,*err);
+    if (!no_cu) {
+        atres = dwarf_die_offsets(cu_die,&dieprint_cu_goffset,
+            &cudie_local_offset,err);
+        DROP_ERROR_INSTANCE(dbg,atres,*err);
+    }
     lres = dwarf_macro_context_total_length(macro_context,
         &context_total_byte_len,err);
     if (lres != DW_DLV_OK) {
         dwarf_dealloc_macro_context(macro_context);
+        macro_import_stack_restore(stackdepth_on_entry);
         return lres;
     }
+    /*  A macro unit read from the supplementary object is
+        always an import; the primary object's CU unit is the
+        only primary one. */
     add_macro_import(&macro_check_tree,
+        dbg,
         (!level)? 1:0,
         offset,lineno,filenum);
-    add_macro_area_len(&macro_check_tree,offset,
+    add_macro_area_len(&macro_check_tree,dbg,offset,
         context_total_byte_len);
-    lres = macro_import_stack_push(offset);
+    lres = macro_import_stack_push(dbg,offset);
     if (lres == DW_DLV_ERROR) {
         dwarf_dealloc_macro_context(macro_context);
+        macro_import_stack_restore(stackdepth_on_entry);
         /* message printed. Give up. */
         return DW_DLV_NO_ENTRY;
     }
@@ -1151,34 +1314,43 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     if (do_print_dwarf) {
         struct esb_s truename;
         char buf[DWARF_SECNAME_BUFFER_SIZE];
+        const char *label = macrocheck_owner_label(dbg);
 
         esb_constructor_fixed(&truename,buf,sizeof(buf));
         get_true_section_name(dbg,".debug_macro",
             &truename,TRUE);
         /* This does not return */
 
-        if (!by_offset) {
-            printf("\n%s: Macro info for a single cu at macro Offset"
-                " 0x%" DW_PR_XZEROS DW_PR_DUx "\n",
-                sanitized(esb_get_string(&truename)),
-                macro_unit_offset);
-            print_source_intro(dbg,cu_die);
-        } else {
+        if (no_cu || by_offset) {
             printf("\n%s: Macro info for imported macro unit "
                 "at macro Offset "
-                "0x%" DW_PR_XZEROS DW_PR_DUx
-                "\n",
+                "0x%" DW_PR_XZEROS DW_PR_DUx,
                 sanitized(esb_get_string(&truename)),
                 offset);
+            if (label) {
+                printf(" in %s",label);
+            }
+            printf("\n");
+        } else {
+            printf("\n%s: Macro info for a single cu at macro Offset"
+                " 0x%" DW_PR_XZEROS DW_PR_DUx,
+                sanitized(esb_get_string(&truename)),
+                macro_unit_offset);
+            if (label) {
+                printf(" in %s",label);
+            }
+            printf("\n");
+            print_source_intro(dbg,cu_die);
         }
         esb_destructor(&truename);
-    } else {
+    } else if (!no_cu) {
         /* We are checking, not printing. */
         Dwarf_Half tag = 0;
         int tres = dwarf_tag(cu_die, &tag, err);
         if (tres != DW_DLV_OK) {
             /*  Something broken here. */
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             print_error_and_continue("Unable to get CU DIE tag "
                 "though we could see it earlier. "
                 "Something broken.",
@@ -1186,12 +1358,13 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             return tres;
         } else if (tag == DW_TAG_type_unit) {
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             /*  Not checking since type units missing
                 address or range in CU header. */
             return DW_DLV_OK;
         }
     }
-    if (do_print_dwarf && glflags.verbose > 1) {
+    if (do_print_dwarf && !no_cu && glflags.verbose > 1) {
         Dwarf_Bool attr_dup = FALSE;
         int pdres = 0;
         pdres = print_one_die(dbg, cu_die,
@@ -1203,6 +1376,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             /* ignore_die_stack= */TRUE,err);
         if (pdres == DW_DLV_ERROR) {
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             return pdres;
         }
     }
@@ -1232,11 +1406,13 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             &opcode_count,err);
         if (lres == DW_DLV_NO_ENTRY) {
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             /* Impossible */
             return lres;
         }
         if (lres == DW_DLV_ERROR) {
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             print_error_and_continue(
                 "ERROR: dwarf_macro_context_head failed",
                 lres,*err);
@@ -1246,7 +1422,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             offset_size = 8;
         }
         /*  If pure checking we won't print this header info */
-        if (!glflags.gf_do_check_dwarf) {
+        if (!glflags.gf_do_check_dwarf && do_print_here) {
             /*  To understand imports we really need the basic
                 data shown on all targeted macro offsets.
                 This is a start, allowing us to track
@@ -1258,7 +1434,8 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                 DW_PR_XZEROS DW_PR_DUx "\n",prefix,
                 mac_offset);
         }
-        if (glflags.verbose && !glflags.gf_do_check_dwarf) {
+        if (glflags.verbose && !glflags.gf_do_check_dwarf &&
+            do_print_here) {
             printf("%s  flags: 0x%x, "
                 "offsetsize64? %s, "
                 "lineoffset? %s, "
@@ -1294,6 +1471,8 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                         struct esb_s m;
 
                         dwarf_dealloc_macro_context(macro_context);
+                        macro_import_stack_restore(
+                            stackdepth_on_entry);
                         esb_constructor(&m);
 
                         esb_append_printf_u(&m,
@@ -1312,6 +1491,8 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                         struct esb_s m;
 
                         dwarf_dealloc_macro_context(macro_context);
+                        macro_import_stack_restore(
+                            stackdepth_on_entry);
                         esb_constructor(&m);
                         esb_append_printf_u(&m,
                             "ERROR: dwarf_macro_operands_table()"
@@ -1349,7 +1530,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                 }
             }
         }
-        if (do_print_dwarf) {
+        if (do_print_here) {
             printf("  MacroInformationEntries count: %" DW_PR_DUu
                 ", bytes length: %" DW_PR_DUu "\n",
                 number_of_ops,ops_total_byte_len);
@@ -1359,17 +1540,19 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             dwarf_srcfiles,
             srcfiles_count,
             macro_context,number_of_ops,
-            do_print_dwarf /*not gf_do_print_dwarf here*/,
+            do_print_here /*not gf_do_print_dwarf here*/,
             descend_into_import /* TRUE means follow imports */,
             by_offset /* if TRUE is an imported macro set */,
             macro_unit_offset,
             &macro_unit_length,
             level,
+            &thisfollow,
             err);
         if (lres != DW_DLV_OK) {
             struct esb_s m;
 
             dwarf_dealloc_macro_context(macro_context);
+            macro_import_stack_restore(stackdepth_on_entry);
             esb_constructor(&m);
             if (lres == DW_DLV_ERROR){
                 esb_append(&m,
@@ -1389,7 +1572,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             is a real macro unit. */
     }
     if (do_print_dwarf) {
-        mark_macro_offset_printed(&macro_check_tree,offset);
+        mark_macro_offset_printed(&macro_check_tree,dbg,offset);
     }
     lres = macro_import_stack_pop();
     dwarf_dealloc_macro_context(macro_context);
@@ -1423,7 +1606,16 @@ print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Error *err)
 {
     int res = 0;
+    struct macro_follow_state_s follow;
 
+    if (macro_follow_state_for(dbg,&follow)) {
+        printf("ERROR: dwarfdump internal files not properly "
+            "initialized, internal dwarfdump bug. "
+            "No macro access done. "
+            "Pretending no macro section present\n");
+        glflags.gf_count_major_errors++;
+        return DW_DLV_NO_ENTRY;
+    }
     if (macfile_array_next_to_use || macfile_stack_next_to_use ||
         macdefundeftree || macfile_array) {
         printf("ERROR: dwarfdump internal files not properly "
@@ -1444,6 +1636,8 @@ print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
         offset,
         0,0,
         0,
+        /* no_cu */ FALSE,
+        &follow,
         err);
     macdef_tree_run_checks();
     destroy_macro_globals();
@@ -1451,6 +1645,113 @@ print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     /*  Do NOT clear macrocheck statistics  here,
         wait till all CUs processed before clearing. */
     return res;
+}
+
+/*  Print/check one macro unit in an object that has no CU
+    (the supplementary object), by offset.  Used for the
+    deferred pass over units found during import following. */
+int
+print_macros_5style_no_cu(Dwarf_Debug dbg, Dwarf_Unsigned offset,
+    Dwarf_Error *err)
+{
+    int res = 0;
+    struct macro_follow_state_s follow;
+
+    if (macro_follow_state_for(dbg,&follow)) {
+        return DW_DLV_NO_ENTRY;
+    }
+    /*  This object has no CU, so even a plain import in it must
+        be read with the Dwarf_Debug interface. */
+    follow.mfs_supp = dbg;
+    if (macfile_array_next_to_use || macfile_stack_next_to_use ||
+        macdefundeftree || macfile_array) {
+        printf("ERROR: dwarfdump internal files not properly "
+            "initialized, internal dwarfdump bug. "
+            "No macro access done. "
+            "Pretending no macro section present\n");
+        glflags.gf_count_major_errors++;
+        return DW_DLV_NO_ENTRY;
+    }
+    add_array_file_entry(0,0,DW_MACRO_start_file,
+        0,0,0,nofileseenyet);
+    res = print_macros_5style_this_cu_inner(dbg,0,
+        /* srcfiles */ 0,0,
+        glflags.gf_do_print_dwarf,
+        FALSE /* no descend_into_imports */,
+        TRUE /* by offset */,
+        offset,
+        0,0,
+        0,
+        /* no_cu */ TRUE,
+        &follow,
+        err);
+    macdef_tree_run_checks();
+    destroy_macro_globals();
+    return res;
+}
+
+/*  Called once, after both objects (if any) are open, to label
+    them so reports can say where a macro unit lives.  The main
+    object is the primary object, the tied object is the
+    supplementary one. */
+void
+record_macro_objects(Dwarf_Debug dbg, Dwarf_Debug tied)
+{
+    Dwarf_Unsigned size = 0;
+    Dwarf_Addr addr = 0;
+    Dwarf_Error error = 0;
+    int res = 0;
+
+    macrocheck_owner_reset();
+    if (dbg) {
+        macrocheck_set_owner_label(dbg,"main object");
+        res = dwarf_get_section_info_by_name(dbg,
+            ".debug_macro",&addr,&size,&error);
+        if (res == DW_DLV_OK) {
+            macrocheck_set_owner_section_size(dbg,size);
+        } else if (res == DW_DLV_ERROR) {
+            dwarf_dealloc_error(dbg,error);
+            error = 0;
+        }
+    }
+    if (tied) {
+        macrocheck_set_owner_label(tied,"supplementary object");
+        res = dwarf_get_section_info_by_name(tied,
+            ".debug_macro",&addr,&size,&error);
+        if (res == DW_DLV_OK) {
+            macrocheck_set_owner_section_size(tied,size);
+        } else if (res == DW_DLV_ERROR) {
+            dwarf_dealloc_error(tied,error);
+            error = 0;
+        }
+    }
+}
+
+/*  Find the tied object for dbg (the object owning a CU) and
+    set up the follow state.  If the object is itself the tied
+    object the tied target is still it, since import_sup is
+    looked up there. Returns nonzero if no state could be built. */
+static int
+macro_follow_state_for(Dwarf_Debug dbg,
+    struct macro_follow_state_s *follow)
+{
+    Dwarf_Error error = 0;
+    int res = 0;
+
+    follow->mfs_owner = dbg;
+    follow->mfs_supp = 0;
+    res = dwarf_get_tied_dbg(dbg,&follow->mfs_supp,&error);
+    if (res != DW_DLV_OK) {
+        if (res == DW_DLV_ERROR) {
+            dwarf_dealloc_error(dbg,error);
+        }
+        follow->mfs_supp = 0;
+    } else if (follow->mfs_supp == dbg) {
+        /*  No tied object is bound: dwarf_get_tied_dbg()
+            returns the object passed in. */
+        follow->mfs_supp = 0;
+    }
+    return 0;
 }
 
 static int

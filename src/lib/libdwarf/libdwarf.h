@@ -5405,6 +5405,60 @@ DW_API int dwarf_get_macro_context_by_offset(Dwarf_Die dw_die,
     Dwarf_Unsigned      * dw_macro_ops_data_length,
     Dwarf_Error         * dw_error);
 
+/*! @brief DWARF5 .debug_macro access via Dwarf_Debug and an offset
+
+    This reads a macro unit in the .debug_macro section of the
+    object described by dw_dbg.  No CU is required, so it works
+    on a supplementary object that only has .debug_macro and
+    .debug_str sections and no .debug_info at all.
+
+    The arguments and return values are the same as
+    dwarf_get_macro_context_by_offset() except for the first
+    argument.  Free the returned context with
+    dwarf_dealloc_macro_context().
+
+    Only DWARF5 macro units are supported (the GNU extension
+    version 4 is not), and the unit header must not have the
+    line-offset flag nor an operands table.  The operators in
+    the unit may only be DW_MACRO_define, DW_MACRO_undef,
+    DW_MACRO_define_strp, DW_MACRO_undef_strp, DW_MACRO_import,
+    and the terminating zero byte.  DW_MACRO_define_strx,
+    DW_MACRO_undef_strx, and the start-file/end-file operators
+    return DW_DLV_ERROR: those would need the string index
+    tables or file tables of a specific CU, which may not exist.
+
+    @param dw_dbg
+    The object containing the macro section of interest.
+    @param dw_offset
+    The offset in the section of the macro unit.
+    @param dw_version_out
+    On success returns the macro context version (5)
+    @param dw_macro_context
+    On success returns a pointer to a macro context
+    which allows access to the context content.
+    @param dw_macro_ops_count_out
+    On success returns the number of macro operations
+    in the context.
+    @param dw_macro_ops_data_length
+    On success returns the length in bytes of the
+    operations in the context.
+    @param dw_error
+    The usual error detail return pointer.
+    @return
+    Returns DW_DLV_OK etc.
+    If the object has no .debug_macro section it returns
+    DW_DLV_NO_ENTRY.
+    If dw_offset is outside the section, or the unit is not one
+    of the supported forms, it returns DW_DLV_ERROR.
+*/
+DW_API int dwarf_get_macro_context_by_debug(Dwarf_Debug dw_dbg,
+    Dwarf_Unsigned        dw_offset,
+    Dwarf_Unsigned      * dw_version_out,
+    Dwarf_Macro_Context * dw_macro_context,
+    Dwarf_Unsigned      * dw_macro_ops_count_out,
+    Dwarf_Unsigned      * dw_macro_ops_data_length,
+    Dwarf_Error         * dw_error);
+
 /*  New December 2020. libdwarf 0.1.0
     Sometimes its necessary to know
     a context total length including macro 5 header */

@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfteststrcpy.dir/test_safe_strcpy.c.o CMakeFiles/selfteststrcpy.dir/__/src/lib/libdwarf/dwarf_safe_strcpy.c.o -o selfteststrcpy

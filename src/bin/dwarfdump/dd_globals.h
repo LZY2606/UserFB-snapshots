@@ -236,6 +236,15 @@ int print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Unsigned offset,
     Dwarf_Error *);
 
+/*  Label the main and tied (supplementary) objects once at
+    startup so macro reports and checks can name their object. */
+void record_macro_objects(Dwarf_Debug dbg, Dwarf_Debug tied);
+
+/*  Print/check one macro unit in an object with no CU, by
+    offset (used for the supplementary object). */
+int print_macros_5style_no_cu(Dwarf_Debug dbg,
+    Dwarf_Unsigned offset, Dwarf_Error *err);
+
 /* Detailed attributes encoding space */
 int print_attributes_encoding(Dwarf_Debug dbg,Dwarf_Error *);
 

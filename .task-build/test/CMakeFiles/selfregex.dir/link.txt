@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfregex.dir/test_regex.c.o CMakeFiles/selfregex.dir/__/src/bin/dwarfdump/dd_regex.c.o -o selfregex

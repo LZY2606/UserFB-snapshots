@@ -51,6 +51,8 @@
 #include <config.h>
 
 #include <stdlib.h> /* calloc() free() */
+#include <string.h> /* memset() */
+#include <stdint.h> /* uintptr_t */
 #include <stdio.h> /* FILE decl for dd_esb.h */
 
 #include "dwarf.h"
@@ -74,6 +76,7 @@
 */
 
 Dwarf_Unsigned macro_import_stack[MACRO_IMPORT_STACK_DEPTH +1];
+void *macro_import_stack_owner[MACRO_IMPORT_STACK_DEPTH +1];
 unsigned macro_import_stack_next_to_use;
 unsigned macro_import_stack_max_seen;
 
@@ -85,8 +88,100 @@ void *  macro_check_tree;   /* DWARF5 macros */
 void *  macinfo_check_tree; /* DWARF 2,3,4 macros */
 void *  macdefundeftree;    /* DWARF5 macros */
 
+/*  Small registry labelling the objects macro data came from
+    so reports can tell the main and supplementary objects
+    apart, and so each is measured against its own section.
+    This is dwarfdump-internal and fixed size: only the main
+    and tied objects exist. */
+#define MACRO_OWNER_MAX 4
+struct macrocheck_owner_s {
+    Dwarf_Debug mo_dbg;
+    const char *mo_label;
+    Dwarf_Unsigned mo_section_size;
+    Dwarf_Bool  mo_has_size;
+};
+static struct macrocheck_owner_s macrocheck_owners[MACRO_OWNER_MAX];
+static unsigned macrocheck_owner_count;
+
+static struct macrocheck_owner_s *
+macrocheck_owner_slot(Dwarf_Debug owner, Dwarf_Bool create)
+{
+    unsigned i = 0;
+
+    for (i = 0; i < macrocheck_owner_count; ++i) {
+        if (macrocheck_owners[i].mo_dbg == owner) {
+            return &macrocheck_owners[i];
+        }
+    }
+    if (!create || macrocheck_owner_count >= MACRO_OWNER_MAX) {
+        return 0;
+    }
+    macrocheck_owners[macrocheck_owner_count].mo_dbg = owner;
+    macrocheck_owners[macrocheck_owner_count].mo_label = 0;
+    macrocheck_owners[macrocheck_owner_count].mo_section_size = 0;
+    macrocheck_owners[macrocheck_owner_count].mo_has_size = FALSE;
+    ++macrocheck_owner_count;
+    return &macrocheck_owners[macrocheck_owner_count-1];
+}
+
+void
+macrocheck_set_owner_label(Dwarf_Debug owner, const char *label)
+{
+    struct macrocheck_owner_s *m = macrocheck_owner_slot(owner,TRUE);
+
+    if (!m) {
+        return;
+    }
+    m->mo_label = label;
+}
+
+void
+macrocheck_set_owner_section_size(Dwarf_Debug owner,
+    Dwarf_Unsigned section_size)
+{
+    struct macrocheck_owner_s *m = macrocheck_owner_slot(owner,TRUE);
+
+    if (!m) {
+        return;
+    }
+    m->mo_section_size = section_size;
+    m->mo_has_size = TRUE;
+}
+
+const char *
+macrocheck_owner_label(Dwarf_Debug owner)
+{
+    struct macrocheck_owner_s *m = macrocheck_owner_slot(owner,FALSE);
+
+    return m ? m->mo_label : 0;
+}
+
+Dwarf_Bool
+macrocheck_owner_has_section_size(Dwarf_Debug owner)
+{
+    struct macrocheck_owner_s *m = macrocheck_owner_slot(owner,FALSE);
+
+    return (m && m->mo_has_size) ? TRUE : FALSE;
+}
+
+Dwarf_Unsigned
+macrocheck_owner_section_size(Dwarf_Debug owner)
+{
+    struct macrocheck_owner_s *m = macrocheck_owner_slot(owner,FALSE);
+
+    return m ? m->mo_section_size : 0;
+}
+
+void
+macrocheck_owner_reset(void)
+{
+    memset(macrocheck_owners,0,sizeof(macrocheck_owners));
+    macrocheck_owner_count = 0;
+}
+
 static struct Macrocheck_Map_Entry_s * macrocheck_map_insert
 (
+    Dwarf_Debug owner,
     Dwarf_Unsigned off,
     Dwarf_Unsigned prim,
     Dwarf_Unsigned sec,
@@ -102,7 +197,8 @@ struct glflags_s glflags;
 #endif /* TESTING */
 
 static struct Macrocheck_Map_Entry_s *
-macrocheck_map_create_entry(Dwarf_Unsigned offset,
+macrocheck_map_create_entry(Dwarf_Debug owner,
+    Dwarf_Unsigned offset,
     Dwarf_Unsigned add_primary, Dwarf_Unsigned add_secondary)
 {
     struct Macrocheck_Map_Entry_s *mp =
@@ -111,6 +207,7 @@ macrocheck_map_create_entry(Dwarf_Unsigned offset,
     if (!mp) {
         return 0;
     }
+    mp->mp_owner = owner;
     mp->mp_key = offset;
     mp->mp_len = 0;
     mp->mp_printed = 0;
@@ -130,6 +227,17 @@ macrocheck_map_compare_func(const void *l, const void *r)
 {
     const struct Macrocheck_Map_Entry_s *ml = l;
     const struct Macrocheck_Map_Entry_s *mr = r;
+    uintptr_t lo = (uintptr_t)ml->mp_owner;
+    uintptr_t ro = (uintptr_t)mr->mp_owner;
+
+    /*  Object identity, not a numeric value: compare as
+        integers to keep the ordering well defined. */
+    if (lo < ro) {
+        return -1;
+    }
+    if (lo > ro) {
+        return 1;
+    }
     if (ml->mp_key < mr->mp_key) {
         return -1;
     }
@@ -140,7 +248,8 @@ macrocheck_map_compare_func(const void *l, const void *r)
 }
 
 static struct Macrocheck_Map_Entry_s *
-macrocheck_map_insert(Dwarf_Unsigned offset,
+macrocheck_map_insert(Dwarf_Debug owner,
+    Dwarf_Unsigned offset,
     Dwarf_Unsigned add_prim,Dwarf_Unsigned add_sec,
     Dwarf_Unsigned line_num,
     unsigned src_file_num,
@@ -150,7 +259,7 @@ macrocheck_map_insert(Dwarf_Unsigned offset,
     struct Macrocheck_Map_Entry_s *re = 0;
     struct Macrocheck_Map_Entry_s *e = 0;
 
-    e  = macrocheck_map_create_entry(offset,add_prim,add_sec);
+    e  = macrocheck_map_create_entry(owner,offset,add_prim,add_sec);
     /*  tsearch records e's contents unless e
         is already present . We must not free it till
         destroy time if it got added to tree1.  */
@@ -177,13 +286,13 @@ macrocheck_map_insert(Dwarf_Unsigned offset,
 }
 
 struct Macrocheck_Map_Entry_s *
-macrocheck_map_find(Dwarf_Unsigned offset,void **tree1)
+macrocheck_map_find(Dwarf_Debug owner,Dwarf_Unsigned offset,void **tree1)
 {
     void *retval = 0;
     struct Macrocheck_Map_Entry_s *re = 0;
     struct Macrocheck_Map_Entry_s *e = 0;
 
-    e = macrocheck_map_create_entry(offset,0,0);
+    e = macrocheck_map_create_entry(owner,offset,0,0);
     retval = dwarf_tfind(e,tree1, macrocheck_map_compare_func);
     if (retval) {
         re = *(struct Macrocheck_Map_Entry_s **)retval;
@@ -203,6 +312,7 @@ macrocheck_map_destroy(void *map)
 
 void
 add_macro_import(void **base,
+    Dwarf_Debug owner,
     Dwarf_Bool is_primary,
     Dwarf_Unsigned offset,
     Dwarf_Unsigned line_num,
@@ -216,17 +326,18 @@ add_macro_import(void **base,
     } else {
         sec_count = 1;
     }
-    macrocheck_map_insert(offset,prim_count,sec_count,
+    macrocheck_map_insert(owner,offset,prim_count,sec_count,
         line_num,src_filenum,base);
 }
 
 void
-add_macro_area_len(void **base, Dwarf_Unsigned offset,
+add_macro_area_len(void **base, Dwarf_Debug owner,
+    Dwarf_Unsigned offset,
     Dwarf_Unsigned len)
 {
     struct Macrocheck_Map_Entry_s *re = 0;
 
-    re = macrocheck_map_find(offset,base);
+    re = macrocheck_map_find(owner,offset,base);
     if (re) {
         re->mp_len = len;
     }
@@ -256,6 +367,7 @@ macro_count_recs(void **base)
 
 static Dwarf_Unsigned lowestoff = 0xffffff;
 static Dwarf_Bool lowestfound = FALSE;
+static Dwarf_Debug lowestwantedowner = 0;
 static void
 macro_walk_find_lowest(const void *nodep,const DW_VISIT  which,
     const int  depth)
@@ -267,22 +379,30 @@ macro_walk_find_lowest(const void *nodep,const DW_VISIT  which,
     if (which == dwarf_postorder || which == dwarf_endorder) {
         return;
     }
+    if (re->mp_owner != lowestwantedowner) {
+        return;
+    }
     if (!re->mp_printed) {
         if (!lowestfound) {
             lowestoff = re->mp_key;
             lowestfound = TRUE;
-        } else if (re->mp_key <= lowestoff) {
+        } else if (re->mp_key < lowestoff) {
             lowestoff = re->mp_key;
         }
     }
 }
 
-/* Never returns DW_DLV_ERROR */
+/*  Never returns DW_DLV_ERROR.
+    Only offsets in owner are considered.  A different object
+    at the same offset is a different macro unit and is
+    handled in its own pass. */
 int
-get_next_unprinted_macro_offset(void **tree, Dwarf_Unsigned * off)
+get_next_unprinted_macro_offset(void **tree, Dwarf_Debug owner,
+    Dwarf_Unsigned * off)
 {
     lowestfound = FALSE;
     lowestoff = 0xffffffff;
+    lowestwantedowner = owner;
 
     /*  This walks the tree to find one entry.
         Which could get slow if the tree has lots of entries. */
@@ -295,11 +415,12 @@ get_next_unprinted_macro_offset(void **tree, Dwarf_Unsigned * off)
 }
 
 void
-mark_macro_offset_printed(void **base, Dwarf_Unsigned offset)
+mark_macro_offset_printed(void **base, Dwarf_Debug owner,
+    Dwarf_Unsigned offset)
 {
     struct Macrocheck_Map_Entry_s *re = 0;
 
-    re = macrocheck_map_find(offset,base);
+    re = macrocheck_map_find(owner,offset,base);
     if (re) {
         re->mp_printed = TRUE;
     }
@@ -329,6 +450,15 @@ qsort_compare(const void *lin, const void *rin)
         *(const struct Macrocheck_Map_Entry_s **)lin;
     const struct Macrocheck_Map_Entry_s *r =
         *(const struct Macrocheck_Map_Entry_s **)rin;
+    uintptr_t lo = (uintptr_t)l->mp_owner;
+    uintptr_t ro = (uintptr_t)r->mp_owner;
+
+    if (lo < ro) {
+        return -1;
+    }
+    if (lo > ro) {
+        return 1;
+    }
     if (l->mp_key < r->mp_key) {
         return -1;
     }
@@ -375,14 +505,7 @@ print_macrocheck_statistics(const char *name,void **tsbase,
     Dwarf_Unsigned section_size)
 {
     Dwarf_Unsigned count = 0;
-    Dwarf_Unsigned lowest = (Dwarf_Unsigned)-1ll;
-    Dwarf_Unsigned highest = 0;
-    Dwarf_Unsigned lastend = 0;
-    Dwarf_Unsigned laststart = 0;
-    Dwarf_Unsigned internalgap = 0;
-    Dwarf_Unsigned wholegap = 0;
     Dwarf_Unsigned i = 0;
-    Dwarf_Unsigned end = 0;
 
     if (! *tsbase) {
         return DW_DLV_NO_ENTRY;
@@ -409,106 +532,138 @@ print_macrocheck_statistics(const char *name,void **tsbase,
         return DW_DLV_OK;
     }
     dwarf_twalk(*tsbase,macro_walk_to_array);
-    printf("  Macro unit count %s: %" DW_PR_DUu "\n",name,count);
     qsort(mac_as_array,
         count,sizeof(struct Macrocheck_Map_Entry_s *),
         qsort_compare);
-    for (i = 0; i < count ; ++i) {
-        struct Macrocheck_Map_Entry_s *r = mac_as_array[i];
-        if (r->mp_key < lowest) {
-            lowest = r->mp_key;
+    /*  The array is sorted by owner then offset.  Each object
+        is reported as a separate set of macro units: the same
+        offset in two different objects is not one unit. */
+    for (i = 0; i < count ; ) {
+        Dwarf_Debug owner = mac_as_array[i]->mp_owner;
+        Dwarf_Unsigned first = i;
+        Dwarf_Unsigned last = i;
+        Dwarf_Unsigned j = 0;
+        Dwarf_Unsigned lowest = (Dwarf_Unsigned)-1ll;
+        Dwarf_Unsigned highest = 0;
+        Dwarf_Unsigned lastend = 0;
+        Dwarf_Unsigned laststart = 0;
+        Dwarf_Unsigned internalgap = 0;
+        Dwarf_Unsigned wholegap = 0;
+        Dwarf_Unsigned end = 0;
+        Dwarf_Unsigned ownersize = section_size;
+        const char *ownerlabel = 0;
+
+        while (last +1 < count &&
+            mac_as_array[last+1]->mp_owner == owner) {
+            ++last;
         }
-        end = r->mp_key + r->mp_len;
-        if (end > highest) {
-            highest = end;
+        i = last +1;
+        ownerlabel = macrocheck_owner_label(owner);
+        if (macrocheck_owner_has_section_size(owner)) {
+            ownersize = macrocheck_owner_section_size(owner);
         }
-        if (r->mp_refcount_primary > 1) {
+        printf("  Macro unit count %s",name);
+        if (ownerlabel) {
+            printf(" <%s>",ownerlabel);
+        }
+        printf(": %" DW_PR_DUu "\n",last - first + 1);
+        for (j = first; j <= last; ++j) {
+            struct Macrocheck_Map_Entry_s *r = mac_as_array[j];
+            if (r->mp_key < lowest) {
+                lowest = r->mp_key;
+            }
+            end = r->mp_key + r->mp_len;
+            if (end > highest) {
+                highest = end;
+            }
+            if (r->mp_refcount_primary > 1) {
+#ifdef TESTING
+                ++failcount;
+#endif
+                glflags.gf_count_major_errors++;
+                printf("\nERROR: For offset 0x%" DW_PR_XZEROS DW_PR_DUx
+                    " %" DW_PR_DUu
+                    " there is a primary reference count of "
+                    "0x%"  DW_PR_XZEROS DW_PR_DUx
+                    " %"  DW_PR_DUu "\n",
+                    r->mp_key,
+                    r->mp_key,
+                    r->mp_refcount_primary,
+                    r->mp_refcount_primary);
+            }
+            /*  For DWARF5 style macros (in .debug_macro)
+                having both counts
+                is normal. Not so for DWARF2 .debug_macinfo.  */
+            if (!isdwarf5 && r->mp_refcount_primary &&
+                r->mp_refcount_secondary) {
+                warnprimeandsecond(r);
+            }
+        }
+        lastend =
+            mac_as_array[first]->mp_key +
+            mac_as_array[first]->mp_len;
+        laststart = mac_as_array[first]->mp_key;
+        printf("  Macro Offsets start at 0x%" DW_PR_XZEROS DW_PR_DUx
+            " and end at 0x%" DW_PR_XZEROS DW_PR_DUx "\n",
+            lowest, highest);
+        for (j = first+1; j <= last ; ++j) {
+            struct Macrocheck_Map_Entry_s *r = mac_as_array[j];
+            if (r->mp_key > lastend) {
+                internalgap += (r->mp_key - lastend);
+            } else if (r->mp_key < lastend) {
+                /* crazy overlap */
+#ifdef TESTING
+                ++failcount;
+#endif
+                glflags.gf_count_major_errors++;
+                printf(" ERROR: For offset 0x%" DW_PR_XZEROS DW_PR_DUx
+                    " %" DW_PR_DUu
+                    " there is a crazy overlap with the previous "
+                    "end offset of "
+                    "0x%"  DW_PR_XZEROS DW_PR_DUx
+                    " %"  DW_PR_DUu
+                    " (previous start offset "
+                    "of 0x%" DW_PR_XZEROS DW_PR_DUx ")"
+                    " %"  DW_PR_DUu
+                    "\n",
+                    r->mp_key,
+                    r->mp_key,
+                    lastend,
+                    lastend,
+                    laststart,
+                    laststart);
+            }
+            laststart = r->mp_key;
+            lastend   = laststart + r->mp_len;
+        }
+        /*  wholegap is a) starting offset > 0 and b)
+            space after used area before end of section. */
+        wholegap = mac_as_array[first]->mp_key + internalgap;
+        if (lastend > ownersize) {
+            /* Something seriously wrong */
 #ifdef TESTING
             ++failcount;
 #endif
-            glflags.gf_count_major_errors++;
-            printf("\nERROR: For offset 0x%" DW_PR_XZEROS DW_PR_DUx
-                " %" DW_PR_DUu
-                " there is a primary reference count of "
-                "0x%"  DW_PR_XZEROS DW_PR_DUx
-                " %"  DW_PR_DUu "\n",
-                r->mp_key,
-                r->mp_key,
-                r->mp_refcount_primary,
-                r->mp_refcount_primary);
-        }
-        /*  For DWARF5 style macros (in .debug_macro)
-            having both counts
-            is normal. Not so for DWARF2 .debug_macinfo.  */
-        if (!isdwarf5 && r->mp_refcount_primary &&
-            r->mp_refcount_secondary) {
-            warnprimeandsecond(r);
-        }
-    }
-    lastend =
-        mac_as_array[0]->mp_key +
-        mac_as_array[0]->mp_len;
-    laststart = mac_as_array[0]->mp_key;
-    printf("  Macro Offsets start at 0x%" DW_PR_XZEROS DW_PR_DUx
-        " and end at 0x%" DW_PR_XZEROS DW_PR_DUx "\n",
-        lowest, highest);
-    for (i = 1; i < count ; ++i) {
-        struct Macrocheck_Map_Entry_s *r = mac_as_array[i];
-        if (r->mp_key > lastend) {
-            internalgap += (r->mp_key - lastend);
-        } else if (r->mp_key < lastend) {
-            /* crazy overlap */
-#ifdef TESTING
-            ++failcount;
-#endif
-            glflags.gf_count_major_errors++;
             printf(" ERROR: For offset 0x%" DW_PR_XZEROS DW_PR_DUx
                 " %" DW_PR_DUu
-                " there is a crazy overlap with the previous "
-                "end offset of "
+                " there is an overlap with the end of section "
                 "0x%"  DW_PR_XZEROS DW_PR_DUx
                 " %"  DW_PR_DUu
-                " (previous start offset "
-                "of 0x%" DW_PR_XZEROS DW_PR_DUx ")"
-                " %"  DW_PR_DUu
-                "\n",
-                r->mp_key,
-                r->mp_key,
-                lastend,
-                lastend,
-                laststart,
-                laststart);
+                "\n",laststart,laststart,
+                lastend, lastend);
+        } else {
+            wholegap += (ownersize - lastend);
         }
-        laststart = r->mp_key;
-        lastend   = laststart + r->mp_len;
-    }
-    /*  wholegap is a) starting offset > 0 and b)
-        space after used area before end of section. */
-    wholegap = mac_as_array[0]->mp_key + internalgap;
-    if (lastend > section_size) {
-        /* Something seriously wrong */
-#ifdef TESTING
-        ++failcount;
-#endif
-        printf(" ERROR: For offset 0x%" DW_PR_XZEROS DW_PR_DUx
-            " %" DW_PR_DUu
-            " there is an overlap with the end of section "
-            "0x%"  DW_PR_XZEROS DW_PR_DUx
-            " %" DW_PR_DUu
-            "\n",laststart,laststart,
-            lastend, lastend);
-    } else {
-        wholegap += (section_size - lastend);
-    }
-    if (wholegap) {
-        printf("  Macro Offsets internal unused space: "
-            "0x%" DW_PR_XZEROS DW_PR_DUx
-            "\n",
-            internalgap);
-        printf("  Macro Offsets total    unused space: "
-            "0x%" DW_PR_XZEROS DW_PR_DUx
-            "\n",
-            wholegap);
+        if (wholegap) {
+            printf("  Macro Offsets internal unused space: "
+                "0x%" DW_PR_XZEROS DW_PR_DUx
+                "\n",
+                internalgap);
+            printf("  Macro Offsets total    unused space: "
+                "0x%" DW_PR_XZEROS DW_PR_DUx
+                "\n",
+                wholegap);
+        }
     }
     if (macfile_stack_max_seen)  {
         printf("Maximum nest depth of DW_MACRO_start_file: %u\n",
@@ -542,9 +697,15 @@ print_macro_import_stack(void)
     printf("Macro Stack Depth: %u\n",
         macro_import_stack_next_to_use);
     for ( ; i <  macro_import_stack_next_to_use; ++i) {
-        printf("Macro Stack[%u] "
-            "MOFF=0x%" DW_PR_XZEROS DW_PR_DUx "\n",
-            i,macro_import_stack[i]);
+        const char *label =
+            macrocheck_owner_label(
+                (Dwarf_Debug)macro_import_stack_owner[i]);
+        printf("Macro Stack[%u] ",i);
+        if (label) {
+            printf("<%s> ",label);
+        }
+        printf("MOFF=0x%" DW_PR_XZEROS DW_PR_DUx "\n",
+            macro_import_stack[i]);
     }
 }
 
@@ -552,7 +713,7 @@ print_macro_import_stack(void)
     which would be because full.
     Else returns DW_DLV_OK.  */
 int
-macro_import_stack_push(Dwarf_Unsigned offset)
+macro_import_stack_push(Dwarf_Debug owner, Dwarf_Unsigned offset)
 {
     if (macro_import_stack_next_to_use >=
         MACRO_IMPORT_STACK_DEPTH) {
@@ -563,6 +724,8 @@ macro_import_stack_push(Dwarf_Unsigned offset)
         return DW_DLV_ERROR;
     }
     macro_import_stack[macro_import_stack_next_to_use] = offset;
+    macro_import_stack_owner[macro_import_stack_next_to_use] =
+        owner;
     ++macro_import_stack_next_to_use;
     if (macro_import_stack_max_seen <
         macro_import_stack_next_to_use) {
@@ -587,19 +750,38 @@ macro_import_stack_pop(void)
     return DW_DLV_OK;
 }
 
-/*  Returns DW_DLV_OK if offset present
-    else DW_DLV_NO_ENTRY. */
+/*  Returns DW_DLV_OK if (owner,offset) is present
+    else DW_DLV_NO_ENTRY.  The same offset in a different
+    object is a different macro unit and is not a loop. */
 int
-macro_import_stack_present(Dwarf_Unsigned offset)
+macro_import_stack_present(Dwarf_Debug owner, Dwarf_Unsigned offset)
 {
     unsigned i = 0;
 
     for ( ; i < macro_import_stack_next_to_use;++i) {
-        if (macro_import_stack[i] == offset) {
+        if (macro_import_stack[i] == offset &&
+            macro_import_stack_owner[i] == (void *)owner) {
             return DW_DLV_OK;
         }
     }
     return DW_DLV_NO_ENTRY;
+}
+
+unsigned
+macro_import_stack_depth(void)
+{
+    return macro_import_stack_next_to_use;
+}
+
+/*  Restore the stack to a depth recorded earlier, discarding
+    any entries added by a branch that returned or failed.
+    Nothing else about the stack is changed. */
+void
+macro_import_stack_restore(unsigned depth)
+{
+    if (depth <= MACRO_IMPORT_STACK_DEPTH) {
+        macro_import_stack_next_to_use = depth;
+    }
 }
 
 void

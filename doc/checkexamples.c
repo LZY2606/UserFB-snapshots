@@ -2220,6 +2220,85 @@ int  examplep5(Dwarf_Die cu_die,Dwarf_Error *error)
 }
 /* @endcode */
 
+/*! @defgroup examplep6 Reading a supplementary object's macro unit
+
+    @brief Example reading a .debug_macro unit with no CU
+
+    A supplementary object named by DW_MACRO_import_sup can have
+    only .debug_macro and .debug_str, no CU at all.  Use
+    dwarf_get_macro_context_by_debug() with the Dwarf_Debug of
+    that object and the offset from dwarf_get_macro_import().
+
+    This entry point takes the same arguments as
+    dwarf_get_macro_context_by_offset() except that the first
+    argument is a Dwarf_Debug.  It supports DWARF5 units only,
+    with no line offset and no custom operands table, and only
+    DW_MACRO_define, DW_MACRO_undef, DW_MACRO_define_strp,
+    DW_MACRO_undef_strp, DW_MACRO_import and the terminator.
+    Anything else (DW_MACRO_define_strx, start/end file) returns
+    DW_DLV_ERROR.  Free the context with
+    dwarf_dealloc_macro_context().
+
+    @code
+*/
+int examplep6(Dwarf_Debug supdbg, Dwarf_Unsigned unit_offset,
+    Dwarf_Error *error)
+{
+    int res = 0;
+    Dwarf_Unsigned version = 0;
+    Dwarf_Macro_Context macro_context = 0;
+    Dwarf_Unsigned number_of_ops = 0;
+    Dwarf_Unsigned ops_total_byte_len = 0;
+    Dwarf_Unsigned k = 0;
+
+    res = dwarf_get_macro_context_by_debug(supdbg, unit_offset,
+        &version, &macro_context,
+        &number_of_ops, &ops_total_byte_len, error);
+    if (res != DW_DLV_OK) {
+        /*  DW_DLV_NO_ENTRY: no .debug_macro in this object.
+            DW_DLV_ERROR:    bad offset or unsupported unit. */
+        return res;
+    }
+    /*  version is 5 and the context has only the operators
+        listed above. */
+    for (k = 0; k < number_of_ops; ++k) {
+        Dwarf_Unsigned section_offset = 0;
+        Dwarf_Half macro_operator = 0;
+        Dwarf_Half forms_count = 0;
+        const Dwarf_Small *formcode_array = 0;
+        int lres = 0;
+
+        lres = dwarf_get_macro_op(macro_context, k,
+            &section_offset, &macro_operator, &forms_count,
+            &formcode_array, error);
+        if (lres != DW_DLV_OK) {
+            dwarf_dealloc_macro_context(macro_context);
+            return lres;
+        }
+        if (macro_operator == DW_MACRO_define_strp ||
+            macro_operator == DW_MACRO_undef_strp) {
+            Dwarf_Unsigned line_number = 0;
+            Dwarf_Unsigned index = 0;
+            Dwarf_Unsigned stroff = 0;
+            const char *macro_string = 0;
+
+            /*  strp resolves against this object's own
+                .debug_str, not the main object's. */
+            lres = dwarf_get_macro_defundef(macro_context, k,
+                &line_number, &index, &stroff, &forms_count,
+                &macro_string, error);
+            if (lres != DW_DLV_OK) {
+                dwarf_dealloc_macro_context(macro_context);
+                return lres;
+            }
+            /* do something with macro_string, line_number */
+        }
+    }
+    dwarf_dealloc_macro_context(macro_context);
+    return DW_DLV_OK;
+}
+/* @endcode */
+
 /*! @defgroup examplep2 Reading .debug_macinfo (DWARF2-4)
     @brief Example reading .debug_macinfo, DWARF2-4
 

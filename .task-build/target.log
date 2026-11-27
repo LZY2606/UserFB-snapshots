@@ -1,0 +1,66 @@
+-- Building dwarfgen    ... OFF
+-- Building dwarfexample... OFF
+-- Building api tests   ... 
+-- HAVE_UINTPTR_T 1: uintptr_t defined in stdint.h... YES
+-- uintptr_t value considered NO 
+-- HAVE_INTPTR_T 1: intptr_t defined in stdint.h... YES
+-- intptr_t value considered NO 
+-- ENABLE_DECOMPRESSION : OFF
+-- Build with zlib and zstd: NO
+-- CMAKE_SIZEOF_VOID_P ... : 8
+-- Compiler warning options... NO
+-- Install prefix ... /usr/local
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125Y1073/attempts/20261127T160952349288Z/repo/.task-build
+[100%] Built target dwarf
+[ 52%] Built target dwarf
+[100%] Built target dwarfdump
+[100%] Built target selfmacrocheck
+CASE owner_context library_reads_supplementary checks=28
+CASE owner_context same_offset_two_objects checks=19
+CASE owner_context unsupported_constructs checks=19
+GROUP owner_context cases=3 checks=66 COMPLETE
+CASE import_execution cli_prints_supplementary checks=7
+CASE import_execution cli_check_runs_supplementary checks=5
+GROUP import_execution cases=2 checks=12 COMPLETE
+CASE recovery cycle_and_siblings checks=20
+CASE recovery cli_after_loop checks=5
+CASE recovery bad_offset_sibling checks=4
+GROUP recovery cases=3 checks=29 COMPLETE
+TARGET_COMPLETE cases=8
+MAIN_DEFINE text=MAIN_OWNER 1 line=1
+IMPORT_SUP offset=0 tied=yes
+SUPPLEMENTARY macro=yes cu=no
+BASELINE_OK existing macro API and tied relation
+  Macro unit count test1: 1
+  Macro Offsets start at 0x000000c8 and end at 0x000000c8
+  Macro Offsets internal unused space: 0x00000000
+  Macro Offsets total    unused space: 0x000007d0
+  Macro unit count test 2: 2
+  Macro Offsets start at 0x000000c8 and end at 0x000001c2
+  Macro Offsets internal unused space: 0x00000032
+  Macro Offsets total    unused space: 0x00000708
+
+  Expect an ERROR about overlap with the end of section
+  Macro unit count test 3: 3
+  Macro Offsets start at 0x00000000 and end at 0x00000834
+ ERROR: For offset 0x000007d0 2000 there is an overlap with the end of section 0x00000834 2100
+  Macro Offsets internal unused space: 0x00000064
+  Macro Offsets total    unused space: 0x00000064
+
+  Expect an ERROR about offset 50 having 2 primaries
+  and Expect an ERROR about offset 50 having 2
+  primaries and a secondary
+  and Expect an ERROR about crazy overlap 60
+
+  Macro unit count test 4: 3
+
+ERROR: For offset 0x00000032 50 there is a primary reference count of 0x00000002 2
+
+ERROR: For offset 0x00000032 50 there is a nonzero primary count of 0x00000002 2 with a secondary count of 0x00000001 1
+  Macro Offsets start at 0x00000032 and end at 0x000000c8
+ ERROR: For offset 0x0000003c 60 there is a crazy overlap with the previous end offset of 0x00000064 100 (previous start offset of 0x00000032) 50
+  Macro Offsets internal unused space: 0x00000082
+  Macro Offsets total    unused space: 0x000007bc
+PASS macrocheck selftest

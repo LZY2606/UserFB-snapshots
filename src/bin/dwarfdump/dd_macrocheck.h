@@ -34,6 +34,10 @@ extern void * macdefundeftree; /* DWARF5 style macros */
 
 struct Macrocheck_Map_Entry_s {
     Dwarf_Unsigned mp_key; /* Key is offset */
+    /*  The object (Dwarf_Debug) holding the macro unit.
+        The same offset in the main and the supplementary
+        object names two different macro units. */
+    Dwarf_Debug    mp_owner;
     Dwarf_Unsigned mp_len; /* len in bytes off this macro set */
 
     /*  We count number of uses. More than 1 primary is an error.
@@ -82,39 +86,61 @@ extern unsigned macfile_stack_max_seen;
 
 #define MACRO_IMPORT_STACK_DEPTH 20 /* Arbitrary. Make bigger? */
 extern Dwarf_Unsigned macro_import_stack[MACRO_IMPORT_STACK_DEPTH +1];
+extern void *macro_import_stack_owner[MACRO_IMPORT_STACK_DEPTH +1];
 extern unsigned macro_import_stack_next_to_use;
 extern unsigned macro_import_stack_max_seen;
-/*  Returns DW_DLV_ERROR if the push could not done,
-    which would be because full.
-    Else returns DW_DLV_OK.  */
-int macro_import_stack_push(Dwarf_Unsigned offset);
+/*  The owner (Dwarf_Debug) is part of the key: the same
+    offset in two different objects names two different
+    macro units. */
+int macro_import_stack_push(Dwarf_Debug owner, Dwarf_Unsigned offset);
 
 /*  Returns DW_DLV_ERROR if the pop could not done,
     else returns DW_DLV_OK.  */
 int macro_import_stack_pop(void);
 
-/*  Returns DW_DLV_OK if offset is in the stack or
+/*  Returns DW_DLV_OK if (owner,offset) is in the stack or
     DW_DLV_NO_ENTRY if it is not in the stack. */
-int macro_import_stack_present(Dwarf_Unsigned offset);
+int macro_import_stack_present(Dwarf_Debug owner,
+    Dwarf_Unsigned offset);
+
+/*  Number of entries on the stack, for save/restore by
+    callers that must leave it as they found it. */
+unsigned macro_import_stack_depth(void);
+void macro_import_stack_restore(unsigned depth);
 
 void macro_import_stack_cleanout(void);
 void print_macro_import_stack(void);
 
+/*  Labels/sizes used when reporting per object. */
+void macrocheck_set_owner_label(Dwarf_Debug owner,
+    const char *label);
+void macrocheck_set_owner_section_size(Dwarf_Debug owner,
+    Dwarf_Unsigned section_size);
+const char *macrocheck_owner_label(Dwarf_Debug owner);
+Dwarf_Bool macrocheck_owner_has_section_size(Dwarf_Debug owner);
+Dwarf_Unsigned macrocheck_owner_section_size(Dwarf_Debug owner);
+void macrocheck_owner_reset(void);
+
 struct Macrocheck_Map_Entry_s * macrocheck_map_find(
+    Dwarf_Debug owner,
     Dwarf_Unsigned offset,
     void **map);
-void add_macro_import(void **base,Dwarf_Bool is_primary,
+void add_macro_import(void **base,
+    Dwarf_Debug owner,
+    Dwarf_Bool is_primary,
     Dwarf_Unsigned offset,
     Dwarf_Unsigned linenum,
     unsigned mafile_file_number);
-void add_macro_area_len(void **base, Dwarf_Unsigned offset,
+void add_macro_area_len(void **base, Dwarf_Debug owner,
+    Dwarf_Unsigned offset,
     Dwarf_Unsigned len);
 
 void print_split_macro_value(const char *name_in);
 
-int get_next_unprinted_macro_offset(void **base,
+int get_next_unprinted_macro_offset(void **base, Dwarf_Debug owner,
     Dwarf_Unsigned * off);
-void mark_macro_offset_printed(void **base, Dwarf_Unsigned offset);
+void mark_macro_offset_printed(void **base, Dwarf_Debug owner,
+    Dwarf_Unsigned offset);
 
 int print_macrocheck_statistics(const char *name,void **basep,
     int isdwarf5,
