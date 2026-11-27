@@ -47,9 +47,22 @@ Things to keep in mind:
 	GLint t1, dtdx, dtdy, dtdl_min, dtdl_max;
 #endif
 #ifdef INTERP_STZ
-	GLfloat sz1, dszdx, dszdy, dszdl_min, dszdl_max;
-	GLfloat tz1, dtzdx, dtzdy, dtzdl_min, dtzdl_max;
-	GLfloat fdzdx, fndzdx, ndszdx, ndtzdx;
+	/*
+	 * Perspective-correct texture mapping.
+	 *
+	 * 1/w, s/w and t/w are affine functions of the integer screen
+	 * coordinates, so they are evaluated at each covered pixel and the
+	 * final coordinate is the exact per-pixel quotient:
+	 *
+	 *   s = (sum lambda_i * s_i / w_i) / (sum lambda_i / w_i)
+	 *
+	 * where w_i is the clip-space w of the vertex (ZBufferPoint.w).
+	 * Window-space z is only used for depth test/store.
+	 */
+	GLdouble st_iwx, st_iwy, st_iwc;
+	GLdouble st_swx, st_swy, st_swc;
+	GLdouble st_twx, st_twy, st_twc;
+	GLint st_x, st_y;
 #endif
 
 	/* we sort the vertex with increasing y */
@@ -138,37 +151,21 @@ Things to keep in mind:
 #endif
 
 #ifdef INTERP_STZ
-		{
-			GLfloat zedzed;
-			zedzed = (GLfloat)p0->z;
-			p0->sz = (GLfloat)p0->s * zedzed;
-			p0->tz = (GLfloat)p0->t * zedzed;
-			zedzed = (GLfloat)p1->z;
-			p1->sz = (GLfloat)p1->s * zedzed;
-			p1->tz = (GLfloat)p1->t * zedzed;
-			zedzed = (GLfloat)p2->z;
-			p2->sz = (GLfloat)p2->s * zedzed;
-			p2->tz = (GLfloat)p2->t * zedzed;
-		}
-		{
-			d1 = p1->sz - p0->sz;
-			d2 = p2->sz - p0->sz;
-			dszdx = (fdy2 * d1 - fdy1 * d2);
-			dszdy = (fdx1 * d2 - fdx2 * d1);
-		}
-		{
-			d1 = p1->tz - p0->tz;
-			d2 = p2->tz - p0->tz;
-			dtzdx = (fdy2 * d1 - fdy1 * d2);
-			dtzdy = (fdx1 * d2 - fdx2 * d1);
-		}
+		/*
+		 * The affine coefficients for 1/w, s/w and t/w are computed by
+		 * DRAW_INIT() (see ZB_fillTriangleMappingPerspective).  Only the
+		 * current scanline index has to be tracked here.
+		 */
 #endif
-	} 
+	}
 	/* screen coordinates */
 
-	pp1 = (PIXEL*)(zb->pbuf) + zb->xsize * p0->y; 
+	pp1 = (PIXEL*)(zb->pbuf) + zb->xsize * p0->y;
 #if TGL_FEATURE_POLYGON_STIPPLE == 1
 	the_y = p0->y;
+#endif
+#ifdef INTERP_STZ
+	st_y = p0->y;
 #endif
 	pz1 = zb->zbuf + p0->y * zb->xsize;
 
@@ -259,12 +256,7 @@ Things to keep in mind:
 				dtdl_max = dtdl_min + dtdx;
 #endif
 #ifdef INTERP_STZ
-				sz1 = l1->sz;
-				dszdl_min = (dszdy + dszdx * dxdy_min);
-				dszdl_max = dszdl_min + dszdx;
-				tz1 = l1->tz;
-				dtzdl_min = (dtzdy + dtzdx * dxdy_min);
-				dtzdl_max = dtzdl_min + dtzdx;
+				/* base values at the left edge of this scanline */
 #endif
 			}
 			/* compute values for the right edge */
@@ -299,7 +291,7 @@ Things to keep in mind:
 				register GLuint s, t;
 #endif
 #ifdef INTERP_STZ
-				
+				/* values are evaluated per pixel from the plane coefficients */
 #endif
 
 				n = (x2 >> 16) - x1;
@@ -319,8 +311,7 @@ Things to keep in mind:
 				t = t1;
 #endif
 #ifdef INTERP_STZ
-
-
+				/* values are evaluated per pixel from the plane coefficients */
 #endif
 				while (n >= 3) {
 					PUT_PIXEL(0); /*the_x++;*/
@@ -366,10 +357,6 @@ Things to keep in mind:
 				s1 += dsdl_max;
 				t1 += dtdl_max;
 #endif
-#ifdef INTERP_STZ
-				sz1 += dszdl_max;
-				tz1 += dtzdl_max;
-#endif
 			} else {
 				x1 += dxdy_min;
 #ifdef INTERP_Z
@@ -384,10 +371,6 @@ Things to keep in mind:
 				s1 += dsdl_min;
 				t1 += dtdl_min;
 #endif
-#ifdef INTERP_STZ
-				sz1 += dszdl_min;
-				tz1 += dtzdl_min;
-#endif
 			}
 
 			/* right edge */
@@ -398,6 +381,9 @@ Things to keep in mind:
 			pp1 += zb->xsize;
 #if TGL_FEATURE_POLYGON_STIPPLE == 1
 			the_y++;
+#endif
+#ifdef INTERP_STZ
+			st_y++;
 #endif
 			pz1 += zb->xsize;
 		}

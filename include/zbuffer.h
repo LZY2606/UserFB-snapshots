@@ -277,10 +277,27 @@ typedef struct {
 
 typedef struct {
   GLint x,y,z;     /* integer coordinates in the zbuffer */
-  GLint s,t;       /* coordinates for the mapping */
+  GLint s,t;       /* fixed point texture coordinates for the mapping */
   GLint r,g,b;     /* color indexes */
-  
-  GLfloat sz,tz;   /* temporary coordinates for mapping */
+
+  /*
+   * Homogeneous clip-space w of the vertex (the value that produced x,y,z
+   * through the perspective divide).  It is the divisor used for
+   * perspective-correct texture mapping:
+   *
+   *   u = (sum_i lambda_i * s_i / w_i) / (sum_i lambda_i / w_i)
+   *
+   * z is the window-space depth and is used only by the depth test/store.
+   *
+   * Code which fills ZBufferPoint directly (instead of going through
+   * glVertex/gl_draw_triangle) must initialize this field as well:
+   * use 1.0f for orthographic/unprojected input, and the actual positive
+   * clip-space w for projected input.  A non-positive or non-finite value
+   * is treated as 1.0f for compatibility with older callers that zero the
+   * structure, so a zero-initialized point still behaves like orthographic
+   * input.  The other fields keep their previous meaning and defaults.
+   */
+  GLfloat w;
 } ZBufferPoint;
 
 /* zbuffer.c */

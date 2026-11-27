@@ -262,8 +262,86 @@ void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p
 */
 void ZB_setTexture(ZBuffer* zb, PIXEL* texture) { zb->current_texture = texture; }
 
+/*
+ * Perspective-correct texture coordinate setup.
+ *
+ * 1/w, s/w and t/w are affine in the integer screen coordinates.  We
+ * compute the plane coefficients once per triangle; the per-pixel values
+ * are then the exact rational interpolation
+ *
+ *   s = (sum lambda_i * s_i / w_i) / (sum lambda_i / w_i)
+ *
+ * where lambda_i are the screen-space barycentric weights and w_i is the
+ * clip-space w stored in ZBufferPoint.w.  A missing/non-positive w (direct
+ * low-level users that zero the structure) degrades to the orthographic
+ * case w = 1, which keeps the historical behaviour for such callers.
+ */
+static GLdouble ZB_st_w(const ZBufferPoint* p) {
+	GLdouble w = (GLdouble)p->w;
+	if (!(w > 0.0)) /* also catches NaN */
+		return 1.0;
+	return w;
+}
+
+static void ZB_setup_texture_perspective(const ZBufferPoint* p0, const ZBufferPoint* p1, const ZBufferPoint* p2, GLdouble* iwx, GLdouble* iwy, GLdouble* iwc,
+										 GLdouble* swx, GLdouble* swy, GLdouble* swc, GLdouble* twx, GLdouble* twy, GLdouble* twc) {
+	GLdouble x0 = (GLdouble)p0->x, y0 = (GLdouble)p0->y;
+	GLdouble x1 = (GLdouble)p1->x, y1 = (GLdouble)p1->y;
+	GLdouble x2 = (GLdouble)p2->x, y2 = (GLdouble)p2->y;
+	GLdouble q0, q1, q2;
+	GLdouble det, invdet;
+
+	det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+	if (det != 0.0) {
+		invdet = 1.0 / det;
+	} else {
+		/* Degenerate screen triangle: never rasterized, keep the values sane. */
+		invdet = 0.0;
+	}
+
+	q0 = 1.0 / ZB_st_w(p0);
+	q1 = 1.0 / ZB_st_w(p1);
+	q2 = 1.0 / ZB_st_w(p2);
+	*iwx = ((q1 - q0) * (y2 - y0) - (q2 - q0) * (y1 - y0)) * invdet;
+	*iwy = ((x1 - x0) * (q2 - q0) - (x2 - x0) * (q1 - q0)) * invdet;
+	*iwc = q0 - *iwx * x0 - *iwy * y0;
+
+	q0 = (GLdouble)p0->s / ZB_st_w(p0);
+	q1 = (GLdouble)p1->s / ZB_st_w(p1);
+	q2 = (GLdouble)p2->s / ZB_st_w(p2);
+	*swx = ((q1 - q0) * (y2 - y0) - (q2 - q0) * (y1 - y0)) * invdet;
+	*swy = ((x1 - x0) * (q2 - q0) - (x2 - x0) * (q1 - q0)) * invdet;
+	*swc = q0 - *swx * x0 - *swy * y0;
+
+	q0 = (GLdouble)p0->t / ZB_st_w(p0);
+	q1 = (GLdouble)p1->t / ZB_st_w(p1);
+	q2 = (GLdouble)p2->t / ZB_st_w(p2);
+	*twx = ((q1 - q0) * (y2 - y0) - (q2 - q0) * (y1 - y0)) * invdet;
+	*twy = ((x1 - x0) * (q2 - q0) - (x2 - x0) * (q1 - q0)) * invdet;
+	*twc = q0 - *twx * x0 - *twy * y0;
+}
+
 
 #if 1
+
+/*
+ * Evaluate the perspective-correct texture coordinate at the current
+ * covered pixel.  st_x/st_y are the integer screen coordinates and the
+ * plane coefficients were produced by ZB_setup_texture_perspective().
+ * The fixed point coordinate, bit masks and repeat addressing keep their
+ * original conventions; only the interpolation rule changed.
+ */
+#define TEXTURED_UV()                                                                                                                                          \
+	{                                                                                                                                                          \
+		GLdouble iw = st_iwx * st_x + st_iwy * st_y + st_iwc;                                                                                                  \
+		GLdouble su, tu;                                                                                                                                       \
+		if (iw == 0.0)                                                                                                                                         \
+			iw = 1.0;                                                                                                                                          \
+		su = (st_swx * st_x + st_swy * st_y + st_swc) / iw;                                                                                                     \
+		tu = (st_twx * st_x + st_twy * st_y + st_twc) / iw;                                                                                                     \
+		s = (GLuint)(GLint)su;                                                                                                                                 \
+		t = (GLuint)(GLint)tu;                                                                                                                                 \
+	}
 
 #define DRAW_LINE_TRI_TEXTURED()                                                                                                                               \
 	{                                                                                                                                                          \
@@ -272,28 +350,12 @@ void ZB_setTexture(ZBuffer* zb, PIXEL* texture) { zb->current_texture = texture;
 		register GLuint s, t, z;                                                                                                                               \
 		register GLint n;                                                                                                                                      \
 		OR1OG1OB1DECL                                                                                                                                          \
-		GLfloat sz, tz, fzl, zinv;                                                                                                                             \
 		n = (x2 >> 16) - x1;                                                                                                                                   \
-		fzl = (GLfloat)z1;                                                                                                                                     \
-		zinv = 1.0 / fzl;                                                                                                                                      \
 		pp = (PIXEL*)((GLbyte*)pp1 + x1 * PSZB);                                                                                                               \
 		pz = pz1 + x1;                                                                                                                                         \
 		z = z1;                                                                                                                                                \
-		sz = sz1;                                                                                                                                              \
-		tz = tz1;                                                                                                                                              \
+		st_x = x1;                                                                                                                                             \
 		while (n >= (NB_INTERP - 1)) {                                                                                                                         \
-			register GLint dsdx, dtdx;                                                                                                                         \
-			{                                                                                                                                                  \
-				GLfloat ss, tt;                                                                                                                                \
-				ss = (sz * zinv);                                                                                                                              \
-				tt = (tz * zinv);                                                                                                                              \
-				s = (GLint)ss;                                                                                                                                 \
-				t = (GLint)tt;                                                                                                                                 \
-				dsdx = (GLint)((dszdx - ss * fdzdx) * zinv);                                                                                                   \
-				dtdx = (GLint)((dtzdx - tt * fdzdx) * zinv);                                                                                                   \
-			}                                                                                                                                                  \
-			fzl += fndzdx;                                                                                                                                     \
-			zinv = 1.0 / fzl;                                                                                                                                  \
 			PUT_PIXEL(0); /*the_x++;*/                                                                                                                         \
 			PUT_PIXEL(1); /*the_x++;*/                                                                                                                         \
 			PUT_PIXEL(2); /*the_x++;*/                                                                                                                         \
@@ -305,29 +367,14 @@ void ZB_setTexture(ZBuffer* zb, PIXEL* texture) { zb->current_texture = texture;
 			pz += NB_INTERP;                                                                                                                                   \
 			pp += NB_INTERP; /*the_x+=NB_INTERP * PSZB;*/                                                                                                      \
 			n -= NB_INTERP;                                                                                                                                    \
-			sz += ndszdx;                                                                                                                                      \
-			tz += ndtzdx;                                                                                                                                      \
 		}                                                                                                                                                      \
-		{                                                                                                                                                      \
-			register GLint dsdx, dtdx;                                                                                                                         \
-			{                                                                                                                                                  \
-				GLfloat ss, tt;                                                                                                                                \
-				ss = (sz * zinv);                                                                                                                              \
-				tt = (tz * zinv);                                                                                                                              \
-				s = (GLint)ss;                                                                                                                                 \
-				t = (GLint)tt;                                                                                                                                 \
-				dsdx = (GLint)((dszdx - ss * fdzdx) * zinv);                                                                                                   \
-				dtdx = (GLint)((dtzdx - tt * fdzdx) * zinv);                                                                                                   \
-			}                                                                                                                                                  \
-			while (n >= 0) {                                                                                                                                   \
-				PUT_PIXEL(0);                                                                                                                                  \
-				pz += 1;                                                                                                                                       \
-				/*pp = (PIXEL*)((GLbyte*)pp + PSZB);*/                                                                                                         \
-				pp++;                                                                                                                                          \
-				n -= 1;                                                                                                                                        \
-			}                                                                                                                                                  \
+		while (n >= 0) {                                                                                                                                       \
+			PUT_PIXEL(0);                                                                                                                                      \
+			pz += 1;                                                                                                                                           \
+			pp++;                                                                                                                                              \
+			n -= 1;                                                                                                                                            \
 		}                                                                                                                                                      \
-	} 
+	}
 
 void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
 	PIXEL* texture;
@@ -346,10 +393,7 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 #define DRAW_INIT()                                                                                                                                            \
 	{                                                                                                                                                          \
 		texture = zb->current_texture;                                                                                                                         \
-		fdzdx = (GLfloat)dzdx;                                                                                                                                 \
-		fndzdx = NB_INTERP * fdzdx;                                                                                                                            \
-		ndszdx = NB_INTERP * dszdx;                                                                                                                            \
-		ndtzdx = NB_INTERP * dtzdx;                                                                                                                            \
+		ZB_setup_texture_perspective(p0, p1, p2, &st_iwx, &st_iwy, &st_iwc, &st_swx, &st_swy, &st_swc, &st_twx, &st_twy, &st_twc);                            \
 	}
 #if TGL_FEATURE_LIT_TEXTURES == 1
 #define OR1OG1OB1DECL                                                                                                                                          \
@@ -374,6 +418,7 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
+			TEXTURED_UV();                                                                                                                                     \
 			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
 				/*pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, TEXTURE_SAMPLE(texture, s, t));*/                                                                       \
 				TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, (TEXTURE_SAMPLE(texture, s, t))), (pp[_a]));                                                        \
@@ -382,8 +427,7 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		st_x++;                                                                                                                                                \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #else
@@ -391,16 +435,18 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
-			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
-				TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));                                                                                      \
-				if (zbdw)                                                                                                                                      \
-					pz[_a] = zz;                                                                                                                               \
+			TEXTURED_UV();                                                                                                                                     \
+			{                                                                                                                                                  \
+				PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                       \
+				if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                 \
+					TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));                                                                                  \
+					if (zbdw)                                                                                                                                  \
+						pz[_a] = zz;                                                                                                                           \
+				}                                                                                                                                              \
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		st_x++;                                                                                                                                                \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #endif
@@ -425,10 +471,7 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 #define DRAW_INIT()                                                                                                                                            \
 	{                                                                                                                                                          \
 		texture = zb->current_texture;                                                                                                                         \
-		fdzdx = (GLfloat)dzdx;                                                                                                                                 \
-		fndzdx = NB_INTERP * fdzdx;                                                                                                                            \
-		ndszdx = NB_INTERP * dszdx;                                                                                                                            \
-		ndtzdx = NB_INTERP * dtzdx;                                                                                                                            \
+		ZB_setup_texture_perspective(p0, p1, p2, &st_iwx, &st_iwy, &st_iwc, &st_swx, &st_swy, &st_swc, &st_twx, &st_twy, &st_twc);                            \
 	}
 #if TGL_FEATURE_LIT_TEXTURES == 1
 #define OR1OG1OB1DECL                                                                                                                                          \
@@ -452,6 +495,7 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
+			TEXTURED_UV();                                                                                                                                     \
 			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
 				pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, TEXTURE_SAMPLE(texture, s, t));                                                                           \
 				if (zbdw)                                                                                                                                      \
@@ -459,8 +503,7 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		st_x++;                                                                                                                                                \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #else
@@ -468,7 +511,9 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
+			PIXEL c;                                                                                                                                           \
+			TEXTURED_UV();                                                                                                                                     \
+			c = TEXTURE_SAMPLE(texture, s, t);                                                                                                                 \
 			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
 				pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, c);                                                                                                       \
 				/*TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));*/                                                                                  \
@@ -477,8 +522,7 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		st_x++;                                                                                                                                                \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #endif
