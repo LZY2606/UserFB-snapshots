@@ -50,7 +50,9 @@ SHAPEOP_INLINE std::shared_ptr<Constraint> Constraint::shapeConstraintFactory(co
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE Constraint::Constraint(const std::vector<int> &idI, Scalar weight) :
   idI_(idI),
-  weight_(std::sqrt(weight)) {
+  weight_(std::sqrt(weight)),
+  userWeight_(weight),
+  weightScale_(1.0) {
 }
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -65,7 +67,8 @@ SHAPEOP_INLINE EdgeStrainConstraint::EdgeStrainConstraint(const std::vector<int>
   assert(idI.size() == 2);
   Scalar length = (positions.col(idI_[1]) - positions.col(idI_[0])).norm();
   rest_ = 1.0f / length;
-  weight_ *= std::sqrt(length);
+  weightScale_ = std::sqrt(length);
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void EdgeStrainConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -104,7 +107,8 @@ SHAPEOP_INLINE TriangleStrainConstraint::TriangleStrainConstraint(const std::vec
   P.col(1) = (edges.col(1) - edges.col(1).dot(P.col(0)) * P.col(0)).normalized();
   rest_ = (P.transpose() * edges).inverse();
   Scalar A = (P.transpose() * edges).determinant() / 2.0f;
-  weight_ *= std::sqrt(std::abs(A));
+  weightScale_ = std::sqrt(std::abs(A));
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void TriangleStrainConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -147,7 +151,8 @@ SHAPEOP_INLINE TetrahedronStrainConstraint::TetrahedronStrainConstraint(const st
   for (int i = 0; i < 3; ++i) edges.col(i) = positions.col(idI_[i + 1]) - positions.col(idI_[0]);
   rest_ = edges.inverse();
   Scalar V = (edges).determinant() / 6.0f;
-  weight_ *= std::sqrt(std::abs(V));
+  weightScale_ = std::sqrt(std::abs(V));
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void TetrahedronStrainConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -193,7 +198,8 @@ SHAPEOP_INLINE AreaConstraint::AreaConstraint(const std::vector<int> &idI,
   P.col(1) = (edges.col(1) - edges.col(1).dot(P.col(0)) * P.col(0)).normalized();
   rest_ = (P.transpose() * edges).inverse();
   Scalar A = (P.transpose() * edges).determinant() / 2.0f;
-  weight_ *= std::sqrt(std::abs(A));
+  weightScale_ = std::sqrt(std::abs(A));
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void AreaConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -242,7 +248,8 @@ SHAPEOP_INLINE VolumeConstraint::VolumeConstraint(const std::vector<int> &idI,
   for (int i = 0; i < 3; ++i) edges.col(i) = positions.col(idI_[i + 1]) - positions.col(idI_[0]);
   rest_ = edges.inverse();
   Scalar V = (edges).determinant() / 6.0f;
-  weight_ *= std::sqrt(std::abs(V));
+  weightScale_ = std::sqrt(std::abs(V));
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void VolumeConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -296,7 +303,8 @@ SHAPEOP_INLINE BendingConstraint::BendingConstraint(const std::vector<int> &idI,
   Scalar l13 = (p.col(1) - p.col(3)).norm();
   Scalar r1 = 0.5 * (l01 + l03 + l13);
   Scalar A1 = std::sqrt(r1 * (r1 - l01) * (r1 - l03) * (r1 - l13));
-  weight_ *= std::sqrt(3.0 / (A0 + A1));
+  weightScale_ = std::sqrt(3.0 / (A0 + A1));
+  weight_ *= weightScale_;
   Scalar cot02 = ((l01 * l01) - (l02 * l02) + (l12 * l12)) / (4.0 * A0);
   Scalar cot12 = ((l01 * l01) + (l02 * l02) - (l12 * l12)) / (4.0 * A0);
   Scalar cot03 = ((l01 * l01) - (l03 * l03) + (l13 * l13)) / (4.0 * A1);

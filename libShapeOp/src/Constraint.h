@@ -72,11 +72,33 @@ class SHAPEOP_API Constraint {
   virtual void addConstraint(std::vector<Triplet> &triplets, int &idO) const = 0;
   /** \brief Number of indices of vertices involved in the constraint. */
   std::size_t nIndices() const { return idI_.size(); }
+  /** \brief The user provided weight (before any constraint specific scaling).*/
+  Scalar getUserWeight() const { return userWeight_; }
+  /** \brief Update the user provided weight and recompute the internally scaled weight.
+      \return false if the weight is not strictly positive, true otherwise.
+      The Solver must rebuild its system matrix after a successful update.
+  */
+  bool setUserWeight(Scalar weight) {
+    if (!(weight > 0.0)) return false;
+    userWeight_ = weight;
+    weight_ = std::sqrt(weight) * weightScale_;
+    return true;
+  }
+  /** \brief Const ids of the vertices involved in this constraint.*/
+  const std::vector<int> &indices() const { return idI_; }
+  /** \brief The internally scaled weight actually used by project/addConstraint.*/
+  Scalar getScaledWeight() const { return weight_; }
+  /** \brief The constraint specific scaling applied to the user weight.*/
+  Scalar getWeightScale() const { return weightScale_; }
  protected:
   /** \brief ids of the vertices involved in this constraint.*/
   std::vector<int> idI_;
-  /** \brief weight for the constraint.*/
+  /** \brief internally scaled weight used by project and addConstraint.*/
   Scalar weight_;
+  /** \brief user provided weight (before constraint specific scaling).*/
+  Scalar userWeight_;
+  /** \brief constraint specific scaling factor, weight_ = sqrt(userWeight_) * weightScale_.*/
+  Scalar weightScale_;
   /** \brief location of this constraint in the linear system.*/
   mutable int idO_;
 };
@@ -108,6 +130,12 @@ class SHAPEOP_API EdgeStrainConstraint : public Constraint {
   void setRangeMin(Scalar rMin) { rangeMin_ = rMin; }
   /** \brief Set a new range maximum.*/
   void setRangeMax(Scalar rMax) { rangeMax_ = rMax; }
+  /** \brief Inverse of the rest edge length.*/
+  Scalar getRestInverse() const { return rest_; }
+  /** \brief Minimum of the strain range.*/
+  Scalar getRangeMin() const { return rangeMin_; }
+  /** \brief Maximum of the strain range.*/
+  Scalar getRangeMax() const { return rangeMax_; }
  private:
   Scalar rest_;
   Scalar rangeMin_;
@@ -138,6 +166,12 @@ class SHAPEOP_API TriangleStrainConstraint : public Constraint {
   void setRangeMin(Scalar rMin) { rangeMin_ = rMin; }
   /** \brief Set a new range maximum.*/
   void setRangeMax(Scalar rMax) { rangeMax_ = rMax; }
+  /** \brief Inverse of the rest edge matrix.*/
+  const Matrix22 &getRest() const { return rest_; }
+  /** \brief Minimum of the strain range.*/
+  Scalar getRangeMin() const { return rangeMin_; }
+  /** \brief Maximum of the strain range.*/
+  Scalar getRangeMax() const { return rangeMax_; }
  private:
   Matrix22 rest_;
   Scalar rangeMin_;

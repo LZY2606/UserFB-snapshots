@@ -26,6 +26,7 @@ namespace ShapeOp {
 class LSSolver;
 class Constraint;
 class Force;
+class InverseDesign;
 ///////////////////////////////////////////////////////////////////////////////
 /** \brief ShapeOp Solver. This class implements the main ShapeOp solver based on \cite Bouaziz2012 and \cite Bouaziz2014.*/
 class SHAPEOP_API Solver {
@@ -34,6 +35,13 @@ class SHAPEOP_API Solver {
   int addConstraint(const std::shared_ptr<Constraint> &c);
   /** \brief Get a constraint using its id.*/
   std::shared_ptr<Constraint> &getConstraint(int id);
+  /** \brief Update the user weight of the constraint with the given original
+      addConstraint id and rebuild the matrices participating in the solve
+      (A, A^T, the system matrix N_ and its factorization).
+      \return false (without changing anything) if the id is unknown or the
+              weight is not strictly positive.
+  */
+  bool setConstraintWeight(int id, Scalar weight);
   /** \brief Add a force to the solver and get back its id.*/
   int addForces(const std::shared_ptr<Force> &f);
   /** \brief Get a force using its id.*/
@@ -52,7 +60,10 @@ class SHAPEOP_API Solver {
   /** \brief Solve the constraint problem by projecting and merging.
     \return true if successfull */
   bool solve(unsigned int iteration);
+  /** \brief Whether initialize() has been called successfully.*/
+  bool isInitialized() const { return static_cast<bool>(solver_); }
  private:
+  friend class InverseDesign;
   typedef std::vector<std::shared_ptr<Constraint> > Constraints;
   typedef std::vector<std::shared_ptr<Force> > Forces;
 

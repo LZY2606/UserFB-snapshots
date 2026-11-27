@@ -38,6 +38,28 @@ SHAPEOP_INLINE std::shared_ptr<Constraint> &Solver::getConstraint(int id) {
   return constraints_[id];
 }
 ///////////////////////////////////////////////////////////////////////////////
+SHAPEOP_INLINE bool Solver::setConstraintWeight(int id, Scalar weight) {
+  if (id < 0 || id >= static_cast<int>(constraints_.size())) return false;
+  if (!constraints_[id]->setUserWeight(weight)) return false;
+  // Rebuild the weighted system matrix and its factorization so that subsequent
+  // solves use the new weight. Structural layout (row/column counts) is unchanged.
+  if (solver_) {
+    std::vector<Triplet> triplets;
+    int idO = 0;
+    for (std::size_t i = 0; i < constraints_.size(); ++i)
+      constraints_[i]->addConstraint(triplets, idO);
+    SparseMatrix A(idO, static_cast<int>(points_.cols()));
+    A.setFromTriplets(triplets.begin(), triplets.end());
+    At_ = A.transpose();
+    N_ = At_ * A;
+    if (dynamic_) N_ += M_;
+    solver_ = std::make_shared<ShapeOp::SimplicialLDLTSolver>();
+    solver_->initialize(N_);
+    return solver_->info() == Eigen::Success;
+  }
+  return true;
+}
+///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE int Solver::addForces(const std::shared_ptr<Force> &f) {
   forces_.push_back(f);
   return static_cast<int>(forces_.size() - 1);
