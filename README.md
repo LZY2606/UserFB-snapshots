@@ -143,6 +143,64 @@ func (*Xxxx) GetType() BoxType {
 go-mp4 does not buffer I/O.
 If you need to reduce the number of Read calls, you can wrap your io.ReadSeeker with [bufseekio](https://github.com/sunfish-shogi/bufseekio).
 
+### Exporting an Opus track to Ogg Opus
+
+`ExportOpusOgg` remuxes one Opus audio track of an MP4 file into an Ogg Opus
+stream (RFC 7845). The compressed Opus packets are copied byte-for-byte —
+neither decoded nor rewritten — so only the container changes. The reader is
+parsed from the start of the file and is always seeked back to its original
+position before `ExportOpusOgg` returns, on both success and failure.
+
+```go
+var input io.ReadSeeker // e.g. *os.File of the MP4
+var output io.Writer    // e.g. *os.File for the .ogg
+
+// serial is the Ogg stream serial number written into every page.
+err := mp4.ExportOpusOgg(input, output, trackID, serial)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+A runnable command-line example lives under
+[`example/exportopusogg`](example/exportopusogg).
+
+The single rate-1 edit list entry defines the audible half-open window
+`[S, E)` on the track's 48 kHz media timeline. Packets are kept in decode
+order from the first packet up to and including the first packet covering
+`E`, so the decoder history needed for the first audible packet is retained;
+whole packets starting at or after `E` are dropped. The OpusHead `pre_skip`
+field is set to `S` (the MP4 `dOps.PreSkip` value is informative only and is
+never added to it), and only the final (EOS) page carries granule position
+`E`, so the audible length is exactly `E-S`. Every page is written in a fixed
+layout: OpusHead alone on the BOS page, one OpusTags page (vendor `go-mp4`,
+no comments), then one packet per page with sequentially increasing page
+numbers and correct Ogg CRCs.
+
+Supported input is deliberately narrow:
+
+- non-fragmented, self-contained, unencrypted plain MP4 (no `moof`/`mvex`/
+  `styp`, no `sinf`/`saiz`/`saio`/`enca`/`encv`, no `ctts`);
+- the named `trackID` exists exactly once and has exactly one Opus sample
+  description; `dOps.version` is 0, channel mapping family is 0 with one or
+  two channels matching the sample entry, and the sample rate is 48000;
+- the track `mdhd` timescale is 48000; the movie timescale may differ. There
+  is exactly one edit list entry with rate 1.0, a non-negative `media_time`
+  and a positive `segment_duration` that converts to an exact whole number
+  of 48 kHz frames; empty edits are rejected;
+- `stsc` may vary samples-per-chunk, `stsz` may use uniform or per-sample
+  sizes, and chunk offsets may use `stco` or `co64`; multiple `mdat` boxes
+  and other tracks are allowed, but every chunk byte span must lie inside a
+  single `mdat`.
+
+Each packet's RFC 6716 TOC duration is checked independently against the
+`stts` table (the final packet may have a shorter positive effective
+duration), packet sizes must be between 1 and 65024 bytes, and all table,
+range, window and integer-overflow checks complete before the first byte is
+written to the output, so invalid input never produces a partial Ogg stream.
+Read or write errors during the copy phase are returned unchanged and pages
+already written are not rolled back.
+
 ## Command Line Tool
 
 Install mp4tool as follows:
