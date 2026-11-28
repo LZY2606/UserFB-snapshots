@@ -96,6 +96,22 @@ namespace Cubiquity
 		return subDAGs;
 	}
 
+	const SubDAGArray& RaycastContext::subDAGs(const Volume& volume)
+	{
+		// Re-prepare only when bound to a different volume or when the volume
+		// has changed since we last prepared. Comparing the revision (rather
+		// than e.g. the root node index) is required because edits can modify
+		// nodes in place and compaction can leave the root index unchanged.
+		if ((mVolume != &volume) || (mRevision != volume.revision()))
+		{
+			mSubDAGs = findSubDAGs(Internals::getNodes(volume), Internals::getRootNodeIndex(volume));
+			mVolume = &volume;
+			mRevision = volume.revision();
+			mPreparationCount++;
+		}
+		return mSubDAGs;
+	}
+
 	SubDAG getSubDAG(const Internals::NodeStore& nodes, uint rootNodeIndex, const SubDAGArray& subDAGs, uint childId)
 	{
 		int method = 1;
@@ -196,7 +212,7 @@ namespace Cubiquity
 	}
 
 	// This is the core function used to intersect a ray against our DAG. The algorithm is based on
-	// 'Efficient Sparse Voxel Octrees – Analysis, Extensions, and Implementation' by S. Laine et al
+	// 'Efficient Sparse Voxel Octrees ï¿½ Analysis, Extensions, and Implementation' by S. Laine et al
 	// (hereafter referred to as the ESVO paper or algorithm).
 	//
 	// This algorithm was developed on a GTX 660 which is already 10 years old at the time of writing
@@ -475,6 +491,21 @@ namespace Cubiquity
 		} while (childId <= 7); // 8 children, number 7 is the last.
 
 		return intersection;
+	}
+
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context,
+		float ray_orig_x, float ray_orig_y, float ray_orig_z,
+		float ray_dir_x, float ray_dir_y, float ray_dir_z,
+		bool computeSurfaceProperties, float maxFootprint)
+	{
+		return intersectVolume(volume, context,
+			Ray3f(vec3(ray_orig_x, ray_orig_y, ray_orig_z), vec3(ray_dir_x, ray_dir_y, ray_dir_z)),
+			computeSurfaceProperties, maxFootprint);
+	}
+
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context, Ray3f ray, bool computeSurfaceProperties, float maxFootprint)
+	{
+		return intersectVolume(volume, context.subDAGs(volume), ray, computeSurfaceProperties, maxFootprint);
 	}
 
 	class IntersectionFinder

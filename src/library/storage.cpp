@@ -207,11 +207,34 @@ namespace Cubiquity
 
 	u32 NodeStore::merge(u32 index)
 	{
+		return merge(std::vector<u32>{ index }).front();
+	}
+
+	// Merges (deduplicates) the DAGs of all the supplied root indices into a
+	// new compact node vector, and returns the new root indices (in the same
+	// order). Nodes which are unreachable from every root are discarded, while
+	// identical subgraphs (within or between the roots) are stored only once.
+	// This lets a Volume compact its node store while keeping every undo/redo
+	// snapshot valid, as each root is remapped to the merged result.
+	std::vector<u32> NodeStore::merge(const std::vector<u32>& indices)
+	{
 		// Destination used as hashmap and bigger than source to reduce collisions
 		NodeVector merged_node_vector = make_node_vector((mNodeVector.size() * 12) / 10);
 
-		// Perform the recursive merge
-		u32 mergedRoot = merge_node(index, merged_node_vector);
+		// Perform the recursive merge for each root. Nodes shared between roots
+		// are only processed once (merge_node tracks where each node went).
+		std::vector<u32> mergedRoots;
+		mergedRoots.reserve(indices.size());
+		for (u32 index : indices) {
+			// Material nodes (including the empty node) are already unique and
+			// always present at the start of the merged vector.
+			if (isMaterialNode(index)) {
+				mergedRoots.push_back(index);
+			}
+			else {
+				mergedRoots.push_back(merge_node(index, merged_node_vector));
+			}
+		}
 
 		// Compact in-place, tracking how nodes move.
 		std::vector<u32> moves(merged_node_vector.size());
@@ -232,12 +255,14 @@ namespace Cubiquity
 				merged_node_vector[i][childId] = moves[merged_node_vector[i][childId]];
 			}
 		}
-		mergedRoot = moves[mergedRoot];
+		for (u32& mergedRoot : mergedRoots) {
+			mergedRoot = moves[mergedRoot];
+		}
 
 		mNodeVector = std::move(merged_node_vector);
 		mSharedNodesEnd = mNodeVector.size(); // Everything is now potentially shared
 
-		return mergedRoot;
+		return mergedRoots;
 	}
 
 	u32 NodeStore::merge_node(u32 nodeIndex, NodeVector& merged_node_vector)
@@ -293,6 +318,38 @@ namespace Cubiquity
 	{
 		mNodeVector.push_back(node);
 		return mNodeVector.size() - 1; // Index of new node
+	}
+
+	u32 NodeStore::importSubtree(const NodeStore& source, u32 sourceRootIndex)
+	{
+		std::unordered_map<u32, u32> indexMap; // Source index to destination index
+		return importSubtree(source, sourceRootIndex, indexMap);
+	}
+
+	u32 NodeStore::importSubtree(const NodeStore& source, u32 sourceRootIndex,
+		std::unordered_map<u32, u32>& indexMap)
+	{
+		// Material nodes are identical in every store.
+		if (isMaterialNode(sourceRootIndex)) { return sourceRootIndex; }
+
+		// The source is usually a DAG (identical subgraphs stored once), so
+		// track the nodes we have already copied to preserve that sharing
+		// (and to avoid exponential expansion of the subgraph).
+		auto iter = indexMap.find(sourceRootIndex);
+		if (iter != indexMap.end()) { return iter->second; }
+
+		// Deep-copy the subgraph, remapping children to their new locations.
+		// The result is appended as unshared nodes (a subsequent merge can
+		// deduplicate and compact them if desired).
+		Node node = source[sourceRootIndex];
+		for (int childId = 0; childId < 8; childId++) {
+			if (!isMaterialNode(node[childId])) {
+				node[childId] = importSubtree(source, node[childId], indexMap);
+			}
+		}
+		u32 newIndex = append(node);
+		indexMap[sourceRootIndex] = newIndex;
+		return newIndex;
 	}
 
 	u32 NodeStore::cloneRoot(u32 rootIndex)
@@ -353,6 +410,7 @@ namespace Cubiquity
 	void Volume::setRootNodeIndex(u32 newRootNodeIndex)
 	{
 		mRootNodeIndices[mCurrentRoot] = newRootNodeIndex;
+		mRevision++;
 	}
 
 	void Volume::checkpoint()
@@ -374,6 +432,7 @@ namespace Cubiquity
 	{
 		if (mCurrentRoot > 0) {
 			mCurrentRoot--;
+			mRevision++;
 		}
 	}
 
@@ -381,14 +440,21 @@ namespace Cubiquity
 	{
 		if (mCurrentRoot < mRootNodeIndices.size() - 1)	{
 			mCurrentRoot++;
+			mRevision++;
 		}
 	}
 
+	// Compacts the node store, merging identical subgraphs so they are stored
+	// only once. This is done for *all* snapshots in the undo/redo history
+	// (not just the current one), with every root remapped to the merged
+	// result. History therefore survives baking: undo/redo keep working, and
+	// identical (sub)trees are still shared between snapshots rather than
+	// being duplicated. Nodes unreachable from every snapshot are discarded.
 	void Volume::bake()
 	{
 		Cubiquity::Timer timer;
-		u32 newRootIndex = mNodeStore.merge(rootNodeIndex());
-		setRootNodeIndex(newRootIndex);
+		mRootNodeIndices = mNodeStore.merge(mRootNodeIndices);
+		mRevision++; // Node indices have changed, invalidate caches.
 		log_debug("Baked %u nodes in %.3f seconds",
 			mNodeStore.unsharedNodesEnd(), timer.elapsed_seconds());
 	}
@@ -522,22 +588,34 @@ namespace Cubiquity
 			rootNodeIndex += mNodeStore.sharedNodesBegin() - MaterialCount;
 		}
 
-		setRootNodeIndex(rootNodeIndex);
+		// A successful load replaces the volume, so the old undo/redo history
+		// is discarded and a new history containing only the loaded scene is
+		// started. The previous snapshots can no longer be undone back to.
+		mRootNodeIndices.assign(1, rootNodeIndex);
+		mCurrentRoot = 0;
+		mRevision++;
 
 		return true;
 	}
 
 	void Volume::save(const std::string& filename)
 	{
-		bake(); // Possibly should be here, not part of saving?
+		// Compact the in-memory representation before saving. This preserves
+		// the undo/redo history (see bake()), so we must take care below to
+		// only write out the current scene and not the whole history.
+		bake();
 
-		u32 root = rootNodeIndex();
-		const Node& data = mNodeStore[mNodeStore.sharedNodesBegin()];
+		// The file format stores a single scene, so extract the current
+		// snapshot into a temporary store (deduplicated and compacted) rather
+		// than writing nodes which are only referenced by other snapshots.
+		Internals::NodeStore sceneStore;
+		u32 sceneRoot = sceneStore.importSubtree(mNodeStore, rootNodeIndex());
+		sceneRoot = sceneStore.merge(sceneRoot);
 
 		std::ofstream file;
 		file = std::ofstream(filename, std::ios::out | std::ios::binary);
-		file.write(reinterpret_cast<const char*>(&root), sizeof(root));
-		mNodeStore.write(file);
+		file.write(reinterpret_cast<const char*>(&sceneRoot), sizeof(sceneRoot));
+		sceneStore.write(file);
 		file.close();
 	}
 

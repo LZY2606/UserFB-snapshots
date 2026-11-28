@@ -96,7 +96,13 @@ namespace Cubiquity
 			void write(std::ofstream& file);
 
 			u32 merge(u32 index);
+			std::vector<u32> merge(const std::vector<u32>& indices);
 			u32 merge_node(u32 nodeIndex, NodeVector& merged_node_vector);
+
+			// Copies the (sub)DAG rooted at sourceRootIndex in another store
+			// into this store, returning the new root index. Used e.g. to
+			// extract a single scene for saving without disturbing history.
+			u32 importSubtree(const NodeStore& source, u32 sourceRootIndex);
 
 			const void* rawBytesPtr() const { return mNodeVector.data(); }
 			u32 rawBytesCount() const { return mNodeVector.size() * sizeof(mNodeVector[0]); }
@@ -107,6 +113,8 @@ namespace Cubiquity
 
 		private:
 			u32 append(const Node& node);
+			u32 importSubtree(const NodeStore& source, u32 sourceRootIndex,
+				std::unordered_map<u32, u32>& indexMap);
 
 			bool isShared(u32 index) const { return index < sharedNodesEnd(); } // Includes material nodes
 
@@ -174,6 +182,12 @@ namespace Cubiquity
 
 		void bake();
 
+		// Monotonically increasing counter which is (conservatively) bumped by
+		// operations which may modify the voxel data or its layout in memory.
+		// External caches (e.g. RaycastContext) can compare against this to
+		// detect when previously extracted data (e.g. SubDAGArrays) is stale.
+		u64 revision() const { return mRevision; }
+
 		u32 countNodes() const { return mNodeStore.countNodes(rootNodeIndex()); };
 
 		bool load(const std::string& filename);
@@ -194,6 +208,7 @@ namespace Cubiquity
 	private:
 		std::vector<u32> mRootNodeIndices;
 		int mCurrentRoot = 0;
+		u64 mRevision = 0;
 	};
 
 	// Implementation of templatised accessors

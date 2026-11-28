@@ -92,6 +92,17 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src/library PREFIX "Source Code" F
 
 ################################################################################
 #
+# Examples
+#
+################################################################################
+
+# Windowless example of continuous editing and ray picking (no SDL needed).
+add_executable(PickAndEditExample examples/pick_and_edit.cpp)
+target_include_directories(PickAndEditExample PRIVATE src/library)
+target_link_libraries(PickAndEditExample Library)
+
+################################################################################
+#
 # Frontend Application
 #
 ################################################################################

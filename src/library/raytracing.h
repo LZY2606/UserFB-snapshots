@@ -68,12 +68,49 @@ namespace Cubiquity
 
 	SubDAGArray findSubDAGs(const Internals::NodeStore& nodes, u32 rootNodeIndex);
 
+	// Caches the SubDAGArray of a volume between raycast queries. Extracting
+	// the SubDAGArray has a cost, and the node indices it contains are only
+	// valid until the volume is modified (edits may rewrite nodes in place,
+	// and compaction can reshuffle the whole store while leaving the root
+	// index unchanged), so this context tracks the volume's revision counter
+	// and only re-extracts when something has actually changed. A context is
+	// default-constructible, binds to a volume on first use, and rebinds if
+	// used with a different volume. The volume must outlive the last query
+	// performed through the context.
+	class RaycastContext
+	{
+	public:
+		RaycastContext() = default;
+
+		// Returns the cached SubDAGArray for the given volume, re-extracting
+		// it first if this context is bound to a different volume or if the
+		// volume has been modified since the cache was prepared.
+		const SubDAGArray& subDAGs(const Volume& volume);
+
+		// The number of times the cache has actually been (re)prepared.
+		// Queries against an unmodified volume do not increase this count.
+		u64 preparationCount() const { return mPreparationCount; }
+
+	private:
+		const Volume* mVolume = nullptr;
+		u64 mRevision = 0;
+		u64 mPreparationCount = 0;
+		SubDAGArray mSubDAGs;
+	};
+
 	const float MAX_FOOTPRINT_DISABLED = -1.0f;
 	RayVolumeIntersection intersectVolume(const Volume& volume, const SubDAGArray& subDAGs,
 		float ray_orig_x, float ray_orig_y, float ray_orig_z,
 		float ray_dir_x, float ray_dir_y, float ray_dir_z,
 		bool computeSurfaceProperties, float maxFootprint = MAX_FOOTPRINT_DISABLED);
 	RayVolumeIntersection intersectVolume(const Volume& volume, const SubDAGArray& subDAGs, Ray3f ray, bool computeSurfaceProperties, float maxFootprint = MAX_FOOTPRINT_DISABLED);
+
+	// As above, but with the caller-owned context managing the SubDAGArray.
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context,
+		float ray_orig_x, float ray_orig_y, float ray_orig_z,
+		float ray_dir_x, float ray_dir_y, float ray_dir_z,
+		bool computeSurfaceProperties, float maxFootprint = MAX_FOOTPRINT_DISABLED);
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context, Ray3f ray, bool computeSurfaceProperties, float maxFootprint = MAX_FOOTPRINT_DISABLED);
 
 	RayVolumeIntersection traceRayRef(Volume& volume,
 		float ray_orig_x, float ray_orig_y, float ray_orig_z,
