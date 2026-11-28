@@ -277,15 +277,21 @@ void MultiFramedRTPSource::networkReadHandler1() {
 
     // Check the Payload Type.
     unsigned char rtpPayloadType = (unsigned char)((rtpHdr&0x007F0000)>>16);
+    Boolean packetIsRTX = False;
     if (rtpPayloadType != rtpPayloadFormat()) {
-      if (fRTCPInstanceForMultiplexedRTCPPackets != NULL
-	  && rtpPayloadType >= 64 && rtpPayloadType <= 95) {
-	// This is a multiplexed RTCP packet, and we've been asked to deliver such packets.
-	// Do so now:
-	fRTCPInstanceForMultiplexedRTCPPackets
-	  ->injectReport(bPacket->data()-12, bPacket->dataSize()+12, fromAddress);
+      if (fHasRTXRetransmissionConfig && rtpPayloadType == fRTXPayloadFormat) {
+	// This is a retransmission (RTX, RFC 4588) packet for our primary stream:
+	packetIsRTX = True;
+      } else {
+	if (fRTCPInstanceForMultiplexedRTCPPackets != NULL
+	    && rtpPayloadType >= 64 && rtpPayloadType <= 95) {
+	  // This is a multiplexed RTCP packet, and we've been asked to deliver such packets.
+	  // Do so now:
+	  fRTCPInstanceForMultiplexedRTCPPackets
+	    ->injectReport(bPacket->data()-12, bPacket->dataSize()+12, fromAddress);
+	}
+	break;
       }
-      break;
     }
 
     // Skip over any CSRC identifiers in the header:
@@ -312,28 +318,69 @@ void MultiFramedRTPSource::networkReadHandler1() {
     }
 
     // The rest of the packet is the usable data.  Record and save it:
-    if (rtpSSRC != fLastReceivedSSRC) {
-      // The SSRC of incoming packets has changed.  Unfortunately we don't yet handle streams that contain multiple SSRCs,
-      // but we can handle a single-SSRC stream where the SSRC changes occasionally:
-      fLastReceivedSSRC = rtpSSRC;
-      fReorderingBuffer->resetHaveSeenFirstPacket();
-    }
     unsigned short rtpSeqNo = (unsigned short)(rtpHdr&0xFFFF);
-    Boolean usableInJitterCalculation
-      = packetIsUsableInJitterCalculation((bPacket->data()),
-						  bPacket->dataSize());
-    struct timeval presentationTime; // computed by:
-    Boolean hasBeenSyncedUsingRTCP; // computed by:
-    receptionStatsDB()
-      .noteIncomingPacket(rtpSSRC, rtpSeqNo, rtpTimestamp,
-			  timestampFrequency(),
-			  usableInJitterCalculation, presentationTime,
-			  hasBeenSyncedUsingRTCP, bPacket->dataSize());
+    unsigned short seqNoForReordering = rtpSeqNo;
+    struct timeval presentationTime; // computed below
+    Boolean hasBeenSyncedUsingRTCP; // computed below
+
+    if (packetIsRTX) {
+      // Handle a retransmitted packet (RFC 4588, SSRC-multiplexed into this session).
+      // Accept it only if it comes from the configured retransmission SSRC, and only
+      // after we've seen a valid packet from the primary stream's SSRC:
+      if (rtpSSRC != fRTXSSRC) break;
+      RTPReceptionStats* primaryStats = receptionStatsDB().lookup(fRTXPrimarySSRC);
+      if (primaryStats == NULL) break;
+
+      // Record network-level reception statistics for the retransmission stream
+      // itself - using its own SSRC and its own (outer) sequence number - so that
+      // our reception reports keep reflecting the actual loss on the primary stream:
+      struct timeval dummyPresentationTime;
+      Boolean dummyHasBeenSyncedUsingRTCP;
+      receptionStatsDB()
+	.noteIncomingPacket(rtpSSRC, rtpSeqNo, rtpTimestamp,
+			    timestampFrequency(),
+			    True /* usable in jitter calculation */,
+			    dummyPresentationTime,
+			    dummyHasBeenSyncedUsingRTCP, bPacket->dataSize());
+
+      // The retransmitted payload begins with a 2-byte "original sequence number"
+      // (OSN); the original packet's payload follows it:
+      if (bPacket->dataSize() < 2) break;
+      unsigned char const* payloadStart = bPacket->data();
+      seqNoForReordering = (unsigned short)((payloadStart[0]<<8)|payloadStart[1]);
+      ADVANCE(2);
+
+      // Compute the presentation time using the primary stream's existing
+      // RTP timestamp <-> 'wall clock' mapping, without recording another packet
+      // reception (or otherwise changing the primary stream's statistics):
+      if (!primaryStats->computePresentationTime(rtpTimestamp, timestampFrequency(),
+						 presentationTime,
+						 hasBeenSyncedUsingRTCP)) break;
+      // Note: We deliberately do NOT update "fLastReceivedSSRC" here (so the
+      // retransmission SSRC doesn't trigger a reordering-buffer reset), and the
+      // packet enters the reordering buffer below using the OSN, so the RTX
+      // packet's own sequence number never advances the primary stream's cursor.
+    } else {
+      if (rtpSSRC != fLastReceivedSSRC) {
+	// The SSRC of incoming packets has changed.  Unfortunately we don't yet handle streams that contain multiple SSRCs,
+	// but we can handle a single-SSRC stream where the SSRC changes occasionally:
+	fLastReceivedSSRC = rtpSSRC;
+	fReorderingBuffer->resetHaveSeenFirstPacket();
+      }
+      Boolean usableInJitterCalculation
+	= packetIsUsableInJitterCalculation((bPacket->data()),
+					    bPacket->dataSize());
+      receptionStatsDB()
+	.noteIncomingPacket(rtpSSRC, rtpSeqNo, rtpTimestamp,
+			    timestampFrequency(),
+			    usableInJitterCalculation, presentationTime,
+			    hasBeenSyncedUsingRTCP, bPacket->dataSize());
+    }
 
     // Fill in the rest of the packet descriptor, and store it:
     struct timeval timeNow;
     gettimeofday(&timeNow, NULL);
-    bPacket->assignMiscParams(rtpSeqNo, rtpTimestamp, presentationTime,
+    bPacket->assignMiscParams(seqNoForReordering, rtpTimestamp, presentationTime,
 			      hasBeenSyncedUsingRTCP, rtpMarkerBit,
 			      timeNow);
     if (!fReorderingBuffer->storePacket(bPacket)) break;

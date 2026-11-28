@@ -308,6 +308,7 @@ protected:
   Boolean parseSDPAttribute_control(char const* sdpLine);
   Boolean parseSDPAttribute_range(char const* sdpLine);
   Boolean parseSDPAttribute_fmtp(char const* sdpLine);
+  Boolean parseSDPAttribute_ssrc_group(char const* sdpLine);
   Boolean parseSDPAttribute_source_filter(char const* sdpLine);
   Boolean parseSDPAttribute_x_dimensions(char const* sdpLine);
   Boolean parseSDPAttribute_framerate(char const* sdpLine);
@@ -315,6 +316,16 @@ protected:
 
   virtual Boolean createSourceObjects(int useSpecialRTPoffset);
     // create "fRTPSource" and "fReadSource" member objects, after we've been initialized via SDP
+
+  // RTP retransmission (RTX, RFC 4588) support:
+  Boolean parseRTXAptParameters(char const* fmtpParams, unsigned fmtpPayloadFormat);
+    // Looks for an "apt=" parameter in a "a=fmtp:" line for a non-primary payload
+    // format; records it as our RTX declaration if found (and returns True).
+  Boolean checkRTXConfig(Boolean& enableRTX, unsigned char& rtxPayloadFormat,
+			 u_int32_t& primarySSRC, u_int32_t& rtxSSRC);
+    // Called by "initiate()".  Returns False (after setting 'resultMsg') if the
+    // SDP contained contradictory or invalid RTX declarations.  Otherwise sets
+    // "enableRTX" iff complete, consistent RTX declarations were seen.
 
 protected:
   // Linkage fields:
@@ -356,6 +367,19 @@ protected:
   float fSpeed;
   double fNPT_PTS_Offset; // set by "getNormalPlayTime()"; add this to a PTS to get NPT
   HashTable* fAttributeTable; // for "a=fmtp:" attributes.  (Later an array by payload type #####)
+
+  // RTP retransmission (RTX, RFC 4588) state, set from SDP
+  // "rtpmap"/"fmtp"/"ssrc-group" lines (in any order):
+  Boolean fRTXConfigError; // True if contradictory or invalid RTX declarations were seen
+  Boolean fHaveRTXRtpmap; // True if a "a=rtpmap:<pt> rtx/<freq>" line was seen
+  unsigned fRTXPayloadFormat; // the RTX payload type (from "rtpmap"); valid if fHaveRTXRtpmap
+  unsigned fRTXTimestampFrequency; // the RTX stream's clock frequency (from "rtpmap")
+  Boolean fHaveRTXApt; // True if a "a=fmtp:<pt> apt=<primary>" line was seen
+  unsigned fRTXAptPayloadFormat; // the payload format that the "fmtp" line was for
+  unsigned fRTXApt; // the primary stream's payload format (from "apt=")
+  Boolean fHaveRTXFID; // True if a "a=ssrc-group:FID <primary> <rtx>" line was seen
+  u_int32_t fRTXPrimarySSRC; // the primary stream's SSRC (from "ssrc-group:FID")
+  u_int32_t fRTXSSRC; // the retransmission stream's SSRC (from "ssrc-group:FID")
 
   // Fields set or used by initiate():
   Groupsock* fRTPSocket; Groupsock* fRTCPSocket; // works even for unicast

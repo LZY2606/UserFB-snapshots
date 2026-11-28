@@ -66,6 +66,18 @@ public:
 
   unsigned timestampFrequency() const {return fTimestampFrequency;}
 
+  // Support for receiving RTP retransmission (RTX, RFC 4588) packets that are
+  // SSRC-multiplexed into this session - i.e., that arrive on the same socket as
+  // the primary stream, but with their own payload type and SSRC.  When configured,
+  // recovered packets are delivered (via the primary stream's reordering buffer)
+  // as if they had arrived on the primary stream directly:
+  void setRTXRetransmissionConfig(unsigned char rtxPayloadFormat,
+				  u_int32_t primarySSRC, u_int32_t rtxSSRC);
+  Boolean hasRTXRetransmissionConfig() const { return fHasRTXRetransmissionConfig; }
+  unsigned char rtxPayloadFormat() const { return fRTXPayloadFormat; }
+  u_int32_t rtxPrimarySSRC() const { return fRTXPrimarySSRC; }
+  u_int32_t rtxSSRC() const { return fRTXSSRC; }
+
   RTPReceptionStatsDB& receptionStatsDB() const {
     return *fReceptionStatsDB;
   }
@@ -109,6 +121,12 @@ protected:
   u_int32_t fLastReceivedSSRC;
   class RTCPInstance* fRTCPInstanceForMultiplexedRTCPPackets;
   SRTPCryptographicContext* fCrypto;
+
+  // RTP retransmission (RTX, RFC 4588) configuration; see above:
+  Boolean fHasRTXRetransmissionConfig;
+  unsigned char fRTXPayloadFormat;
+  u_int32_t fRTXPrimarySSRC; // SSRC of the primary stream that gets retransmitted
+  u_int32_t fRTXSSRC; // SSRC of the retransmission stream
 
 private:
   // redefined virtual functions:
@@ -220,6 +238,14 @@ public:
   struct timeval const& totalInterPacketGaps() const {
     return fTotalInterPacketGaps;
   }
+
+  // Computes the presentation time that corresponds to "rtpTimestamp", using this
+  // record's existing RTP timestamp <-> 'wall clock' mapping, but WITHOUT
+  // recording a new packet reception (or otherwise modifying any statistics).
+  // Returns False if no such mapping has been established yet.
+  Boolean computePresentationTime(u_int32_t rtpTimestamp, unsigned timestampFrequency,
+				  struct timeval& resultPresentationTime,
+				  Boolean& resultHasBeenSyncedUsingRTCP) const;
 
 protected:
   // called only by RTPReceptionStatsDB:

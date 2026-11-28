@@ -24,6 +24,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "Base64.hh"
 #include "GroupsockHelper.hh"
 #include <ctype.h>
+#include <stdlib.h>
 
 ////////// MediaSession //////////
 
@@ -220,6 +221,7 @@ Boolean MediaSession::initializeWithSDP(char const* sdpDescription) {
       if (subsession->parseSDPAttribute_control(sdpLine)) continue;
       if (subsession->parseSDPAttribute_range(sdpLine)) continue;
       if (subsession->parseSDPAttribute_fmtp(sdpLine)) continue;
+      if (subsession->parseSDPAttribute_ssrc_group(sdpLine)) continue;
       if (subsession->parseSDPAttribute_source_filter(sdpLine)) continue;
       if (subsession->parseSDPAttribute_x_dimensions(sdpLine)) continue;
       if (subsession->parseSDPAttribute_framerate(sdpLine)) continue;
@@ -638,6 +640,10 @@ MediaSubsession::MediaSubsession(MediaSession& parent)
     fPlayStartTime(0.0), fPlayEndTime(0.0), fAbsStartTime(NULL), fAbsEndTime(NULL),
     fVideoWidth(0), fVideoHeight(0), fVideoFPS(0), fNumChannels(1), fScale(1.0f), fNPT_PTS_Offset(0.0f),
     fAttributeTable(HashTable::create(STRING_HASH_KEYS)),
+    fRTXConfigError(False),
+    fHaveRTXRtpmap(False), fRTXPayloadFormat(0), fRTXTimestampFrequency(0),
+    fHaveRTXApt(False), fRTXAptPayloadFormat(0), fRTXApt(0),
+    fHaveRTXFID(False), fRTXPrimarySSRC(0), fRTXSSRC(0),
     fRTPSocket(NULL), fRTCPSocket(NULL),
     fRTPSource(NULL), fRTCPInstance(NULL), fReadSource(NULL),
     fReceiveRawMP3ADUs(False), fReceiveRawJPEGFrames(False),
@@ -717,6 +723,15 @@ Boolean MediaSubsession::initiate(int useSpecialRTPoffset) {
       env().setResultMsg("Codec is unspecified");
       break;
     }
+
+    // Check any RTP retransmission (RTX, RFC 4588) declarations that we saw in
+    // the SDP.  Contradictory or invalid declarations make this subsession's
+    // initiation fail; incomplete declarations (e.g., "rtx" without "apt" or
+    // "ssrc-group:FID") simply leave retransmission recovery disabled:
+    Boolean useRTX = False;
+    unsigned char rtxPayloadFormat = 0;
+    u_int32_t rtxPrimarySSRC = 0, rtxSSRC = 0;
+    if (!checkRTXConfig(useRTX, rtxPayloadFormat, rtxPrimarySSRC, rtxSSRC)) break;
 
     // Create RTP and RTCP 'Groupsocks' on which to receive incoming data.
     // (Groupsocks will work even for unicast addresses)
@@ -857,7 +872,14 @@ Boolean MediaSubsession::initiate(int useSpecialRTPoffset) {
       env().setResultMsg("Failed to create read source");
       break;
     }
-    
+
+    if (useRTX && fRTPSource != NULL) {
+      // Enable automatic recovery of lost packets from the SSRC-multiplexed
+      // retransmission stream.  (The application keeps reading from
+      // "fReadSource", as before.)
+      fRTPSource->setRTXRetransmissionConfig(rtxPayloadFormat, rtxPrimarySSRC, rtxSSRC);
+    }
+
     SRTPCryptographicContext* ourCrypto = NULL;
     if (useSRTP) {
       // For SRTP, we need key management.  If MIKEY (key management) state wasn't given
@@ -1097,6 +1119,27 @@ Boolean MediaSubsession::parseSDPAttribute_rtpmap(char const* sdpLine) {
       delete[] fCodecName; fCodecName = strDup(codecName);
       fRTPTimestampFrequency = rtpTimestampFrequency;
       fNumChannels = numChannels;
+    } else {
+      // This "rtpmap" is for some other payload format.  Check whether it
+      // declares a RTP retransmission ("rtx") payload format (RFC 4588):
+      {
+	Locale l("POSIX");
+	for (char* p = codecName; *p != '\0'; ++p) *p = toupper(*p);
+      }
+      if (strcmp(codecName, "RTX") == 0) {
+	if (rtpmapPayloadFormat > 127 || rtpTimestampFrequency == 0
+	    || (fHaveRTXRtpmap
+		&& (fRTXPayloadFormat != rtpmapPayloadFormat
+		    || fRTXTimestampFrequency != rtpTimestampFrequency))) {
+	  // The declaration is invalid, or contradicts an earlier one
+	  // (we support at most one RTX payload format per subsession):
+	  fRTXConfigError = True;
+	} else {
+	  fHaveRTXRtpmap = True;
+	  fRTXPayloadFormat = rtpmapPayloadFormat;
+	  fRTXTimestampFrequency = rtpTimestampFrequency;
+	}
+      }
     }
   }
   delete[] codecName;
@@ -1151,7 +1194,23 @@ Boolean MediaSubsession::parseSDPAttribute_fmtp(char const* sdpLine) {
   // Later: Check that payload format number matches; #####
   do {
     if (strncmp(sdpLine, "a=fmtp:", 7) != 0) break; sdpLine += 7;
-    while (isdigit(*sdpLine)) ++sdpLine;
+
+    // Extract the payload format number that this line applies to:
+    unsigned fmtpPayloadFormat = 0;
+    Boolean haveFmtpPayloadFormat = False;
+    while (isdigit(*sdpLine)) {
+      haveFmtpPayloadFormat = True;
+      fmtpPayloadFormat = fmtpPayloadFormat*10 + (unsigned)(*sdpLine - '0');
+      ++sdpLine;
+    }
+
+    if (haveFmtpPayloadFormat && fmtpPayloadFormat != fRTPPayloadFormat
+	&& parseRTXAptParameters(sdpLine, fmtpPayloadFormat)) {
+      // This "fmtp" line declares RTP retransmission (RTX, RFC 4588) parameters
+      // for another payload format.  It has been recorded separately, and must
+      // NOT pollute our primary codec's attribute table:
+      return True;
+    }
 
     // The remaining "sdpLine" should be a sequence of
     //     <name>=<value>;
@@ -1188,6 +1247,124 @@ Boolean MediaSubsession::parseSDPAttribute_fmtp(char const* sdpLine) {
   } while (0);
 
   return False;
+}
+
+Boolean MediaSubsession
+::parseRTXAptParameters(char const* fmtpParams, unsigned fmtpPayloadFormat) {
+  // Look for an "apt=<payload type>" parameter (RFC 4588) in the parameter list
+  // of a "a=fmtp:" line that was not for our primary payload format.  Returns
+  // True iff such a parameter was found (in which case it has been recorded as
+  // our RTX declaration).
+  Boolean sawApt = False;
+
+  unsigned const paramsLen = strlen(fmtpParams);
+  char* nameStr = new char[paramsLen+1];
+  char* valueStr = new char[paramsLen+1];
+
+  char const* p = fmtpParams;
+  while (*p != '\0' && *p != '\r' && *p != '\n') {
+    int sscanfResult = sscanf(p, " %[^=; \t\r\n] = %[^; \t\r\n]", nameStr, valueStr);
+    if (sscanfResult == 2) {
+      // Convert <name> to lower-case, to ease comparison:
+      Locale l("POSIX");
+      for (char* c = nameStr; *c != '\0'; ++c) *c = tolower(*c);
+
+      if (strcmp(nameStr, "apt") == 0) {
+	sawApt = True;
+
+	// Parse the parameter's value (a payload type number):
+	char* endPtr = NULL;
+	unsigned long apt = strtoul(valueStr, &endPtr, 10);
+	if (valueStr[0] == '\0' || endPtr == NULL || *endPtr != '\0' || apt > 127
+	    || fmtpPayloadFormat > 127) {
+	  fRTXConfigError = True; // invalid value
+	} else if (fHaveRTXApt
+		   && (fRTXAptPayloadFormat != fmtpPayloadFormat || fRTXApt != (unsigned)apt)) {
+	  // Contradictory declarations (we support at most one RTX mapping per subsession):
+	  fRTXConfigError = True;
+	} else {
+	  fHaveRTXApt = True;
+	  fRTXAptPayloadFormat = fmtpPayloadFormat;
+	  fRTXApt = (unsigned)apt;
+	}
+      }
+    }
+
+    // Move to the next parameter assignment string:
+    while (*p != '\0' && *p != '\r' && *p != '\n' && *p != ';') ++p;
+    while (*p == ';') ++p;
+  }
+
+  delete[] nameStr; delete[] valueStr;
+  return sawApt;
+}
+
+Boolean MediaSubsession::parseSDPAttribute_ssrc_group(char const* sdpLine) {
+  // Check for a "a=ssrc-group:FID <primary SSRC> <retransmission SSRC>" line (RFC 4588):
+  if (strncmp(sdpLine, "a=ssrc-group:FID", 16) != 0) return False;
+  if (sdpLine[16] != ' ' && sdpLine[16] != '\t') return False; // some other "ssrc-group" semantics
+
+  char const* p = sdpLine + 16;
+  while (*p == ' ' || *p == '\t') ++p;
+
+  char* endPtr = NULL;
+  unsigned long primarySSRC = strtoul(p, &endPtr, 10);
+  Boolean parseOK = endPtr != NULL && endPtr != p && p[0] != '-' && primarySSRC <= 0xFFFFFFFF;
+  p = endPtr;
+  while (parseOK && (*p == ' ' || *p == '\t')) ++p;
+  unsigned long rtxSSRC = 0;
+  if (parseOK) {
+    rtxSSRC = strtoul(p, &endPtr, 10);
+    parseOK = endPtr != NULL && endPtr != p && p[0] != '-' && rtxSSRC <= 0xFFFFFFFF;
+    p = endPtr;
+  }
+  while (parseOK && (*p == ' ' || *p == '\t')) ++p;
+  if (parseOK && *p != '\0' && *p != '\r' && *p != '\n') parseOK = False; // trailing garbage
+
+  if (!parseOK || primarySSRC == rtxSSRC) {
+    fRTXConfigError = True; // malformed "ssrc-group:FID" line
+  } else if (fHaveRTXFID
+	     && (fRTXPrimarySSRC != (u_int32_t)primarySSRC || fRTXSSRC != (u_int32_t)rtxSSRC)) {
+    // Contradictory declarations (we support at most one FID group per subsession):
+    fRTXConfigError = True;
+  } else {
+    fHaveRTXFID = True;
+    fRTXPrimarySSRC = (u_int32_t)primarySSRC;
+    fRTXSSRC = (u_int32_t)rtxSSRC;
+  }
+
+  return True;
+}
+
+Boolean MediaSubsession
+::checkRTXConfig(Boolean& enableRTX, unsigned char& rtxPayloadFormat,
+		 u_int32_t& primarySSRC, u_int32_t& rtxSSRC) {
+  enableRTX = False;
+
+  if (fRTXConfigError) {
+    env().setResultMsg("Invalid or contradictory RTP retransmission (RTX) declarations in the SDP");
+    return False;
+  }
+
+  // Retransmission recovery is enabled only if all three declarations
+  // ("rtpmap", "fmtp ... apt=", and "ssrc-group:FID") are present.  Incomplete
+  // declarations are not an error; they just leave recovery disabled:
+  if (!fHaveRTXRtpmap || !fHaveRTXApt || !fHaveRTXFID) return True;
+
+  // The declarations must also be consistent with each other, and with the
+  // primary stream (whose payload format is the first one in the "m=" line):
+  if (fRTXAptPayloadFormat != fRTXPayloadFormat
+      || fRTXApt != fRTPPayloadFormat
+      || fRTXTimestampFrequency != fRTPTimestampFrequency) {
+    env().setResultMsg("Inconsistent RTP retransmission (RTX) declarations in the SDP");
+    return False;
+  }
+
+  enableRTX = True;
+  rtxPayloadFormat = (unsigned char)fRTXPayloadFormat;
+  primarySSRC = fRTXPrimarySSRC;
+  rtxSSRC = fRTXSSRC;
+  return True;
 }
 
 Boolean MediaSubsession

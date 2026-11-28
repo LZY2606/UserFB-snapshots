@@ -55,6 +55,8 @@ RTPSource::RTPSource(UsageEnvironment& env, Groupsock* RTPgs,
     fRTPInterface(this, RTPgs),
     fCurPacketHasBeenSynchronizedUsingRTCP(False), fLastReceivedSSRC(0),
     fRTCPInstanceForMultiplexedRTCPPackets(NULL), fCrypto(NULL),
+    fHasRTXRetransmissionConfig(False), fRTXPayloadFormat(0),
+    fRTXPrimarySSRC(0), fRTXSSRC(0),
     fRTPPayloadFormat(rtpPayloadFormat), fTimestampFrequency(rtpTimestampFrequency),
     fSSRC(our_random32()), fEnableRTCPReports(True) {
   fReceptionStatsDB = new RTPReceptionStatsDB();
@@ -62,6 +64,14 @@ RTPSource::RTPSource(UsageEnvironment& env, Groupsock* RTPgs,
 
 RTPSource::~RTPSource() {
   delete fReceptionStatsDB;
+}
+
+void RTPSource::setRTXRetransmissionConfig(unsigned char rtxPayloadFormat,
+					   u_int32_t primarySSRC, u_int32_t rtxSSRC) {
+  fHasRTXRetransmissionConfig = True;
+  fRTXPayloadFormat = rtxPayloadFormat;
+  fRTXPrimarySSRC = primarySSRC;
+  fRTXSSRC = rtxSSRC;
 }
 
 void RTPSource::getAttributes() const {
@@ -228,6 +238,43 @@ void RTPReceptionStats::initSeqNum(u_int16_t initialSeqNum) {
 #define MILLION 1000000
 #endif
 
+// Computes the 'presentation time' that corresponds to "rtpTimestamp", given an
+// existing RTP timestamp <-> 'wall clock' synchronization mapping:
+static void computePresentationTimeFromSync(u_int32_t rtpTimestamp, unsigned timestampFrequency,
+					    u_int32_t syncTimestamp, struct timeval const& syncTime,
+					    struct timeval& resultPresentationTime) {
+  int timestampDiff = rtpTimestamp - syncTimestamp;
+      // Note: This works even if the timestamp wraps around
+      // (as long as "int" is 32 bits)
+
+  // Divide this by the timestamp frequency to get real time:
+  double timeDiff = timestampDiff/(double)timestampFrequency;
+
+  // Add this to the 'sync time' to get our result:
+  unsigned const million = 1000000;
+  unsigned seconds, uSeconds;
+  if (timeDiff >= 0.0) {
+    seconds = syncTime.tv_sec + (unsigned)(timeDiff);
+    uSeconds = syncTime.tv_usec
+      + (unsigned)((timeDiff - (unsigned)timeDiff)*million);
+    if (uSeconds >= million) {
+      uSeconds -= million;
+      ++seconds;
+    }
+  } else {
+    timeDiff = -timeDiff;
+    seconds = syncTime.tv_sec - (unsigned)(timeDiff);
+    uSeconds = syncTime.tv_usec
+      - (unsigned)((timeDiff - (unsigned)timeDiff)*million);
+    if ((int)uSeconds < 0) {
+      uSeconds += million;
+      --seconds;
+    }
+  }
+  resultPresentationTime.tv_sec = seconds;
+  resultPresentationTime.tv_usec = uSeconds;
+}
+
 void RTPReceptionStats
 ::noteIncomingPacket(u_int16_t seqNum, u_int32_t rtpTimestamp,
 		     unsigned timestampFrequency,
@@ -327,36 +374,8 @@ void RTPReceptionStats
     fSyncTime = timeNow;
   }
 
-  int timestampDiff = rtpTimestamp - fSyncTimestamp;
-      // Note: This works even if the timestamp wraps around
-      // (as long as "int" is 32 bits)
-
-  // Divide this by the timestamp frequency to get real time:
-  double timeDiff = timestampDiff/(double)timestampFrequency;
-
-  // Add this to the 'sync time' to get our result:
-  unsigned const million = 1000000;
-  unsigned seconds, uSeconds;
-  if (timeDiff >= 0.0) {
-    seconds = fSyncTime.tv_sec + (unsigned)(timeDiff);
-    uSeconds = fSyncTime.tv_usec
-      + (unsigned)((timeDiff - (unsigned)timeDiff)*million);
-    if (uSeconds >= million) {
-      uSeconds -= million;
-      ++seconds;
-    }
-  } else {
-    timeDiff = -timeDiff;
-    seconds = fSyncTime.tv_sec - (unsigned)(timeDiff);
-    uSeconds = fSyncTime.tv_usec
-      - (unsigned)((timeDiff - (unsigned)timeDiff)*million);
-    if ((int)uSeconds < 0) {
-      uSeconds += million;
-      --seconds;
-    }
-  }
-  resultPresentationTime.tv_sec = seconds;
-  resultPresentationTime.tv_usec = uSeconds;
+  computePresentationTimeFromSync(rtpTimestamp, timestampFrequency,
+				  fSyncTimestamp, fSyncTime, resultPresentationTime);
   resultHasBeenSyncedUsingRTCP = fHasBeenSynchronized;
 
   // Save these as the new synchronization timestamp & time:
@@ -364,6 +383,19 @@ void RTPReceptionStats
   fSyncTime = resultPresentationTime;
 
   fPreviousPacketRTPTimestamp = rtpTimestamp;
+}
+
+Boolean RTPReceptionStats
+::computePresentationTime(u_int32_t rtpTimestamp, unsigned timestampFrequency,
+			  struct timeval& resultPresentationTime,
+			  Boolean& resultHasBeenSyncedUsingRTCP) const {
+  if (timestampFrequency == 0) return False;
+  if (fSyncTime.tv_sec == 0 && fSyncTime.tv_usec == 0) return False; // no mapping yet
+
+  computePresentationTimeFromSync(rtpTimestamp, timestampFrequency,
+				  fSyncTimestamp, fSyncTime, resultPresentationTime);
+  resultHasBeenSyncedUsingRTCP = fHasBeenSynchronized;
+  return True;
 }
 
 void RTPReceptionStats::noteIncomingSR(u_int32_t ntpTimestampMSW,
