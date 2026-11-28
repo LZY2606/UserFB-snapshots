@@ -505,6 +505,7 @@ typedef struct {
   mem2_pdir_t *pdir;
   unsigned invalid:1;
   unsigned char def_attr;
+  struct x86emu_hist_s *hist;	/* reversible debugger state; NULL if off */
 } x86emu_mem_t;
 
 
@@ -588,8 +589,95 @@ void x86emu_write_dword(x86emu_t *emu, unsigned addr, unsigned val);
 
 void x86emu_set_seg_register(x86emu_t *emu, sel_t *seg, u16 val);
 
+/*----------------------- Reversible debugging API ------------------------*/
+
+/*
+ * Result of a single reversible step (x86emu_history_step).
+ *
+ * X86EMU_HIST_OK       instruction completed normally
+ * X86EMU_HIST_HALTED   instruction was HLT; CPU is now halted (still recorded)
+ * X86EMU_HIST_MEMFAULT a memory permission check failed; the whole step was
+ *                      rolled back and nothing was appended to the history
+ * X86EMU_HIST_BARRIER  the instruction may observe or change the host (port
+ *                      I/O, interrupts, CPUID/MSR handlers, time stamp ...);
+ *                      it was not executed and the CPU/memory are untouched
+ * X86EMU_HIST_ERROR    history mode is not enabled (bad call)
+ */
+enum {
+  X86EMU_HIST_OK = 0,
+  X86EMU_HIST_HALTED = 1,
+  X86EMU_HIST_MEMFAULT = 2,
+  X86EMU_HIST_BARRIER = 3,
+  X86EMU_HIST_ERROR = -1
+};
+
+/*
+ * Result of x86emu_history_back.
+ *
+ * X86EMU_HIST_BACK_OK     one recorded step was undone
+ * X86EMU_HIST_BACK_EMPTY  no step can be undone; state is unchanged
+ * X86EMU_HIST_ERROR       history mode is not enabled
+ */
+enum {
+  X86EMU_HIST_BACK_OK = 0,
+  X86EMU_HIST_BACK_EMPTY = 1,
+  X86EMU_HIST_BACK_ERROR = -1
+};
+
+/*
+ * History resource counters.
+ *
+ * entries           number of recorded steps currently held
+ * data_bytes        number of saved memory data pre-image bytes
+ * attr_bytes        number of saved memory attribute pre-image bytes
+ * page_events       number of sparse page materialize/dematerialize records
+ * cpu_bytes         bytes occupied by CPU register pre-images
+ */
+typedef struct {
+  unsigned entries;
+  unsigned long data_bytes;
+  unsigned long attr_bytes;
+  unsigned long page_events;
+  unsigned long cpu_bytes;
+} x86emu_history_stats_t;
+
+/*
+ * Enable reversible debugging on a clean instruction boundary and start with
+ * an empty history. Fails (returns 0) if a custom memio or code handler is
+ * installed, because their effects cannot be recorded or rolled back.
+ */
+int x86emu_history_enable(x86emu_t *emu);
+
+/* Disable reversible debugging and release every recorded change. */
+void x86emu_history_disable(x86emu_t *emu);
+
+/*
+ * Execute exactly one instruction (all prefixes; a whole REP string op is a
+ * single step). Returns one of the X86EMU_HIST_* values above.
+ */
+int x86emu_history_step(x86emu_t *emu);
+
+/* Undo the most recent recorded step. Returns one of X86EMU_HIST_BACK_*. */
+int x86emu_history_back(x86emu_t *emu);
+
+/* Fill the caller's counters; returns 0 on success, -1 if history is off. */
+int x86emu_history_get_stats(x86emu_t *emu, x86emu_history_stats_t *stats);
+
+/* Number of recorded steps currently held (0 when history is off/empty). */
+int x86emu_history_len(x86emu_t *emu);
+
+/*
+ * Observe guest memory without disturbing it. Copies 'len' bytes of data and
+ * attributes starting at linear address 'addr' into the caller supplied
+ * buffers (either may be NULL). Access bits are not changed and no sparse page
+ * is materialized. Bytes of an unmaterialized page read as 0xff with the
+ * memory default attribute. Returns the number of bytes copied.
+ */
+unsigned x86emu_history_peek(x86emu_t *emu, unsigned addr, unsigned len,
+  unsigned char *data, unsigned char *attr);
+
 #ifdef  __cplusplus
-}                       			/* End of "C" linkage for C++   	*/
+}                       			/* End "C" linkage for C++   	*/
 #endif
 
 #endif /* __X86EMU_X86EMU_H */

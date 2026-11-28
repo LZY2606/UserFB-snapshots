@@ -36,6 +36,7 @@
 
 
 #include "include/x86emu_int.h"
+#include "include/history_int.h"
 #include <time.h>
 
 
@@ -67,6 +68,9 @@ API_SYM unsigned x86emu_run(x86emu_t *emu, unsigned flags)
 #if WITH_TSC
   u64 tsc_ofs;
 #endif
+
+  /* normal execution is not reversible from change records; drop history */
+  emu_hist_invalidate(emu);
 
   p = &emu->log.ptr;
 
@@ -290,6 +294,161 @@ Halts the system by setting the halted system flag.
 API_SYM void x86emu_stop(x86emu_t *emu)
 {
   emu->x86.mode |= _MODE_HALTED;
+}
+
+
+/*
+ * Opcode level barrier test. Everything here can observe or alter the host or
+ * an external processor callback and therefore cannot be reconstructed from
+ * change records:
+ *   - port I/O (IN/OUT)
+ *   - software interrupts (INT3/INT n/INTO)
+ *   - the 0x0f escape forms RDMSR/WRMSR/RDTSC/CPUID
+ * The 0x0f second byte is inspected with the non disturbing peek so no fetch
+ * access bit is set before we bail out.
+ */
+static int emu_hist_barrier_opcode(x86emu_t *emu, u8 op1)
+{
+  u8 op2;
+
+  switch(op1) {
+    case 0xcc:			/* INT3 */
+    case 0xcd:			/* INT imm */
+    case 0xce:			/* INTO */
+      return 1;
+    case 0xe4:			/* IN al/ax/eax, imm8 */
+    case 0xe5:
+    case 0xe6:			/* OUT imm8, al/ax/eax */
+    case 0xe7:
+    case 0xec:			/* IN al/ax/eax, dx */
+    case 0xed:
+    case 0xee:			/* OUT dx, al/ax/eax */
+    case 0xef:
+    case 0x6c:			/* INS / REP INS */
+    case 0x6d:			/* OUTS / REP OUTS */
+      return 1;
+  }
+
+  if(op1 == 0x0f) {
+    emu_hist_peek(emu->mem, emu->x86.R_CS_BASE + emu->x86.R_EIP, 1, &op2, NULL);
+    return op2 == 0x30 ||	/* WRMSR */
+      op2 == 0x31 ||		/* RDTSC */
+      op2 == 0x32 ||		/* RDMSR */
+      op2 == 0xa2;		/* CPUID */
+  }
+
+  return 0;
+}
+
+
+/*
+ * Execute exactly one instruction for the reversible debugger, reusing the
+ * normal prefix decoder and operation tables (one loop body of x86emu_run).
+ * A REP string operation runs entirely inside its handler and is one step.
+ *
+ * Returns:
+ *   0 - completed (a memory permission failure is flagged via hist->memfault)
+ *   1 - HLT executed
+ *   2 - barrier: a host visible instruction, nothing was executed
+ */
+int emu_hist_exec_one(x86emu_t *emu)
+{
+  x86emu_hist_t *hist = emu->mem->hist;
+  u8 op1;
+  int has_prefix;
+
+  *(emu->x86.disasm_ptr = emu->x86.disasm_buf) = 0;
+  emu->x86.instr_len = 0;
+  emu->x86.mode = 0;
+
+  if(ACC_D(emu->x86.R_CS_ACC)) {
+    emu->x86.mode |= _MODE_DATA32 | _MODE_ADDR32 | _MODE_CODE32;
+  }
+  if(ACC_D(emu->x86.R_SS_ACC)) {
+    emu->x86.mode |= _MODE_STACK32;
+  }
+
+  emu->x86.default_seg = NULL;
+  emu->x86.saved_cs = emu->x86.R_CS;
+  emu->x86.saved_eip = emu->x86.R_EIP;
+
+  memcpy(emu->x86.decode_seg, "[", 1);
+
+  has_prefix = 1;
+  while(has_prefix) {
+    switch(op1 = fetch_byte(emu)) {
+      case 0x26:
+        emu->x86.default_seg = emu->x86.seg + R_ES_INDEX;
+        break;
+      case 0x2e:
+        emu->x86.default_seg = emu->x86.seg + R_CS_INDEX;
+        break;
+      case 0x36:
+        emu->x86.default_seg = emu->x86.seg + R_SS_INDEX;
+        break;
+      case 0x3e:
+        emu->x86.default_seg = emu->x86.seg + R_DS_INDEX;
+        break;
+      case 0x64:
+        emu->x86.default_seg = emu->x86.seg + R_FS_INDEX;
+        break;
+      case 0x65:
+        emu->x86.default_seg = emu->x86.seg + R_GS_INDEX;
+        break;
+      case 0x66:
+        emu->x86.mode ^= _MODE_DATA32;
+        break;
+      case 0x67:
+        emu->x86.mode ^= _MODE_ADDR32;
+        break;
+      case 0xf0:			/* LOCK */
+        break;
+      case 0xf2:			/* REPNE */
+        emu->x86.mode |= _MODE_REPNE;
+        break;
+      case 0xf3:			/* REPE/REP */
+        emu->x86.mode |= _MODE_REPE;
+        break;
+      default:
+        has_prefix = 0;
+        break;
+    }
+  }
+
+  /* an instruction fetch failed its executable permission; abort the step */
+  if(hist->memfault) return 0;
+
+  /* refuse host visible instructions before any processor callback runs */
+  if(emu_hist_barrier_opcode(emu, op1)) {
+    hist->barrier = 1;
+    return 2;
+  }
+
+  if(op1 == 0xf4) {
+    (*x86emu_optab[op1])(emu, op1);
+    *emu->x86.disasm_ptr = 0;
+    handle_interrupt(emu);
+    emu->x86.R_TSC++;
+    return 1;
+  }
+
+  (*x86emu_optab[op1])(emu, op1);
+  *emu->x86.disasm_ptr = 0;
+
+  /*
+   * A fault raised inside the instruction would invoke the external interrupt
+   * processor next. Do not call it: treat the step as a barrier and let the
+   * caller roll the already executed body back.
+   */
+  if(emu->x86.intr_type && emu->intr) {
+    hist->barrier = 1;
+    return 2;
+  }
+
+  handle_interrupt(emu);
+  emu->x86.R_TSC++;
+
+  return 0;
 }
 
 /****************************************************************************
