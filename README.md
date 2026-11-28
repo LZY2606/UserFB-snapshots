@@ -261,6 +261,52 @@ New in 2.0:
 
 ![normalize](https://texture-generator.com/generator/demo/images/normalize.jpg#20190908)
 
+### Quilt - synthesize a texture from a small example image
+
+The `quilt` effect reads a small example image, copies rectangular patches out
+of it and decides the seam with a global two-label minimum cut, so the result
+never averages colors and never joins a horizontal and a vertical seam
+independently.
+
+```javascript
+// a 4x4 example image, row by row RGBA (0..255 integers)
+var source = {
+    width: 4,
+    height: 4,
+    data: [
+        255, 0, 0, 255,   0, 255, 0, 255,   0, 0, 255, 255,   255, 255, 0, 255,
+        255, 128, 0, 255, 128, 0, 255, 255, 0, 255, 255, 255, 255, 0, 128, 255,
+        64, 64, 64, 255,  192, 192, 192, 255, 32, 32, 32, 255, 224, 224, 224, 255,
+        255, 255, 255, 255, 0, 0, 0, 255, 128, 128, 128, 255, 64, 128, 192, 255
+    ]
+};
+
+var options = {
+    patchWidth: 4,   // patch size in source pixels (3 .. source size)
+    patchHeight: 4,
+    overlapX: 2,     // overlap between neighbours (1 .. patchWidth - 1)
+    overlapY: 2,
+    tolerance: 0.25, // candidate pool: error <= minError * (1 + tolerance)
+    seed: 12345,     // uint32, drives the local candidate LCG
+    wrap: true       // wrap blocks around the output edges
+};
+
+// as an effect: output size is the generator size
+var generator = tgen.init(64, 64, "pingpong")
+    .do("quilt", { source: source, options: options })
+    .toCanvas();
+
+// standalone: returns { width, height, data, provenance, placements }
+var result = tgen.quilt(source, Object.assign({ width: 64, height: 64 }, options));
+```
+
+`data` is a `Uint8ClampedArray`, `provenance` an `Int32Array` with the source
+row of every output pixel and `placements` lists every patch (anchor, source
+anchor, pool size, score, cut energy, skipped flag and the local cut labels),
+which is enough to replay the synthesis independently. The source data is
+stored as a plain array in the saved params, so `params()` output can be
+re-rendered from JSON.
+
 ### Available other options
 
 * map (cool effect)

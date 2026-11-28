@@ -1601,6 +1601,12 @@ module.exports = function (tgen) {
         params.seed = generator.randByArray(params.seed);
       }
 
+      // effects that bring their own random source keep the generator seed
+      const preserveSeed =
+        typeof self.effects[name] === "function" &&
+        self.effects[name].preserveSeed === true;
+      const seedBefore = generator.calc.seed;
+
       // init random seed
       generator.calc.randomseed(params.seed);
 
@@ -1616,6 +1622,10 @@ module.exports = function (tgen) {
         self.effects[name](generator, params);
       } else {
         console.warn("effect not callable: " + name);
+      }
+
+      if (preserveSeed) {
+        generator.calc.seed = seedBefore;
       }
 
       if (params && params.store !== false) {

@@ -107,6 +107,7 @@ require("./functions/index")(SeamlessTextureGenerator);
 require("./shapes/index")(SeamlessTextureGenerator);
 require("./effects/index")(SeamlessTextureGenerator);
 require("./filters/index")(SeamlessTextureGenerator);
+require("./quilt").register(SeamlessTextureGenerator);
 require("./tgen-tests")(SeamlessTextureGenerator);
 
 module.exports = SeamlessTextureGenerator;
