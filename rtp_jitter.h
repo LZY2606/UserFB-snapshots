@@ -26,7 +26,9 @@
 #define RTP_JITTER_H_cc8e302e_b008_4588_a29a_79a9f555804d
 
 #include <deque>
+#include <map>
 #include <memory>
+#include <vector>
 #include "stdinc.h"
 #include "rtp.h"
 
@@ -59,6 +61,17 @@ public:
     int     get_nominal_depth();
     bool    buffering()         { return _buffering; }
     void    eot_detected();
+
+    // - fixed-rate stream repair (RFC 4588 style retransmission)
+    //   Configure the stream; on failure the previous state is untouched.
+    //   On success any buffered stream and timing state is dropped and the
+    //   repair path becomes the active one.  The configuration is kept by
+    //   reset().
+    bool    configure_repair(const RepairConfig& config);
+    bool    repair_configured() { return _repair.configured; }
+    RESULT  push_at(rawrtp_ptr packet, int64 now_us);
+    RESULT  pop_at(rawrtp_ptr& packet, int64 now_us);
+    std::vector<uint16> nacks_at(int64 now_us);
 
     // - statistics retrieval
     int overflow_count()        { return _stats.overflow_count; }
@@ -108,6 +121,52 @@ private:
     uint8      *_get_payload(RTPHeader *packet);
     void        _log(std::string s);
     void        _reset_buffer_stats(const uint32 sample_rate);
+
+    // - repair path state
+    struct RepairSlot
+    {
+        rawrtp_ptr  packet;             // accepted content, null while missing
+        int64       deadline_us;        // media playout time, k*packet_ms
+        bool        missing;            // revealed but not yet repaired
+        bool        nack_started;       // at least one NACK round emitted
+        int64       last_nack_us;
+
+        RepairSlot()
+            : deadline_us(0), missing(false), nack_started(false), last_nack_us(0)
+        {
+        }
+    };
+    struct RepairState
+    {
+        bool        configured;
+        RepairConfig config;
+        int64       slot_us;            // packet_ms * 1000
+        int64       ts_step;            // clock_rate * packet_ms / 1000
+        bool        anchored;
+        int64       anchor_us;          // arrival of the first primary packet
+        uint16      anchor_seq;         // its original sequence number
+        uint32      anchor_ts;          // its media timestamp
+        int64       cursor;             // slot index of the next playout
+        int64       newest;             // highest accepted absolute slot
+        bool        has_newest;
+        std::map<int64, RepairSlot> slots;
+
+        RepairState()
+            : configured(false), slot_us(0), ts_step(0), anchored(false),
+              anchor_us(0), anchor_seq(0), anchor_ts(0), cursor(0),
+              newest(0), has_newest(false)
+        {
+            memset(&config, 0, sizeof(config));
+        }
+    } _repair;
+
+    bool        _repair_parse(const RepairConfig& config);
+    void        _repair_clear_stream();
+    RESULT      _repair_push(rawrtp_ptr packet, int64 now_us);
+    RESULT      _repair_accept(int64 slot, rawrtp_ptr packet);
+    void        _repair_reveal(int64 slot);
+    rawrtp_ptr  _repair_restore_rtx(const RTPPacket& packet);
+    void        _repair_prune(int64 now_us);
 };
 
 #endif  // RTP_JITTER_H_cc8e302e_b008_4588_a29a_79a9f555804d

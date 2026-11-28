@@ -104,11 +104,41 @@ typedef struct {
 #pragma pack(pop)
 
 
+// Configuration for the RFC 4588 style repair path.  A stream is identified
+// by its primary SSRC/payload type; repair packets arrive on a second SSRC
+// and payload type and carry the original sequence number in a two byte
+// payload prefix.
+struct RepairConfig
+{
+    uint32  primary_ssrc;
+    uint32  rtx_ssrc;
+    int     primary_pt;
+    int     rtx_pt;
+    int64   clock_rate;
+    int64   packet_ms;
+    int64   delay_ms;
+    int64   retry_ms;
+    int64   window_packets;
+};
+
+
+class RTPPacket;
+
+typedef std::shared_ptr<RTPPacket>  rawrtp_ptr;
+
 
 class RTPPacket
 {
-
 public:
+    struct Layout
+    {
+        uint16  header_len;         // fixed header + CSRC list + extension
+        uint16  payload_offset;     // == header_len, first byte after header
+        uint16  payload_len;        // payload including padding
+        uint16  padding_len;        // zero when the padding bit is clear
+        uint16  media_len;          // payload_len - padding_len
+    };
+
     uint8  *pData;
     uint16  nLen;
     uint16  payload_ms;
@@ -130,6 +160,21 @@ public:
         }
     }
     ~RTPPacket() { if (pData) delete[] pData; };
+
+    // Validate the RTP envelope (version, CSRCs, extension and padding) and
+    // report where the payload starts.  Returns false for a malformed packet.
+    bool parse_layout(Layout& out) const;
+
+    // Build a primary-stream packet from an RTX packet.  The two byte OSN is
+    // removed from the payload; it becomes the sequence number, and SSRC and
+    // payload type are rewritten to the primary values.  Timestamp, marker,
+    // CSRC list, extension, media bytes and valid padding are preserved.  The
+    // input packet is not modified.
+    static rawrtp_ptr restore_rtx(const RTPPacket& rtx,
+                                  uint16          osn,
+                                  uint32          ssrc,
+                                  uint8           payload_type,
+                                  uint16          payload_ms);
 };
 
 typedef std::shared_ptr<RTPPacket>  rawrtp_ptr;

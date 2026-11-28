@@ -76,3 +76,96 @@ design discussion:
         as it may grow and shrink.
 
 
+
+
+-----
+
+fixed-rate RTP repair (RFC 4588 style):
+
+    RTPJitter can additionally run in a "repair" mode for a fixed-rate
+    media stream that has a dedicated RTX SSRC/payload type.  The mode is
+    self contained: packet arrival, missing-packet feedback and playout all
+    live on the same RTPJitter object and address slots by original (media)
+    sequence number.  No external queue or secondary jitter buffer is needed.
+
+    Configuration:
+
+        RepairConfig cfg;
+        cfg.primary_ssrc = ...;   // media stream SSRC
+        cfg.rtx_ssrc     = ...;   // retransmission SSRC (must differ)
+        cfg.primary_pt   = ...;   // media payload type
+        cfg.rtx_pt       = ...;   // retransmission payload type (must differ)
+        cfg.clock_rate   = 8000;  // samples per second
+        cfg.packet_ms    = 20;    // fixed packet duration
+        cfg.delay_ms     = 60;    // playout delay after the anchor packet
+        cfg.retry_ms     = 40;    // per-hole NACK repeat interval
+        cfg.window_packets = 8;   // 2..512, slots reachable from the playout head
+
+        if (!jitter.configure_repair(cfg)) { ... }   // false == no state change
+
+    configure_repair() requires distinct SSRCs and payload types (PT in
+    0..127), positive clock_rate and retry_ms, packet_ms in 1..65535, non
+    negative delay_ms, window_packets in 2..512 and a whole-number
+    clock_rate * packet_ms / 1000.  A rejected configuration leaves the object
+    exactly as it was; an accepted one discards any buffered legacy stream and
+    timing state, then activates repair mode.  reset() clears the stream and
+    timing state but keeps the repair configuration.
+
+    Call order:
+
+        jitter.configure_repair(cfg);
+        //   ... time now_us advances, non negative and monotonic ...
+        jitter.push_at(packet, now_us);          // media and RTX arrivals
+        jitter.nacks_at(now_us);                 // poll holes to request
+        jitter.pop_at(&out, now_us);             // player pulls one slot
+
+    The first accepted media packet defines the anchor: arrival A, sequence
+    S and timestamp T.  Slot k then has original sequence S+k (16 bit wrap),
+    media timestamp T + k*clock_rate*packet_ms/1000 (32 bit wrap) and playout
+    time A + delay_ms*1000 + k*packet_ms*1000.  RTX packets arriving before
+    the anchor are ignored.
+
+    push_at() accepts an original packet or an RTX packet.  A gap is revealed
+    when an accepted packet advances the highest known sequence, or when a
+    restored RTX packet fills a hole; nothing beyond the highest known
+    sequence is ever requested.  Only slots from the playout head through
+    window_packets - 1 are accepted: older slots and mismatched timestamps
+    are BAD_PACKET, slots beyond the window are BUFFER_OVERFLOW, and neither
+    changes state.  Out-of-order arrivals are fine as long as the active
+    sequence span stays below 32768.  The first accepted content for a slot
+    wins; later duplicates (media or RTX) return SUCCESS without changing
+    content, depth or timing.  A repair may arrive up to, and including, the
+    slot's playout instant; one microsecond later it is BAD_PACKET even if
+    pop_at() has not been called yet.
+
+    pop_at() handles one slot at a time.  Before the deadline it returns
+    BUFFERING; at or after the deadline it returns SUCCESS and advances when
+    the slot holds a packet, or DROPPED_PACKET and advances when it does not.
+    Past the highest known slot it returns BUFFER_EMPTY without advancing.
+    The output argument is only written on SUCCESS.  get_depth()/get_depth_ms()
+    report retained packets and packets times packet_ms.
+
+    RTX packets carry the original sequence number as a two byte big endian
+    OSN at the start of the payload (RFC 4588).  The outer SSRC and payload
+    type must match the RTX configuration; the outer sequence number is
+    ignored.  CSRCs, header extension and padding are skipped correctly, and
+    malformed envelopes (bad version, truncated header/extension, invalid
+    padding, payload shorter than the OSN) are BAD_PACKET without side
+    effects.  Before delivery the OSN is removed and sequence/SSRC/payload
+    type are restored to media values; marker, timestamp, CSRCs, extension,
+    media bytes and valid padding are preserved and nLen/payload_bytes match
+    the restored packet.  The caller's input object is never modified.
+
+    nacks_at() returns original sequence numbers of revealed, unfilled,
+    unexpired holes in playout order.  A hole is reported on its first query,
+    then at most once per retry_ms; repeated queries in the same instant do
+    not re-report, and a late query reports once without replaying missed
+    rounds.  A packet arriving for a hole cancels its retries immediately;
+    consumed or expired holes never reappear.  Querying never advances playout
+    or rebuilds the anchor.
+
+    While repair mode is active the legacy push()/pop() return BAD_PACKET and
+    leave state untouched.  Without a configuration, push_at()/pop_at() return
+    BAD_PACKET and nacks_at() returns an empty vector.  All repair timing is
+    supplied by the caller in microseconds; the implementation uses no wall
+    clock, threads or sleeps.

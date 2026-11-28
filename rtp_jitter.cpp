@@ -84,6 +84,9 @@ void RTPJitter::init(const unsigned depth, const uint32 sample_rate /* = 8000 */
     _buffering = true;
     _buffering_timestamp = timepoint::min();
     _reset_buffer_stats(sample_rate);
+
+    // reset() keeps the repair configuration; only the stream state is dropped
+    _repair_clear_stream();
 }
 
 
@@ -100,14 +103,19 @@ RTPJitter::RESULT RTPJitter::push(rawrtp_ptr p)
     uint16      rtp_sequence = 0;
     RESULT      rc = SUCCESS;
 
+    rscoped_lock lock(_mutex);
+
+    // the legacy path is not available while a repair configuration is active
+    if (_repair.configured) {
+        return BAD_PACKET;
+    }
+
     if ((p != nullptr)
      && ((rtp = reinterpret_cast<PRTPHeader>(p->pData))))
     {
-        rscoped_lock lock(_mutex);
-
         rtp_sequence = ntohs(rtp->sequence);
 
-        if (_depth_ms > _max_buffer_depth) {
+        if (_depth_ms > (unsigned)_max_buffer_depth) {
             LOGD("RTPJitter::push(): buffer overflow: buffer depth: %d  packet #%d", _depth_ms, rtp_sequence);
             rc = BUFFER_OVERFLOW;
             _stats.overflow_count++;
@@ -216,6 +224,10 @@ RTPJitter::RESULT RTPJitter::pop(rawrtp_ptr& packet)
 
     rscoped_lock lock(_mutex);
 
+    if (_repair.configured) {
+        return BAD_PACKET;
+    }
+
     // first things first -- do we need to enter or exit the buffering state?
     if (_buffer.empty()) {
         // the buffer is empty ... do we need to go back to buffering?  If the
@@ -308,6 +320,7 @@ RTPJitter::RESULT RTPJitter::reset()
 {
     rscoped_lock lock(_mutex);
     _clean_buffer();
+    _repair_clear_stream();
     init(_nominal_depth_ms, _payload_sample_rate);
 
     return SUCCESS;
@@ -342,6 +355,18 @@ void RTPJitter::set_depth(const unsigned ms_depth, const unsigned max_depth /* =
 int RTPJitter::get_depth()
 {
     rscoped_lock lock(_mutex);
+
+    if (_repair.configured) {
+        int count = 0;
+        for (std::map<int64, RepairSlot>::iterator i = _repair.slots.begin();
+             i != _repair.slots.end(); ++i) {
+            if (i->second.packet) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     return (_buffer.size());
 }
 
@@ -353,6 +378,11 @@ int RTPJitter::get_depth()
 int RTPJitter::get_depth_ms()
 {
     rscoped_lock lock(_mutex);
+
+    if (_repair.configured) {
+        return get_depth() * (int)_repair.config.packet_ms;
+    }
+
     return _depth_ms;
 }
 
@@ -525,3 +555,505 @@ void RTPJitter::_reset_buffer_stats(uint32 sample_rate)
     _stats.prev_rx_timestamp = timepoint::min();
     _stats.conversion_factor_timestamp_units = sample_rate / 1000;
 }
+
+
+/******************************************************************************
+*   ---------------- fixed-rate repair path (RFC 4588 style) ----------------
+*
+*   The repair path lives next to the jitter buffer but never in parallel with
+*   it: while a repair configuration is active push()/pop() report BAD_PACKET
+*   and the complete stream state (playout head, known slots, NACK history)
+*   is kept inside this class.  All times are provided in microseconds by the
+*   caller; no wall clock, threads or sleeps are involved.
+******************************************************************************/
+
+namespace
+{
+    uint16 repair_read_u16(const uint8 *p)
+    {
+        uint16 v;
+        memcpy(&v, p, sizeof(v));
+        return v;
+    }
+
+    uint32 repair_read_u32(const uint8 *p)
+    {
+        uint32 v;
+        memcpy(&v, p, sizeof(v));
+        return v;
+    }
+
+    // Absolute slot of a sequence number relative to the anchor, resolving
+    // 16 bit wrap around.  The active span is assumed smaller than 32768.
+    int64 repair_relative_slot(uint16 sequence, uint16 anchor)
+    {
+        int d = (int)(uint16)(sequence - anchor);
+        if (d >= 32768) {
+            d -= 65536;
+        }
+        return (int64)d;
+    }
+
+    uint16 repair_original_sequence(uint16 anchor, int64 slot)
+    {
+        return (uint16)(anchor + (uint16)slot);
+    }
+
+    // Timestamp for a slot, as modular 32 bit arithmetic.  Only the low 32
+    // bits of the per-packet advance matter, so the step is reduced first and
+    // no signed overflow can occur.
+    uint32 repair_expected_timestamp(uint32 anchor_ts, int64 slot, int64 step)
+    {
+        uint64 advance = (uint64)(uint32)(uint64)step * (uint64)slot;
+        return (uint32)((uint64)anchor_ts + advance);
+    }
+}
+
+
+
+/******************************************************************************
+*   Validates a repair configuration without touching any state.
+*
+*   Returns true when the configuration is usable
+******************************************************************************/
+bool RTPJitter::_repair_parse(const RepairConfig& config)
+{
+    int64 product;
+
+    if (config.primary_ssrc == config.rtx_ssrc) {
+        return false;
+    }
+    if ((config.primary_pt < 0) || (config.primary_pt > 127)) {
+        return false;
+    }
+    if ((config.rtx_pt < 0) || (config.rtx_pt > 127)) {
+        return false;
+    }
+    if (config.primary_pt == config.rtx_pt) {
+        return false;
+    }
+    if (config.clock_rate <= 0) {
+        return false;
+    }
+    if (config.retry_ms <= 0) {
+        return false;
+    }
+    if ((config.packet_ms < 1) || (config.packet_ms > 65535)) {
+        return false;
+    }
+    if (config.delay_ms < 0) {
+        return false;
+    }
+    if ((config.window_packets < 2) || (config.window_packets > 512)) {
+        return false;
+    }
+
+    // the per packet timestamp advance must be a positive whole number
+    if (config.clock_rate > (INT64_MAX / config.packet_ms)) {
+        return false;
+    }
+    product = config.clock_rate * config.packet_ms;
+    if ((product < 1000) || ((product % 1000) != 0)) {
+        return false;
+    }
+
+    return true;
+}
+
+
+
+/******************************************************************************
+*   Applies a repair configuration.  On failure nothing changes.  On success
+*   the previous stream and timing state is discarded and the repair path is
+*   active; reset() will keep this configuration.
+*
+*   Returns true when the configuration was accepted
+******************************************************************************/
+bool RTPJitter::configure_repair(const RepairConfig& config)
+{
+    rscoped_lock lock(_mutex);
+
+    if (!_repair_parse(config)) {
+        return false;
+    }
+
+    _repair_clear_stream();
+    _buffer.clear();
+    _depth_ms = 0;
+
+    _repair.config       = config;
+    _repair.configured   = true;
+    _repair.slot_us      = config.packet_ms * 1000;
+    _repair.ts_step      = (config.clock_rate * config.packet_ms) / 1000;
+
+    return true;
+}
+
+
+
+/******************************************************************************
+*   Drops the stream state but leaves the configuration in place.
+******************************************************************************/
+void RTPJitter::_repair_clear_stream()
+{
+    _repair.anchored  = false;
+    _repair.anchor_us = 0;
+    _repair.anchor_seq = 0;
+    _repair.anchor_ts = 0;
+    _repair.cursor    = 0;
+    _repair.newest    = 0;
+    _repair.has_newest = false;
+    _repair.slots.clear();
+}
+
+
+
+/******************************************************************************
+*   Drops slots that can no longer be used (already played or expired while
+*   still missing) together with their feedback entries.  Delivered content
+*   that is merely past its deadline is kept for a late (but legal) pop.
+******************************************************************************/
+void RTPJitter::_repair_prune(int64 now_us)
+{
+    std::map<int64, RepairSlot>::iterator i = _repair.slots.begin();
+
+    while (i != _repair.slots.end()) {
+        RepairSlot& slot = i->second;
+        bool stale = (i->first < _repair.cursor)
+                  || (slot.missing && (now_us > slot.deadline_us));
+
+        if (stale) {
+            _repair.slots.erase(i++);
+        } else {
+            ++i;
+        }
+    }
+}
+
+
+
+/******************************************************************************
+*   Records a missing, revealed slot and creates its feedback entry.  Called
+*   when an accepted packet advances the newest known slot, or when another
+*   packet exposes an earlier hole.
+******************************************************************************/
+void RTPJitter::_repair_reveal(int64 slot)
+{
+    if (_repair.slots.find(slot) != _repair.slots.end()) {
+        return;
+    }
+
+    RepairSlot missing;
+    missing.deadline_us = _repair.anchor_us
+                        + _repair.config.delay_ms * 1000
+                        + slot * _repair.slot_us;
+    missing.missing     = true;
+    missing.nack_started = false;
+    missing.last_nack_us = 0;
+    _repair.slots[slot] = missing;
+}
+
+
+
+/******************************************************************************
+*   Stores an accepted packet in its slot.  An already accepted slot keeps its
+*   first content; a previously revealed hole is filled.  A new slot advances
+*   the known window and reveals every intervening hole.
+*
+*   Returns SUCCESS
+******************************************************************************/
+RTPJitter::RESULT RTPJitter::_repair_accept(int64 slot, rawrtp_ptr packet)
+{
+    std::map<int64, RepairSlot>::iterator it = _repair.slots.find(slot);
+
+    if (it != _repair.slots.end()) {
+        if (it->second.packet) {
+            // duplicate: first accepted content wins, nothing changes
+            return SUCCESS;
+        }
+        // a repair packet filled a hole; the known edge does not move
+        it->second.packet  = packet;
+        it->second.missing = false;
+        return SUCCESS;
+    }
+
+    RepairSlot accepted;
+    accepted.packet      = packet;
+    accepted.deadline_us = _repair.anchor_us
+                         + _repair.config.delay_ms * 1000
+                         + slot * _repair.slot_us;
+    accepted.missing     = false;
+    accepted.nack_started = false;
+    accepted.last_nack_us = 0;
+    _repair.slots[slot]  = accepted;
+
+    if (!_repair.has_newest || (slot > _repair.newest)) {
+        int64 first = _repair.has_newest ? (_repair.newest + 1) : slot;
+
+        _repair.newest     = slot;
+        _repair.has_newest = true;
+
+        for (int64 s = first; s < slot; ++s) {
+            _repair_reveal(s);
+        }
+    }
+
+    return SUCCESS;
+}
+
+
+
+/******************************************************************************
+*   Restores an RTX packet to a primary packet, checking the RFC 4588 two byte
+*   OSN prefix.  Returns a null pointer when the packet is malformed.
+******************************************************************************/
+rawrtp_ptr RTPJitter::_repair_restore_rtx(const RTPPacket& packet)
+{
+    RTPPacket::Layout layout;
+    uint16            osn;
+
+    if (!packet.parse_layout(layout) || (layout.media_len < 2)) {
+        return rawrtp_ptr();
+    }
+
+    osn = repair_read_u16(packet.pData + layout.payload_offset);
+    osn = ntohs(osn);
+
+    return RTPPacket::restore_rtx(packet, osn,
+                                  _repair.config.primary_ssrc,
+                                  (uint8)_repair.config.primary_pt,
+                                  (uint16)_repair.config.packet_ms);
+}
+
+
+
+/******************************************************************************
+*   Accepts a primary or repair packet at the given stream time.
+*
+*   Returns rtp jitter result code
+******************************************************************************/
+RTPJitter::RESULT RTPJitter::_repair_push(rawrtp_ptr packet, int64 now_us)
+{
+    uint8   *data;
+    uint16   sequence;
+    uint32   timestamp;
+    uint32   ssrc;
+    uint8    payload_type;
+    bool     is_primary;
+    bool     is_rtx;
+    int64    slot;
+    int64    deadline;
+    rawrtp_ptr accepted = packet;
+    RTPPacket::Layout layout;
+
+    if (!packet || !packet->pData || (packet->nLen < RTP_HEADER_LENGTH)) {
+        return BAD_PACKET;
+    }
+
+    data = packet->pData;
+    if ((data[0] >> 6) != RTP_VERSION) {
+        return BAD_PACKET;
+    }
+
+    sequence     = ntohs(repair_read_u16(data + 2));
+    timestamp    = ntohl(repair_read_u32(data + 4));
+    ssrc         = ntohl(repair_read_u32(data + 8));
+    payload_type = (uint8)(data[1] & RTP_FLAGS_PAYLOAD_TYPE);
+
+    is_primary = (ssrc == _repair.config.primary_ssrc)
+              && (payload_type == (uint8)_repair.config.primary_pt);
+    is_rtx     = (ssrc == _repair.config.rtx_ssrc)
+              && (payload_type == (uint8)_repair.config.rtx_pt);
+
+    if (!is_primary && !is_rtx) {
+        return BAD_PACKET;
+    }
+
+    // the two envelope shapes are validated fully up front so failures have
+    // no side effects
+    if (!packet->parse_layout(layout)) {
+        return BAD_PACKET;
+    }
+
+    if (is_rtx) {
+        if (layout.media_len < 2) {
+            return BAD_PACKET;
+        }
+        accepted = _repair_restore_rtx(*packet);
+        if (!accepted) {
+            return BAD_PACKET;
+        }
+        sequence  = ntohs(repair_read_u16(accepted->pData + 2));
+        timestamp = ntohl(repair_read_u32(accepted->pData + 4));
+    }
+
+    // an RTX packet before the first media packet does not establish anything
+    if (!_repair.anchored) {
+        if (is_rtx) {
+            return BAD_PACKET;
+        }
+
+        _repair.anchored   = true;
+        _repair.anchor_us  = now_us;
+        _repair.anchor_seq = sequence;
+        _repair.anchor_ts  = timestamp;
+        _repair.cursor     = 0;
+        _repair.newest     = 0;
+        _repair.has_newest = true;
+
+        return _repair_accept(0, accepted);
+    }
+
+    slot = repair_relative_slot(sequence, _repair.anchor_seq);
+
+    // deadline for this slot, relative to the anchor arrival
+    deadline = _repair.anchor_us
+             + _repair.config.delay_ms * 1000
+             + slot * _repair.slot_us;
+
+    std::map<int64, RepairSlot>::iterator known = _repair.slots.find(slot);
+    if (known != _repair.slots.end()) {
+        if (known->second.packet) {
+            return SUCCESS;                 // duplicate, content preserved
+        }
+        if (now_us > deadline) {
+            return BAD_PACKET;              // the playout moment has passed
+        }
+        if (timestamp != repair_expected_timestamp(_repair.anchor_ts, slot, _repair.ts_step)) {
+            return BAD_PACKET;
+        }
+        return _repair_accept(slot, accepted);
+    }
+
+    if (slot < _repair.cursor) {
+        return BAD_PACKET;                  // already played / too old
+    }
+    if (slot >= (_repair.cursor + _repair.config.window_packets)) {
+        return BUFFER_OVERFLOW;
+    }
+    if (now_us > deadline) {
+        return BAD_PACKET;
+    }
+    if (timestamp != repair_expected_timestamp(_repair.anchor_ts, slot, _repair.ts_step)) {
+        return BAD_PACKET;
+    }
+
+    return _repair_accept(slot, accepted);
+}
+
+
+
+/******************************************************************************
+*   Packet arrival entry point for the repair path.
+*
+*   Returns rtp jitter result code
+******************************************************************************/
+RTPJitter::RESULT RTPJitter::push_at(rawrtp_ptr packet, int64 now_us)
+{
+    rscoped_lock lock(_mutex);
+
+    if (!_repair.configured || (now_us < 0)) {
+        return BAD_PACKET;
+    }
+
+    _repair_prune(now_us);
+    return _repair_push(packet, now_us);
+}
+
+
+
+/******************************************************************************
+*   Retrieves the packet for the current playout slot.
+*
+*   Returns rtp jitter result code
+******************************************************************************/
+RTPJitter::RESULT RTPJitter::pop_at(rawrtp_ptr& packet, int64 now_us)
+{
+    rscoped_lock lock(_mutex);
+
+    if (!_repair.configured || (now_us < 0)) {
+        return BAD_PACKET;
+    }
+    _repair_prune(now_us);
+    if (!_repair.anchored) {
+        // the stream has not started yet; there is no playout to advance
+        return BUFFERING;
+    }
+
+    if (_repair.cursor > _repair.newest) {
+        return BUFFER_EMPTY;
+    }
+
+    int64 deadline = _repair.anchor_us
+                   + _repair.config.delay_ms * 1000
+                   + _repair.cursor * _repair.slot_us;
+
+    if (now_us < deadline) {
+        return BUFFERING;
+    }
+
+    std::map<int64, RepairSlot>::iterator it = _repair.slots.find(_repair.cursor);
+
+    if ((it != _repair.slots.end()) && it->second.packet) {
+        packet = it->second.packet;
+        _repair.slots.erase(it);
+        ++_repair.cursor;
+        _repair_prune(now_us);
+        return SUCCESS;
+    }
+
+    if (it != _repair.slots.end()) {
+        _repair.slots.erase(it);
+    }
+    ++_repair.cursor;
+    _repair_prune(now_us);
+    return DROPPED_PACKET;
+}
+
+
+
+/******************************************************************************
+*   Returns the original sequence numbers of holes that are revealed, still
+*   unfilled and whose playout deadline has not passed, in playback order.
+*   A hole is reported on the first query and again only after retry_ms; a
+*   late query reports once and does not chase missed rounds.  Querying never
+*   advances playout or re-anchors the stream.
+******************************************************************************/
+std::vector<uint16> RTPJitter::nacks_at(int64 now_us)
+{
+    std::vector<uint16> result;
+
+    rscoped_lock lock(_mutex);
+
+    if (!_repair.configured || !_repair.anchored || (now_us < 0)) {
+        return result;
+    }
+
+    // expire holes without disturbing the anchor
+    _repair_prune(now_us);
+
+    std::map<int64, RepairSlot>::iterator i;
+    for (i = _repair.slots.lower_bound(_repair.cursor); i != _repair.slots.end(); ++i) {
+        RepairSlot& slot = i->second;
+
+        if (!slot.missing || (now_us > slot.deadline_us)) {
+            continue;
+        }
+
+        bool report;
+        if (!slot.nack_started) {
+            report = true;
+        } else {
+            report = (now_us - slot.last_nack_us) >= (_repair.config.retry_ms * 1000);
+        }
+
+        if (report) {
+            slot.nack_started = true;
+            slot.last_nack_us = now_us;
+            result.push_back(repair_original_sequence(_repair.anchor_seq, i->first));
+        }
+    }
+
+    return result;
+}
+
