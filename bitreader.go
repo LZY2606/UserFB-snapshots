@@ -33,6 +33,7 @@ type bitReader struct {
 	limit   int  // index of the first byte not in the buffer (head <= limit)
 	current byte // byte being read, left-shifted by the # of bits read so far
 	bits    int  // number of unread bits in 'current' (0 <= bits < 8)
+	bytes   int  // number of bytes handed out from the buffer so far
 }
 
 // refill loads the next chunk from the input to the buffer, and updates 'head'
@@ -83,6 +84,7 @@ func (rd *bitReader) readBits(n int) (int, error) {
 			}
 			bits, rd.current = 8, rd.buffer[rd.head]
 			rd.head++
+			rd.bytes++
 		}
 
 		if n <= bits {
@@ -113,6 +115,7 @@ func (rd *bitReader) readByte() (int, error) {
 	rd.bits = 0
 	rd.current = rd.buffer[rd.head]
 	rd.head++
+	rd.bytes++
 	return int(rd.current), nil
 }
 
@@ -133,6 +136,38 @@ func (rd *bitReader) readBytes(dst []byte) (int, error) {
 		dst = dst[n:]
 		rd.head += n
 		total += n
+		rd.bytes += n
+	}
+
+	return total, nil
+}
+
+// skipBytes discards exactly n whole bytes from the stream. It does not read
+// beyond the end of the frame: if fewer than n bytes are available it returns
+// the number skipped and an error, leaving the read position just past the last
+// available byte.
+func (rd *bitReader) skipBytes(n int) (int, error) {
+	// Any unread bits in 'current' belong to a byte that has already been
+	// handed out, so skipping n bytes from the byte boundary simply means
+	// discarding whatever is left in the buffer.
+	rd.bits = 0
+
+	total := 0
+	for n > 0 {
+		if rd.head == rd.limit {
+			if err := rd.refill(); err != nil {
+				return total, err
+			}
+		}
+
+		m := rd.limit - rd.head
+		if m > n {
+			m = n
+		}
+		rd.head += m
+		n -= m
+		total += m
+		rd.bytes += m
 	}
 
 	return total, nil

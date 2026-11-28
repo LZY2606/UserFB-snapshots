@@ -1,1 +1,44 @@
+# mpa
+
+An MPEG-1 Audio decoding library.
 https://pkg.go.dev/github.com/korandiz/mpa
+
+## Strict CRC checking
+
+By default the decoder ignores the `crc_check` field. Set `Decoder.CheckCRC` to
+`true` to enable strict checking for CRC-protected frames. The setting survives
+the automatic reset that happens when `Decoder.Input` changes.
+
+Strict mode covers exactly the following:
+
+* **Layer I, CRC-protected, non-free-format frames.** The CRC covers the last
+  16 bits of the frame header and the actually coded bit allocation. The
+  allocation shared by both channels above the joint-stereo `bound` is counted
+  once.
+* **Layer II, CRC-protected, non-free-format frames.** The CRC covers the last
+  16 bits of the frame header, the actually coded bit allocation (shared
+  joint-stereo allocation counted once), and the SCFSI fields of every
+  allocated subband. SCFSI is taken from the actual channel fields, using the
+  same allocation table and syntax as the normal decode path.
+
+Scalefactors, quantized samples and ancillary data are not covered, and the
+decoder never validates them as part of the CRC. Unprotected frames (the
+`protection_bit` is set) are decoded along the original path regardless of
+`CheckCRC`.
+
+The CRC uses initial value `0xffff`, polynomial `0x8005`, MSB-first bit order,
+and no final XOR. The `crc_check` field itself is skipped.
+
+On a mismatch, `DecodeFrame` returns a `CRCError` with `Stored` and `Computed`
+fields (recognizable with `errors.As`) only after the whole frame has been
+consumed. The frame is discarded before it reaches the synthesis filterbank,
+so it does not affect the decoding history, and the next call to `DecodeFrame`
+starts exactly at the following frame. Ancillary data containing a fake
+syncword is therefore never mistaken for a new frame.
+
+Frames truncated in the middle still yield `io.ErrUnexpectedEOF`; underlying
+I/O errors are passed through unchanged.
+
+Strict mode refuses to guess the protected range of CRC-protected **Layer III**
+frames and CRC-protected **free-format** Layer I/II frames, and returns
+`ErrUnsupportedCRC` for them.

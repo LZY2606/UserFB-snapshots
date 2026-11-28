@@ -38,7 +38,22 @@ func (err MalformedStream) Error() string {
 type Decoder struct {
 	Input io.Reader
 
+	// CheckCRC enables strict CRC checking for CRC-protected Layer I and
+	// Layer II frames. It has no effect on unprotected frames, which are
+	// decoded along the original path. The zero value (false) preserves the
+	// historical behaviour of ignoring the crc_check field entirely.
+	//
+	// In strict mode, a CRC failure is reported as a CRCError after the whole
+	// frame has been consumed. The frame is discarded (its samples are not
+	// synthesized), and the next call to DecodeFrame starts at the beginning
+	// of the following frame. CRC-protected Layer III and free format frames
+	// are rejected with ErrUnsupportedCRC.
+	//
+	// CheckCRC survives the automatic reset that happens when Input changes.
+	CheckCRC bool
+
 	// Header fields
+	header        int
 	layer         int
 	protectionBit int
 	bitrateIndex  int
@@ -51,10 +66,15 @@ type Decoder struct {
 	emphasis      int
 
 	// All layers
-	stream    bitReader
-	nChannels int
-	sample    [2][1152]float32
-	synth     [2]synthesisFilter
+	stream          bitReader
+	nChannels       int
+	sample          [2][1152]float32
+	synth           [2]synthesisFilter
+	frameStartBytes int // stream.bytes at the start of the current frame
+	crca            crcAccumulator
+	crcEnabled      bool
+	crcChecked      bool
+	crcStored       uint16
 
 	// Layers I & II
 	bound         int
@@ -213,10 +233,17 @@ func (d *Decoder) ReadSamples(ch int, dst []float32) {
 //     absolutely pointless to continue (such as an invalid value in the 'layer'
 //     header field), DecodeFrame returns a MalformedStream, most likely leaving
 //     the decoder in an out-of-sync state.
+//   - In strict CRC mode (see CheckCRC), if the crc_check value of a protected
+//     Layer I or II frame doesn't match the computed one, it returns a
+//     CRCError. The frame is discarded and the decoder is left positioned at
+//     the next frame. A protected Layer III or free format frame yields
+//     ErrUnsupportedCRC.
 func (d *Decoder) DecodeFrame() error {
 	if d.stream.input != d.Input {
+		checkCRC := d.CheckCRC
 		*d = Decoder{
 			Input:     d.Input,
+			CheckCRC:  checkCRC,
 			stream:    bitReader{input: d.Input},
 			reservoir: reservoirReader{stream: &d.stream},
 		}
@@ -228,16 +255,33 @@ func (d *Decoder) DecodeFrame() error {
 		return err
 	}
 
-	if d.protectionBit == 0 {
-		// Skip over crc_check.
-		for i := 0; i < 2; i++ {
-			if _, err = d.stream.readByte(); err == io.EOF {
-				return io.ErrUnexpectedEOF
-			} else if err != nil {
-				return err
-			}
+	// The CRC covers the last 16 bits of the header and the protected fields.
+	crcProtected := d.protectionBit == 0
+	if crcProtected {
+		if err = d.readCRC(); err != nil {
+			return err
 		}
 	}
+
+	d.crcEnabled = d.CheckCRC && crcProtected
+	d.crcChecked = false
+	if d.crcEnabled {
+		// The CRC coverage of Layer III and of free format frames is not
+		// defined here, so we refuse to guess rather than decode unchecked.
+		// The crc_check field itself has already been consumed, so the next
+		// call can resynchronize on the following frame.
+		if d.layer == 3 || d.bitrateIndex == 0 {
+			d.crcEnabled = false
+			return ErrUnsupportedCRC
+		}
+		d.crca = newCRCAccumulator()
+		d.crca.addBits(d.header, 16)
+	}
+
+	// In strict CRC mode, the protected region (bit allocation, plus SCFSI for
+	// Layer II) is parsed by the normal decoding path first. Its CRC is
+	// verified before the unprotected rest of the frame is used, so a mismatch
+	// never lets a corrupted allocation reach the synthesis filterbank.
 
 	switch d.layer {
 	case 1:
@@ -268,7 +312,11 @@ func (d *Decoder) decodeHeader() error {
 		return err
 	}
 
+	d.header = header
 	d.layer = 4 - (header>>17)&3
+	// The header is 4 bytes and ends exactly at this position, so the frame
+	// begins 4 bytes before the current stream position.
+	d.frameStartBytes = d.stream.bytes - 4
 	d.protectionBit = (header >> 16) & 1
 	d.bitrateIndex = (header >> 12) & 15
 	d.samplingFreq = (header >> 10) & 3
@@ -446,6 +494,7 @@ func (d *Decoder) decodeFrame1() error {
 
 // decodeAllocation1 decodes the bit allocation data of a Layer I frame.
 func (d *Decoder) decodeAllocation1() error {
+	badAlloc := false
 	for sb := 0; sb < 32; sb++ {
 		nch := d.nChannels
 		if sb >= d.bound {
@@ -453,13 +502,20 @@ func (d *Decoder) decodeAllocation1() error {
 		}
 
 		for ch := 0; ch < nch; ch++ {
-			alloc, err := d.stream.readBits(4)
+			alloc, err := d.readProtectedBits(4)
 			if err != nil {
 				return err
 			}
 
 			if alloc == 15 {
-				return MalformedStream("alloc == 15")
+				if !d.crcEnabled {
+					return MalformedStream("alloc == 15")
+				}
+				// In strict mode we finish reading the protected region first,
+				// so a corrupted allocation is reported as a CRCError (after
+				// the frame has been consumed) rather than a syntax error
+				// mid-frame.
+				badAlloc = true
 			}
 
 			if alloc > 0 {
@@ -472,6 +528,15 @@ func (d *Decoder) decodeAllocation1() error {
 
 	for sb := d.bound; sb < 32; sb++ {
 		d.allocation[1][sb] = d.allocation[0][sb]
+	}
+
+	if d.crcEnabled {
+		if err := d.checkCRC(); err != nil {
+			return err
+		}
+		if badAlloc {
+			return MalformedStream("alloc == 15")
+		}
 	}
 
 	return nil
@@ -602,7 +667,7 @@ func (d *Decoder) decodeAllocation2() error {
 		}
 
 		for ch := 0; ch < nch; ch++ {
-			index, err := d.stream.readBits(aTab[sb].nbal)
+			index, err := d.readProtectedBits(aTab[sb].nbal)
 			if err != nil {
 				return err
 			}
@@ -619,16 +684,30 @@ func (d *Decoder) decodeAllocation2() error {
 
 // decodeScalefactorSelectionInformation2 decodes the scalefactor selection
 // information of a Layer II frame.
+//
+// Note that SCFSI is transmitted for every channel of every allocated subband,
+// even above the joint stereo bound where the allocation itself is shared.
+// This mirrors the actual channel fields in the stream (see also the Layer II
+// CRC handling).
 func (d *Decoder) decodeScalefactorSelectionInformation2() error {
 	for sb := 0; sb < 32; sb++ {
 		for ch := 0; ch < d.nChannels; ch++ {
 			if d.allocation[ch][sb] != 0 {
-				scfsi, err := d.stream.readBits(2)
+				scfsi, err := d.readProtectedBits(2)
 				if err != nil {
 					return err
 				}
 				d.scfsi2[ch][sb] = scfsi
 			}
+		}
+	}
+
+	// SCFSI is the last CRC-protected field of a Layer II frame. From here on
+	// the decoding depends on the CRC result, so a mismatch is reported before
+	// any scalefactor or sample data is used.
+	if d.crcEnabled {
+		if err := d.checkCRC(); err != nil {
+			return err
 		}
 	}
 
