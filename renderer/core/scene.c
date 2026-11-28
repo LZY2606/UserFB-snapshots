@@ -3,6 +3,7 @@
 #include "graphics.h"
 #include "maths.h"
 #include "mesh.h"
+#include "point_shadow.h"
 #include "scene.h"
 #include "skeleton.h"
 #include "texture.h"
@@ -23,6 +24,7 @@ scene_t *scene_create(vec3_t background, model_t *skybox, model_t **models,
         scene->shadow_buffer = NULL;
         scene->shadow_map = NULL;
     }
+    scene->point_shadow = NULL;
     return scene;
 }
 
@@ -44,5 +46,30 @@ void scene_release(scene_t *scene) {
     if (scene->shadow_map) {
         texture_release(scene->shadow_map);
     }
+    if (scene->point_shadow) {
+        point_shadow_release(scene->point_shadow);
+    }
     free(scene);
+}
+
+int scene_set_point_light(scene_t *scene, vec3_t position, float near,
+                          float far, int size, float bias) {
+    point_shadow_t *new_point_shadow = NULL;
+
+    if (scene == NULL || size < 0) {
+        return 0;
+    }
+    if (size > 0) {
+        new_point_shadow = point_shadow_create(position, near, far, size,
+                                               bias);
+        if (new_point_shadow == NULL) {
+            return 0;
+        }
+    }
+
+    if (scene->point_shadow) {
+        point_shadow_release(scene->point_shadow);
+    }
+    scene->point_shadow = new_point_shadow;
+    return 1;
 }

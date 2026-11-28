@@ -32,6 +32,7 @@ typedef struct {
     float ambient_intensity;
     float punctual_intensity;
     texture_t *shadow_map;
+    struct point_shadow_t *point_shadow;
     /* surface parameters */
     vec4_t basecolor;
     float shininess;

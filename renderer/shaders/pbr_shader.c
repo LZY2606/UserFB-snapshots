@@ -464,9 +464,7 @@ static vec4_t common_fragment_shader(pbr_varyings_t *varyings,
         return get_layer_color(edge, material);
     } else {
         vec3_t view_dir = get_view_dir(varyings, uniforms);
-        vec3_t light_dir = vec3_negate(uniforms->light_dir);
         vec3_t normal_dir = material.normal;
-        float n_dot_l = vec3_dot(normal_dir, light_dir);
         vec3_t color = material.emission;
 
         if (uniforms->ambient_intensity > 0 && uniforms->ibldata) {
@@ -476,12 +474,37 @@ static vec4_t common_fragment_shader(pbr_varyings_t *varyings,
             color = vec3_add(color, vec3_mul(shade, intensity));
         }
 
-        if (uniforms->punctual_intensity > 0 && n_dot_l > 0) {
-            float intensity = uniforms->punctual_intensity;
-            if (!is_in_shadow(varyings, uniforms, n_dot_l)) {
-                vec3_t shade = get_dir_shade(material, light_dir,
-                                             normal_dir, view_dir);
-                color = vec3_add(color, vec3_mul(shade, intensity));
+        if (uniforms->point_shadow) {
+            if (uniforms->punctual_intensity > 0) {
+                vec3_t to_light = vec3_sub(uniforms->point_shadow->position,
+                                           varyings->world_position);
+                float distance = vec3_length(to_light);
+                if (distance > 0) {
+                    vec3_t light_dir = vec3_div(to_light, distance);
+                    float n_dot_l = vec3_dot(normal_dir, light_dir);
+                    if (n_dot_l > 0) {
+                        float visibility = point_shadow_visibility(
+                            uniforms->point_shadow, varyings->world_position);
+                        float intensity = uniforms->punctual_intensity /
+                                          (distance * distance);
+                        vec3_t shade = get_dir_shade(material, light_dir,
+                                                     normal_dir, view_dir);
+                        color = vec3_add(color,
+                                         vec3_mul(shade,
+                                                  intensity * visibility));
+                    }
+                }
+            }
+        } else {
+            vec3_t light_dir = vec3_negate(uniforms->light_dir);
+            float n_dot_l = vec3_dot(normal_dir, light_dir);
+            if (uniforms->punctual_intensity > 0 && n_dot_l > 0) {
+                float intensity = uniforms->punctual_intensity;
+                if (!is_in_shadow(varyings, uniforms, n_dot_l)) {
+                    vec3_t shade = get_dir_shade(material, light_dir,
+                                                 normal_dir, view_dir);
+                    color = vec3_add(color, vec3_mul(shade, intensity));
+                }
             }
         }
 
@@ -543,6 +566,7 @@ static void update_model(model_t *model, perframe_t *perframe) {
     uniforms->ambient_intensity = float_clamp(ambient_intensity, 0, 5);
     uniforms->punctual_intensity = float_clamp(punctual_intensity, 0, 5);
     uniforms->shadow_map = perframe->shadow_map;
+    uniforms->point_shadow = perframe->point_shadow;
     uniforms->layer_view = perframe->layer_view;
 }
 

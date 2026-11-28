@@ -48,6 +48,7 @@ typedef struct {
     float ambient_intensity;
     float punctual_intensity;
     texture_t *shadow_map;
+    struct point_shadow_t *point_shadow;
     /* metalness workflow */
     vec4_t basecolor_factor;
     float metalness_factor;

@@ -390,6 +390,7 @@ perframe_t test_build_perframe(scene_t *scene, context_t *context) {
     perframe.ambient_intensity = scene->ambient_intensity;
     perframe.punctual_intensity = scene->punctual_intensity;
     perframe.shadow_map = scene->shadow_map;
+    perframe.point_shadow = scene->point_shadow;
     perframe.layer_view = -1;
 
     return perframe;
@@ -441,7 +442,41 @@ void test_draw_scene(scene_t *scene, framebuffer_t *framebuffer,
         skybox->update(skybox, perframe);
     }
 
-    if (scene->shadow_buffer && scene->shadow_map) {
+    if (scene->point_shadow) {
+        /*
+         * omnidirectional shadow pass: render every opaque model once per
+         * cube face, clearing each face's depth first. the uniforms used by
+         * the capture are restored before the main camera pass below.
+         */
+        int face;
+        for (face = 0; face < 6; face++) {
+            perframe_t face_perframe = *perframe;
+            face_perframe.light_view_matrix =
+                scene->point_shadow->view_matrices[face];
+            face_perframe.light_proj_matrix = scene->point_shadow->proj_matrix;
+            for (i = 0; i < num_models; i++) {
+                model_t *model = models[i];
+                model->update(model, &face_perframe);
+            }
+            sort_models(models, scene->point_shadow->view_matrices[face]);
+            framebuffer_clear_depth(scene->point_shadow->faces[face], 1);
+            for (i = 0; i < num_models; i++) {
+                model_t *model = models[i];
+                if (model->opaque) {
+                    model->draw(model, scene->point_shadow->faces[face], 1);
+                }
+            }
+        }
+        /*
+         * restore the caller's camera-space model uniforms; every model's
+         * update writes its model-dependent uniforms, which the shadow
+         * pass overwrote with per-face view matrices.
+         */
+        for (i = 0; i < num_models; i++) {
+            model_t *model = models[i];
+            model->update(model, perframe);
+        }
+    } else if (scene->shadow_buffer && scene->shadow_map) {
         sort_models(models, perframe->light_view_matrix);
         framebuffer_clear_depth(scene->shadow_buffer, 1);
         for (i = 0; i < num_models; i++) {
