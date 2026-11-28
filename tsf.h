@@ -323,6 +323,7 @@ typedef unsigned char tsf_u8;
 typedef unsigned short tsf_u16;
 typedef signed short tsf_s16;
 typedef unsigned int tsf_u32;
+typedef signed long long tsf_s64;
 typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
@@ -428,7 +429,14 @@ struct tsf_region
 	int loop_mode;
 	unsigned int sample_rate;
 	unsigned char lokey, hikey, lovel, hivel;
-	unsigned int group, offset, end, loop_start, loop_end;
+	unsigned int group;
+	/* Signed 64-bit so that fine and coarse address generators can be merged
+	 * without relying on unsigned wraparound, and so that the two ends of a
+	 * linked stereo sample can be validated in a wide integer domain. */
+	tsf_s64 offset, end, loop_start, loop_end;
+	tsf_s64 offset_right, end_right, loop_start_right, loop_end_right;
+	unsigned char stereo; /* 1 if offset/end/loop_* describe a linked L/R pair */
+	unsigned char valid;  /* 0 if a linked pair failed validation, skip it */
 	int transpose, tune, pitch_keycenter, pitch_keytrack;
 	float attenuation, pan;
 	struct tsf_envelope ampenv, modenv;
@@ -445,6 +453,7 @@ struct tsf_preset
 	tsf_char20 presetName;
 	tsf_u16 preset, bank;
 	struct tsf_region* regions;
+	int* sampleIndices;
 	int regionNum;
 };
 
@@ -453,11 +462,11 @@ struct tsf_voice
 	int playingPreset, playingKey, playingChannel, heldSustain;
 	struct tsf_region* region;
 	double pitchInputTimecents, pitchOutputFactor;
-	double sourceSamplePosition;
+	double sourceSamplePosition, sourceSamplePositionRight;
 	float  noteGainDB, panFactorLeft, panFactorRight;
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
-	struct tsf_voice_lowpass lowpass;
+	struct tsf_voice_lowpass lowpass, lowpass_right;
 	struct tsf_voice_lfo modlfo, viblfo;
 };
 
@@ -501,6 +510,7 @@ static void tsf_region_clear(struct tsf_region* i, TSF_BOOL for_relative)
 	TSF_MEMSET(i, 0, sizeof(struct tsf_region));
 	i->hikey = i->hivel = 127;
 	i->pitch_keycenter = 60; // C4
+	i->valid = 1;
 	if (for_relative) return;
 
 	i->pitch_keytrack = 100;
@@ -552,11 +562,11 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 	#define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
 	static const struct { unsigned char mode, offset; } genMetas[_GEN_MAX] =
 	{
-		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, offset               ) }, // 0 StartAddrsOffset
-		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, end                  ) }, // 1 EndAddrsOffset
-		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, loop_start           ) }, // 2 StartloopAddrsOffset
-		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, loop_end             ) }, // 3 EndloopAddrsOffset
-		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, offset               ) }, // 4 StartAddrsCoarseOffset
+		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(      tsf_s64, offset               ) }, // 0 StartAddrsOffset
+		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(      tsf_s64, end                  ) }, // 1 EndAddrsOffset
+		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(      tsf_s64, loop_start           ) }, // 2 StartloopAddrsOffset
+		{ GEN_UINT_ADD                     , _TSFREGIONOFFSET(      tsf_s64, loop_end             ) }, // 3 EndloopAddrsOffset
+		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(      tsf_s64, offset               ) }, // 4 StartAddrsCoarseOffset
 		{ GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modLfoToPitch        ) }, // 5 ModLfoToPitch
 		{ GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, vibLfoToPitch        ) }, // 6 VibLfoToPitch
 		{ GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modEnvToPitch        ) }, // 7 ModEnvToPitch
@@ -564,7 +574,7 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		{ GEN_INT   | GEN_INT_LIMITQ       , _TSFREGIONOFFSET(         int, initialFilterQ       ) }, // 9 InitialFilterQ
 		{ GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modLfoToFilterFc     ) }, //10 ModLfoToFilterFc
 		{ GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modEnvToFilterFc     ) }, //11 ModEnvToFilterFc
-		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, end                  ) }, //12 EndAddrsCoarseOffset
+		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(      tsf_s64, end                  ) }, //12 EndAddrsCoarseOffset
 		{ GEN_INT   | GEN_INT_LIMIT960     , _TSFREGIONOFFSET(         int, modLfoToVolume       ) }, //13 ModLfoToVolume
 		{ 0                                , (0                                                  ) }, //   Unused
 		{ 0                                , (0                                                  ) }, //15 ChorusEffectsSend (unsupported)
@@ -597,12 +607,12 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		{ 0                                , (0                                                  ) }, //   Reserved
 		{ GEN_KEYRANGE                     , (0                                                  ) }, //43 KeyRange
 		{ GEN_VELRANGE                     , (0                                                  ) }, //44 VelRange
-		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, loop_start           ) }, //45 StartloopAddrsCoarseOffset
+		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(      tsf_s64, loop_start           ) }, //45 StartloopAddrsCoarseOffset
 		{ 0                                , (0                                                  ) }, //46 Keynum (special)
 		{ 0                                , (0                                                  ) }, //47 Velocity (special)
 		{ GEN_FLOAT | GEN_FLOAT_LIMITATTN  , _TSFREGIONOFFSET(       float, attenuation          ) }, //48 InitialAttenuation
 		{ 0                                , (0                                                  ) }, //   Reserved
-		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, loop_end             ) }, //50 EndloopAddrsCoarseOffset
+		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(      tsf_s64, loop_end             ) }, //50 EndloopAddrsCoarseOffset
 		{ GEN_INT                          , _TSFREGIONOFFSET(         int, transpose            ) }, //51 CoarseTune
 		{ GEN_INT                          , _TSFREGIONOFFSET(         int, tune                 ) }, //52 FineTune
 		{ 0                                , (0                                                  ) }, //   SampleID (special)
@@ -623,8 +633,8 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		{
 			case GEN_FLOAT:      ((       float*)region)[offset]  = amount->shortAmount;     return;
 			case GEN_INT:        ((         int*)region)[offset]  = amount->shortAmount;     return;
-			case GEN_UINT_ADD:   ((unsigned int*)region)[offset] += amount->shortAmount;     return;
-			case GEN_UINT_ADD15: ((unsigned int*)region)[offset] += amount->shortAmount<<15; return;
+			case GEN_UINT_ADD:   ((       tsf_s64*)region)[offset] += amount->shortAmount;     return;
+			case GEN_UINT_ADD15: ((       tsf_s64*)region)[offset] += ((tsf_s64)amount->shortAmount) << 15; return;
 			case GEN_KEYRANGE:   region->lokey = amount->range.lo; region->hikey = amount->range.hi; return;
 			case GEN_VELRANGE:   region->lovel = amount->range.lo; region->hivel = amount->range.hi; return;
 			case GEN_LOOPMODE:   region->loop_mode       = ((amount->wordAmount&3) == 3 ? TSF_LOOPMODE_SUSTAIN : ((amount->wordAmount&3) == 1 ? TSF_LOOPMODE_CONTINUOUS : TSF_LOOPMODE_NONE)); return;
@@ -678,7 +688,7 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 				}
 				case GEN_UINT_ADD:
 				{
-					((unsigned int*)region)[offset] += ((unsigned int*)merge_region)[offset];
+					((tsf_s64*)region)[offset] += ((tsf_s64*)merge_region)[offset];
 					continue;
 				}
 			}
@@ -705,6 +715,122 @@ static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 	else p->sustain = 1.0f - (p->sustain / 1000.0f);
 }
 
+/* The terminating shdr (EOS) entry is never a playable end. It is recognized
+ * by its empty range and zero sample type; a valid sample always has a non-
+ * empty [start,end) and a non-zero sampleType because the SF2 spec reserves
+ * type 0 (mono) as a real value that is only ever combined with link bits. */
+static TSF_BOOL tsf_region_is_terminator(struct tsf_hydra_shdr* s)
+{
+	return (!s || (s->sampleType == 0 && s->start >= s->end));
+}
+
+static TSF_BOOL tsf_region_is_playable_sample(struct tsf_hydra_shdr* s, unsigned int fontSampleCount)
+{
+	/* Compressed samples carry the 0x30 bits and ROM samples the 0x8000 bit;
+	 * the linked path never accepts either. */
+	if (!s || tsf_region_is_terminator(s)) return TSF_FALSE;
+	if (s->sampleType & 0x8030) return TSF_FALSE;
+	if (s->start >= s->end || s->end > fontSampleCount) return TSF_FALSE;
+	if (s->startLoop > s->end || s->endLoop > s->end) return TSF_FALSE;
+	if (s->endLoop < s->startLoop) return TSF_FALSE;
+	return TSF_TRUE;
+}
+
+/* Resolve the two ends of the linked pair that `sampleIndex` claims to belong
+ * to. Returns 0 unless the pair is well-formed: left is type 4, right is type
+ * 2, their sampleLink values reciprocate and both are playable. */
+static TSF_BOOL tsf_region_resolve_pair(struct tsf_hydra* hydra, int sampleIndex, unsigned int fontSampleCount, int* pLeftIndex, int* pRightIndex)
+{
+	struct tsf_hydra_shdr* left;
+	struct tsf_hydra_shdr* right;
+	int leftIndex, rightIndex;
+	if (sampleIndex < 0 || sampleIndex >= hydra->shdrNum) return TSF_FALSE;
+	if ((hydra->shdrs[sampleIndex].sampleType & 0xF) == 4) leftIndex = sampleIndex;
+	else if ((hydra->shdrs[sampleIndex].sampleType & 0xF) == 2) leftIndex = (int)hydra->shdrs[sampleIndex].sampleLink;
+	else return TSF_FALSE;
+	if (leftIndex < 0 || leftIndex >= hydra->shdrNum) return TSF_FALSE;
+	left = &hydra->shdrs[leftIndex];
+	if ((left->sampleType & 0xF) != 4) return TSF_FALSE;
+	rightIndex = (int)left->sampleLink;
+	if (rightIndex < 0 || rightIndex >= hydra->shdrNum || rightIndex == leftIndex) return TSF_FALSE;
+	right = &hydra->shdrs[rightIndex];
+	if (tsf_region_is_terminator(right)) return TSF_FALSE;
+	if ((right->sampleType & 0xF) != 2) return TSF_FALSE;
+	if ((int)right->sampleLink != leftIndex) return TSF_FALSE;
+	if (!tsf_region_is_playable_sample(left, fontSampleCount)) return TSF_FALSE;
+	if (!tsf_region_is_playable_sample(right, fontSampleCount)) return TSF_FALSE;
+	*pLeftIndex = leftIndex;
+	*pRightIndex = rightIndex;
+	return TSF_TRUE;
+}
+
+/* Fill in the linked left/right ranges of a region. The fine/coarse address
+ * generators were merged into the region as signed deltas (offset, end,
+ * loop_start, loop_end) before any raw shdr address is added; the same delta
+ * is applied to both ends. Everything is validated in a wide signed domain so
+ * that no unsigned wraparound can make a bad value look valid. `end` and the
+ * raw loop end are exclusive on input and remain exclusive on output. */
+static TSF_BOOL tsf_region_setup_stereo(struct tsf_region* r, struct tsf_hydra* hydra, int leftIndex, int rightIndex, int loopMode, unsigned int fontSampleCount, tsf_s64 startDelta, tsf_s64 endDelta, tsf_s64 loopStartDelta, tsf_s64 loopEndDelta)
+{
+	struct tsf_hydra_shdr* left = &hydra->shdrs[leftIndex];
+	struct tsf_hydra_shdr* right = &hydra->shdrs[rightIndex];
+	tsf_s64 lStart, lEnd, lLoopStart, lLoopEnd, rStart, rEnd, rLoopStart, rLoopEnd;
+	tsf_s64 lOff, lEndEx, lLoopStartAdj, lLoopEndEx;
+	tsf_s64 rOff, rEndEx, rLoopStartAdj, rLoopEndEx;
+	int loopEnabled;
+
+	/* Identical tuning and identical relative sample span / loop layout. The
+	 * absolute storage locations may be arbitrarily far apart. */
+	if (left->sampleRate != right->sampleRate) return TSF_FALSE;
+	if (left->originalPitch != right->originalPitch) return TSF_FALSE;
+	if (left->pitchCorrection != right->pitchCorrection) return TSF_FALSE;
+
+	lStart = (tsf_s64)left->start;         lEnd = (tsf_s64)left->end;
+	lLoopStart = (tsf_s64)left->startLoop; lLoopEnd = (tsf_s64)left->endLoop;
+	rStart = (tsf_s64)right->start;        rEnd = (tsf_s64)right->end;
+	rLoopStart = (tsf_s64)right->startLoop; rLoopEnd = (tsf_s64)right->endLoop;
+	if (lEnd - lStart != rEnd - rStart) return TSF_FALSE;
+	if (lLoopStart - lStart != rLoopStart - rStart) return TSF_FALSE;
+	if (lLoopEnd - lLoopStart != rLoopEnd - rLoopStart) return TSF_FALSE;
+	if (lEnd <= lStart || rEnd <= rStart) return TSF_FALSE;
+
+	lOff = lStart + startDelta;
+	lEndEx = lEnd + endDelta;
+	lLoopStartAdj = lLoopStart + loopStartDelta;
+	lLoopEndEx = lLoopEnd + loopEndDelta;
+	rOff = rStart + startDelta;
+	rEndEx = rEnd + endDelta;
+	rLoopStartAdj = rLoopStart + loopStartDelta;
+	rLoopEndEx = rLoopEnd + loopEndDelta;
+
+	/* The shortened play range must stay inside each original [start,end) and
+	 * remain non-empty. */
+	if (lOff < lStart || lEndEx > lEnd || rOff < rStart || rEndEx > rEnd) return TSF_FALSE;
+	if (lEndEx <= lOff || rEndEx <= rOff) return TSF_FALSE;
+	if (lOff < 0 || lEndEx > (tsf_s64)fontSampleCount) return TSF_FALSE;
+	if (rOff < 0 || rEndEx > (tsf_s64)fontSampleCount) return TSF_FALSE;
+
+	/* An enabled loop must be non-empty and contained in the shortened range
+	 * of each end. */
+	loopEnabled = (loopMode != TSF_LOOPMODE_NONE);
+	if (loopEnabled)
+	{
+		if (lLoopStartAdj < lOff || lLoopEndEx > lEndEx || lLoopEndEx <= lLoopStartAdj) return TSF_FALSE;
+		if (rLoopStartAdj < rOff || rLoopEndEx > rEndEx || rLoopEndEx <= rLoopStartAdj) return TSF_FALSE;
+	}
+
+	r->offset = lOff; r->end = lEndEx;
+	r->loop_start = lLoopStartAdj;
+	/* Internally the loop end is the inclusive last sample, as in the mono
+	 * path. When not looping there is no loop to use. */
+	r->loop_end = (loopEnabled ? lLoopEndEx - 1 : lLoopStartAdj);
+	r->offset_right = rOff; r->end_right = rEndEx;
+	r->loop_start_right = rLoopStartAdj;
+	r->loop_end_right = (loopEnabled ? rLoopEndEx - 1 : rLoopStartAdj);
+	r->stereo = 1;
+	return TSF_TRUE;
+}
+
 static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int fontSampleCount)
 {
 	enum { GenInstrument = 41, GenKeyRange = 43, GenVelRange = 44, GenSampleID = 53 };
@@ -713,7 +839,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 	res->presetNum = hydra->phdrNum - 1;
 	res->presets = (struct tsf_preset*)TSF_MALLOC(res->presetNum * sizeof(struct tsf_preset));
 	if (!res->presets) return 0;
-	else { int i; for (i = 0; i != res->presetNum; i++) res->presets[i].regions = TSF_NULL; }
+	else { int i; for (i = 0; i != res->presetNum; i++) { res->presets[i].regions = TSF_NULL; res->presets[i].sampleIndices = TSF_NULL; } }
 	for (pphdr = hydra->phdrs, pphdrMax = pphdr + hydra->phdrNum - 1; pphdr != pphdrMax; pphdr++)
 	{
 		int sortedIndex = 0, region_index = 0;
@@ -763,9 +889,11 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 		}
 
 		preset->regions = (struct tsf_region*)TSF_MALLOC(preset->regionNum * sizeof(struct tsf_region));
-		if (!preset->regions)
+		preset->sampleIndices = (int*)TSF_MALLOC(preset->regionNum * sizeof(int));
+		if (!preset->regions || !preset->sampleIndices)
 		{
-			int i; for (i = 0; i != res->presetNum; i++) TSF_FREE(res->presets[i].regions);
+			int i; for (i = 0; i != res->presetNum; i++) { TSF_FREE(res->presets[i].regions); TSF_FREE(res->presets[i].sampleIndices); }
+			TSF_FREE(preset->regions); TSF_FREE(preset->sampleIndices);
 			TSF_FREE(res->presets);
 			return 0;
 		}
@@ -799,8 +927,6 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 						{
 							if (pigen->genOper == GenSampleID)
 							{
-								struct tsf_hydra_shdr* pshdr;
-
 								//preset region key and vel ranges are a filter for the zone regions
 								if (zoneRegion.hikey < presetRegion.lokey || zoneRegion.lokey > presetRegion.hikey) continue;
 								if (zoneRegion.hivel < presetRegion.lovel || zoneRegion.lovel > presetRegion.hivel) continue;
@@ -820,21 +946,12 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								zoneRegion.delayModLFO = (zoneRegion.delayModLFO < -11950.0f ? 0.0f : tsf_timecents2Secsf(zoneRegion.delayModLFO));
 								zoneRegion.delayVibLFO = (zoneRegion.delayVibLFO < -11950.0f ? 0.0f : tsf_timecents2Secsf(zoneRegion.delayVibLFO));
 
-								// Fixup sample positions
-								pshdr = &hydra->shdrs[pigen->genAmount.wordAmount];
-								zoneRegion.offset += pshdr->start;
-								zoneRegion.end += pshdr->end;
-								zoneRegion.loop_start += pshdr->startLoop;
-								zoneRegion.loop_end += pshdr->endLoop;
-								if (pshdr->endLoop > 0) zoneRegion.loop_end -= 1;
-								if (zoneRegion.loop_end > fontSampleCount) zoneRegion.loop_end = fontSampleCount;
-								if (zoneRegion.pitch_keycenter == -1) zoneRegion.pitch_keycenter = pshdr->originalPitch;
-								zoneRegion.tune += pshdr->pitchCorrection;
-								zoneRegion.sample_rate = pshdr->sampleRate;
-								if (zoneRegion.end && zoneRegion.end < fontSampleCount) zoneRegion.end++;
-								else zoneRegion.end = fontSampleCount;
-
+								// Store the zone and the sample index it references. The
+								// raw shdr addresses are applied after the whole preset is
+								// known, so a linked L/R pair can be resolved as a unit and
+								// a bad pair can be dropped without disturbing other zones.
 								preset->regions[region_index] = zoneRegion;
+								preset->sampleIndices[region_index] = (int)pigen->genAmount.wordAmount;
 								region_index++;
 								hadSampleID = 1;
 							}
@@ -859,6 +976,82 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 			// Handle preset's global zone.
 			if (ppbag == hydra->pbags + pphdr->presetBagNdx && !hadGenInstrument)
 				globalRegion = presetRegion;
+		}
+
+		// Resolve raw sample addresses now that every zone in this preset has
+		// been collected. A bad linked pair only removes the region referencing
+		// it; all other regions of the preset remain loadable.
+		{
+			int i, n = region_index;
+			for (i = 0; i < n; i++)
+			{
+				struct tsf_region* r = &preset->regions[i];
+				struct tsf_hydra_shdr* pshdr;
+				int sampleIndex = preset->sampleIndices[i];
+				tsf_s64 startDelta = r->offset, endDelta = r->end;
+				tsf_s64 loopStartDelta = r->loop_start, loopEndDelta = r->loop_end;
+				int leftIndex, rightIndex;
+
+				if (sampleIndex < 0 || sampleIndex >= hydra->shdrNum)
+				{
+					r->valid = 0;
+					continue;
+				}
+				pshdr = &hydra->shdrs[sampleIndex];
+
+				if ((pshdr->sampleType & 0xF) == 4 || (pshdr->sampleType & 0xF) == 2)
+				{
+					if (!tsf_region_resolve_pair(hydra, sampleIndex, fontSampleCount, &leftIndex, &rightIndex) ||
+						!tsf_region_setup_stereo(r, hydra, leftIndex, rightIndex, r->loop_mode, fontSampleCount,
+							startDelta, endDelta, loopStartDelta, loopEndDelta))
+					{
+						r->valid = 0;
+						continue;
+					}
+					pshdr = &hydra->shdrs[leftIndex];
+					if (r->pitch_keycenter == -1) r->pitch_keycenter = pshdr->originalPitch;
+					r->tune += pshdr->pitchCorrection;
+					r->sample_rate = pshdr->sampleRate;
+					continue;
+				}
+
+				// Plain mono sample: reproduce the original unsigned 32-bit
+				// arithmetic exactly (the generator deltas were accumulated as
+				// unsigned int there, including modulo wraparound).
+				{
+					tsf_u32 uOffset    = (tsf_u32)startDelta;
+					tsf_u32 uEnd       = (tsf_u32)endDelta;
+					tsf_u32 uLoopStart = (tsf_u32)loopStartDelta;
+					tsf_u32 uLoopEnd   = (tsf_u32)loopEndDelta;
+					uOffset    += pshdr->start;
+					uEnd       += pshdr->end;
+					uLoopStart += pshdr->startLoop;
+					uLoopEnd   += pshdr->endLoop;
+					if (pshdr->endLoop > 0) uLoopEnd -= 1;
+					if (uLoopEnd > fontSampleCount) uLoopEnd = fontSampleCount;
+					if (uEnd && uEnd < fontSampleCount) uEnd++;
+					else uEnd = fontSampleCount;
+					r->offset = (tsf_s64)uOffset;
+					r->end = (tsf_s64)uEnd;
+					r->loop_start = (tsf_s64)uLoopStart;
+					r->loop_end = (tsf_s64)uLoopEnd;
+				}
+				if (r->pitch_keycenter == -1) r->pitch_keycenter = pshdr->originalPitch;
+				r->tune += pshdr->pitchCorrection;
+				r->sample_rate = pshdr->sampleRate;
+			}
+
+			// Compact away regions that failed validation.
+			{
+				int dst = 0;
+				for (i = 0; i < n; i++)
+					if (preset->regions[i].valid)
+					{
+						if (dst != i) { preset->regions[dst] = preset->regions[i]; preset->sampleIndices[dst] = preset->sampleIndices[i]; }
+						dst++;
+					}
+				preset->regionNum = dst;
+			}
 		}
 	}
 	return 1;
@@ -1217,12 +1410,26 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
 }
 
+/* Compute the stereo balance gains of a voice. `newpan` is region pan plus any
+ * channel pan offset, taken from [-0.5, 0.5]. Left only ever attenuates when
+ * panning right and vice versa, so a centered voice delivers both samples at
+ * unity gain. This is a stereo balance law, not a constant-power mono pan. */
+static void tsf_voice_set_balance(struct tsf_voice* v, float newpan)
+{
+	float p = newpan;
+	if      (p < -0.5f) p = -0.5f;
+	else if (p >  0.5f) p =  0.5f;
+	v->panFactorLeft  = TSF_SQRTF(1.0f - 2.0f * (p > 0.0f ? p : 0.0f));
+	v->panFactorRight = TSF_SQRTF(1.0f + 2.0f * (p < 0.0f ? p : 0.0f));
+}
+
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
 	float* input = f->fontSamples;
 	float* outL = outputBuffer;
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
+	TSF_BOOL stereo = (region->stereo != 0);
 
 	// Cache some values, to give them at least some chance of ending up in registers.
 	TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
@@ -1233,6 +1440,29 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	double tmpSampleEndDbl = (double)region->end, tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
 	double tmpSourceSamplePosition = v->sourceSamplePosition;
 	struct tsf_voice_lowpass tmpLowpass = v->lowpass;
+
+	// A linked stereo region is one voice with one fractional read pointer. The
+	// right end is addressed as its own base plus the same relative position and
+	// shares the loop fold-back; only the absolute storage base differs. The
+	// biquad coefficients are shared by both ends but z1/z2 history is kept
+	// separately so left samples never enter the right feedback path.
+	unsigned int tmpLoopStartRight = 0, tmpLoopEndRight = 0;
+	double tmpSampleEndRightDbl = 0.0, tmpBaseRight = 0.0;
+	double tmpRelativePosition = 0.0, tmpLoopEndRelDbl = 0.0, tmpLoopLenRel = 0.0;
+	double tmpBaseLeft = 0.0;
+	struct tsf_voice_lowpass tmpLowpassRight;
+	if (stereo)
+	{
+		tmpLoopStartRight = (unsigned int)region->loop_start_right;
+		tmpLoopEndRight = (unsigned int)region->loop_end_right;
+		tmpSampleEndRightDbl = (double)region->end_right;
+		tmpBaseLeft = (double)region->offset;
+		tmpBaseRight = (double)region->offset_right;
+		tmpRelativePosition = v->sourceSamplePosition - tmpBaseLeft;
+		tmpLoopEndRelDbl = (double)tmpLoopEnd + 1.0 - tmpBaseLeft;
+		tmpLoopLenRel = (double)(tmpLoopEnd - tmpLoopStart + 1);
+		tmpLowpassRight = v->lowpass_right;
+	}
 
 	TSF_BOOL dynamicLowpass = (region->modLfoToFilterFc || region->modEnvToFilterFc);
 	float tmpSampleRate = f->outSampleRate, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
@@ -1265,6 +1495,11 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 			float lowpassFc = (fres <= 13500 ? tsf_cents2Hertz(fres) / tmpSampleRate : 1.0f);
 			tmpLowpass.active = (lowpassFc < 0.499f);
 			if (tmpLowpass.active) tsf_voice_lowpass_setup(&tmpLowpass, lowpassFc);
+			if (stereo)
+			{
+				tmpLowpassRight.active = tmpLowpass.active;
+				if (tmpLowpassRight.active) tsf_voice_lowpass_setup(&tmpLowpassRight, lowpassFc);
+			}
 		}
 
 		if (dynamicPitchRatio)
@@ -1283,66 +1518,155 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		if (updateModLFO) tsf_voice_lfo_process(&v->modlfo, blockSamples);
 		if (updateVibLFO) tsf_voice_lfo_process(&v->viblfo, blockSamples);
 
+		gainLeft = gainMono * v->panFactorLeft;
+		gainRight = gainMono * v->panFactorRight;
+
 		switch (f->outputmode)
 		{
 			case TSF_STEREO_INTERLEAVED:
-				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
-				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+				if (!stereo)
 				{
-					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
-					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						// Simple linear interpolation.
+						float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
 
-					// Low-pass filter.
-					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
+						// Low-pass filter.
+						if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
-					*outL++ += val * gainLeft;
-					*outL++ += val * gainRight;
+						*outL++ += val * gainLeft;
+						*outL++ += val * gainRight;
 
-					// Next sample.
-					tmpSourceSamplePosition += pitchRatio;
-					if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+						// Next sample.
+						tmpSourceSamplePosition += pitchRatio;
+						if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+					}
+				}
+				else
+				{
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						double posLD = tmpBaseLeft + tmpRelativePosition;
+						double posRD = tmpBaseRight + tmpRelativePosition;
+						unsigned int pos = (unsigned int)posLD, posR = (unsigned int)posRD;
+						unsigned int nextPos, nextPosR;
+						float alpha = (float)(posLD - (double)pos), valL, valR;
+						if (isLooping && pos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else nextPos = ((double)(pos + 1) < (double)region->end ? pos + 1 : (unsigned int)region->end - 1);
+						if (isLooping && posR >= tmpLoopEndRight) nextPosR = tmpLoopStartRight;
+						else nextPosR = ((double)(posR + 1) < tmpSampleEndRightDbl ? posR + 1 : (unsigned int)tmpSampleEndRightDbl - 1);
+
+						valL = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						valR = (input[posR] * (1.0f - alpha) + input[nextPosR] * alpha);
+
+						if (tmpLowpass.active) valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+						if (tmpLowpassRight.active) valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+
+						*outL++ += valL * gainLeft;
+						*outL++ += valR * gainRight;
+
+						tmpRelativePosition += pitchRatio;
+						if (tmpRelativePosition >= tmpLoopEndRelDbl && isLooping) tmpRelativePosition -= tmpLoopLenRel;
+						tmpSourceSamplePosition = tmpBaseLeft + tmpRelativePosition;
+					}
 				}
 				break;
 
 			case TSF_STEREO_UNWEAVED:
-				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
-				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+				if (!stereo)
 				{
-					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
-					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
 
-					// Low-pass filter.
-					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
+						if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
-					*outL++ += val * gainLeft;
-					*outR++ += val * gainRight;
+						*outL++ += val * gainLeft;
+						*outR++ += val * gainRight;
 
-					// Next sample.
-					tmpSourceSamplePosition += pitchRatio;
-					if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+						tmpSourceSamplePosition += pitchRatio;
+						if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+					}
+				}
+				else
+				{
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						double posLD = tmpBaseLeft + tmpRelativePosition;
+						double posRD = tmpBaseRight + tmpRelativePosition;
+						unsigned int pos = (unsigned int)posLD, posR = (unsigned int)posRD;
+						unsigned int nextPos, nextPosR;
+						float alpha = (float)(posLD - (double)pos), valL, valR;
+						if (isLooping && pos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else nextPos = ((double)(pos + 1) < (double)region->end ? pos + 1 : (unsigned int)region->end - 1);
+						if (isLooping && posR >= tmpLoopEndRight) nextPosR = tmpLoopStartRight;
+						else nextPosR = ((double)(posR + 1) < tmpSampleEndRightDbl ? posR + 1 : (unsigned int)tmpSampleEndRightDbl - 1);
+
+						valL = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						valR = (input[posR] * (1.0f - alpha) + input[nextPosR] * alpha);
+
+						if (tmpLowpass.active) valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+						if (tmpLowpassRight.active) valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+
+						*outL++ += valL * gainLeft;
+						*outR++ += valR * gainRight;
+
+						tmpRelativePosition += pitchRatio;
+						if (tmpRelativePosition >= tmpLoopEndRelDbl && isLooping) tmpRelativePosition -= tmpLoopLenRel;
+						tmpSourceSamplePosition = tmpBaseLeft + tmpRelativePosition;
+					}
 				}
 				break;
 
 			case TSF_MONO:
-				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+				if (!stereo)
 				{
-					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
-					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
 
-					// Low-pass filter.
-					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
+						if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
-					*outL++ += val * gainMono;
+						*outL++ += val * gainMono;
 
-					// Next sample.
-					tmpSourceSamplePosition += pitchRatio;
-					if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+						tmpSourceSamplePosition += pitchRatio;
+						if (tmpSourceSamplePosition >= tmpLoopEndDbl && isLooping) tmpSourceSamplePosition -= (tmpLoopEnd - tmpLoopStart + 1.0);
+					}
+				}
+				else
+				{
+					// The two ends are balanced individually and averaged; they are
+					// never pre-mixed into a mono sample before balancing.
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						double posLD = tmpBaseLeft + tmpRelativePosition;
+						double posRD = tmpBaseRight + tmpRelativePosition;
+						unsigned int pos = (unsigned int)posLD, posR = (unsigned int)posRD;
+						unsigned int nextPos, nextPosR;
+						float alpha = (float)(posLD - (double)pos), valL, valR;
+						if (isLooping && pos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else nextPos = ((double)(pos + 1) < (double)region->end ? pos + 1 : (unsigned int)region->end - 1);
+						if (isLooping && posR >= tmpLoopEndRight) nextPosR = tmpLoopStartRight;
+						else nextPosR = ((double)(posR + 1) < tmpSampleEndRightDbl ? posR + 1 : (unsigned int)tmpSampleEndRightDbl - 1);
+
+						valL = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+						valR = (input[posR] * (1.0f - alpha) + input[nextPosR] * alpha);
+
+						if (tmpLowpass.active) valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+						if (tmpLowpassRight.active) valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+
+						*outL++ += 0.5f * (valL * v->panFactorLeft + valR * v->panFactorRight) * gainMono;
+
+						tmpRelativePosition += pitchRatio;
+						if (tmpRelativePosition >= tmpLoopEndRelDbl && isLooping) tmpRelativePosition -= tmpLoopLenRel;
+						tmpSourceSamplePosition = tmpBaseLeft + tmpRelativePosition;
+					}
 				}
 				break;
 		}
@@ -1356,6 +1680,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 
 	v->sourceSamplePosition = tmpSourceSamplePosition;
 	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
+	if (stereo && (tmpLowpassRight.active || dynamicLowpass)) v->lowpass_right = tmpLowpassRight;
 }
 
 TSFDEF tsf* tsf_load(struct tsf_stream* stream)
@@ -1481,7 +1806,7 @@ TSFDEF void tsf_close(tsf* f)
 	if (!f->refCount || !--(*f->refCount))
 	{
 		struct tsf_preset *preset = f->presets, *presetEnd = preset + f->presetNum;
-		for (; preset != presetEnd; preset++) TSF_FREE(preset->regions);
+		for (; preset != presetEnd; preset++) { TSF_FREE(preset->regions); TSF_FREE(preset->sampleIndices); }
 		TSF_FREE(f->presets);
 		TSF_FREE(f->fontSamples);
 		TSF_FREE(f->refCount);
@@ -1625,13 +1950,21 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		else
 		{
 			tsf_voice_calcpitchratio(voice, 0, f->outSampleRate);
-			// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
-			voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
-			voice->panFactorRight = TSF_SQRTF(0.5f + region->pan);
+			if (region->stereo) tsf_voice_set_balance(voice, region->pan);
+			else
+			{
+				// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
+				voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
+				voice->panFactorRight = TSF_SQRTF(0.5f + region->pan);
+			}
 		}
 
 		// Offset/end.
 		voice->sourceSamplePosition = region->offset;
+		voice->sourceSamplePositionRight = (region->stereo ? region->offset_right : region->offset);
+		// A linked stereo region is one voice. Both ends share the fractional
+		// read pointer relative to their own start (see tsf_voice_render); the
+		// right end is not a separately advanced layer.
 
 		// Loop.
 		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
@@ -1642,13 +1975,17 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
 		tsf_voice_envelope_setup(&voice->modenv, &region->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
 
-		// Setup lowpass filter.
+		// Setup lowpass filter. The coefficients are shared by both ends through
+		// the lowpass struct copies below, but z1/z2 history lives in lowpass and
+		// lowpass_right independently so left samples never feed right filtering.
 		lowpassFc = (region->initialFilterFc <= 13500 ? tsf_cents2Hertz((float)region->initialFilterFc) / f->outSampleRate : 1.0f);
 		lowpassFilterQDB = region->initialFilterQ / 10.0f;
 		voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
 		voice->lowpass.z1 = voice->lowpass.z2 = 0;
 		voice->lowpass.active = (lowpassFc < 0.499f);
 		if (voice->lowpass.active) tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
+		voice->lowpass_right = voice->lowpass;
+		voice->lowpass_right.z1 = voice->lowpass_right.z2 = 0;
 
 		// Setup LFO filters.
 		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
@@ -1751,7 +2088,8 @@ static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
 	v->playingChannel = f->channels->activeChannel;
 	v->noteGainDB += c->gainDB;
 	tsf_voice_calcpitchratio(v, (c->pitchWheel == 8192 ? c->tuning : ((c->pitchWheel / 16383.0f * c->pitchRange * 2.0f) - c->pitchRange + c->tuning)), f->outSampleRate);
-	if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
+	if (v->region->stereo) tsf_voice_set_balance(v, newpan);
+	else if (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
 	else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
 	else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
 }
@@ -1860,7 +2198,8 @@ TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan)
 		if (v->playingPreset != -1 && v->playingChannel == channel)
 		{
 			float newpan = v->region->pan + pan - 0.5f;
-			if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
+			if (v->region->stereo) tsf_voice_set_balance(v, newpan);
+			else if (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
 			else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
 			else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
 		}

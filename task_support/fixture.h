@@ -88,4 +88,105 @@ static struct task_font_bytes task_make_font(int mode) {
     }
     fclose(f); return result;
 }
+/* Extended fixture used by tests/linked_stereo.c. Builds a one-preset sound
+ * font with `sampleCount` sample headers plus the EOS terminator, and any
+ * number of instrument zones, each referencing one sample with its own
+ * generators. `pcm` holds the raw 16-bit sample pool (sampleCount entries of
+ * `pcmLen` shorts each) followed by guard zeros. All values are derived from
+ * the test's own PCM; nothing here depends on TSF. */
+struct task_sample_spec {
+    unsigned start, end, startLoop, endLoop;
+    unsigned sampleRate;
+    unsigned originalPitch;
+    signed pitchCorrection;
+    unsigned sampleLink;
+    unsigned sampleType;
+};
+struct task_zone {
+    int sample;
+    int loopMode;
+    int genCount;
+    int genOp[16];
+    int genAmt[16];
+};
+struct task_font_ext {
+    struct task_sample_spec specs[8];
+    int sampleCount;
+    int pcmLen;
+    const short* pcm;
+    int zoneCount;
+    struct task_zone zones[8];
+};
+static struct task_font_bytes task_make_font_ext(const struct task_font_ext* e) {
+    struct task_font_bytes result = {NULL, 0};
+    FILE *f = tmpfile(); long riff, list, c, n; int i, z, g;
+    int totalGens = 0;
+    if (!f) return result;
+    for (z = 0; z < e->zoneCount; ++z) totalGens += e->zones[z].genCount + 2; /* +SampleModes +SampleID */
+    riff = tf_begin(f, "RIFF"); fwrite("sfbk", 1, 4, f);
+    list = tf_begin(f, "LIST"); fwrite("INFO", 1, 4, f);
+    c = tf_begin(f, "ifil"); tf_uint(f, 2, 2); tf_uint(f, 1, 2); tf_end(f, c);
+    tf_end(f, list);
+    list = tf_begin(f, "LIST"); fwrite("sdta", 1, 4, f);
+    c = tf_begin(f, "smpl");
+    for (i = 0; i < e->sampleCount * e->pcmLen; ++i) tf_uint(f, (unsigned)(unsigned short)e->pcm[i], 2);
+    for (i = 0; i < 8; ++i) tf_uint(f, 0, 2);
+    tf_end(f, c); tf_end(f, list);
+    list = tf_begin(f, "LIST"); fwrite("pdta", 1, 4, f);
+    c = tf_begin(f, "phdr");
+    for (i = 0; i < 2; ++i) {
+        tf_name(f, i ? "EOP" : "Test"); tf_uint(f, 0, 2); tf_uint(f, 0, 2); tf_uint(f, i, 2);
+        tf_uint(f, 0, 4); tf_uint(f, 0, 4); tf_uint(f, 0, 4);
+    }
+    tf_end(f, c);
+    c = tf_begin(f, "pbag");
+    for (i = 0; i < 2; ++i) { tf_uint(f, i, 2); tf_uint(f, 0, 2); } tf_end(f, c);
+    c = tf_begin(f, "pmod"); for (i = 0; i < 10; ++i) fputc(0, f); tf_end(f, c);
+    c = tf_begin(f, "pgen"); tf_gen(f, 41, 0); tf_gen(f, 0, 0); tf_end(f, c);
+    c = tf_begin(f, "inst"); tf_name(f, "Inst"); tf_uint(f, 0, 2); tf_name(f, "EOI"); tf_uint(f, (unsigned)(e->zoneCount + 1), 2); tf_end(f, c);
+    c = tf_begin(f, "ibag");
+    tf_uint(f, 0, 2); tf_uint(f, 0, 2); /* global bag, no generators */
+    {
+        int gidx = 0;
+        for (z = 0; z < e->zoneCount; ++z) {
+            tf_uint(f, (unsigned)gidx, 2); tf_uint(f, 0, 2);
+            gidx += e->zones[z].genCount + 2;
+        }
+        tf_uint(f, (unsigned)gidx, 2); tf_uint(f, 0, 2); /* sentinel */
+    }
+    tf_end(f, c);
+    c = tf_begin(f, "imod"); for (i = 0; i < 10; ++i) fputc(0, f); tf_end(f, c);
+    c = tf_begin(f, "igen");
+    for (z = 0; z < e->zoneCount; ++z) {
+        tf_gen(f, 54, e->zones[z].loopMode); /* SampleModes */
+        for (g = 0; g < e->zones[z].genCount; ++g) tf_gen(f, (unsigned)e->zones[z].genOp[g], e->zones[z].genAmt[g]);
+        tf_gen(f, 53, e->zones[z].sample);
+    }
+    tf_gen(f, 0, 0); /* single global terminator */
+    tf_end(f, c);
+    c = tf_begin(f, "shdr");
+    for (i = 0; i < e->sampleCount + 1; ++i) {
+        if (i == e->sampleCount) {
+            tf_name(f, "EOS"); tf_uint(f, 0, 4); tf_uint(f, 0, 4); tf_uint(f, 0, 4); tf_uint(f, 0, 4);
+            tf_uint(f, 22050, 4); tf_uint(f, 60, 1); tf_uint(f, 0, 1); tf_uint(f, 0, 2); tf_uint(f, 0, 2);
+            break;
+        }
+        tf_name(f, "S"); tf_uint(f, e->specs[i].start, 4); tf_uint(f, e->specs[i].end, 4);
+        tf_uint(f, e->specs[i].startLoop, 4); tf_uint(f, e->specs[i].endLoop, 4);
+        tf_uint(f, e->specs[i].sampleRate, 4); tf_uint(f, e->specs[i].originalPitch, 1);
+        tf_uint(f, (unsigned)(unsigned char)e->specs[i].pitchCorrection, 1);
+        tf_uint(f, e->specs[i].sampleLink, 2); tf_uint(f, e->specs[i].sampleType, 2);
+    }
+    tf_end(f, c); tf_end(f, list); tf_end(f, riff);
+    n = ftell(f);
+    (void)totalGens;
+    if (n <= 0 || n > 4000000 || ferror(f)) { fclose(f); return result; }
+    result.data = (unsigned char*)malloc((size_t)n);
+    if (result.data) {
+        rewind(f);
+        if (fread(result.data, 1, (size_t)n, f) == (size_t)n) result.size = (int)n;
+        else { free(result.data); result.data = NULL; }
+    }
+    fclose(f); return result;
+}
 #endif
