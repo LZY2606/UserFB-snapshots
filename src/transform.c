@@ -79,6 +79,9 @@ VSTransformConfig vsTransformGetDefaultConfig(const char* modName){
   conf.storeTransforms    = 0;
   conf.smoothZoom         = 0;
   conf.camPathAlgo        = VSOptimalL1;
+  /* 0 selects the frame-count algorithms; VSTimeBox measures its window in
+   * microseconds through smoothingTime instead. */
+  conf.smoothingTime      = 0;
   /* On by default: costs one extra pass over the local motions and is a no-op
      whenever the estimate is not trustworthy. */
   conf.estimateLensDistortion = 1;
@@ -293,6 +296,7 @@ VSTransform vsGetNextTransform(const VSTransformData* td, VSTransformations* tra
 
 void vsTransformationsInit(VSTransformations* trans){
   trans->ts = 0;
+  trans->pts = 0;
   trans->len = 0;
   trans->current = 0;
   trans->warned_end = 0;
@@ -303,7 +307,74 @@ void vsTransformationsCleanup(VSTransformations* trans){
     vs_free(trans->ts);
     trans->ts = NULL;
   }
+  if (trans->pts) {
+    vs_free(trans->pts);
+    trans->pts = NULL;
+  }
   trans->len=0;
+}
+
+/* Validates and owns a copy of the caller's timestamp array.  The copy is the
+ * whole ownership story: the sequence never borrows the buffer, so replacing
+ * the array or cleaning up only ever frees memory this function allocated. */
+int vsTransformationsSetTimestamps(VSTransformations* trans,
+                                   const int64_t* pts, int count){
+  int i;
+  int64_t* copy;
+  if(!trans || !pts || count <= 0 || count != trans->len) return VS_ERROR;
+  for(i = 0; i < count; i++){
+    if(pts[i] < 0) return VS_ERROR;
+    if(i > 0 && pts[i] <= pts[i-1]) return VS_ERROR; /* strictly increasing */
+  }
+  copy = vs_malloc(sizeof(int64_t) * (size_t)count);
+  if(!copy) return VS_ERROR;
+  memcpy(copy, pts, sizeof(int64_t) * (size_t)count);
+  if(trans->pts) vs_free(trans->pts); /* replace any previously held array */
+  trans->pts = copy;
+  return VS_OK;
+}
+
+/* Binary search for the last index i with pts[i] <= t.  Requires n > 0.
+ * Clamps to 0 (t at or before the first PTS) and n-1 (at or past the last).
+ * The timestamps are int64, so the midpoint is computed without overflow. */
+static int ptsFloorIndex(const int64_t* pts, int n, int64_t t){
+  int lo = 0, hi = n - 1;
+  if(t <= pts[0]) return 0;
+  if(t >= pts[n-1]) return n-1;
+  while(lo < hi){
+    int mid = lo + (hi - lo + 1) / 2;
+    if(pts[mid] <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+int vsGetTransformAtPTS(const VSTransformData* td,
+                        const VSTransformations* trans,
+                        int64_t pts, VSTransform* out){
+  (void)td;
+  int i;
+  double frac;
+  if(!trans || !out || pts < 0 || trans->len <= 0 || !trans->ts || !trans->pts)
+    return VS_ERROR;
+  i = ptsFloorIndex(trans->pts, trans->len, pts);
+  if(i == trans->len - 1 || pts == trans->pts[i]){
+    *out = trans->ts[i]; /* exact node, or the held endpoint value */
+    return VS_OK;
+  }
+  /* Interpolate against the integer PTS difference, never the absolute PTS:
+   * with a huge base timestamp the microsecond gap between adjacent frames must
+   * survive in full, which a subtraction in floating point could swallow. */
+  frac = (double)(pts - trans->pts[i]) /
+         (double)(trans->pts[i+1] - trans->pts[i]);
+  out->x        = trans->ts[i].x        + frac*(trans->ts[i+1].x        - trans->ts[i].x);
+  out->y        = trans->ts[i].y        + frac*(trans->ts[i+1].y        - trans->ts[i].y);
+  out->alpha    = trans->ts[i].alpha    + frac*(trans->ts[i+1].alpha    - trans->ts[i].alpha);
+  out->zoom     = trans->ts[i].zoom     + frac*(trans->ts[i+1].zoom     - trans->ts[i].zoom);
+  out->barrel   = trans->ts[i].barrel   + frac*(trans->ts[i+1].barrel   - trans->ts[i].barrel);
+  out->rshutter = trans->ts[i].rshutter + frac*(trans->ts[i+1].rshutter - trans->ts[i].rshutter);
+  out->extra    = trans->ts[i].extra;
+  return VS_OK;
 }
 
 /*
@@ -312,6 +383,7 @@ void vsTransformationsCleanup(VSTransformations* trans){
  */
 int cameraPathOptimization(VSTransformData* td, VSTransformations* trans){
   switch(td->conf.camPathAlgo){
+   case VSTimeBox: return cameraPathTimeBox(td,trans);
    case VSAvg: return cameraPathAvg(td,trans);
    case VSOptimalL1:
 #ifdef VS_HAVE_LPSOLVER
@@ -496,6 +568,159 @@ int cameraPathAvg(VSTransformData* td, VSTransformations* trans){
       t = ts[i];
     }
   }
+  return VS_OK;
+}
+
+/* ---- VSTimeBox: physical-time box average for variable frame rates --------
+ *
+ * The frame-count algorithms weight every sample equally, which is wrong for a
+ * variable-rate clip: the same frame count spans different amounts of real
+ * time.  This one instead integrates the piecewise-linear camera path over the
+ * fixed-time window [t-h, t+h] and divides by 2h, so the smoothing horizon is a
+ * duration (smoothingTime microseconds) rather than a number of frames.
+ *
+ * The path P is built exactly as the gaussian path is -- relative inputs are
+ * accumulated field by field with add_transforms(), absolute inputs (relative
+ * == 0) are used as given -- and the six float fields are treated independently.
+ * alpha is integrated as a continuously unwrapped angle: because the relative
+ * accumulation only ever adds angles and never wraps them, and absolute inputs
+ * are taken verbatim, every field is just an ordinary (possibly non-mod-2pi)
+ * scalar throughout, so no special angle handling is needed. */
+
+/* One float field of the path, addressed by offset so the six fields share one
+ * integrator.  barrel and rshutter live next to the four classical fields in
+ * VSTransform and are smoothed the same way. */
+
+/* Finite test on the bit pattern rather than via isfinite(): the library is
+ * built with -ffast-math (-ffinite-math-only), under which the compiler may
+ * assume finiteness and fold the library call away.  An all-ones exponent is
+ * Inf or NaN, which the smoothing integration must not be asked to average. */
+static int doubleIsFinite(double v){
+  uint64_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  return (bits & UINT64_C(0x7FF0000000000000)) != UINT64_C(0x7FF0000000000000);
+}
+
+static double pathField(const VSTransform* t, int field){
+  switch(field){
+   case 0: return t->x;
+   case 1: return t->y;
+   case 2: return t->alpha;
+   case 3: return t->zoom;
+   case 4: return t->barrel;
+   default:return t->rshutter;
+  }
+}
+
+static void setPathField(VSTransform* t, int field, double v){
+  switch(field){
+   case 0: t->x = v; break;
+   case 1: t->y = v; break;
+   case 2: t->alpha = v; break;
+   case 3: t->zoom = v; break;
+   case 4: t->barrel = v; break;
+   default:t->rshutter = v; break;
+  }
+}
+
+/* Prefix integral of one field: pref[i] is the integral of the piecewise-linear
+ * path from pts[0] to pts[i], so each segment contributes one trapezoid.
+ * Built once per field in O(n). */
+static void buildPrefix(const VSTransform* ts, const int64_t* pts, int n,
+                        int field, double* pref){
+  int i;
+  pref[0] = 0.0;
+  for(i = 1; i < n; i++){
+    pref[i] = pref[i-1]
+      + 0.5 * (pathField(&ts[i-1], field) + pathField(&ts[i], field))
+            * (double)(pts[i] - pts[i-1]);
+  }
+}
+
+/* Indefinite integral of the end-clamped scalar path from pts[0] up to x,
+ * valid for any x: below the first node the path is held at its first value,
+ * above the last node at its last value, so the two tails extend linearly.
+ * O(log n) via the shared floor-index binary search.  All time arithmetic stays
+ * in int64 differences, which is what preserves the microsecond gap even when
+ * the absolute PTS is enormous. */
+static double clampedAntiderivative(const VSTransform* ts, const int64_t* pts,
+                                    int n, int field, const double* pref,
+                                    int64_t x){
+  double v0 = pathField(&ts[0], field);
+  int i;
+  if(x <= pts[0])
+    return v0 * (double)(x - pts[0]);          /* held first value, negative area */
+  i = ptsFloorIndex(pts, n, x);
+  if(i == n - 1)
+    return pref[n-1]
+      + pathField(&ts[n-1], field) * (double)(x - pts[n-1]); /* held last value */
+  {
+    int64_t lo = pts[i], d = pts[i+1] - lo;
+    double vi = pathField(&ts[i], field);
+    double v1 = pathField(&ts[i+1], field);
+    double vx = vi + (v1 - vi) * ((double)(x - lo) / (double)d);
+    return pref[i] + 0.5 * (vi + vx) * (double)(x - lo);
+  }
+}
+
+int cameraPathTimeBox(VSTransformData* td, VSTransformations* trans){
+  const int n = trans->len;
+  const int64_t h = td->conf.smoothingTime;
+  int field, i;
+  VSTransform* path;
+  double* pref;
+  if(n < 1) return VS_ERROR;
+  /* The mode is only defined for the plain similarity transform: no adaptive
+   * zoom, no lens work, no fov rotation model, and no scene-cut markers. */
+  if(td->conf.optZoom != 0 || td->conf.lensCorrection != VSLensCorrectOff ||
+     td->conf.fov != 0.0 || h <= 0 || !trans->pts)
+    return VS_ERROR;
+  /* Keep 2*h and the t +/- h window arithmetic inside int64 range.  A window
+   * this large (a hundred-million-plus years) is never a real request. */
+  if(h > INT64_MAX / 2) return VS_ERROR;
+  for(i = 0; i < n; i++){
+    const VSTransform* s = &trans->ts[i];
+    if(s->extra != 0) return VS_ERROR;
+    if(!doubleIsFinite(s->x) || !doubleIsFinite(s->y) ||
+       !doubleIsFinite(s->alpha) || !doubleIsFinite(s->zoom) ||
+       !doubleIsFinite(s->barrel) || !doubleIsFinite(s->rshutter))
+      return VS_ERROR;
+  }
+
+  /* Build the absolute path P with the existing field-wise addition. */
+  path = vs_malloc(sizeof(VSTransform) * (size_t)n);
+  pref = vs_malloc(sizeof(double) * (size_t)n);
+  if(!path || !pref){
+    if(path) vs_free(path);
+    if(pref) vs_free(pref);
+    return VS_ERROR;
+  }
+  memcpy(path, trans->ts, sizeof(VSTransform) * (size_t)n);
+  if(td->conf.relative){
+    VSTransform acc = path[0];
+    for(i = 1; i < n; i++){
+      path[i] = add_transforms(&path[i], &acc);
+      acc = path[i];
+    }
+  }
+
+  /* O(n) prefix per field, then one O(log n) window integral per node, so the
+   * whole preprocessing pass is O(n log n) rather than a per-node rescan.  The
+   * window [t-h,t+h] is the difference of two antiderivative evaluations, the
+   * end-clamped tails included. */
+  for(field = 0; field < 6; field++){
+    buildPrefix(path, trans->pts, n, field, pref);
+    for(i = 0; i < n; i++){
+      int64_t t = trans->pts[i];
+      double area = clampedAntiderivative(path, trans->pts, n, field, pref, t + h)
+                  - clampedAntiderivative(path, trans->pts, n, field, pref, t - h);
+      double avg = area / (double)(2 * h);
+      setPathField(&trans->ts[i], field, pathField(&path[i], field) - avg);
+    }
+  }
+  for(i = 0; i < n; i++) trans->ts[i].extra = 0;
+  vs_free(pref);
+  vs_free(path);
   return VS_OK;
 }
 

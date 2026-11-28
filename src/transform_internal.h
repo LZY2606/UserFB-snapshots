@@ -44,6 +44,8 @@ VS_API int cameraPathOptimization(VSTransformData* td, VSTransformations* trans)
 VS_API int cameraPathAvg(VSTransformData* td, VSTransformations* trans);
 VS_API int cameraPathGaussian(VSTransformData* td, VSTransformations* trans);
 VS_API int cameraPathOptimalL1(VSTransformData* td, VSTransformations* trans);
+/* Physical-time box average for variable frame rates; see transform.c. */
+VS_API int cameraPathTimeBox(VSTransformData* td, VSTransformations* trans);
 
 /** Builds (or rebuilds) td->lensMaps for the current td->lensK, if needed. */
 void lensEnsureMaps(VSTransformData* td);

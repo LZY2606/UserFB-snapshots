@@ -627,6 +627,119 @@ int vsReadOldTransforms(const VSTransformData* td, FILE* f , VSTransformations* 
 //     t = vsSimpleMotionsToTransform(md, &localmotions);
 
 
+/* ---- timed (PTS-annotated) transform file format ------------------------- */
+
+#define VS_TIMED_FILE_MAGIC "VID.STAB.TIMED"
+#define VS_TIMED_FILE_VERSION 1
+
+int vsWriteTimedTransforms(FILE* f, const VSTransformations* trans){
+  int i;
+  if(!f || !trans || trans->len <= 0 || !trans->ts || !trans->pts)
+    return VS_ERROR;
+  if(fprintf(f, "%s %d %d\n", VS_TIMED_FILE_MAGIC,
+             VS_TIMED_FILE_VERSION, trans->len) < 0)
+    return VS_ERROR;
+  for(i = 0; i < trans->len; i++){
+    const VSTransform* t = &trans->ts[i];
+    /* %.17g round-trips an IEEE-754 double exactly; pts goes through long long
+     * so the int64 value is printed without an assumption about the platform
+     * size of "long". */
+    if(fprintf(f, "%lld %.17g %.17g %.17g %.17g %.17g %.17g %d\n",
+               (long long)trans->pts[i], t->x, t->y, t->alpha, t->zoom,
+               t->barrel, t->rshutter, t->extra) < 0)
+      return VS_ERROR;
+  }
+  return VS_OK;
+}
+
+/* True when s holds nothing but spaces/tabs/CR from the parsed field onward. */
+static int onlyTrailingWhitespace(const char* s){
+  for(; *s; s++)
+    if(*s != ' ' && *s != '\t' && *s != '\r' && *s != '\n')
+      return 0;
+  return 1;
+}
+
+/* Bit-pattern finite test: %lf happily parses the strings "nan"/"inf", which
+ * are not legal path values, and isfinite() itself is unreliable under the
+ * library's -ffast-math build (see transform.c). */
+static int timedDoubleFinite(double v){
+  uint64_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  return (bits & UINT64_C(0x7FF0000000000000)) != UINT64_C(0x7FF0000000000000);
+}
+
+int vsReadTimedTransforms(FILE* f, VSTransformations* trans){
+  char line[1024];
+  char magic[32];
+  int version, n, i;
+  VSTransform* ts;
+  int64_t* pts;
+
+  if(!f || !trans) return VS_ERROR;
+  /* target must be an empty, initialized object: we must not leak or clobber
+   * arrays it already owns. */
+  if(trans->len != 0 || trans->ts || trans->pts) return VS_ERROR;
+
+  {
+    int hdrConsumed = 0;
+    if(!fgets(line, sizeof(line), f)) return VS_ERROR;
+    /* exactly "magic version n" and nothing but trailing whitespace after */
+    if(sscanf(line, "%31s %d %d %n", magic, &version, &n, &hdrConsumed) != 3 ||
+       strcmp(magic, VS_TIMED_FILE_MAGIC) != 0 ||
+       version != VS_TIMED_FILE_VERSION || n <= 0 || n > VS_MAX_FRAMES ||
+       !onlyTrailingWhitespace(line + hdrConsumed))
+      return VS_ERROR;
+  }
+
+  ts  = vs_malloc(sizeof(VSTransform) * (size_t)n);
+  pts = vs_malloc(sizeof(int64_t) * (size_t)n);
+  if(!ts || !pts){
+    if(ts)  vs_free(ts);
+    if(pts) vs_free(pts);
+    return VS_ERROR;
+  }
+
+  for(i = 0; i < n; i++){
+    long long ptsval;
+    int consumed = 0;
+    VSTransform t = null_transform();
+    if(!fgets(line, sizeof(line), f)) goto fail; /* missing line / truncation */
+    if(sscanf(line, "%lld %lf %lf %lf %lf %lf %lf %d %n",
+              &ptsval, &t.x, &t.y, &t.alpha, &t.zoom, &t.barrel,
+              &t.rshutter, &t.extra, &consumed) != 8)
+      goto fail; /* illegal or missing number */
+    if(!onlyTrailingWhitespace(line + consumed)) goto fail; /* extra columns */
+    if(!timedDoubleFinite(t.x) || !timedDoubleFinite(t.y) ||
+       !timedDoubleFinite(t.alpha) || !timedDoubleFinite(t.zoom) ||
+       !timedDoubleFinite(t.barrel) || !timedDoubleFinite(t.rshutter))
+      goto fail; /* "nan"/"inf" text parsed by %lf is not a legal value */
+    if(ptsval < 0) goto fail;
+    if(i > 0 && (int64_t)ptsval <= pts[i-1]) goto fail; /* not increasing */
+    pts[i] = (int64_t)ptsval;
+    ts[i]  = t;
+  }
+
+  /* exactly N data lines: any further non-whitespace content is "too many" */
+  {
+    int c;
+    do { c = fgetc(f); } while(c != EOF && (c == ' ' || c == '\t' ||
+                                            c == '\r' || c == '\n'));
+    if(c != EOF) goto fail;
+  }
+
+  trans->ts  = ts;
+  trans->pts = pts;
+  trans->len = n;
+  return VS_OK;
+
+fail:
+  vs_free(ts);
+  vs_free(pts);
+  return VS_ERROR;
+}
+
+
 /*
  * Local variables:
  *   c-file-style: "stroustrup"

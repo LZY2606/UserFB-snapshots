@@ -100,5 +100,27 @@ VS_API int vsReadLocalMotionsFile(FILE* f, VSManyLocalMotions* lms);
 // read the transformations from the given file (Deprecated format)
 VS_API int vsReadOldTransforms(const VSTransformData* td, FILE* f , VSTransformations* trans);
 
+/*
+ * Timed transform file format (text).  The stream follows the same binary-mode
+ * contract as the functions above; open it with fopen(..., "wb") / ("rb").
+ *
+ *   VID.STAB.TIMED 1 N
+ *   <pts> <x> <y> <alpha> <zoom> <barrel> <rshutter> <extra>
+ *   ... exactly N data lines ...
+ *
+ * pts is a microsecond presentation timestamp (int64), non-negative and
+ * strictly increasing; the other seven columns are the six double fields of
+ * VSTransform in declaration order followed by its integer extra flag.  Doubles
+ * are emitted with 17 significant digits so they read back bit-identically.
+ */
+
+/// writes a timed (PTS-annotated) transform sequence; returns VS_OK/VS_ERROR
+VS_API int vsWriteTimedTransforms(FILE* f, const VSTransformations* trans);
+
+/* reads a timed transform sequence into an empty, initialized VSTransformations
+ * and takes ownership of the arrays it allocates.  On any malformed input it
+ * returns VS_ERROR and leaves the target untouched (still cleanable). */
+VS_API int vsReadTimedTransforms(FILE* f, VSTransformations* trans);
+
 
 #endif

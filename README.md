@@ -175,6 +175,53 @@ The `.trf` file written by the first pass is documented in
 [docs/trf-format.md](docs/trf-format.md) — both encodings, the meaning of the
 stored values, and how to supply a camera path of your own.
 
+### Variable-frame-rate stabilization (microsecond PTS)
+
+The classic algorithms smooth over a fixed *number of frames*, which assumes a
+constant frame rate. For variable-rate material vid.stab can instead attach a
+microsecond presentation timestamp (PTS) to every transform and smooth over a
+fixed *duration* of physical time.
+
+ * `VSTransformations.pts` is an owned `int64_t` array, one timestamp per
+   transform. Hand it over with
+   `vsTransformationsSetTimestamps(trans, pts, count)`; the sequence takes a
+   copy (the caller's buffer is never borrowed), and the timestamps must be
+   non-negative and strictly increasing. The storage is released by the usual
+   `vsTransformationsCleanup()`.
+ * Select the time-based camera path with `camPathAlgo = VSTimeBox` and set the
+   half-window in microseconds through `smoothingTime` (default `0`). The path
+   is integrated piecewise-linearly over `[pts-h, pts+h]` and divided by `2h`,
+   holding the endpoint value outside the sequence. This mode is restricted to
+   the plain similarity transform: `optZoom = 0`, `lensCorrection =
+   VSLensCorrectOff`, `fov = 0`, and every `extra` flag `0`; otherwise
+   `vsPreprocessTransforms()` returns `VS_ERROR`.
+ * After preprocessing, sample the stabilized path at any output timestamp with
+   `vsGetTransformAtPTS(td, trans, pts, &out)`, which linearly interpolates the
+   fields in `O(log n)` (clamped to the endpoints) without advancing the
+   `vsGetNextTransform()` cursor, so it works for any output frame rate and for
+   reverse or repeated lookups.
+ * The timed path has its own text file format, read and written by
+   `vsReadTimedTransforms()` / `vsWriteTimedTransforms()`. The first line is
+   `VID.STAB.TIMED 1 N` followed by exactly `N` lines of
+   `pts x y alpha zoom barrel rshutter extra`; doubles round-trip exactly.
+
+A self-contained example lives in
+[`examples/timed_stabilize.c`](examples/timed_stabilize.c). It generates eight
+32×24 grayscale frames, smooths a timestamped path, samples corrections every
+125000 µs, and writes 6144 bytes of headerless `rawvideo`. Build it against the
+static library and run it like this:
+
+```shell
+cmake -S . -B build -DBUILD_SHARED_LIBS=OFF
+cmake --build build
+cc -std=c99 -DVIDSTAB_STATIC_DEFINE -Isrc -Ibuild \
+   examples/timed_stabilize.c build/libvidstab.a -lm -o timed_stabilize
+./timed_stabilize out.gray        # writes 8 * 32 * 24 = 6144 bytes
+```
+
+Inspect the raw output with e.g.
+`ffplay -f rawvideo -pixel_format gray -video_size 32x24 out.gray`.
+
 ### Available options with vidstab filters:
 
 ##### First pass (vidstabdetect filter):
