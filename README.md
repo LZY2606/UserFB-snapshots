@@ -114,3 +114,53 @@ func main() {
 ```
 
 ![Teapot](http://i.imgur.com/DaqbkLR.png)
+
+### HDR Rendering and Bloom
+
+The default render path stores colors as bytes, so a fragment brighter than
+white is clamped and its highlight detail is lost before exposure can be
+adjusted. A context can instead render into a floating point, linear HDR
+target that keeps channels greater than one:
+
+```go
+context := NewContext(width, height)
+context.EnableHDR()
+context.ClearColorBuffer()
+context.Shader = phongShader // FragmentHDR is used automatically
+context.DrawMesh(mesh)
+
+// premultiplied linear RGBA copy, row-major; safe to keep between frames
+snapshot := context.HDRSnapshot()
+
+// tone map the same target as many times as needed; resolving never
+// mutates the floating point target or the depth buffer
+image, err := context.ResolveHDR(HDRSettings{
+    Background:    Black,
+    Exposure:      1.1,
+    BloomThreshold: 1.0,
+    BloomStrength: 0.8,
+    BloomLevels:   5,
+})
+if err != nil {
+    panic(err)
+}
+SavePNG("out.png", image)
+
+context.DisableHDR() // releases the float target; re-enabling reinitializes it
+```
+
+Shaders may implement the optional `HDRShader` interface (an extra
+`FragmentHDR(Vertex) Color` method) to return unclamped linear colors.
+`PhongShader` implements it: the ambient, diffuse and specular terms are
+unchanged, only the final white clamp is removed. Shaders without the
+interface keep working in HDR mode through their plain `Fragment` result.
+
+`ResolveHDR` composites the snapshot over an opaque background, extracts the
+parts above `BloomThreshold`, builds an area-weighted mip pyramid (odd
+dimensions keep their half-sized edge cells), reconstructs the glow with
+clamped bilinear sampling, applies `m = 1 - exp(-Exposure * H)` and encodes
+the result with the standard sRGB transfer function. The threshold is applied
+before exposure, so repeated resolves with different exposures never
+accumulate bloom. See `examples/hdr/main.go` for a complete program that
+writes images with and without bloom from one render.
+

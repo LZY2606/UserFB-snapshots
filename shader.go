@@ -7,6 +7,15 @@ type Shader interface {
 	Fragment(Vertex) Color
 }
 
+// HDRShader is an optional Shader extension. When a Context is in HDR mode,
+// FragmentHDR is invoked instead of Fragment so that fragments may return
+// linear colors whose channels exceed one. Shaders that do not implement this
+// interface are used in HDR mode through their plain Fragment return value.
+type HDRShader interface {
+	Shader
+	FragmentHDR(Vertex) Color
+}
+
 // SolidColorShader renders with a single, solid color.
 type SolidColorShader struct {
 	Matrix Matrix
@@ -73,6 +82,17 @@ func (shader *PhongShader) Vertex(v Vertex) Vertex {
 }
 
 func (shader *PhongShader) Fragment(v Vertex) Color {
+	return shader.light(v).Min(White)
+}
+
+// FragmentHDR runs the same base color, ambient, diffuse and specular
+// computation as Fragment but keeps the result linear and unclamped, so
+// highlights brighter than one survive into the floating point target.
+func (shader *PhongShader) FragmentHDR(v Vertex) Color {
+	return shader.light(v)
+}
+
+func (shader *PhongShader) light(v Vertex) Color {
 	light := shader.AmbientColor
 	color := v.Color
 	if shader.ObjectColor != Discard {
@@ -92,5 +112,5 @@ func (shader *PhongShader) Fragment(v Vertex) Color {
 			light = light.Add(shader.SpecularColor.MulScalar(specular))
 		}
 	}
-	return color.Mul(light).Min(White).Alpha(color.A)
+	return color.Mul(light).Alpha(color.A)
 }

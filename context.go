@@ -55,6 +55,8 @@ type Context struct {
 	DepthBias    float64
 	screenMatrix Matrix
 	locks        []sync.Mutex
+	hdr          bool
+	hdrBuffer    []hdrColor
 }
 
 func NewContext(width, height int) *Context {
@@ -117,6 +119,10 @@ func (dc *Context) DepthImage() image.Image {
 }
 
 func (dc *Context) ClearColorBufferWith(color Color) {
+	if dc.hdr {
+		dc.clearHDRBufferWith(color)
+		return
+	}
 	c := color.NRGBA()
 	for y := 0; y < dc.Height; y++ {
 		i := dc.ColorBuffer.PixOffset(0, y)
@@ -151,6 +157,11 @@ func edge(a, b, c Vector) float64 {
 func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
 	var info RasterizeInfo
 
+	area := edge(s0, s1, s2)
+	if area == 0 || math.IsNaN(area) || math.IsInf(area, 0) {
+		return info
+	}
+
 	// integer bounding box
 	min := s0.Min(s1.Min(s2)).Floor()
 	max := s0.Max(s1.Max(s2)).Ceil()
@@ -172,7 +183,7 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 	b20 := s2.X - s0.X
 
 	// reciprocals
-	ra := 1 / edge(s0, s1, s2)
+	ra := 1 / area
 	r0 := 1 / v0.Output.W
 	r1 := 1 / v1.Output.W
 	r2 := 1 / v2.Output.W
@@ -186,20 +197,23 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 		d0 := -w00 * ra12
 		d1 := -w01 * ra20
 		d2 := -w02 * ra01
-		if w00 < 0 && d0 > d {
+		// Horizontal edges have infinite reciprocals and cannot bound the
+		// first inside pixel along x; their half-plane is still tested per
+		// pixel below, so skipping the term only avoids a non-finite offset.
+		if a12 != 0 && w00 < 0 && d0 > d {
 			d = d0
 		}
-		if w01 < 0 && d1 > d {
+		if a20 != 0 && w01 < 0 && d1 > d {
 			d = d1
 		}
-		if w02 < 0 && d2 > d {
+		if a01 != 0 && w02 < 0 && d2 > d {
 			d = d2
 		}
-		d = float64(int(d))
-		if d < 0 {
+		if d < 0 || math.IsNaN(d) || math.IsInf(d, 0) {
 			// occurs in pathological cases
 			d = 0
 		}
+		d = float64(int(d))
 		w0 := w00 + a12*d
 		w1 := w01 + a20*d
 		w2 := w02 + a01*d
@@ -229,7 +243,13 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 			info.TotalPixels++
 			z := b0*s0.Z + b1*s1.Z + b2*s2.Z
 			bz := z + dc.DepthBias
-			if dc.ReadDepth && bz > dc.DepthBuffer[i] { // safe w/out lock?
+			lock := &dc.locks[(x+y)&255]
+			// check depth buffer for early abort, under the same lock
+			// that guards depth writes from parallel batch draws
+			lock.Lock()
+			earlyReject := dc.ReadDepth && bz > dc.DepthBuffer[i]
+			lock.Unlock()
+			if earlyReject {
 				continue
 			}
 			// perspective-correct interpolation of vertex data
@@ -237,12 +257,11 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 			b.W = 1 / (b.X + b.Y + b.Z)
 			v := InterpolateVertexes(v0, v1, v2, b)
 			// invoke fragment shader
-			color := dc.Shader.Fragment(v)
+			color := dc.fragmentColor(v)
 			if color == Discard {
 				continue
 			}
 			// update buffers atomically
-			lock := &dc.locks[(x+y)&255]
 			lock.Lock()
 			// check depth buffer again
 			if bz <= dc.DepthBuffer[i] || !dc.ReadDepth {
@@ -251,24 +270,8 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 					// update depth buffer
 					dc.DepthBuffer[i] = z
 				}
-				if dc.WriteColor {
-					// update color buffer
-					if dc.AlphaBlend && color.A < 1 {
-						sr, sg, sb, sa := color.NRGBA().RGBA()
-						a := (0xffff - sa) * 0x101
-						j := dc.ColorBuffer.PixOffset(x, y)
-						dr := &dc.ColorBuffer.Pix[j+0]
-						dg := &dc.ColorBuffer.Pix[j+1]
-						db := &dc.ColorBuffer.Pix[j+2]
-						da := &dc.ColorBuffer.Pix[j+3]
-						*dr = uint8((uint32(*dr)*a/0xffff + sr) >> 8)
-						*dg = uint8((uint32(*dg)*a/0xffff + sg) >> 8)
-						*db = uint8((uint32(*db)*a/0xffff + sb) >> 8)
-						*da = uint8((uint32(*da)*a/0xffff + sa) >> 8)
-					} else {
-						dc.ColorBuffer.SetNRGBA(x, y, color.NRGBA())
-					}
-				}
+				// update color buffer in the same critical section
+				dc.commitFragment(x, y, color)
 			}
 			lock.Unlock()
 		}
@@ -332,6 +335,11 @@ func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
 		a = -a
 	}
 	if dc.Cull != CullNone && a <= 0 {
+		return RasterizeInfo{}
+	}
+	if a == 0 {
+		// Clipping can produce duplicate vertices; a zero-area triangle
+		// covers no pixels and would make the edge reciprocals infinite.
 		return RasterizeInfo{}
 	}
 
