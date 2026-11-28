@@ -10,7 +10,8 @@ export function compile(text, options = {}) {
     style: tree.styles.style,
     defaultStyle: options.defaultStyle || {},
   });
-  return {
+  const editable = !!options.editableStyles;
+  const compiled = {
     info,
     width: info.PlayResX * 1 || null,
     height: info.PlayResY * 1 || null,
@@ -20,6 +21,11 @@ export function compile(text, options = {}) {
     dialogues: compileDialogues({
       styles,
       dialogues: tree.events.dialogue,
+      editable,
     }),
   };
+  if (editable) {
+    compiled.editableStyles = true;
+  }
+  return compiled;
 }

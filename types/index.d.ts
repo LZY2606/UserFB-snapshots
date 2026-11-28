@@ -182,6 +182,8 @@ export interface DialogueFragment {
     tag: CompiledTag;
     text: string;
     drawing?: DialogueDrawing;
+    // only present when compiled with `editableStyles: true`
+    origin?: FragmentOrigin;
 }
 
 export interface DialogueSlice {
@@ -200,6 +202,8 @@ export interface Dialogue {
         right: number;
         vertical: number;
     }
+    // only present when compiled with `editableStyles: true`
+    origin?: DialogueOrigin;
     effect?: EffectBanner | EffectScroll | EffectUnknown;
     alignment: number;
     q: 0 | 1 | 2 | 3;
@@ -255,8 +259,72 @@ export interface CompiledASS {
     wrapStyle: 0 | 1 | 2 | 3;
     styles: { [styleName: string]: CompiledASSStyle };
     dialogues: Dialogue[];
+    // only present when compiled with `editableStyles: true`
+    editableStyles?: boolean;
 }
 
-export function compile(text: string, options: object): CompiledASS;
+export interface CompileOptions {
+    defaultInfo?: Partial<ScriptInfo>;
+    defaultStyle?: object;
+    // keep per-fragment style origins so `updateStyles` can re-project
+    // them against patched styles later (default: false)
+    editableStyles?: boolean;
+}
+
+export function compile(text: string, options?: CompileOptions): CompiledASS;
 
 export function decompile(obj: CompiledASS): string;
+
+export type FontsizeOrigin =
+    | { type: 'inherit' }
+    | { type: 'value'; value: number }
+    | { type: 'relative'; factor: number; base: FontsizeOrigin };
+
+export type StyleValueOrigin =
+    | { type: 'inherit' }
+    | { type: 'value'; value: string };
+
+export interface FragmentOrigin {
+    fs: FontsizeOrigin;
+    c1: StyleValueOrigin;
+    a1: StyleValueOrigin;
+    projected: {
+        fs: number;
+        c1: string;
+        a1: string;
+    };
+}
+
+export interface DialogueOrigin {
+    margin: {
+        left: number | null;
+        right: number | null;
+        vertical: number | null;
+    };
+    projectedMargin: {
+        left: number;
+        right: number;
+        vertical: number;
+    };
+}
+
+export interface StylePatch {
+    // a positive finite number
+    Fontsize?: number;
+    // `&HAABBGGRR` or `&HAABBGGRR&`
+    PrimaryColour?: string;
+    // non-negative integers
+    MarginL?: number;
+    MarginR?: number;
+    MarginV?: number;
+}
+
+/**
+ * Apply a style patch to a document compiled with `editableStyles: true`
+ * and return a fully independent new document. Every fragment is
+ * re-projected from its saved origin against the patched styles.
+ */
+export function updateStyles(
+    document: CompiledASS,
+    changes: { [styleName: string]: StylePatch }
+): CompiledASS;

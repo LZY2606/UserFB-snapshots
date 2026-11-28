@@ -1,5 +1,6 @@
 import { stringifyInfo, stringifyTime, stringifyEffect } from './stringifier.js';
 import { stylesFormat, eventsFormat } from './utils.js';
+import { reconcileDocument, originEqual, fsOriginToTags, freshOrigins } from './editable.js';
 
 export function decompileStyle({ style, tag }) {
   const obj = Object.assign({}, style, {
@@ -115,7 +116,86 @@ export function decompileDialogue(dia, style) {
   ].join()}`;
 }
 
-export function decompile({ info, width, height, collisions, styles, dialogues }) {
+// --- editable documents -------------------------------------------------
+
+// Emit the tags that turn the current origins into the fragment's origins.
+// Relative font sizes, empty color resets and explicit equal-value margins
+// are written out as plain ASS, so a recompile recovers the same origins
+// without any private annotations.
+function decompileEditableText(dia, style) {
+  return dia.slices
+    .filter((slice) => slice.fragments.length)
+    .map((slice, idx) => {
+      let head = '';
+      if (idx || slice.style !== dia.style) {
+        head += slice.style === dia.style ? '\\r' : `\\r${slice.style}`;
+      }
+      if (!idx) {
+        if (style.Alignment !== dia.alignment) {
+          head += `\\an${dia.alignment}`;
+        }
+        ['pos', 'org', 'move', 'fade', 'clip'].forEach((key) => {
+          if (dia[key]) {
+            head += decompileTag({ [key]: dia[key] });
+          }
+        });
+      }
+      const current = freshOrigins();
+      return slice.fragments.map((fragment, fragmentIdx) => {
+        const { origin } = fragment;
+        let tags = fragmentIdx === 0 ? head : '';
+        const fsReset = origin.fs.type === 'inherit' && current.fs.type !== 'inherit';
+        const a1Reset = origin.a1.type === 'inherit' && current.a1.type !== 'inherit';
+        if (fsReset || a1Reset) {
+          // no standalone tag resets the font size or alpha back to the
+          // style, so fall back to `\r` and re-apply what is still needed
+          tags += slice.style === dia.style ? '\\r' : `\\r${slice.style}`;
+          Object.assign(current, freshOrigins());
+        }
+        const { fs, c1, a1, ...rest } = fragment.tag;
+        tags += decompileTag(rest);
+        if (!originEqual(origin.fs, current.fs)) {
+          tags += fsOriginToTags(current.fs, origin.fs);
+        }
+        if (!originEqual(origin.c1, current.c1)) {
+          tags += origin.c1.type === 'inherit' ? '\\c' : `\\1c&H${origin.c1.value}&`;
+        }
+        if (!originEqual(origin.a1, current.a1)) {
+          tags += `\\1a&H${origin.a1.value}&`;
+        }
+        current.fs = origin.fs;
+        current.c1 = origin.c1;
+        current.a1 = origin.a1;
+        const content = fragment.drawing ? decompileDrawing(fragment.drawing) : fragment.text;
+        return `${tags ? `{${tags}}` : ''}${content}`;
+      }).join('');
+    })
+    .join('');
+}
+
+function decompileEditableDialogue(dia, styles) {
+  const style = (styles[dia.style] || styles.Default).style;
+  const { margin } = dia.origin;
+  return `Dialogue: ${[
+    dia.layer,
+    stringifyTime(dia.start),
+    stringifyTime(dia.end),
+    dia.style,
+    dia.name,
+    margin.left === null ? '0000' : dia.margin.left,
+    margin.right === null ? '0000' : dia.margin.right,
+    margin.vertical === null ? '0000' : dia.margin.vertical,
+    stringifyEffect(dia.effect),
+    decompileEditableText(dia, style),
+  ].join()}`;
+}
+
+export function decompile(input) {
+  const editable = !!(input && input.editableStyles);
+  // reconcile on a clone so direct edits are honored without mutating the input
+  const { info, width, height, collisions, styles, dialogues } = editable
+    ? reconcileDocument(JSON.parse(JSON.stringify(input)))
+    : input;
   return [
     '[Script Info]',
     stringifyInfo(Object.assign({}, info, {
@@ -132,7 +212,9 @@ export function decompile({ info, width, height, collisions, styles, dialogues }
     `Format: ${eventsFormat.join(', ')}`,
     ...dialogues
       .sort((x, y) => x.start - y.start || x.end - y.end)
-      .map((dia) => decompileDialogue(dia, styles[dia.style].style)),
+      .map((dia) => (editable
+        ? decompileEditableDialogue(dia, styles)
+        : decompileDialogue(dia, styles[dia.style].style))),
     '',
   ].join('\n');
 }

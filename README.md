@@ -75,7 +75,62 @@ const decompiledText = decompile(compiledASS);
     MarginV: '10',
     Encoding: '1',
   },
+  // Keep per-fragment style origins (font size, primary color, alpha and
+  // dialogue margins) so styles can be edited later via `updateStyles`.
+  // Disabled by default; `\t` transform tags are rejected when enabled.
+  editableStyles: false,
 }
 ```
 
 For details of data structure, please use the [online viewer](https://ass.js.org/ass-compiler/).
+
+## Editing styles
+
+With `editableStyles: true`, every fragment keeps a JSON-safe `origin`
+record of where its effective `tag.fs`/`tag.c1`/`tag.a1` come from
+(inherited from the slice style, an absolute override like `\fs30`, or a
+relative dependency like `\fs+2`), and every dialogue keeps the explicit
+vs inherited state of its margins. `updateStyles` applies a style patch
+and returns a fully independent new document with every fragment
+re-projected from those origins — the input document and the patch are
+never mutated.
+
+```js
+import { compile, decompile, updateStyles } from 'ass-compiler';
+
+const doc = compile(text, { editableStyles: true });
+
+// chained updates: relative font sizes are recomputed from the saved
+// dependency each time, not multiplied on top of the previous result
+const step1 = updateStyles(doc, {
+  Default: { Fontsize: 40, PrimaryColour: '&H00445566' },
+  Alt: { MarginL: 30, MarginR: 30, MarginV: 30 },
+});
+const step2 = updateStyles(step1, { Alt: { Fontsize: 25 } });
+```
+
+Only `Fontsize` (a positive finite number), `PrimaryColour`
+(`&HAABBGGRR` or `&HAABBGGRR&`) and `MarginL`/`MarginR`/`MarginV`
+(non-negative integers) can be patched; unknown style names, unknown
+fields and invalid values throw. Calling `updateStyles` with a document
+that was compiled without `editableStyles` throws as well.
+
+Between updates the document may be edited directly: texts, timings,
+fragment order, `slice.style`, and fragments copied via
+`JSON.parse(JSON.stringify(fragment))` are all honored. A `tag.fs`,
+`tag.c1` or `tag.a1` value that differs from the last projection becomes
+a new absolute override, deleting the field makes the fragment inherit
+again, and a zeroed or removed dialogue margin falls back to the style.
+
+`decompile` writes the current state as plain ASS — relative font sizes,
+empty color resets and explicit equal-value margins included — so saving
+and reloading loses nothing:
+
+```js
+// save and reload, then keep updating: the result is identical to
+// updating the in-memory document directly
+const saved = decompile(step1);
+const reloaded = compile(saved, { editableStyles: true });
+const continued = updateStyles(reloaded, { Alt: { Fontsize: 25 } });
+```
+
