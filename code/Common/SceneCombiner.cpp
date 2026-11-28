@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 // ----------------------------------------------------------------------------
 #include "ScenePrivate.h"
+#include "PostProcessing/MorphTargetBake.h"
 #include <assimp/Hash.h>
 #include <assimp/SceneCombiner.h>
 #include <assimp/StringUtils.h>
@@ -64,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unordered_set>
 #include <ctime>
 #include <cstdio>
+#include <stdexcept>
 
 namespace Assimp {
 
@@ -779,7 +781,7 @@ void SceneCombiner::MergeBones(aiMesh *out, std::vector<aiMesh *>::const_iterato
 
 // ------------------------------------------------------------------------------------------------
 // Merge a list of meshes
-void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
+void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int flags,
         std::vector<aiMesh *>::const_iterator begin,
         std::vector<aiMesh *>::const_iterator end) {
     if (nullptr == _out) {
@@ -789,6 +791,17 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
     if (begin == end) {
         *_out = nullptr; // no meshes ...
         return;
+    }
+
+    const bool preserveMorphs = (flags & AI_INT_MERGE_MESHES_PRESERVE_MORPHS) != 0;
+    if (preserveMorphs) {
+        // The ordered morph target layout is part of the merge identity.
+        for (std::vector<aiMesh *>::const_iterator it = begin + 1; it != end; ++it) {
+            if (!MorphTargetBake::SameMorphLayout(**begin, **it)) {
+                throw std::invalid_argument(
+                        "SceneCombiner::MergeMeshes: incompatible morph target layouts");
+            }
+        }
     }
 
     // Allocate the output mesh
@@ -858,34 +871,88 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
             }
         }
         // copy texture coordinates
-        unsigned int n = 0;
-        while ((**begin).HasTextureCoords(n)) {
-            out->mNumUVComponents[n] = (*begin)->mNumUVComponents[n];
-
-            pv2 = out->mTextureCoords[n] = new aiVector3D[out->mNumVertices];
-            for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
-                if ((*it)->mTextureCoords[n]) {
-                    ::memcpy(pv2, (*it)->mTextureCoords[n], (*it)->mNumVertices * sizeof(aiVector3D));
-                } else {
-                    ASSIMP_LOG_WARN("JoinMeshes: UVs expected but input mesh contains no UVs");
+        if (preserveMorphs) {
+            // Sparse-aware: every populated UV slot is kept, even if an
+            // earlier slot is empty or another segment lacks the slot.
+            for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++n) {
+                const aiMesh *slotMesh = nullptr;
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mTextureCoords[n]) {
+                        slotMesh = *it;
+                        break;
+                    }
                 }
-                pv2 += (*it)->mNumVertices;
+                if (!slotMesh) {
+                    continue;
+                }
+
+                out->mNumUVComponents[n] = slotMesh->mNumUVComponents[n];
+                pv2 = out->mTextureCoords[n] = new aiVector3D[out->mNumVertices];
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mTextureCoords[n]) {
+                        ::memcpy(pv2, (*it)->mTextureCoords[n], (*it)->mNumVertices * sizeof(aiVector3D));
+                    } else {
+                        ASSIMP_LOG_WARN("JoinMeshes: UVs expected but input mesh contains no UVs");
+                    }
+                    pv2 += (*it)->mNumVertices;
+                }
             }
-            ++n;
+        } else {
+            unsigned int n = 0;
+            while ((**begin).HasTextureCoords(n)) {
+                out->mNumUVComponents[n] = (*begin)->mNumUVComponents[n];
+
+                pv2 = out->mTextureCoords[n] = new aiVector3D[out->mNumVertices];
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mTextureCoords[n]) {
+                        ::memcpy(pv2, (*it)->mTextureCoords[n], (*it)->mNumVertices * sizeof(aiVector3D));
+                    } else {
+                        ASSIMP_LOG_WARN("JoinMeshes: UVs expected but input mesh contains no UVs");
+                    }
+                    pv2 += (*it)->mNumVertices;
+                }
+                ++n;
+            }
         }
         // copy vertex colors
-        n = 0;
-        while ((**begin).HasVertexColors(n)) {
-            aiColor4D *pVec2 = out->mColors[n] = new aiColor4D[out->mNumVertices];
-            for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
-                if ((*it)->mColors[n]) {
-                    ::memcpy(pVec2, (*it)->mColors[n], (*it)->mNumVertices * sizeof(aiColor4D));
-                } else {
-                    ASSIMP_LOG_WARN("JoinMeshes: VCs expected but input mesh contains no VCs");
+        if (preserveMorphs) {
+            // Sparse-aware: every populated color slot is kept.
+            for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_COLOR_SETS; ++n) {
+                bool any = false;
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mColors[n]) {
+                        any = true;
+                        break;
+                    }
                 }
-                pVec2 += (*it)->mNumVertices;
+                if (!any) {
+                    continue;
+                }
+
+                aiColor4D *pVec2 = out->mColors[n] = new aiColor4D[out->mNumVertices];
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mColors[n]) {
+                        ::memcpy(pVec2, (*it)->mColors[n], (*it)->mNumVertices * sizeof(aiColor4D));
+                    } else {
+                        ASSIMP_LOG_WARN("JoinMeshes: VCs expected but input mesh contains no VCs");
+                    }
+                    pVec2 += (*it)->mNumVertices;
+                }
             }
-            ++n;
+        } else {
+            unsigned int n = 0;
+            while ((**begin).HasVertexColors(n)) {
+                aiColor4D *pVec2 = out->mColors[n] = new aiColor4D[out->mNumVertices];
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->mColors[n]) {
+                        ::memcpy(pVec2, (*it)->mColors[n], (*it)->mNumVertices * sizeof(aiColor4D));
+                    } else {
+                        ASSIMP_LOG_WARN("JoinMeshes: VCs expected but input mesh contains no VCs");
+                    }
+                    pVec2 += (*it)->mNumVertices;
+                }
+                ++n;
+            }
         }
     }
 
@@ -900,15 +967,28 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
             for (unsigned int m = 0; m < (*it)->mNumFaces; ++m, ++pf2) {
                 aiFace &face = (*it)->mFaces[m];
                 pf2->mNumIndices = face.mNumIndices;
-                pf2->mIndices = face.mIndices;
 
-                if (ofs) {
-                    // add the offset to the vertex
-                    for (unsigned int q = 0; q < face.mNumIndices; ++q) {
-                        face.mIndices[q] += ofs;
+                if (preserveMorphs) {
+                    // The inputs stay untouched: own index arrays.
+                    pf2->mIndices = new unsigned int[face.mNumIndices];
+                    ::memcpy(pf2->mIndices, face.mIndices,
+                            face.mNumIndices * sizeof(unsigned int));
+                    if (ofs) {
+                        for (unsigned int q = 0; q < face.mNumIndices; ++q) {
+                            pf2->mIndices[q] += ofs;
+                        }
                     }
+                } else {
+                    pf2->mIndices = face.mIndices;
+
+                    if (ofs) {
+                        // add the offset to the vertex
+                        for (unsigned int q = 0; q < face.mNumIndices; ++q) {
+                            face.mIndices[q] += ofs;
+                        }
+                    }
+                    face.mIndices = nullptr;
                 }
-                face.mIndices = nullptr;
             }
             ofs += (*it)->mNumVertices;
         }
@@ -918,9 +998,35 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
     if (out->mNumBones)
         MergeBones(out, begin, end);
 
-    // delete all source meshes
-    for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it)
-        delete *it;
+    if (preserveMorphs) {
+        // Stitch the morph targets. The segments already live in their
+        // final coordinate space, so missing replacement channels are
+        // filled from the segment's own base mesh values.
+        std::vector<MorphTargetBake::Segment> segments;
+        segments.reserve(static_cast<size_t>(end - begin));
+        unsigned int offset = 0;
+        for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+            MorphTargetBake::Segment segment;
+            segment.source = *it;
+            segment.transform = nullptr;
+            segment.bakedBase = *it;
+            segment.baseOffset = 0;
+            segment.outOffset = offset;
+            segment.vertexCount = (*it)->mNumVertices;
+            segments.push_back(segment);
+            offset += (*it)->mNumVertices;
+        }
+
+        out->mMethod = (*begin)->mMethod;
+        MorphTargetBake::BuildStitchedMorphs(segments, out->mAnimMeshes,
+                out->mNumAnimMeshes);
+
+        // The inputs remain valid and keep ownership of all their data.
+    } else {
+        // delete all source meshes
+        for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it)
+            delete *it;
+    }
 }
 
 // ------------------------------------------------------------------------------------------------

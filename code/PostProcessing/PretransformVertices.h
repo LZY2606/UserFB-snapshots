@@ -100,6 +100,23 @@ public:
 		return mConfigKeepHierarchy;
 	}
 
+	// -------------------------------------------------------------------
+	/** @brief Toggle the 'preserve morph targets' option
+     *  @param preserve    true to bake node transforms into morph target
+     *      anim meshes instead of leaving or dropping them.
+     */
+	void PreserveMorphs(bool preserve) {
+		mConfigPreserveMorphs = preserve;
+	}
+
+	// -------------------------------------------------------------------
+	/** @brief Check whether morph target preservation is enabled.
+     *  @return ...
+     */
+	bool AreMorphsPreserved() const {
+		return mConfigPreserveMorphs;
+	}
+
 private:
 	// -------------------------------------------------------------------
 	// Count the number of nodes
@@ -160,6 +177,8 @@ private:
 	bool mConfigTransform;
 	aiMatrix4x4 mConfigTransformation;
 	bool mConfigPointCloud;
+	//! Configuration option: bake transforms into morph target anim meshes
+	bool mConfigPreserveMorphs;
 };
 
 } // end of namespace Assimp

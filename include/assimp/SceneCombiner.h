@@ -137,6 +137,18 @@ struct NodeAttachmentInfo {
  */
 #define AI_INT_MERGE_SCENE_GEN_UNIQUE_NAMES_IF_NECESSARY 0x10
 
+/** @def AI_INT_MERGE_MESHES_PRESERVE_MORPHS
+ * Flag for SceneCombiner::MergeMeshes: keep morph targets
+ * (aiMesh::mAnimMeshes) while merging. The input meshes must share the
+ * same ordered morph target layout (aiMesh::mMethod, target count and,
+ * per target, name and weight), otherwise std::invalid_argument is
+ * thrown. Compatible targets are stitched per replacement channel:
+ * segments with a replacement array contribute their own values,
+ * segments without one inherit the base mesh values of that segment.
+ * The input meshes are not modified.
+ */
+#define AI_INT_MERGE_MESHES_PRESERVE_MORPHS 0x1
+
 using BoneSrcIndex = std::pair<aiBone *, unsigned int> ;
 
 // ---------------------------------------------------------------------------
@@ -233,7 +245,10 @@ public:
      *  material index is always the material index of the first mesh.
      *
      *  @param dest Destination mesh. Must be empty.
-     *  @param flags Currently no parameters
+     *  @param flags Combination of the AI_INT_MERGE_MESHES flags defined
+     *    above. With #AI_INT_MERGE_MESHES_PRESERVE_MORPHS the morph
+     *    targets are merged as well and incompatible morph layouts raise
+     *    std::invalid_argument.
      *  @param begin First mesh to be processed
      *  @param end Points to the mesh after the last mesh to be processed
      */

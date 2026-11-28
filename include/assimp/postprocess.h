@@ -228,6 +228,13 @@ enum aiPostProcessSteps
     * @note The <tt>#AI_CONFIG_PP_PTV_NORMALIZE</tt> configuration property
     * can be set to normalize the scene's spatial dimension to the -1...1
     * range.
+    * @note Morph targets (#aiMesh::mAnimMeshes) are normally left in
+    * their original local coordinates when the hierarchy is kept and are
+    * dropped when the hierarchy is collapsed. Setting the
+    * <tt>#AI_CONFIG_PP_PTV_PRESERVE_MORPHS</tt> configuration property
+    * bakes the node transformations into the morph targets in both
+    * hierarchy modes instead, keeping the base meshes and their targets
+    * in the same coordinate space.
     */
     aiProcess_PreTransformVertices = 0x100,
 

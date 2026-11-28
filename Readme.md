@@ -33,6 +33,52 @@ ninja
 ## Documentation
 Read [our latest documentation](https://the-asset-importer-lib-documentation.readthedocs.io/en/latest/).
 
+## Baking morph targets with PreTransformVertices
+
+`aiProcess_PreTransformVertices` bakes the node transformations into the
+meshes. By default the morph targets (`aiMesh::mAnimMeshes`) are left in
+their original local coordinates when the hierarchy is kept and are
+dropped when it is collapsed. Enable the boolean property
+`AI_CONFIG_PP_PTV_PRESERVE_MORPHS` (property name `PP_PTV_PRESERVE_MORPHS`,
+default off) to bake the transformations into the morph targets as well.
+The option works in both hierarchy modes; leaving it off preserves the
+historical behavior.
+
+```cpp
+Assimp::Importer importer;
+importer.SetPropertyBool(AI_CONFIG_PP_PTV_PRESERVE_MORPHS, true);
+const aiScene *scene = importer.ReadFile(
+        "model.gltf",
+        aiProcess_PreTransformVertices | aiProcess_Triangulate);
+```
+
+Positions are multiplied with the full accumulated node matrix while
+normals, tangents and bitangents use its inverse-transpose and are
+normalized. UV and color streams are copied without spatial
+transformation; empty anim-mesh streams keep inheriting the transformed
+base mesh. When the hierarchy is collapsed, meshes are only merged when
+their ordered morph target layout (`mMethod`, target count, per-target
+names and weights) matches, and the targets are stitched per
+replacement channel. With `AI_CONFIG_PP_PTV_NORMALIZE` enabled, the
+normalization translation and uniform scale are computed from the baked
+base bounding box and applied to every morph target as well, so targets
+may extend beyond the normalized base range.
+
+The same stitching contract is available directly through
+`Assimp::SceneCombiner::MergeMeshes` by passing the
+`AI_INT_MERGE_MESHES_PRESERVE_MORPHS` (0x1) flag. Incompatible morph
+layouts raise `std::invalid_argument`, an empty range still returns a
+null output mesh, `flags == 0` keeps the legacy behavior, and the input
+meshes are never modified or deleted:
+
+```cpp
+aiMesh *merged = nullptr;
+Assimp::SceneCombiner::MergeMeshes(
+        &merged,
+        AI_INT_MERGE_MESHES_PRESERVE_MORPHS,
+        meshes.begin(), meshes.end());
+```
+
 ## Pre-built binaries
 Download binaries from [our Itch Projectspace](https://kimkulling.itch.io/the-asset-importer-lib).
 

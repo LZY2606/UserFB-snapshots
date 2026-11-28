@@ -746,6 +746,8 @@ SET( PostProcessing_SRCS
   PostProcessing/GenVertexNormalsProcess.h
   PostProcessing/PretransformVertices.cpp
   PostProcessing/PretransformVertices.h
+  PostProcessing/MorphTargetBake.cpp
+  PostProcessing/MorphTargetBake.h
   PostProcessing/ImproveCacheLocality.cpp
   PostProcessing/ImproveCacheLocality.h
   PostProcessing/JoinVerticesProcess.cpp

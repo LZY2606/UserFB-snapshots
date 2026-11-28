@@ -1,0 +1,23 @@
+CASE instances keep_shared_source checks=106
+CASE instances collapse_shared_source checks=88
+CASE instances collapse_complementary_channels checks=60
+CASE instances sparse_slots checks=36
+CASE instances reflection_winding checks=17
+CASE instances disabled_legacy_behavior checks=7
+CASE instances hierarchy_side_effects checks=5
+CASE instances identity_transform checks=10
+CASE instances target_tangents checks=19
+CASE instances distinct_layouts_separate checks=12
+GROUP instances cases=10 checks=360 COMPLETE
+CASE merge stitch_union checks=48
+CASE merge sparse_slots checks=8
+CASE merge incompatible_layouts checks=13
+CASE merge empty_range checks=1
+CASE merge flags_zero_legacy checks=4
+CASE merge independent_lifecycle checks=7
+GROUP merge cases=6 checks=81 COMPLETE
+CASE normalize collapse_mapping checks=15
+CASE normalize keep_mapping checks=25
+CASE normalize uniform_mapping checks=10
+GROUP normalize cases=3 checks=50 COMPLETE
+TARGET_COMPLETE cases=19

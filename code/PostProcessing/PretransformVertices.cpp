@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "PretransformVertices.h"
 #include "ConvertToLHProcess.h"
+#include "MorphTargetBake.h"
 #include "ProcessHelper.h"
 #include <assimp/Exceptional.h>
 #include <assimp/SceneCombiner.h>
@@ -83,6 +84,216 @@ static void GetVFormatList(const aiScene *pcScene, unsigned int iMat, std::list<
 	}
 }
 
+// Sparse-aware vertex format for morph-preserving collapses: every
+// non-null UV/color slot contributes, even when an earlier slot is empty.
+// The bit layout matches GetMeshVFormatUnique().
+static unsigned int GetMeshVFormatSparse(const aiMesh *mesh) {
+	unsigned int fmt = 1;
+	if (mesh->mNormals) {
+		fmt |= 0x2;
+	}
+	if (mesh->mTangents && mesh->mBitangents) {
+		fmt |= 0x4;
+	}
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++p) {
+		if (mesh->mTextureCoords[p]) {
+			fmt |= (0x100u << p);
+			if (mesh->mNumUVComponents[p] == 3) {
+				fmt |= (0x10000u << p);
+			}
+		}
+	}
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_COLOR_SETS; ++p) {
+		if (mesh->mColors[p]) {
+			fmt |= (0x1000000u << p);
+		}
+	}
+	return fmt;
+}
+
+// One output bucket of the morph-preserving collapse: meshes with the
+// same material, sparse vertex format and ordered morph target layout.
+struct MorphBakeGroup {
+	unsigned int material;
+	unsigned int vformat;
+	const aiMesh *layout;
+	unsigned int numVertices;
+	unsigned int numFaces;
+	std::vector<MorphTargetBake::Segment> segments;
+
+	MorphBakeGroup(unsigned int mat, unsigned int fmt, const aiMesh *first) :
+			material(mat), vformat(fmt), layout(first), numVertices(0), numFaces(0) {}
+};
+
+// First traversal: assign every node/mesh reference to a bake group.
+static void FindMorphBakeGroups(const aiScene *scene, const aiNode *node,
+		std::vector<MorphBakeGroup> &groups) {
+	for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+		const aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+		const unsigned int fmt = GetMeshVFormatSparse(mesh);
+
+		MorphBakeGroup *group = nullptr;
+		for (MorphBakeGroup &candidate : groups) {
+			if (candidate.material == mesh->mMaterialIndex && candidate.vformat == fmt &&
+					MorphTargetBake::SameMorphLayout(*mesh, *candidate.layout)) {
+				group = &candidate;
+				break;
+			}
+		}
+		if (!group) {
+			groups.emplace_back(mesh->mMaterialIndex, fmt, mesh);
+			group = &groups.back();
+		}
+		group->numVertices += mesh->mNumVertices;
+		group->numFaces += mesh->mNumFaces;
+	}
+	for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+		FindMorphBakeGroups(scene, node->mChildren[i], groups);
+	}
+}
+
+// Allocate the base streams of a collapsed output mesh for a sparse
+// vertex format.
+static aiMesh *AllocateBakedMesh(const MorphBakeGroup &group) {
+	aiMesh *out = new aiMesh();
+	const unsigned int fmt = group.vformat;
+	out->mMaterialIndex = group.material;
+	out->mNumVertices = group.numVertices;
+	out->mNumFaces = group.numFaces;
+	out->mFaces = new aiFace[group.numFaces];
+	out->mVertices = new aiVector3D[group.numVertices];
+	if (fmt & 0x2) {
+		out->mNormals = new aiVector3D[group.numVertices];
+	}
+	if (fmt & 0x4) {
+		out->mTangents = new aiVector3D[group.numVertices];
+		out->mBitangents = new aiVector3D[group.numVertices];
+	}
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++p) {
+		if (fmt & (0x100u << p)) {
+			out->mTextureCoords[p] = new aiVector3D[group.numVertices];
+			out->mNumUVComponents[p] = (fmt & (0x10000u << p)) ? 3 : 2;
+		}
+	}
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_COLOR_SETS; ++p) {
+		if (fmt & (0x1000000u << p)) {
+			out->mColors[p] = new aiColor4D[group.numVertices];
+		}
+	}
+	return out;
+}
+
+// Second traversal: fill the base streams and faces of a bake group and
+// record the segments needed to stitch its morph targets.
+static void CollectMorphBakeGroup(const aiScene *scene, const aiNode *node,
+		MorphBakeGroup &group, aiMesh *out, unsigned int *num_refs,
+		unsigned int &curVertex, unsigned int &curFace) {
+	const bool identity = node->mTransformation.IsIdentity();
+	for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+		const unsigned int meshIndex = node->mMeshes[i];
+		aiMesh *mesh = scene->mMeshes[meshIndex];
+		if (mesh->mMaterialIndex != group.material ||
+				GetMeshVFormatSparse(mesh) != group.vformat ||
+				!MorphTargetBake::SameMorphLayout(*mesh, *group.layout)) {
+			continue;
+		}
+
+		unsigned int &num_ref = num_refs[meshIndex];
+		ai_assert(0 != num_ref);
+		--num_ref;
+		if (num_ref == 0) {
+			out->mName = mesh->mName;
+		}
+
+		const unsigned int n = mesh->mNumVertices;
+		const unsigned int vBase = curVertex;
+		if (identity) {
+			::memcpy(out->mVertices + vBase, mesh->mVertices, n * sizeof(aiVector3D));
+			if (mesh->mNormals) {
+				::memcpy(out->mNormals + vBase, mesh->mNormals, n * sizeof(aiVector3D));
+			}
+			if (mesh->mTangents) {
+				::memcpy(out->mTangents + vBase, mesh->mTangents, n * sizeof(aiVector3D));
+				::memcpy(out->mBitangents + vBase, mesh->mBitangents, n * sizeof(aiVector3D));
+			}
+		} else {
+			for (unsigned int v = 0; v < n; ++v) {
+				out->mVertices[vBase + v] = node->mTransformation * mesh->mVertices[v];
+			}
+			const aiMatrix3x3 normal = aiMatrix3x3(node->mTransformation).Inverse().Transpose();
+			if (mesh->mNormals) {
+				for (unsigned int v = 0; v < n; ++v) {
+					out->mNormals[vBase + v] = (normal * mesh->mNormals[v]).Normalize();
+				}
+			}
+			if (mesh->mTangents) {
+				for (unsigned int v = 0; v < n; ++v) {
+					out->mTangents[vBase + v] = (normal * mesh->mTangents[v]).Normalize();
+					out->mBitangents[vBase + v] = (normal * mesh->mBitangents[v]).Normalize();
+				}
+			}
+		}
+		for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++p) {
+			if (mesh->mTextureCoords[p]) {
+				::memcpy(out->mTextureCoords[p] + vBase, mesh->mTextureCoords[p],
+						n * sizeof(aiVector3D));
+			}
+		}
+		for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_COLOR_SETS; ++p) {
+			if (mesh->mColors[p]) {
+				::memcpy(out->mColors[p] + vBase, mesh->mColors[p], n * sizeof(aiColor4D));
+			}
+		}
+
+		for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
+			aiFace &fSrc = mesh->mFaces[f];
+			aiFace &fDst = out->mFaces[curFace + f];
+			const unsigned int numIdx = fSrc.mNumIndices;
+			fDst.mNumIndices = numIdx;
+			unsigned int *indices;
+			if (!num_ref) {
+				indices = fDst.mIndices = fSrc.mIndices;
+			} else {
+				indices = fDst.mIndices = new unsigned int[numIdx];
+				::memcpy(indices, fSrc.mIndices, numIdx * sizeof(unsigned int));
+			}
+			for (unsigned int q = 0; q < numIdx; ++q) {
+				indices[q] += vBase;
+			}
+			switch (numIdx) {
+				case 0x1:
+					out->mPrimitiveTypes |= aiPrimitiveType_POINT;
+					break;
+				case 0x2:
+					out->mPrimitiveTypes |= aiPrimitiveType_LINE;
+					break;
+				case 0x3:
+					out->mPrimitiveTypes |= aiPrimitiveType_TRIANGLE;
+					break;
+				default:
+					out->mPrimitiveTypes |= aiPrimitiveType_POLYGON;
+					break;
+			}
+		}
+
+		MorphTargetBake::Segment segment;
+		segment.source = mesh;
+		segment.transform = identity ? nullptr : &node->mTransformation;
+		segment.bakedBase = out;
+		segment.baseOffset = vBase;
+		segment.outOffset = vBase;
+		segment.vertexCount = n;
+		group.segments.push_back(segment);
+
+		curVertex += n;
+		curFace += mesh->mNumFaces;
+	}
+
+	for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+		CollectMorphBakeGroup(scene, node->mChildren[i], group, out, num_refs, curVertex, curFace);
+	}
+}
+
 }
 // ------------------------------------------------------------------------------------------------
 // Constructor to be privately used by Importer
@@ -91,7 +302,8 @@ PretransformVertices::PretransformVertices() :
 		mConfigNormalize(false),
 		mConfigTransform(false),
 		mConfigTransformation(),
-		mConfigPointCloud(false) {}
+		mConfigPointCloud(false),
+		mConfigPreserveMorphs(false) {}
 
 // ------------------------------------------------------------------------------------------------
 // Returns whether the processing step is present in the given flag field.
@@ -103,9 +315,11 @@ bool PretransformVertices::IsActive(unsigned int pFlags) const {
 // Setup import configuration
 void PretransformVertices::SetupProperties(const Importer *pImp) {
 	// Get the current value of AI_CONFIG_PP_PTV_KEEP_HIERARCHY, AI_CONFIG_PP_PTV_NORMALIZE,
-	// AI_CONFIG_PP_PTV_ADD_ROOT_TRANSFORMATION and AI_CONFIG_PP_PTV_ROOT_TRANSFORMATION
+	// AI_CONFIG_PP_PTV_PRESERVE_MORPHS, AI_CONFIG_PP_PTV_ADD_ROOT_TRANSFORMATION and
+	// AI_CONFIG_PP_PTV_ROOT_TRANSFORMATION
 	mConfigKeepHierarchy = (0 != pImp->GetPropertyInteger(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, 0));
 	mConfigNormalize = (0 != pImp->GetPropertyInteger(AI_CONFIG_PP_PTV_NORMALIZE, 0));
+	mConfigPreserveMorphs = (0 != pImp->GetPropertyInteger(AI_CONFIG_PP_PTV_PRESERVE_MORPHS, 0));
 	mConfigTransform = (0 != pImp->GetPropertyInteger(AI_CONFIG_PP_PTV_ADD_ROOT_TRANSFORMATION, 0));
 
 	mConfigTransformation = pImp->GetPropertyMatrix(AI_CONFIG_PP_PTV_ROOT_TRANSFORMATION, aiMatrix4x4());
@@ -475,11 +689,93 @@ void PretransformVertices::Execute(aiScene *pScene) {
 
 		// now iterate through all meshes and transform them to world-space
 		for (unsigned int i = 0; i < pScene->mNumMeshes; ++i) {
-			ApplyTransform(pScene->mMeshes[i], *reinterpret_cast<aiMatrix4x4 *>(pScene->mMeshes[i]->mBones));
+			aiMatrix4x4 &mat = *reinterpret_cast<aiMatrix4x4 *>(pScene->mMeshes[i]->mBones);
+
+			aiAnimMesh **detachedMorphs = nullptr;
+			unsigned int detachedNumMorphs = 0;
+			if (mConfigPreserveMorphs) {
+				// FlipWindingOrderProcess reverses anim mesh stream order,
+				// which would break the per-vertex correspondence between
+				// replacement streams and the (not reordered) base vertices.
+				// The face winding alone needs flipping, so keep the morph
+				// targets out of ApplyTransform and bake them afterwards.
+				detachedMorphs = pScene->mMeshes[i]->mAnimMeshes;
+				detachedNumMorphs = pScene->mMeshes[i]->mNumAnimMeshes;
+				pScene->mMeshes[i]->mAnimMeshes = nullptr;
+				pScene->mMeshes[i]->mNumAnimMeshes = 0;
+			}
+
+			ApplyTransform(pScene->mMeshes[i], mat);
+
+			if (mConfigPreserveMorphs) {
+				pScene->mMeshes[i]->mAnimMeshes = detachedMorphs;
+				pScene->mMeshes[i]->mNumAnimMeshes = detachedNumMorphs;
+
+				// bake the same transform into the morph targets so their
+				// replacement streams stay in the mesh's coordinate space
+				MorphTargetBake::TransformMeshMorphs(*pScene->mMeshes[i], mat);
+			}
 
 			// prevent improper destruction
             pScene->mMeshes[i]->mBones = nullptr;
 			pScene->mMeshes[i]->mNumBones = 0;
+		}
+	} else if (mConfigPreserveMorphs) {
+		// Morph-preserving collapse: group node/mesh references by material,
+		// sparse vertex format and ordered morph target layout, bake each
+		// segment with its own accumulated matrix and stitch the targets.
+		std::vector<unsigned int> s(pScene->mNumMeshes, 0);
+		BuildMeshRefCountArray(pScene->mRootNode, &s[0]);
+
+		std::vector<MorphBakeGroup> groups;
+		FindMorphBakeGroups(pScene, pScene->mRootNode, groups);
+
+		for (MorphBakeGroup &group : groups) {
+			aiMesh *baked = AllocateBakedMesh(group);
+
+			unsigned int curVertex = 0;
+			unsigned int curFace = 0;
+			CollectMorphBakeGroup(pScene, pScene->mRootNode, group, baked, &s[0], curVertex, curFace);
+
+			baked->mMethod = group.layout->mMethod;
+			MorphTargetBake::BuildStitchedMorphs(group.segments, baked->mAnimMeshes,
+					baked->mNumAnimMeshes);
+
+			apcOutMeshes.push_back(baked);
+		}
+
+		// If no meshes are referenced in the node graph it is possible that we get no output meshes.
+		if (apcOutMeshes.empty()) {
+			throw DeadlyImportError("No output meshes: all meshes are orphaned and are not referenced by any nodes");
+		} else {
+			// now delete all meshes in the scene and build a new mesh list
+			for (unsigned int i = 0; i < pScene->mNumMeshes; ++i) {
+				aiMesh *mesh = pScene->mMeshes[i];
+				mesh->mNumBones = 0;
+                mesh->mBones = nullptr;
+
+				// we're reusing the face index arrays. avoid destruction
+				for (unsigned int a = 0; a < mesh->mNumFaces; ++a) {
+					mesh->mFaces[a].mNumIndices = 0;
+                    mesh->mFaces[a].mIndices = nullptr;
+				}
+
+				delete mesh;
+
+				// Invalidate the contents of the old mesh array. We will most
+				// likely have less output meshes now, so the last entries of
+				// the mesh array are not overridden. We set them to nullptr to
+				// make sure the developer gets notified when his application
+				// attempts to access these fields ...
+                mesh = nullptr;
+			}
+
+			// It is impossible that we have more output meshes than
+			// input meshes, so we can easily reuse the old mesh array
+			pScene->mNumMeshes = (unsigned int)apcOutMeshes.size();
+			for (unsigned int i = 0; i < pScene->mNumMeshes; ++i) {
+				pScene->mMeshes[i] = apcOutMeshes[i];
+			}
 		}
 	} else {
 		apcOutMeshes.reserve(static_cast<size_t>(pScene->mNumMaterials) << 1u);
@@ -674,6 +970,21 @@ void PretransformVertices::Execute(aiScene *pScene) {
 			aiMesh *m = pScene->mMeshes[a];
 			for (unsigned int i = 0; i < m->mNumVertices; ++i) {
 				m->mVertices[i] = (m->mVertices[i] - d) / div;
+			}
+
+			// The same translation and uniform scale applies to every
+			// morph target; targets are not normalized on their own and
+			// may extend beyond the base bounding box.
+			if (mConfigPreserveMorphs) {
+				for (unsigned int t = 0; t < m->mNumAnimMeshes; ++t) {
+					aiAnimMesh *morph = m->mAnimMeshes[t];
+					if (!morph->mVertices) {
+						continue;
+					}
+					for (unsigned int i = 0; i < morph->mNumVertices; ++i) {
+						morph->mVertices[i] = (morph->mVertices[i] - d) / div;
+					}
+				}
 			}
 		}
 	}

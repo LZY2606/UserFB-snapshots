@@ -207,6 +207,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     "PP_PTV_NORMALIZE"
 
 // ---------------------------------------------------------------------------
+/** @brief Configures the #aiProcess_PreTransformVertices step to preserve
+ *  morph targets (#aiMesh::mAnimMeshes) while the node transformations are
+ *  baked into the meshes.
+ *
+ *  Without this option the step leaves the anim meshes in their original
+ *  local coordinates when the hierarchy is kept and drops them entirely
+ *  when the hierarchy is collapsed. With the option enabled, every
+ *  non-empty replacement stream of an anim mesh is transformed together
+ *  with the base mesh of the node that references it: positions use the
+ *  full node matrix while normals, tangents and bitangents use the
+ *  inverse-transpose of the linear part and are normalized. UV and color
+ *  streams are copied without any spatial transformation. Empty streams
+ *  keep inheriting the (transformed) data of the host base mesh.
+ *
+ *  When the hierarchy is collapsed, meshes are only merged if their
+ *  ordered morph target layout (mMethod, target count, target names and
+ *  weights) matches; compatible targets are stitched per channel.
+ * Property type: bool. Default value: false.
+ */
+#define AI_CONFIG_PP_PTV_PRESERVE_MORPHS     \
+    "PP_PTV_PRESERVE_MORPHS"
+
+// ---------------------------------------------------------------------------
 /** @brief Configures the #aiProcess_PreTransformVertices step to use
  *  a users defined matrix as the scene root node transformation before
  *  transforming vertices.
