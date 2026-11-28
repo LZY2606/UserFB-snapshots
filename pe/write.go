@@ -8,6 +8,10 @@ import (
 )
 
 func (peFile *File) Bytes() ([]byte, error) {
+	if peFile.BigObjHeader != nil {
+		return nil, errors.New("pe: writing BigObj files is not supported")
+	}
+
 	var bytesWritten uint64
 	peBuf := bytes.NewBuffer(nil)
 
@@ -148,9 +152,13 @@ func (peFile *File) Bytes() ([]byte, error) {
 		bytesWritten += uint64(len(pad))
 	}
 
-	// write symbols
-	binary.Write(peBuf, binary.LittleEndian, peFile.COFFSymbols)
-	bytesWritten += uint64(binary.Size(peFile.COFFSymbols))
+	// write symbols; ordinary COFF files always use 18-byte symbol records
+	diskSyms := make([]coffSymbolDisk, len(peFile.COFFSymbols))
+	for i := range peFile.COFFSymbols {
+		diskSyms[i] = peFile.COFFSymbols[i].diskRecord()
+	}
+	binary.Write(peBuf, binary.LittleEndian, diskSyms)
+	bytesWritten += uint64(binary.Size(diskSyms))
 
 	// write the string table
 	binary.Write(peBuf, binary.LittleEndian, peFile.StringTable)

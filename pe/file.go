@@ -36,6 +36,7 @@ type File struct {
 	COFFSymbols         []COFFSymbol // all COFF symbols (including auxiliary symbol records)
 	StringTable         StringTable
 	CertificateTable    []byte
+	BigObjHeader        *BigObjHeader // non-nil when the file is a BigObj v2 object
 
 	OptionalHeaderOffset int64 // offset of the start of the Optional Header
 	InsertionAddr        uint32
@@ -96,6 +97,48 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 	f := new(File)
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
+	// A leading 00 00 ff ff signature marks a BigObj or a short import
+	// object rather than an ordinary COFF/PE header. Check the full
+	// BigObj v2 header (including the ClassID) so that short import
+	// objects are not mistaken for BigObj files.
+	var sig [4]byte
+	if _, err := r.ReadAt(sig[:], 0); err == nil && sig[0] == 0 && sig[1] == 0 && sig[2] == 0xff && sig[3] == 0xff {
+		var bh BigObjHeader
+		if _, err := sr.Seek(0, seekStart); err != nil {
+			return nil, err
+		}
+		if err := binary.Read(sr, binary.LittleEndian, &bh); err != nil {
+			return nil, err
+		}
+		if bh.Version != 2 || bh.ClassID != bigObjClassID {
+			return nil, fmt.Errorf("Unrecognised COFF import object header (version %d); short import objects are not supported", bh.Version)
+		}
+		if bh.Machine != IMAGE_FILE_MACHINE_AMD64 {
+			return nil, fmt.Errorf("Unrecognised BigObj machine value of 0x%x", bh.Machine)
+		}
+		if memoryMode {
+			return nil, fmt.Errorf("BigObj in-memory images are not supported")
+		}
+		f.BigObjHeader = &bh
+		// FileHeader still describes the ordinary disk header of regular
+		// files; for a BigObj it carries the matching values where the
+		// field widths allow. The true 32-bit section count is available
+		// through SectionCount.
+		numSections := bh.NumberOfSections
+		if numSections > 0xffff {
+			numSections = 0xffff
+		}
+		f.FileHeader = FileHeader{
+			Machine:              bh.Machine,
+			NumberOfSections:     uint16(numSections),
+			TimeDateStamp:        bh.TimeDateStamp,
+			PointerToSymbolTable: bh.PointerToSymbolTable,
+			NumberOfSymbols:      bh.NumberOfSymbols,
+		}
+		f.OptionalHeaderOffset = bigObjHeaderSize
+		return f.loadCOFF(r, sr, memoryMode)
+	}
+
 	binary.Read(sr, binary.LittleEndian, &f.DosHeader)
 	dosHeaderSize := binary.Size(f.DosHeader)
 	if dosHeaderSize < int(f.DosHeader.AddressOfNewExeHeader) {
@@ -142,8 +185,6 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 		return nil, fmt.Errorf("Unrecognised COFF file header machine value of 0x%x", f.FileHeader.Machine)
 	}
 
-	var err error
-
 	if memoryMode {
 		//get strings table location - offset is wrong in the header because we are in memory mode. Can we fix it? Yes we can!
 		restore, err := sr.Seek(0, seekCurrent)
@@ -168,14 +209,27 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 		sr.Seek(restore, seekStart)
 	}
 
+	f.OptionalHeaderOffset = peHeaderOffset + int64(binary.Size(f.FileHeader))
+	return f.loadCOFF(r, sr, memoryMode)
+}
+
+// loadCOFF reads the string table, symbol table, optional header, sections,
+// relocations and remaining streams shared by ordinary COFF/PE files and
+// BigObj objects. f.FileHeader, f.OptionalHeaderOffset and f.BigObjHeader
+// must already be set.
+func (f *File) loadCOFF(r io.ReaderAt, sr *io.SectionReader, memoryMode bool) (*File, error) {
+	stride := f.coffSymbolStride()
+
+	var err error
+
 	// Read string table.
-	f.StringTable, err = readStringTable(&f.FileHeader, sr)
+	f.StringTable, err = readStringTable(&f.FileHeader, sr, stride)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read symbol table.
-	f.COFFSymbols, err = readCOFFSymbols(&f.FileHeader, sr)
+	f.COFFSymbols, err = readCOFFSymbols(&f.FileHeader, sr, stride)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +239,6 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 	}
 
 	// Read optional header.
-	f.OptionalHeaderOffset = peHeaderOffset + int64(binary.Size(f.FileHeader))
 	sr.Seek(f.OptionalHeaderOffset, seekStart)
 
 	var oh32 OptionalHeader32
@@ -209,9 +262,15 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 		f.OptionalHeader = &oh64
 	}
 
-	// Process sections.
-	f.Sections = make([]*Section, f.FileHeader.NumberOfSections)
-	for i := 0; i < int(f.FileHeader.NumberOfSections); i++ {
+	// Process sections. The section table follows the COFF header (and
+	// the optional header, when present) directly.
+	sectionTableOffset := f.OptionalHeaderOffset + int64(f.FileHeader.SizeOfOptionalHeader)
+	if _, err := sr.Seek(sectionTableOffset, seekStart); err != nil {
+		return nil, err
+	}
+	numSections := f.SectionCount()
+	f.Sections = make([]*Section, numSections)
+	for i := 0; i < int(numSections); i++ {
 		sh := new(SectionHeader32)
 		if err := binary.Read(sr, binary.LittleEndian, sh); err != nil {
 			return nil, err

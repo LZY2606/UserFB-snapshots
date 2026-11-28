@@ -10,10 +10,27 @@ import (
 	"io"
 )
 
+// COFFSymbolSize is the size of a standard 18-byte COFF symbol record.
 const COFFSymbolSize = 18
 
+// COFFSymbolBigObjSize is the size of a 20-byte BigObj COFF symbol record.
+const COFFSymbolBigObjSize = 20
+
 // COFFSymbol represents single COFF symbol table record.
+// SectionNumber is a 32-bit signed value so that BigObj records with
+// section numbers above 65535 are not truncated; 0, -1 and -2 keep their
+// COFF meaning (undefined, absolute, debug).
 type COFFSymbol struct {
+	Name               [8]uint8
+	Value              uint32
+	SectionNumber      int32
+	Type               uint16
+	StorageClass       uint8
+	NumberOfAuxSymbols uint8
+}
+
+// coffSymbolDisk is the standard 18-byte on-disk COFF symbol record.
+type coffSymbolDisk struct {
 	Name               [8]uint8
 	Value              uint32
 	SectionNumber      int16
@@ -22,7 +39,20 @@ type COFFSymbol struct {
 	NumberOfAuxSymbols uint8
 }
 
-func readCOFFSymbols(fh *FileHeader, r io.ReadSeeker) ([]COFFSymbol, error) {
+// diskRecord converts sym to the standard 18-byte on-disk record used by
+// ordinary COFF and PE files.
+func (sym *COFFSymbol) diskRecord() coffSymbolDisk {
+	return coffSymbolDisk{
+		Name:               sym.Name,
+		Value:              sym.Value,
+		SectionNumber:      int16(sym.SectionNumber),
+		Type:               sym.Type,
+		StorageClass:       sym.StorageClass,
+		NumberOfAuxSymbols: sym.NumberOfAuxSymbols,
+	}
+}
+
+func readCOFFSymbols(fh *FileHeader, r io.ReadSeeker, stride int) ([]COFFSymbol, error) {
 	if fh.PointerToSymbolTable == 0 {
 		return nil, nil
 	}
@@ -33,10 +63,30 @@ func readCOFFSymbols(fh *FileHeader, r io.ReadSeeker) ([]COFFSymbol, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fail to seek to symbol table: %v", err)
 	}
-	syms := make([]COFFSymbol, fh.NumberOfSymbols)
-	err = binary.Read(r, binary.LittleEndian, syms)
+	if stride == COFFSymbolBigObjSize {
+		// A BigObj record is the 20-byte layout of COFFSymbol itself.
+		syms := make([]COFFSymbol, fh.NumberOfSymbols)
+		err = binary.Read(r, binary.LittleEndian, syms)
+		if err != nil {
+			return nil, fmt.Errorf("fail to read symbol table: %v", err)
+		}
+		return syms, nil
+	}
+	diskSyms := make([]coffSymbolDisk, fh.NumberOfSymbols)
+	err = binary.Read(r, binary.LittleEndian, diskSyms)
 	if err != nil {
 		return nil, fmt.Errorf("fail to read symbol table: %v", err)
+	}
+	syms := make([]COFFSymbol, len(diskSyms))
+	for i := range diskSyms {
+		syms[i] = COFFSymbol{
+			Name:               diskSyms[i].Name,
+			Value:              diskSyms[i].Value,
+			SectionNumber:      int32(diskSyms[i].SectionNumber),
+			Type:               diskSyms[i].Type,
+			StorageClass:       diskSyms[i].StorageClass,
+			NumberOfAuxSymbols: diskSyms[i].NumberOfAuxSymbols,
+		}
 	}
 	return syms, nil
 }
@@ -92,7 +142,7 @@ func removeAuxSymbols(allsyms []COFFSymbol, st StringTable) ([]*Symbol, error) {
 type Symbol struct {
 	Name          string
 	Value         uint32
-	SectionNumber int16
+	SectionNumber int32
 	Type          uint16
 	StorageClass  uint8
 }
