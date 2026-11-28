@@ -54,15 +54,18 @@ namespace SoLoud
 
 	void Soloud::fadeVolume(handle aVoiceHandle, float aTo, time aTime)
 	{
-		float from = getVolume(aVoiceHandle);
-		if (aTime <= 0 || aTo == from)
-		{
-			setVolume(aVoiceHandle, aTo);
-			return;
-		}
-
 		FOR_ALL_VOICES_PRE
-		mVoice[ch]->mVolumeFader.set(from, aTo, aTime, mVoice[ch]->mStreamTime);
+		if (aTime <= 0 || aTo == mVoice[ch]->mSetVolume)
+		{
+			mVoice[ch]->mVolumeFader.mActive = 0;
+			setVoiceVolume_internal(ch, aTo);
+		}
+		else
+		{
+			// Continue from the automation value at the last delivered frame
+			// (mVoice[ch]->mStreamTime stands between mixes there).
+			mVoice[ch]->mVolumeFader.set(mVoice[ch]->mSetVolume, aTo, aTime, mVoice[ch]->mStreamTime);
+		}
 		FOR_ALL_VOICES_POST
 	}
 
@@ -95,7 +98,8 @@ namespace SoLoud
 
 	void Soloud::fadeGlobalVolume(float aTo, time aTime)
 	{
-		float from = getGlobalVolume();
+		// Continue from the automation value at the last delivered frame.
+		float from = mGlobalVolume;
 		if (aTime <= 0 || aTo == from)
 		{
 			setGlobalVolume(aTo);
@@ -107,6 +111,13 @@ namespace SoLoud
 
 	void Soloud::oscillateVolume(handle aVoiceHandle, float aFrom, float aTo, time aTime)
 	{
+		// Automation bounds are lower <= upper.
+		if (aFrom > aTo)
+		{
+			float t = aFrom;
+			aFrom = aTo;
+			aTo = t;
+		}
 		if (aTime <= 0 || aTo == aFrom)
 		{
 			setVolume(aVoiceHandle, aTo);
@@ -115,6 +126,11 @@ namespace SoLoud
 
 		FOR_ALL_VOICES_PRE
 		mVoice[ch]->mVolumeFader.setLFO(aFrom, aTo, aTime, mVoice[ch]->mStreamTime);
+		// Before the first output frame the automation sits at the midpoint
+		// (the zero crossing of the sine), and queries should report it.
+		mVoice[ch]->mSetVolume = (aFrom + aTo) * 0.5f;
+		updateVoiceVolume_internal(ch);
+		mActiveVoiceDirty = true;
 		FOR_ALL_VOICES_POST
 	}
 
@@ -146,11 +162,24 @@ namespace SoLoud
 
 	void Soloud::oscillateGlobalVolume(float aFrom, float aTo, time aTime)
 	{
+		// Automation bounds are lower <= upper.
+		if (aFrom > aTo)
+		{
+			float t = aFrom;
+			aFrom = aTo;
+			aTo = t;
+		}
 		if (aTime <= 0 || aTo == aFrom)
 		{
 			setGlobalVolume(aTo);
 			return;
 		}
+		if (mGlobalVolumeFader.mActive)
+		{
+			mGlobalVolume = mGlobalVolumeFader.getValue(mStreamTime);
+		}
 		mGlobalVolumeFader.setLFO(aFrom, aTo, aTime, mStreamTime);
+		// Before the first output frame the automation sits at the midpoint.
+		mGlobalVolume = (aFrom + aTo) * 0.5f;
 	}
 }

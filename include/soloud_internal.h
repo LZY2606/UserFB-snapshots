@@ -88,6 +88,14 @@ namespace SoLoud
 
 	// Convert to 16-bit and interlace samples in a buffer. From 11112222 to 12121212
 	void interlace_samples_s16(const float *aSourceBuffer, short *aDestBuffer, unsigned int aSamples, unsigned int aChannels, unsigned int aStride);
+
+	// Fill aFrameVolumes with aScale * fader value for output frames k = 1..aFrames,
+	// where the first frame after aBlockStart is at time aBlockStart + 1/aSampleRate.
+	void fill_fader_frame_values(const Fader &aFader, time aBlockStart, unsigned int aFrames, unsigned int aSampleRate, float aScale, float *aFrameVolumes);
+
+	// Multiply every frame of every channel in a channel-strided scratch buffer by
+	// the matching per-frame volume.
+	void apply_frame_volumes(float *aScratch, unsigned int aStride, unsigned int aChannels, unsigned int aFrames, const float *aFrameVolumes);
 };
 
 #define FOR_ALL_VOICES_PRE \

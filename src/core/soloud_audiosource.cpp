@@ -82,6 +82,7 @@ namespace SoLoud
 		mStreamPosition = 0.0f;
 		mAudioSourceID = 0;
 		mActiveFader = 0;
+		mAutomationBlockStart = 0;
 		mChannels = 1;
 		mBusHandle = ~0u;
 		mLoopCount = 0;

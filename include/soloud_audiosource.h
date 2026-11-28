@@ -167,6 +167,9 @@ namespace SoLoud
 		Fader mStopScheduler;
 		// Affected by some fader
 		int mActiveFader;
+		// Stream time at the start of the block currently being mixed. Volume
+		// automation uses it to evaluate the fade at each output frame.
+		time mAutomationBlockStart;
 		// Current channel volumes, used to ramp the volume changes to avoid clicks
 		float mCurrentChannelVolume[MAX_CHANNELS];
 		// ID of the sound source that generated this instance

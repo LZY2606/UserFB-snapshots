@@ -47,6 +47,13 @@ namespace SoLoud
 
 	void Fader::setLFO(float aFrom, float aTo, double aTime, double aStartTime)
 	{
+		// Automation bounds are defined as lower bound first.
+		if (aFrom > aTo)
+		{
+			float t = aFrom;
+			aFrom = aTo;
+			aTo = t;
+		}
 		mActive = 2;
 		mCurrent = 0;
 		mFrom = aFrom;
@@ -56,6 +63,32 @@ namespace SoLoud
 		if (mDelta < 0) mDelta = -mDelta;
 		mStartTime = aStartTime;
 		mEndTime = (float)M_PI * 2 / mTime;
+	}
+
+	float Fader::getValue(double aCurrentTime) const
+	{
+		if (mActive == 2)
+		{
+			// LFO mode. Evaluate the sine at the requested time; the first
+			// evaluated frame is one sample after the start time, so the
+			// zero-crossing (midpoint) is the startup value.
+			double t = aCurrentTime - mStartTime;
+			if (t < 0) t = 0;
+			return (float)(sin(t * mEndTime) * mDelta + (mFrom + mDelta));
+		}
+		if (mActive <= 0)
+		{
+			return mTo;
+		}
+		if (aCurrentTime <= mStartTime)
+		{
+			return mFrom;
+		}
+		if (aCurrentTime >= mEndTime)
+		{
+			return mTo;
+		}
+		return (float)(mFrom + mDelta * ((aCurrentTime - mStartTime) / mTime));
 	}
 
 	float Fader::get(double aCurrentTime)

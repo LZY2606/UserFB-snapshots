@@ -599,6 +599,8 @@ namespace SoLoud
 		if (mScratchSize < 4096) mScratchSize = 4096;
 		mScratch.init(mScratchSize * MAX_CHANNELS);
 		mOutputScratch.init(mScratchSize * MAX_CHANNELS);
+		mGlobalVolumeScratch.init(mScratchSize);
+		mVoiceVolumeScratch.init(mScratchSize);
 		mResampleData = new float*[mMaxActiveVoices * 2];
 		mResampleDataOwner = new AudioSourceInstance*[mMaxActiveVoices];
 		mResampleDataBuffer.init(mMaxActiveVoices * 2 * SAMPLE_GRANULARITY * MAX_CHANNELS);
@@ -768,8 +770,15 @@ namespace SoLoud
 	}
 
 #if defined(SOLOUD_SSE_INTRINSICS)
-	void Soloud::clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1)
+	void Soloud::clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1, const float *aFrameVolumes)
 	{
+		if (aFrameVolumes)
+		{
+			// Automation is already sampled per output frame; fold it into the
+			// samples so the clip stage keeps its usual gain-of-one path.
+			apply_frame_volumes(aBuffer.mData, aSamples, mChannels, aSamples, aFrameVolumes);
+			aVolume0 = aVolume1 = 1.0f;
+		}
 		float vd = (aVolume1 - aVolume0) / aSamples;
 		float v = aVolume0;
 		unsigned int i, j, c, d;
@@ -874,8 +883,15 @@ namespace SoLoud
 		}
 	}
 #else // fallback code
-	void Soloud::clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1)
+	void Soloud::clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1, const float *aFrameVolumes)
 	{
+		if (aFrameVolumes)
+		{
+			// Automation is already sampled per output frame; fold it into the
+			// samples so the clip stage keeps its usual gain-of-one path.
+			apply_frame_volumes(aBuffer.mData, aSamples, mChannels, aSamples, aFrameVolumes);
+			aVolume0 = aVolume1 = 1.0f;
+		}
 		float vd = (aVolume1 - aVolume0) / aSamples;
 		float v = aVolume0;
 		unsigned int i, j, c, d;
@@ -1050,7 +1066,7 @@ namespace SoLoud
 
 
 
-	void panAndExpand(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aChannels)
+	void panAndExpand(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aChannels, const float *aFrameVolumes)
 	{
 #ifdef SOLOUD_SSE_INTRINSICS
 		SOLOUD_ASSERT(((size_t)aBuffer & 0xf) == 0);
@@ -1061,11 +1077,31 @@ namespace SoLoud
 		float pand[MAX_CHANNELS]; // destination speaker volume
 		float pani[MAX_CHANNELS]; // speaker volume increment per sample
 		unsigned int j, k;
-		for (k = 0; k < aChannels; k++)
+		if (aFrameVolumes)
 		{
-			pan[k] = aVoice->mCurrentChannelVolume[k];
-			pand[k] = aVoice->mChannelVolume[k] * aVoice->mOverallVolume;
-			pani[k] = (pand[k] - pan[k]) / aSamplesToRead; // TODO: this is a bit inconsistent.. but it's a hack to begin with
+			// Automated source volume: each output frame already carries its
+			// own gain, so the scratch is pre-scaled and the pan weights are
+			// applied without any additional block ramp. The click-protection
+			// state still tracks the last delivered gain so a later plain
+			// setVolume() does not step.
+			apply_frame_volumes(aScratch, aBufferSize, aVoice->mChannels, aSamplesToRead, aFrameVolumes);
+			for (k = 0; k < MAX_CHANNELS; k++)
+			{
+				// Gain already lives in the samples; only pan weights remain.
+				pan[k] = aVoice->mChannelVolume[k];
+				pand[k] = aVoice->mChannelVolume[k];
+				pani[k] = 0;
+				aVoice->mCurrentChannelVolume[k] = aVoice->mChannelVolume[k];
+			}
+		}
+		else
+		{
+			for (k = 0; k < aChannels; k++)
+			{
+				pan[k] = aVoice->mCurrentChannelVolume[k];
+				pand[k] = aVoice->mChannelVolume[k] * aVoice->mOverallVolume;
+				pani[k] = (pand[k] - pan[k]) / aSamplesToRead; // TODO: this is a bit inconsistent.. but it's a hack to begin with
+			}
 		}
 
 		int ofs = 0;
@@ -1595,11 +1631,22 @@ namespace SoLoud
 			break;
 		}
 
-		for (k = 0; k < aChannels; k++)
-			aVoice->mCurrentChannelVolume[k] = pand[k];
+		if (aFrameVolumes)
+		{
+			// Click-protection state follows the last delivered automated gain,
+			// so a later plain setVolume() ramps from the right place.
+			float lastGain = aFrameVolumes[aSamplesToRead - 1];
+			for (k = 0; k < aChannels; k++)
+				aVoice->mCurrentChannelVolume[k] = aVoice->mChannelVolume[k] * lastGain;
+		}
+		else
+		{
+			for (k = 0; k < aChannels; k++)
+				aVoice->mCurrentChannelVolume[k] = pand[k];
+		}
 	}
 
-	void Soloud::mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler)
+	void Soloud::mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler, float *aVoiceFrameVolumes)
 	{
 		unsigned int i, j;
 		// Clear accumulation buffer
@@ -1791,7 +1838,15 @@ namespace SoLoud
 				}
 				
 				// Handle panning and channel expansion (and/or shrinking)
-				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);
+				const float *frameVolumes = 0;
+				if (voice->mVolumeFader.mActive > 0 && aVoiceFrameVolumes)
+				{
+					// The fader supplies the set volume; 3d volume stays a
+					// constant multiplier at the same gain stage.
+					fill_fader_frame_values(voice->mVolumeFader, voice->mAutomationBlockStart, aSamplesToRead, (unsigned int)aSamplerate, m3dData[mActiveVoice[i]].m3dVolume, aVoiceFrameVolumes);
+					frameVolumes = aVoiceFrameVolumes;
+				}
+				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels, frameVolumes);
 
 				// clear voice if the sound is over
 				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
@@ -2111,15 +2166,20 @@ namespace SoLoud
 		}
 #endif
 
-		float buffertime = aSamples / (float)mSamplerate;
+		double buffertime = aSamples / (double)mSamplerate;
 		float globalVolume[2];
-		mStreamTime += buffertime;
+		// Block time origin: the audio position already delivered to the caller.
+		// Frame k (k = 1..aSamples) of this block is at blockStart + k / samplerate.
+		time blockStart = mStreamTime;
+		mStreamTime = blockStart + buffertime;
 		mLastClockedTime = 0;
 
 		globalVolume[0] = mGlobalVolume;
-		if (mGlobalVolumeFader.mActive)
+		if (mGlobalVolumeFader.mActive > 0)
 		{
-			mGlobalVolume = mGlobalVolumeFader.get(mStreamTime);
+			// The scalar reflects the last output frame of this block; the
+			// per-frame gains are applied right before clipping.
+			mGlobalVolume = mGlobalVolumeFader.getValue(blockStart + buffertime);
 		}
 		globalVolume[1] = mGlobalVolume;
 
@@ -2140,21 +2200,27 @@ namespace SoLoud
 					mVoice[i]->mActiveFader = 1;
 				}
 
-				mVoice[i]->mStreamTime += buffertime;
-				mVoice[i]->mStreamPosition += (double)buffertime * (double)mVoice[i]->mOverallRelativePlaySpeed;
+				// Sample-aligned clocks advance one frame at a time; the fader
+				// value for an output frame is evaluated from its own time.
+				time voiceStart = mVoice[i]->mStreamTime;
+				mVoice[i]->mAutomationBlockStart = voiceStart;
+				// Frame k of this block is at voiceStart + k / samplerate.
+				time voiceEnd = voiceStart + buffertime;
 
 				// TODO: this is actually unstable, because mStreamTime depends on the relative
-				// play speed. 
+				// play speed.
 				if (mVoice[i]->mRelativePlaySpeedFader.mActive > 0)
 				{
-					float speed = mVoice[i]->mRelativePlaySpeedFader.get(mVoice[i]->mStreamTime);
+					float speed = mVoice[i]->mRelativePlaySpeedFader.get(voiceEnd);
 					setVoiceRelativePlaySpeed_internal(i, speed);
 				}
 
 				volume[0] = mVoice[i]->mOverallVolume;
 				if (mVoice[i]->mVolumeFader.mActive > 0)
 				{
-					mVoice[i]->mSetVolume = mVoice[i]->mVolumeFader.get(mVoice[i]->mStreamTime);
+					// The scalar volume tracks the last frame delivered by this
+					// block; the per-frame gains are applied further down.
+					mVoice[i]->mSetVolume = mVoice[i]->mVolumeFader.getValue(voiceEnd);
 					mVoice[i]->mActiveFader = 1;
 					updateVoiceVolume_internal(i);
 					mActiveVoiceDirty = true;
@@ -2163,14 +2229,14 @@ namespace SoLoud
 
 				if (mVoice[i]->mPanFader.mActive > 0)
 				{
-					float pan = mVoice[i]->mPanFader.get(mVoice[i]->mStreamTime);
+					float pan = mVoice[i]->mPanFader.get(voiceEnd);
 					setVoicePan_internal(i, pan);
 					mVoice[i]->mActiveFader = 1;
 				}
 
 				if (mVoice[i]->mPauseScheduler.mActive)
 				{
-					mVoice[i]->mPauseScheduler.get(mVoice[i]->mStreamTime);
+					mVoice[i]->mPauseScheduler.get(voiceEnd);
 					if (mVoice[i]->mPauseScheduler.mActive == -1)
 					{
 						mVoice[i]->mPauseScheduler.mActive = 0;
@@ -2180,34 +2246,55 @@ namespace SoLoud
 
 				if (mVoice[i]->mStopScheduler.mActive)
 				{
-					mVoice[i]->mStopScheduler.get(mVoice[i]->mStreamTime);
+					mVoice[i]->mStopScheduler.get(voiceEnd);
 					if (mVoice[i]->mStopScheduler.mActive == -1)
 					{
 						mVoice[i]->mStopScheduler.mActive = 0;
 						stopVoice_internal(i);
 					}
 				}
+
+				mVoice[i]->mStreamTime = voiceEnd;
+				mVoice[i]->mStreamPosition += (double)buffertime * (double)mVoice[i]->mOverallRelativePlaySpeed;
 			}
 		}
 
 		if (mActiveVoiceDirty)
 			calcActiveVoices_internal();
-	
-		mixBus_internal(mOutputScratch.mData, aSamples, aStride, mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler);
+
+		mixBus_internal(mOutputScratch.mData, aSamples, aStride, mScratch.mData, 0, (float)mSamplerate, mChannels, mResampler, mVoiceVolumeScratch.mData);
 
 		for (i = 0; i < FILTERS_PER_STREAM; i++)
 		{
 			if (mFilterInstance[i])
 			{
-				mFilterInstance[i]->filter(mOutputScratch.mData, aSamples, aStride, mChannels, (float)mSamplerate, mStreamTime);
+				mFilterInstance[i]->filter(mOutputScratch.mData, aSamples, aStride, mChannels, (float)mSamplerate, blockStart + buffertime);
 			}
 		}
 
 		unlockAudioMutex_internal();
-		
+
+		// Global volume is applied per output frame when a fader is active, so the
+		// transition shape depends on time rather than on the block boundaries.
+		const float *globalFrames = 0;
+		if (mGlobalVolumeFader.mActive > 0)
+		{
+			// The clip stage walks the strided scratch, so fill the whole stride;
+			// frames past aSamples are never interlaced out.
+			fill_fader_frame_values(mGlobalVolumeFader, blockStart, aStride, mSamplerate, 1.0f, mGlobalVolumeScratch.mData);
+			globalFrames = mGlobalVolumeScratch.mData;
+		}
+		else
+		{
+			// A fader that finished during an earlier block leaves its target
+			// as the value used by the regular ramp below.
+			if (mGlobalVolumeFader.mActive < 0)
+				globalVolume[0] = mGlobalVolume;
+		}
+
 		// Note: clipping channels*aStride, not channels*aSamples, so we're possibly clipping some unused data.
 		// The buffers should be large enough for it, we just may do a few bytes of unneccessary work.
-		clip_internal(mOutputScratch, mScratch, aStride, globalVolume[0], globalVolume[1]);
+		clip_internal(mOutputScratch, mScratch, aStride, globalVolume[0], globalVolume[1], globalFrames);
 
 		if (mFlags & ENABLE_VISUALIZATION)
 		{

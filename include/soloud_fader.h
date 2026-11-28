@@ -57,6 +57,10 @@ namespace SoLoud
 		void set(float aFrom, float aTo, time aTime, time aStartTime);
 		// Get the current fading value
 		float get(time aCurrentTime);
+		// Get the value at a given time without advancing or mutating the fader state.
+		// Frame times are absolute; for a fade the value is clamped to the target at
+		// and after mEndTime, and for an LFO the existing sine formula is evaluated.
+		float getValue(time aCurrentTime) const;
 	}; 
 };
 

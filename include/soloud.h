@@ -467,7 +467,7 @@ namespace SoLoud
 		// Map resample buffers to active voices
 		void mapResampleBuffers_internal();
 		// Perform mixing for a specific bus
-		void mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler);
+		void mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler, float *aVoiceFrameVolumes = 0);
 		// Find a free voice, stopping the oldest if no free voice is found.
 		int findFreeVoice_internal();
 		// Converts handle to voice, if the handle is valid. Returns -1 if not.
@@ -490,8 +490,10 @@ namespace SoLoud
 		void updateVoiceRelativePlaySpeed_internal(unsigned int aVoice);
 		// Perform 3d audio calculation for array of voices
 		void update3dVoices_internal(unsigned int *aVoiceList, unsigned int aVoiceCount);
-		// Clip the samples in the buffer
-		void clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1);
+		// Clip the samples in the buffer. If aFrameVolumes is non-null it contains
+		// one gain per output frame (aAStride frames), otherwise the gain ramps
+		// linearly from aVolume0 to aVolume1 over the block.
+		void clip_internal(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, float aVolume0, float aVolume1, const float *aFrameVolumes = 0);
 		// Remove all non-active voices from group
 		void trimVoiceGroup_internal(handle aVoiceGroupHandle);
 		// Get pointer to the zero-terminated array of voice handles in a voice group
@@ -512,6 +514,10 @@ namespace SoLoud
 		unsigned int mScratchSize;
 		// Output scratch buffer, used in mix_().
 		AlignedFloatBuffer mOutputScratch;
+		// Per-frame global volume, used when the global volume fader is active.
+		AlignedFloatBuffer mGlobalVolumeScratch;
+		// Per-frame voice volume, used when a voice volume fader is active.
+		AlignedFloatBuffer mVoiceVolumeScratch;
 		// Pointers to resampler buffers, two per active voice.
 		float **mResampleData;
 		// Actual allocated memory for resampler buffers
