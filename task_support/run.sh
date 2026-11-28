@@ -14,7 +14,8 @@ if [[ $mode == target ]]; then test -s tests/deformation_transfer.cc; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   c++ -std=c++11 -O0 -I. -Iinclude task_support/driver.c tests/deformation_transfer.cc .task-build/libtrimesh.a -o .task-build/target
-  output_log=$(mktemp)
+  output_log=".task-build/target-output.$$.log"
+  : > "$output_log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

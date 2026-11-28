@@ -248,3 +248,6 @@ ModelManifest.xml
 
 #Filters
 ¨.filters
+
+# Task support build output
+.task-build/

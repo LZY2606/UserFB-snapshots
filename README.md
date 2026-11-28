@@ -53,6 +53,44 @@ The following utility programs are included:
  * **mesh_info**: Print out some information about a mesh
  * **xf**: Create or compose transformations in .xf files
 
+## Deformation transfer
+
+`include/DeformationTransfer.h` implements face-correspondence-based
+deformation transfer between two triangle meshes of different topology.
+Instead of transforming every target triangle independently, it solves one
+global gradient-domain least-squares system, so the resulting mesh stays
+connected without cracks. The sparse normal equations are assembled and
+factorized once; each new frame only updates the right-hand side.
+
+ * **Direction of a correspondence.** Each `FaceCorrespondence` maps a
+   *source* face onto a *target* face: the deformation gradient of the
+   source face (relative to the source rest pose) is imposed as the target
+   gradient on that target face, multiplied by a positive weight. Several
+   source faces may map to the same target face, and every target face must
+   be covered by at least one correspondence. Global rigid motion and
+   uniform scale do not enter the gradients and are recovered on the target
+   through the anchor vertices; a pure translation of the source leaves
+   every gradient unchanged.
+ * **Triangle frame and normal extension.** For a triangle with vertices
+   `p0, p1, p2`, the edges are `e1 = p1 - p0`, `e2 = p2 - p0` and the
+   area-weighted normal is `a = e1 x e2`. The frame is
+   `F = [ e1, e2, a / sqrt(|a|) ]`, and the source deformation gradient is
+   `S = F_current F_rest^-1`. The third column deliberately uses the
+   **square-root-of-area scaled normal** (its length is
+   `sqrt(|a|) = sqrt(2 * area)`), not a unit normal: this makes the frame
+   scale consistently under uniform scaling and keeps `S` a pure rotation
+   for a rigid motion.
+ * **Target gradients.** On each target rest face, the linear barycentric
+   basis gradients `g_i` are computed inside its 3D tangent plane, and `P`
+   projects onto that plane. The minimized energy, subject to exact anchor
+   constraints, is
+
+   `E = sum A_target * weight * || sum_i x_i g_i^T - S_source P_target ||_F^2`
+
+   summed over all correspondences. Inputs may have open boundaries and
+   multiple connected components, provided every component contains at
+   least one anchor.
+
 ## Fork Details
 
 This fork stays as close as possible to the original [trimesh2](http://gfx.cs.princeton.edu/proj/trimesh2/) code, only changing the actual source files when a solution for compilation errors cannot be reached through VS pre-build steps or preprocessor magic.

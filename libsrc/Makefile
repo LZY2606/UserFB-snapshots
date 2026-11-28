@@ -16,6 +16,7 @@ CCFILES =	TriMesh_bounding.cc \
 		GLManager.cc \
 		ICP.cc \
 		KDtree.cc \
+		DeformationTransfer.cc \
 		conn_comps.cc \
 		diffuse.cc \
 		edgeflip.cc \
