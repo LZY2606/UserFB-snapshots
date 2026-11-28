@@ -1,0 +1,15 @@
+#!/bin/bash
+# Sandbox-local mktemp wrapper: the macOS bare mktemp ignores TMPDIR and
+# targets /var/folders, which this sandbox cannot write.  Honor TMPDIR and
+# fall back to a repo-local directory.  Only the forms used by
+# task_support/run.sh (bare mktemp, optionally -d) are needed.
+set -euo pipefail
+dir="${TMPDIR:-$PWD/.task-tmp}"
+mkdir -p "$dir"
+name="tmp.$$.$RANDOM.$(date +%s)"
+if [[ "${1:-}" == "-d" ]]; then
+  mkdir "$dir/$name"
+else
+  : > "$dir/$name"
+fi
+printf '%s\n' "$dir/$name"
