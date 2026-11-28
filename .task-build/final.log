@@ -1,0 +1,23 @@
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+ok  	example.org/offline-dwarf/task_support	0.049s
+?   	example.org/offline-dwarf/task_support/fixture	[no test files]
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+=== RUN   TestDwarf5Ranges
+    dwarf5ranges_test.go:34: [][2]uint64{[2]uint64{0x6712, 0x679f}, [2]uint64{0x67af, 0x67b3}}
+--- PASS: TestDwarf5Ranges (0.00s)
+=== RUN   TestTypeUnit5Coordinates
+    check.go:29: TASK_GROUP_DONE TestTypeUnit5Coordinates checks=149
+--- PASS: TestTypeUnit5Coordinates (0.00s)
+=== RUN   TestTypeUnit5RecursiveIdentity
+    check.go:29: TASK_GROUP_DONE TestTypeUnit5RecursiveIdentity checks=88
+--- PASS: TestTypeUnit5RecursiveIdentity (0.00s)
+=== RUN   TestTypeUnit5LegacyIsolation
+    check.go:29: TASK_GROUP_DONE TestTypeUnit5LegacyIsolation checks=19
+--- PASS: TestTypeUnit5LegacyIsolation (0.00s)
+PASS
+ok  	example.org/offline-dwarf	0.046s
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+LEGACY_TYPE name=int size=4
+V5_REF class=ClassReferenceSig signature=1122334455667788
+V5_DIRECT_TYPE name=int size=4
+V5_SIGNATURE_TYPE Alias size=4

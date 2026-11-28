@@ -1,0 +1,13 @@
+#!/bin/bash
+# Sandbox-local mktemp wrapper: the macOS mktemp ignores TMPDIR and uses
+# the per-user /var/folders directory, which this sandbox cannot write.
+# run.sh only ever calls plain "mktemp" with no arguments.
+d="${TMPDIR:-/tmp}"
+for _ in 1 2 3 4 5 6 7 8; do
+	f="$d/tmp.$$.$RANDOM$RANDOM"
+	if (set -C; : >"$f") 2>/dev/null; then
+		printf '%s\n' "$f"
+		exit 0
+	fi
+done
+exit 1

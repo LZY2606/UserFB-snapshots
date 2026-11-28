@@ -98,13 +98,29 @@ func (d *Data) parseUnits() ([]unit, error) {
 			u.asize = int(b.uint8())
 		}
 
+		// DWARF 5 type unit header fields. The type offset is relative
+		// to the start of this unit's header, so it is only meaningful
+		// once u.base and the end of the header are known.
+		var typeSig uint64
+		var typeRelOff Offset
 		switch u.utype {
 		case utSkeleton, utSplitCompile:
 			b.uint64() // unit ID
-		case utType, utSplitType:
-			b.uint64()  // type signature
-			if u.is64 { // type offset
-				b.uint64()
+		case utType:
+			typeSig = b.uint64() // type signature
+			if u.is64 {          // type offset
+				rel := b.uint64()
+				if rel != uint64(Offset(rel)) {
+					return nil, DecodeError{"info", u.base, "type unit type offset overflow"}
+				}
+				typeRelOff = Offset(rel)
+			} else {
+				typeRelOff = Offset(b.uint32())
+			}
+		case utSplitType:
+			b.uint64() // type signature
+			if u.is64 {
+				b.uint64() // type offset
 			} else {
 				b.uint32()
 			}
@@ -112,6 +128,23 @@ func (d *Data) parseUnits() ([]unit, error) {
 
 		u.off = b.off
 		u.data = b.bytes(int(n - (b.off - dataOff)))
+
+		if u.utype == utType {
+			// The type offset addresses the type DIE relative to the
+			// unit header (which includes the unit length field); turn
+			// it into a section-global offset and make sure it lands on
+			// a DIE of this unit rather than a neighboring one.
+			root := u.base + typeRelOff
+			if root < u.off || root >= u.off+Offset(len(u.data)) {
+				return nil, DecodeError{"info", u.base, "type unit type offset out of range"}
+			}
+			d.typeSigs[typeSig] = &typeUnit{
+				unit:      *u,
+				toff:      root,
+				name:      "info",
+				typeCache: d.typeCache,
+			}
+		}
 	}
 	if b.err != nil {
 		return nil, b.err
