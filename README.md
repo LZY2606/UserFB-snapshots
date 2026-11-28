@@ -673,6 +673,37 @@ Simplification currently assumes that the input mesh is using the same material 
 
 When generating a LOD chain, you can either re-simplify each LOD from the original mesh or use the previous LOD as the starting point for the next level. The latter approach is more efficient and produces smoother visual transitions between LOD levels while preserving mesh attributes better. With this method, resulting error values from previous levels should be accumulated for LOD selection. Additionally, consider using `meshopt_SimplifySparse` to improve performance when generating deep LOD chains.
 
+### Multi-pose simplification
+
+When a deformed mesh needs several LODs that share vertex identity, simplifying each pose independently would erase fold surfaces that are important in another pose. The multi-pose simplifier keeps one persistent session over a set of discrete poses: all poses share the same index buffer and vertex identity, while each pose supplies its own positions, normalized independently against its own bounding box.
+
+```c++
+const float* positions[2] = {rest.data(), folded.data()};
+const size_t strides[2] = {sizeof(float) * 3, sizeof(float) * 3};
+
+// copies indices, per-pose positions and the optional vertex lock; source buffers can be released afterwards
+meshopt_PoseSimplifier* session = meshopt_createPoseSimplifier(
+    indices.data(), indices.size(), vertex_count, positions, strides, /*pose_count=*/2, /*vertex_lock=*/NULL);
+
+for (int level = 0; level < lod_count; ++level)
+{
+    // continues from the preserved collapse clusters and their cumulative quadrics; never restarts from scratch
+    size_t index_count = meshopt_simplifyPoseStep(session, lod_targets[level], error_budgets[level]);
+
+    std::vector<unsigned int> remap(vertex_count);
+    float result_error = 0.f;
+    meshopt_readPoseSimplifier(session, lod.data(), remap.data(), &result_error);
+}
+
+meshopt_destroyPoseSimplifier(session);
+```
+
+The cost of a candidate collapse is the maximum, across poses, of its accumulated QEM error, so the collapse direction and admission are decided jointly and a fold that matters in any pose is retained. A collapse is rejected if any remaining triangle becomes degenerate or flips in any pose, using the same angle threshold as `meshopt_simplify`. Each collapse cluster keeps the sum of the original face quadrics of its members; initial quadrics contain face plane terms only, with no attribute or regularization terms.
+
+Geometric identity is established from the complete vertex trajectory across every pose: two vertices are welded only when their XYZ coordinates match in every pose. Vertices that coincide in one pose but separate in another are never merged. Border geometry points and vertices marked non-zero in `vertex_lock` cannot be used as collapse sources; a NULL lock means no extra constraints.
+
+`meshopt_simplifyPoseStep` returns the current index count and stops when the target is reached or no legal candidate remains, so reaching the exact target is not guaranteed. `result_error` starts at zero and only grows, recording the largest accepted relative linear error; passing a target that is not below the current count, or an error ceiling below the error already reached, leaves the state unchanged, while raising the error ceiling lets simplification continue. `meshopt_readPoseSimplifier` returns indices that always reference the original vertices (positions are never moved) together with a remap from every original vertex to its current representative; unreferenced vertices map to themselves. A complete session example is available in `demo/pose_simplify.cpp`.
+
 ### Point cloud simplification
 
 In addition to triangle mesh simplification, this library provides a function to simplify point clouds. The algorithm reduces the point cloud to a specified number of points while preserving the overall appearance, and can optionally take per-point colors into account:

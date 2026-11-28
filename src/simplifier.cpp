@@ -4,6 +4,8 @@
 #include <assert.h>
 #include <float.h>
 #include <math.h>
+#include <new>
+#include <stdint.h>
 #include <string.h>
 
 #ifndef TRACE
@@ -2944,4 +2946,645 @@ float meshopt_simplifyScale(const float* vertex_positions, size_t vertex_count, 
 	float extent = rescalePositions(NULL, vertex_positions, vertex_count, vertex_positions_stride);
 
 	return extent;
+}
+
+// Multi-pose simplification session
+//
+// All poses share connectivity and vertex identity; each pose keeps its own normalized positions and quadrics.
+// The topology pipeline (adjacency, remap/wedge classification, vertex kinds, edge collapse candidates) is the
+// same one used by meshopt_simplifyEdge; the collapse cost and admission combine every pose, and the cumulative
+// cluster quadrics persist between meshopt_simplifyPoseStep calls instead of being rebuilt from current faces.
+namespace meshopt
+{
+
+static const size_t kMaxPoses = 8;
+
+struct PoseTrajectoryHasher
+{
+	const float* const* tables; // pose_count vertex positions, 3 tightly packed floats per vertex
+	size_t pose_count;
+
+	static unsigned int mix(float f)
+	{
+		unsigned int bits = reinterpret_cast<const unsigned int&>(f);
+
+		// replace negative zero with zero, matching PositionHasher behavior
+		bits = (bits == 0x80000000) ? 0 : bits;
+
+		bits ^= bits >> 17;
+
+		return bits;
+	}
+
+	size_t hash(unsigned int index) const
+	{
+		unsigned int h = 0;
+
+		for (size_t p = 0; p < pose_count; ++p)
+		{
+			const float* v = tables[p] + index * 3;
+
+			unsigned int x = mix(v[0]);
+			unsigned int y = mix(v[1]);
+			unsigned int z = mix(v[2]);
+
+			h ^= (x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (unsigned int)(p * 0x9e3779b9);
+		}
+
+		return h;
+	}
+
+	bool equal(unsigned int lhs, unsigned int rhs) const
+	{
+		for (size_t p = 0; p < pose_count; ++p)
+		{
+			const float* lv = tables[p] + lhs * 3;
+			const float* rv = tables[p] + rhs * 3;
+
+			// identity requires an exact match in every pose; a vertex that coincides in one pose but
+			// separates in another must never be welded
+			if (lv[0] != rv[0] || lv[1] != rv[1] || lv[2] != rv[2])
+				return false;
+		}
+
+		return true;
+	}
+};
+
+static void buildTrajectoryRemap(unsigned int* remap, unsigned int* wedge, const float* const* tables, size_t vertex_count, size_t pose_count, char* scratch)
+{
+	PoseTrajectoryHasher hasher = {tables, pose_count};
+
+	size_t table_size = hashBuckets2(vertex_count);
+	unsigned int* table = reinterpret_cast<unsigned int*>(scratch);
+	memset(table, -1, table_size * sizeof(unsigned int));
+
+	for (size_t i = 0; i < vertex_count; ++i)
+	{
+		unsigned int index = unsigned(i);
+		unsigned int* entry = hashLookup2(table, table_size, hasher, index, ~0u);
+
+		if (*entry == ~0u)
+			*entry = index;
+
+		remap[index] = *entry;
+	}
+
+	// wedge table follows the same cyclic structure as buildPositionRemap
+	for (size_t i = 0; i < vertex_count; ++i)
+		wedge[i] = unsigned(i);
+
+	for (size_t i = 0; i < vertex_count; ++i)
+		if (remap[i] != i)
+		{
+			unsigned int r = remap[i];
+
+			wedge[i] = wedge[r];
+			wedge[r] = unsigned(i);
+		}
+}
+
+struct PoseEdgeSlot
+{
+	unsigned int lo;
+	unsigned int hi;
+	unsigned int count;
+	int sign; // +1 if the directed edge goes lo->hi, -1 for hi->lo
+
+	bool operator==(const PoseEdgeSlot& other) const
+	{
+		return lo == other.lo && hi == other.hi;
+	}
+};
+
+struct PoseEdgeHasher
+{
+	size_t hash(const PoseEdgeSlot& e) const
+	{
+		return (e.lo * 73856093) ^ (e.hi * 19349663);
+	}
+
+	bool equal(const PoseEdgeSlot& l, const PoseEdgeSlot& r) const
+	{
+		return l.lo == r.lo && l.hi == r.hi;
+	}
+};
+
+// validates index bounds, distinct triangle vertices, finite coordinates, non-degenerate faces in every pose
+// and oriented manifold edge pairing (each undirected edge used at most twice, with opposite winding)
+static bool validatePoseInput(const unsigned int* indices, size_t index_count, size_t vertex_count, const float* const* positions, const size_t* strides, size_t pose_count, PoseEdgeSlot* table, size_t table_size)
+{
+	if (!indices || index_count == 0 || (index_count % 3) != 0 || vertex_count == 0 || pose_count == 0 || pose_count > kMaxPoses)
+		return false;
+
+	size_t face_count = index_count / 3;
+
+	for (size_t i = 0; i < index_count; ++i)
+		if (indices[i] >= vertex_count)
+			return false;
+
+	for (size_t p = 0; p < pose_count; ++p)
+	{
+		if (!positions[p] || !strides[p] || strides[p] < 12 || (strides[p] % sizeof(float)) != 0)
+			return false;
+
+		size_t stride_float = strides[p] / sizeof(float);
+
+		for (size_t v = 0; v < vertex_count; ++v)
+		{
+			const float* f = positions[p] + v * stride_float;
+
+			if (!isfinite(f[0]) || !isfinite(f[1]) || !isfinite(f[2]))
+				return false;
+		}
+
+		for (size_t i = 0; i < face_count; ++i)
+		{
+			unsigned int a = indices[i * 3 + 0];
+			unsigned int b = indices[i * 3 + 1];
+			unsigned int c = indices[i * 3 + 2];
+
+			if (a == b || a == c || b == c)
+				return false;
+
+			const Vector3& pa = *reinterpret_cast<const Vector3*>(positions[p] + a * stride_float);
+			const Vector3& pb = *reinterpret_cast<const Vector3*>(positions[p] + b * stride_float);
+			const Vector3& pc = *reinterpret_cast<const Vector3*>(positions[p] + c * stride_float);
+
+			Vector3 p10 = {pb.x - pa.x, pb.y - pa.y, pb.z - pa.z};
+			Vector3 p20 = {pc.x - pa.x, pc.y - pa.y, pc.z - pa.z};
+			Vector3 n = {p10.y * p20.z - p10.z * p20.y, p10.z * p20.x - p10.x * p20.z, p10.x * p20.y - p10.y * p20.x};
+
+			if (n.x * n.x + n.y * n.y + n.z * n.z == 0.f)
+				return false;
+		}
+	}
+
+	memset(table, -1, table_size * sizeof(PoseEdgeSlot));
+	PoseEdgeHasher hasher;
+	const PoseEdgeSlot empty = {~0u, ~0u, 0, 0};
+
+	static const int next[3] = {1, 2, 0};
+
+	for (size_t i = 0; i < face_count; ++i)
+		for (int e = 0; e < 3; ++e)
+		{
+			unsigned int x = indices[i * 3 + e];
+			unsigned int y = indices[i * 3 + next[e]];
+
+			PoseEdgeSlot key = {x < y ? x : y, x < y ? y : x, 0, x < y ? 1 : -1};
+			PoseEdgeSlot* slot = hashLookup2(table, table_size, hasher, key, empty);
+
+			if (*slot == empty)
+			{
+				*slot = key;
+			}
+			else if (slot->count == 2 || slot->sign == key.sign)
+			{
+				// more than two triangles share an edge, or both triangles have the same winding: not an oriented manifold
+				return false;
+			}
+
+			slot->count++;
+		}
+
+	return true;
+}
+
+// does triangle ABC flip (or degenerate) in any pose when A is replaced with B? uses the same angle cutoff as hasTriangleFlip
+static bool poseHasTriangleFlips(const EdgeAdjacency& adjacency, Vector3* const* positions, size_t pose_count, const unsigned int* collapse_remap, unsigned int i0, unsigned int i1)
+{
+	for (size_t p = 0; p < pose_count; ++p)
+	{
+		const Vector3* vertex_positions = positions[p];
+		const Vector3& v0 = vertex_positions[i0];
+		const Vector3& v1 = vertex_positions[i1];
+
+		const EdgeAdjacency::Edge* edges = &adjacency.data[adjacency.offsets[i0]];
+		size_t count = adjacency.offsets[i0 + 1] - adjacency.offsets[i0];
+
+		for (size_t i = 0; i < count; ++i)
+		{
+			unsigned int a = collapse_remap[edges[i].next];
+			unsigned int b = collapse_remap[edges[i].prev];
+
+			// skip triangles removed by this collapse or by an earlier collapse in the same step
+			if (a == i1 || b == i1 || a == b)
+				continue;
+
+			if (hasTriangleFlip(vertex_positions[a], vertex_positions[b], v0, v1))
+				return true;
+		}
+	}
+
+	return false;
+}
+
+// linear collapse cost: max over poses of sqrt(quadricError(Qa + Qb, pb)); quadrics are the cumulative
+// cluster quadrics preserved since session creation
+static float poseCollapseError(const Quadric* const* quadrics, Vector3* const* positions, size_t pose_count, const unsigned int* remap, unsigned int i0, unsigned int i1)
+{
+	float result = 0.f;
+
+	for (size_t p = 0; p < pose_count; ++p)
+	{
+		Quadric q = quadrics[p][remap[i0]];
+		quadricAdd(q, quadrics[p][remap[i1]]);
+
+		float e = quadricError(q, positions[p][i1]);
+		if (e < 0.f)
+			e = 0.f;
+
+		float le = sqrtf(e);
+		result = result < le ? le : result;
+	}
+
+	return result;
+}
+
+} // namespace meshopt
+
+struct meshopt_PoseSimplifier
+{
+	size_t vertex_count;
+	size_t index_capacity;
+	size_t result_count;
+	size_t pose_count;
+
+	unsigned int* indices; // current indices, always referencing original vertex ids
+	unsigned int* remap;   // static trajectory-based position remap
+	unsigned int* wedge;   // static wedge loop over trajectory-identical vertices
+	unsigned int* cluster; // persistent parent links: original vertex -> current representative
+	unsigned int* loop;
+	unsigned int* loopback;
+	unsigned char* vertex_kind;
+
+	meshopt::Vector3** positions; // [pose][vertex], independently normalized per pose
+	meshopt::Quadric** quadrics;  // [pose][vertex], cumulative sum of original member face quadrics
+
+	meshopt::EdgeAdjacency adjacency;
+	bool adjacency_dirty;
+
+	meshopt::Collapse* collapses;
+	unsigned int* collapse_order;
+	unsigned int* collapse_remap;
+	unsigned char* collapse_locked;
+
+	float result_error; // maximum accepted relative linear error, monotonic
+
+	char* arena;
+};
+
+meshopt_PoseSimplifier* meshopt_createPoseSimplifier(const unsigned int* indices, size_t index_count, size_t vertex_count, const float* const* positions, const size_t* strides, size_t pose_count, const unsigned char* vertex_lock)
+{
+	using namespace meshopt;
+
+	if (!positions || !strides || pose_count == 0 || pose_count > kMaxPoses || index_count == 0 || vertex_count == 0)
+		return NULL;
+
+	// temporary hash tables only needed during creation; they are released before returning
+	size_t edge_table_size = hashBuckets2(index_count);
+	PoseEdgeSlot* edge_table = new (std::nothrow) PoseEdgeSlot[edge_table_size];
+	if (!edge_table)
+		return NULL;
+
+	if (!validatePoseInput(indices, index_count, vertex_count, positions, strides, pose_count, edge_table, edge_table_size))
+	{
+		delete[] edge_table;
+		return NULL;
+	}
+
+	// size the single backing allocation; every sub-allocation is rounded up to 16 bytes so that the
+	// running cursor stays 16-byte aligned and the estimate here matches the actual usage exactly
+	auto align16 = [](size_t size) -> size_t { return (size + 15) & ~size_t(15); };
+
+	size_t bytes = 0;
+	bytes += align16(index_count * sizeof(unsigned int)); // indices
+	bytes += align16(vertex_count * sizeof(unsigned int)) * 6; // remap, wedge, cluster, loop, loopback, collapse_remap
+	bytes += align16(vertex_count) * 2; // vertex_kind, collapse_locked
+	bytes += align16(pose_count * sizeof(Vector3*));
+	bytes += align16(pose_count * sizeof(Quadric*));
+	bytes += align16(pose_count * vertex_count * sizeof(Vector3));
+	bytes += align16(pose_count * vertex_count * sizeof(Quadric));
+	bytes += align16(hashBuckets2(vertex_count) * sizeof(unsigned int)); // trajectory hash table
+	bytes += align16((vertex_count + 1) * sizeof(unsigned int)); // adjacency offsets
+	bytes += align16(index_count * sizeof(EdgeAdjacency::Edge)); // adjacency data
+	bytes += align16(index_count * sizeof(Collapse)); // collapses
+	bytes += align16(index_count * sizeof(unsigned int)); // collapse order
+
+	char* arena = new (std::nothrow) char[bytes];
+	if (!arena)
+	{
+		delete[] edge_table;
+		return NULL;
+	}
+
+	meshopt_PoseSimplifier* state = new (std::nothrow) meshopt_PoseSimplifier();
+	if (!state)
+	{
+		delete[] arena;
+		delete[] edge_table;
+		return NULL;
+	}
+
+	memset(arena, 0, bytes);
+	state->arena = arena;
+
+	char* ptr = arena;
+
+	auto take = [&ptr](size_t size) -> char* {
+		uintptr_t a = reinterpret_cast<uintptr_t>(ptr) & 15;
+		if (a)
+			ptr += 16 - a;
+
+		char* result = ptr;
+		ptr += size;
+		return result;
+	};
+
+	state->vertex_count = vertex_count;
+	state->index_capacity = index_count;
+	state->result_count = index_count;
+	state->pose_count = pose_count;
+
+	state->indices = reinterpret_cast<unsigned int*>(take(index_count * sizeof(unsigned int)));
+	memcpy(state->indices, indices, index_count * sizeof(unsigned int));
+
+	state->remap = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->wedge = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->cluster = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->loop = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->loopback = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->collapse_remap = reinterpret_cast<unsigned int*>(take(vertex_count * sizeof(unsigned int)));
+	state->vertex_kind = reinterpret_cast<unsigned char*>(take(vertex_count));
+	state->collapse_locked = reinterpret_cast<unsigned char*>(take(vertex_count));
+
+	state->positions = reinterpret_cast<Vector3**>(take((pose_count * sizeof(Vector3*) + 15) & ~size_t(15)));
+	state->quadrics = reinterpret_cast<Quadric**>(take((pose_count * sizeof(Quadric*) + 15) & ~size_t(15)));
+
+	for (size_t p = 0; p < pose_count; ++p)
+	{
+		state->positions[p] = reinterpret_cast<Vector3*>(take(vertex_count * sizeof(Vector3)));
+
+		// each pose normalizes against its own full-vertex bounding box longest axis
+		rescalePositions(state->positions[p], positions[p], vertex_count, strides[p]);
+
+		state->quadrics[p] = reinterpret_cast<Quadric*>(take(vertex_count * sizeof(Quadric)));
+		memset(state->quadrics[p], 0, vertex_count * sizeof(Quadric));
+	}
+
+	// geometric identity compares the complete trajectory across all poses
+	size_t traj_table_size = hashBuckets2(vertex_count);
+	char* traj_scratch = take(traj_table_size * sizeof(unsigned int));
+	buildTrajectoryRemap(state->remap, state->wedge, reinterpret_cast<const float* const*>(state->positions), vertex_count, pose_count, traj_scratch);
+
+	for (size_t i = 0; i < vertex_count; ++i)
+		state->cluster[i] = unsigned(i);
+
+	state->adjacency.offsets = reinterpret_cast<unsigned int*>(take((vertex_count + 1) * sizeof(unsigned int)));
+	state->adjacency.data = reinterpret_cast<EdgeAdjacency::Edge*>(take(index_count * sizeof(EdgeAdjacency::Edge)));
+	// adjacency follows welded topology so wedge loops share the same edge structure
+	updateEdgeAdjacency(state->adjacency, state->indices, index_count, vertex_count, state->remap);
+	state->adjacency_dirty = false;
+
+	// lock flags: any non-zero entry locks the vertex; map onto the library's lock bit for classification
+	if (vertex_lock)
+		for (size_t i = 0; i < vertex_count; ++i)
+			state->collapse_locked[i] = vertex_lock[i] ? meshopt_SimplifyVertex_Lock : 0;
+	else
+		memset(state->collapse_locked, 0, vertex_count);
+
+	classifyVertices(state->vertex_kind, state->loop, state->loopback, vertex_count, state->adjacency, state->remap, state->wedge, vertex_lock ? state->collapse_locked : NULL, NULL, 0);
+
+	// border geometry points and explicitly locked clusters can never be a collapse source
+	for (size_t i = 0; i < vertex_count; ++i)
+		if (state->vertex_kind[i] == Kind_Border || state->vertex_kind[i] == Kind_Fringe)
+			state->vertex_kind[i] = Kind_Locked;
+
+	// initial quadrics contain face plane terms only - no attribute or regularization terms
+	for (size_t p = 0; p < pose_count; ++p)
+		fillFaceQuadrics(state->quadrics[p], NULL, state->indices, index_count, state->positions[p], state->remap);
+
+	state->collapses = reinterpret_cast<Collapse*>(take(index_count * sizeof(Collapse)));
+	state->collapse_order = reinterpret_cast<unsigned int*>(take(index_count * sizeof(unsigned int)));
+
+	memset(state->collapse_locked, 0, vertex_count);
+	state->result_error = 0.f;
+
+	assert(ptr <= arena + bytes);
+
+	delete[] edge_table;
+
+	return state;
+}
+
+size_t meshopt_simplifyPoseStep(meshopt_PoseSimplifier* state, size_t target_index_count, float target_error)
+{
+	using namespace meshopt;
+
+	if (!state)
+		return 0;
+
+	// nothing to do: target isn't below the current count, or the error ceiling can't cover accepted error
+	if (target_index_count >= state->result_count || target_error < state->result_error)
+		return state->result_count;
+
+	size_t vertex_count = state->vertex_count;
+
+	while (state->result_count > target_index_count)
+	{
+		if (state->adjacency_dirty)
+		{
+			// adjacency follows welded topology, same as meshopt_simplifyEdge passes
+			updateEdgeAdjacency(state->adjacency, state->indices, state->result_count, vertex_count, state->remap);
+			state->adjacency_dirty = false;
+		}
+
+		size_t collapse_count = pickEdgeCollapses(state->collapses, state->index_capacity, state->indices, state->result_count, state->remap, state->vertex_kind, state->loop, state->loopback);
+
+		// topology restrictions leave no collapsible edge
+		if (collapse_count == 0)
+			break;
+
+		// rank every candidate using the shared multi-pose metric and pick the legal direction with lower cost
+		for (size_t i = 0; i < collapse_count; ++i)
+		{
+			Collapse& c = state->collapses[i];
+
+			unsigned int i0 = c.v0;
+			unsigned int i1 = c.v1;
+			bool bidi = c.bidi != 0;
+
+			bool can01 = kCanCollapse[state->vertex_kind[i0]][state->vertex_kind[i1]] != 0;
+			bool can10 = bidi && kCanCollapse[state->vertex_kind[i1]][state->vertex_kind[i0]] != 0;
+
+			float e01 = can01 ? poseCollapseError(state->quadrics, state->positions, state->pose_count, state->remap, i0, i1) : FLT_MAX;
+			float e10 = can10 ? poseCollapseError(state->quadrics, state->positions, state->pose_count, state->remap, i1, i0) : FLT_MAX;
+
+			if (e10 < e01)
+			{
+				c.v0 = i1;
+				c.v1 = i0;
+				c.error = e10;
+			}
+			else
+			{
+				c.v0 = i0;
+				c.v1 = i1;
+				c.error = e01;
+			}
+		}
+
+		sortEdgeCollapses(state->collapse_order, state->collapses, collapse_count);
+
+		for (size_t i = 0; i < vertex_count; ++i)
+			state->collapse_remap[i] = unsigned(i);
+
+		memset(state->collapse_locked, 0, vertex_count);
+
+		size_t edge_collapses = 0;
+		size_t triangle_collapses = 0;
+		size_t triangle_goal = (state->result_count - target_index_count) / 3;
+
+		for (size_t i = 0; i < collapse_count; ++i)
+		{
+			const Collapse& c = state->collapses[state->collapse_order[i]];
+
+			if (c.error > target_error)
+				break;
+
+			if (triangle_collapses >= triangle_goal)
+				break;
+
+			unsigned int i0 = c.v0;
+			unsigned int i1 = c.v1;
+
+			unsigned int r0 = state->remap[i0];
+			unsigned int r1 = state->remap[i1];
+
+			if (state->collapse_locked[r0] | state->collapse_locked[r1])
+				continue;
+
+			// every pose must keep all remaining triangles non-degenerate and un-flipped
+			if (poseHasTriangleFlips(state->adjacency, state->positions, state->pose_count, state->collapse_remap, r0, r1))
+				continue;
+
+			unsigned char kind = state->vertex_kind[i0];
+
+			if (kind == Kind_Complex || kind == Kind_Fringe)
+			{
+				state->collapse_remap[i0] = i1;
+
+				for (unsigned int v = state->wedge[i0]; v != i0; v = state->wedge[v])
+					state->collapse_remap[v] = getComplexTarget(v, i1, state->remap, state->loop, state->loopback);
+			}
+			else if (kind == Kind_Seam)
+			{
+				unsigned int s0 = state->wedge[i0];
+				unsigned int s1 = state->loop[i0] == i1 ? state->loopback[s0] : state->loop[s0];
+
+				s1 = (s1 != ~0u) ? s1 : state->wedge[i1];
+
+				state->collapse_remap[i0] = i1;
+				state->collapse_remap[s0] = s1;
+			}
+			else
+			{
+				state->collapse_remap[i0] = i1;
+			}
+
+			state->collapse_locked[r0] = 1;
+			state->collapse_locked[r1] = 1;
+
+			triangle_collapses += (kind == Kind_Border) ? 1 : 2;
+			edge_collapses++;
+
+			state->result_error = state->result_error < c.error ? c.error : state->result_error;
+		}
+
+		// no legal candidate within the error ceiling
+		if (edge_collapses == 0)
+			break;
+
+		// each accepted collapse accumulates the source cluster quadrics into the target, per pose;
+		// cluster quadrics stay as sums of the original face quadrics of their members
+		for (size_t i = 0; i < vertex_count; ++i)
+		{
+			if (state->collapse_remap[i] == i)
+				continue;
+
+			unsigned int i0 = unsigned(i);
+			unsigned int i1 = state->collapse_remap[i];
+			unsigned int r0 = state->remap[i0];
+			unsigned int r1 = state->remap[i1];
+
+			state->cluster[i0] = i1;
+
+			if (i0 == r0)
+				for (size_t p = 0; p < state->pose_count; ++p)
+					quadricAdd(state->quadrics[p][r1], state->quadrics[p][r0]);
+		}
+
+		remapEdgeLoops(state->loop, vertex_count, state->collapse_remap);
+		remapEdgeLoops(state->loopback, vertex_count, state->collapse_remap);
+
+		state->result_count = remapIndexBuffer(state->indices, state->result_count, state->collapse_remap, state->remap);
+		state->adjacency_dirty = true;
+	}
+
+	return state->result_count;
+}
+
+size_t meshopt_readPoseSimplifier(const meshopt_PoseSimplifier* state, unsigned int* destination, unsigned int* remap, float* result_error)
+{
+	using namespace meshopt;
+
+	if (!state)
+		return 0;
+
+	if (destination)
+		memcpy(destination, state->indices, state->result_count * sizeof(unsigned int));
+
+	if (remap)
+	{
+		// vertices still referenced by the current index buffer
+		unsigned char* used = new unsigned char[state->vertex_count]();
+
+		for (size_t i = 0; i < state->result_count; ++i)
+			used[state->indices[i]] = 1;
+
+		// complete representative = dynamic cluster root of the static trajectory-canonical vertex;
+		// vertices no longer referenced by the index buffer map to themselves. Walk links without
+		// mutating them so the const session state stays untouched.
+		for (size_t i = 0; i < state->vertex_count; ++i)
+		{
+			if (used[i])
+			{
+				unsigned int root = state->remap[i];
+				while (state->cluster[root] != root)
+					root = state->cluster[root];
+				remap[i] = root;
+			}
+			else
+			{
+				remap[i] = unsigned(i);
+			}
+		}
+
+		delete[] used;
+	}
+
+	if (result_error)
+		*result_error = state->result_error;
+
+	return state->result_count;
+}
+
+void meshopt_destroyPoseSimplifier(meshopt_PoseSimplifier* state)
+{
+	if (!state)
+		return;
+
+	delete[] state->arena;
+	delete state;
 }

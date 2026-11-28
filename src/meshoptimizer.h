@@ -615,6 +615,58 @@ MESHOPTIMIZER_API size_t meshopt_simplifyPoints(unsigned int* destination, const
 MESHOPTIMIZER_API float meshopt_simplifyScale(const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
 
 /**
+ * Multi-pose mesh simplifier (opaque session)
+ * Creates a persistent simplification session that simplifies a mesh shared by several discrete poses at once.
+ * All poses share the same index buffer and vertex identity; each pose supplies its own float3 positions,
+ * independently normalized to the [0..1] extent of that pose.
+ *
+ * The cost of a candidate edge collapse is the maximum, across poses, of its accumulated QEM error; collapse
+ * direction and admission are likewise shared between all poses. A collapse is rejected if any remaining
+ * triangle becomes degenerate or flips in any pose. Vertex identity compares the full trajectory of a vertex
+ * across all poses: vertices are only treated as duplicates when their XYZ coordinates match in every pose.
+ *
+ * The initial quadrics only contain face plane terms (fillFaceQuadrics); no attribute or regularization terms
+ * are added. Each collapse cluster keeps the sum of the original quadrics of its members, so quadrics and
+ * errors from previously accepted collapses are retained between steps instead of being recomputed.
+ *
+ * indices must be a non-degenerate, consistently oriented manifold triangle list for every pose; open borders
+ * and vertices with repeated positions are allowed. index_count must be divisible by 3, pose_count must be in
+ * [1..8], and every entry of positions/strides must be valid for vertex_count vertices.
+ * vertex_lock can be NULL; otherwise a non-zero entry prevents the vertex (and the cluster it belongs to) from
+ * being used as a collapse source. Border geometry points can't be collapse sources either.
+ * The input buffers are copied during creation and can be modified or released afterwards.
+ * Returns NULL when the inputs are invalid.
+ */
+MESHOPTIMIZER_API struct meshopt_PoseSimplifier* meshopt_createPoseSimplifier(const unsigned int* indices, size_t index_count, size_t vertex_count, const float* const* positions, const size_t* strides, size_t pose_count, const unsigned char* vertex_lock);
+
+/**
+ * Performs one simplification step of a multi-pose simplifier session.
+ * Reduces the current index count towards target_index_count while keeping the relative linear error of every
+ * accepted collapse at or below target_error. Stops when the target is reached or no legal candidate remains.
+ * The accumulated error of the session only grows; if target_error is below the error already reached, or the
+ * target is not smaller than the current index count, the state is left unchanged. Raising target_error in a
+ * subsequent call allows simplification to continue from the preserved state.
+ * Returns the current number of indices after the step.
+ */
+MESHOPTIMIZER_API size_t meshopt_simplifyPoseStep(struct meshopt_PoseSimplifier* state, size_t target_index_count, float target_error);
+
+/**
+ * Reads the current state of a multi-pose simplifier session.
+ * destination receives the current index buffer (index_count entries) and remap receives, for every original
+ * vertex, the current representative vertex of its cluster (vertex_count entries); unreferenced vertices map to
+ * themselves. The indices always reference original vertices; positions are never moved.
+ * result_error can be NULL; otherwise it receives the maximum relative linear error accepted by the session so far.
+ * Any of destination/remap can be NULL when the corresponding output isn't needed.
+ */
+MESHOPTIMIZER_API size_t meshopt_readPoseSimplifier(const struct meshopt_PoseSimplifier* state, unsigned int* destination, unsigned int* remap, float* result_error);
+
+/**
+ * Destroys a multi-pose simplifier session and releases all memory associated with it.
+ * state can be NULL.
+ */
+MESHOPTIMIZER_API void meshopt_destroyPoseSimplifier(struct meshopt_PoseSimplifier* state);
+
+/**
  * Mesh stripifier
  * Converts a previously vertex cache optimized triangle list to triangle strip, stitching strips using restart index or degenerate triangles
  * Returns the number of indices in the resulting strip, with destination containing new index data
