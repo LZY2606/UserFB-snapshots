@@ -88,20 +88,22 @@ static int get_int_attribute(rapidxml::xml_node<>* node, const char* name) {
     return atoi(attribute->value());
 }
 
+static bool imvu_isfinite(float val) {
+#if defined(IMVU_WINDOWS)
+    return _finite(val) != 0;
+#else
+    return std::isfinite(val);
+#endif
+}
+
 static float get_float_attribute(rapidxml::xml_node<>* node, const char* name) {
     auto attribute = node->first_attribute(name, 0, false);
     if (!attribute) {
         return 0.0f;
     }
 
-    int isfinite = 0;
     float val = imvu_atof(attribute->value());
-    #if defined(IMVU_WINDOWS)
-        isfinite = _finite(val);
-    #else
-        isfinite = std::isfinite(val);
-    #endif
-    return isfinite ? val : 0.0f;
+    return imvu_isfinite(val) ? val : 0.0f;
 }
 
 static const char* get_string_attribute(rapidxml::xml_node<>* node, const char* name) {
@@ -189,6 +191,25 @@ static inline void ReadTripleFloat(char const* buffer, float* f1, float* f2, flo
 #else
     sscanf(buffer, " %f %f %f", f1, f2, f3);
 #endif
+}
+
+// Strictly parse the three components of a keyframe SCALE element.  All three
+// components must be present, finite, and strictly positive.
+static bool ReadKeyframeScale(char const* buffer, CalVector* scale) {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (sscanf(buffer, " %f %f %f", &x, &y, &z) != 3) {
+        return false;
+    }
+    if (!imvu_isfinite(x) || !imvu_isfinite(y) || !imvu_isfinite(z)) {
+        return false;
+    }
+    if (x <= 0.0f || y <= 0.0f || z <= 0.0f) {
+        return false;
+    }
+    *scale = CalVector(x, y, z);
+    return true;
 }
 
 static inline void ReadTripleInt(char const* buffer, int* f1, int* f2, int* f3) {
@@ -687,8 +708,19 @@ ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapi
             float rx, ry, rz, rw;
             ReadQuadFloat(get_string_value(rotation), &rx, &ry, &rz, &rw);
 
+            // The SCALE element is optional and defaults to the unit scale.
+            // When present it must contain three finite, strictly positive
+            // components.
+            CalVector localScale(1.0f, 1.0f, 1.0f);
+            TiXmlElement* scale = rotation->next_sibling();
+            if (scale && has_name(scale, "SCALE")) {
+                if (!ReadKeyframeScale(get_string_value(scale), &localScale)) {
+                    return InvalidFileFormatTracked();
+                }
+            }
+
             rw = -rw;
-            CalCoreKeyframe pCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, rw));
+            CalCoreKeyframe pCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, rw), localScale);
             hasLastKeyframe = true;
             prevCoreKeyframe = pCoreKeyframe;
 

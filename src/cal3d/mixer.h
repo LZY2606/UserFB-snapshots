@@ -52,8 +52,7 @@ public:
 private:
     void applyBoneAdjustments(
         CalSkeleton* skeleton,
-        const std::vector<BoneTransformAdjustment>& boneTransformAdjustments,
-        const std::vector<BoneScaleAdjustment>& boneScaleAdjustments);
+        const std::vector<BoneTransformAdjustment>& boneTransformAdjustments);
 
     typedef std::list<ISTD::shared_ptr<CalAnimation>> AnimationList;
     AnimationList activeAnimations;

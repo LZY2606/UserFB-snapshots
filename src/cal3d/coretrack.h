@@ -42,6 +42,7 @@ public:
     void rotateTranslate(cal3d::RotateTranslate &rt);
 
     cal3d::RotateTranslate getCurrentTransform(float time) const;
+    CalVector getCurrentScale(float time) const;
 
     ISTD::shared_ptr<CalCoreTrack> compress(double translationTolerance, double rotationToleranceDegrees, CalCoreSkeleton* skelOrNull) const;
     void translationCompressibility(

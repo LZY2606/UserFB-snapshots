@@ -19,11 +19,19 @@ class CalCoreKeyframe {
 public:
     CalCoreKeyframe()
         : time(0.0f)
+        , localScale(1.0f, 1.0f, 1.0f)
     {}
 
     CalCoreKeyframe(float t, const CalVector& tr, const CalQuaternion& ro)
         : time(t)
         , transform(ro, tr)
+        , localScale(1.0f, 1.0f, 1.0f)
+    {}
+
+    CalCoreKeyframe(float t, const CalVector& tr, const CalQuaternion& ro, const CalVector& sc)
+        : time(t)
+        , transform(ro, tr)
+        , localScale(sc)
     {}
 
     void scale(float factor) {
@@ -31,10 +39,13 @@ public:
         if (!exactlyEqual(transform.translation, InvalidTranslation)) {
             transform.translation *= factor;
         }
+        // localScale is a dimensionless animation channel and is
+        // intentionally not affected by model unit conversion.
     }
 
     float time;
     cal3d::RotateTranslate transform;
+    CalVector localScale;
 };
 
 CAL3D_PTR(CalCoreKeyframe);
@@ -44,5 +55,5 @@ inline bool operator<(const CalCoreKeyframe& lhs, const CalCoreKeyframe& rhs) {
 }
 
 inline bool operator==(const CalCoreKeyframe& lhs, const CalCoreKeyframe& rhs) {
-    return cal3d::close(lhs.time, rhs.time) && lhs.transform == rhs.transform;
+    return cal3d::close(lhs.time, rhs.time) && lhs.transform == rhs.transform && lhs.localScale == rhs.localScale;
 }

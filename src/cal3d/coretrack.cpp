@@ -58,7 +58,9 @@ void CalCoreTrack::optimize() {
     //
     // this optimization is worth doing because the catalog is full of
     // static pose animation that have two keyframes.
-    if (2u == keyframes.size() && keyframes[0].transform == keyframes[1].transform) {
+    if (2u == keyframes.size() &&
+        keyframes[0].transform == keyframes[1].transform &&
+        keyframes[0].localScale == keyframes[1].localScale) {
         keyframes.resize(1);
     }
 }
@@ -161,6 +163,40 @@ static bool keyframeEliminatable(
     return Near(transform.translation, transform.rotation, p->transform.translation, p->transform.rotation, transTolerance, rotTolerance);
 }
 
+// Maximum per-component error allowed on the localScale channel when
+// compressing away a keyframe.
+static const float SCALE_COMPRESS_TOLERANCE = 1e-5f;
+
+static bool scaleComponentNear(float a, float b) {
+    return fabsf(a - b) <= SCALE_COMPRESS_TOLERANCE;
+}
+
+// A keyframe may only be eliminated if the scale channel of every original
+// keyframe in the interval (prev, next) is reproduced by linear interpolation
+// between prev and next within SCALE_COMPRESS_TOLERANCE.  Checking the whole
+// interval (not just the candidate keyframe) keeps the guarantee valid even
+// after earlier eliminations widened the interval.
+static bool scaleIntervalEliminatable(
+    const CalCoreKeyframe* prev,
+    const CalCoreKeyframe* next
+) {
+    assert(prev && next && prev < next);
+    float dt = next->time - prev->time;
+    for (const CalCoreKeyframe* p = prev + 1; p < next; ++p) {
+        float blendFactor = 0.0f;
+        if (dt != 0.0f) {
+            blendFactor = (p->time - prev->time) / dt;
+        }
+        CalVector scale = lerp(blendFactor, prev->localScale, next->localScale);
+        if (!scaleComponentNear(scale.x, p->localScale.x) ||
+            !scaleComponentNear(scale.y, p->localScale.y) ||
+            !scaleComponentNear(scale.z, p->localScale.z)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 
 
 struct KeyLink {
@@ -227,7 +263,8 @@ ISTD::shared_ptr<CalCoreTrack> CalCoreTrack::compress(
             if (keyframeEliminatable(prev->keyframe_,
                                      p->keyframe_,
                                      next->keyframe_,
-                                     translationTolerance, rotationToleranceDegrees)) {
+                                     translationTolerance, rotationToleranceDegrees) &&
+                scaleIntervalEliminatable(prev->keyframe_, next->keyframe_)) {
                 p->eliminated_ = true;
 
                 // Splice this eliminated keyframe out of the list.
@@ -330,6 +367,36 @@ cal3d::RotateTranslate CalCoreTrack::getCurrentTransform(float time) const {
     }
 
     return blend(blendFactor, pCoreKeyframeBefore.transform, pCoreKeyframeAfter.transform);
+}
+
+CalVector CalCoreTrack::getCurrentScale(float time) const {
+    if (keyframes.empty()) {
+        return CalVector(1.0f, 1.0f, 1.0f);
+    }
+
+    KeyframeList::const_iterator iteratorCoreKeyframeAfter = getUpperBound(time);
+
+    if (iteratorCoreKeyframeAfter == keyframes.end()) {
+        --iteratorCoreKeyframeAfter;
+        return iteratorCoreKeyframeAfter->localScale;
+    }
+
+    if (iteratorCoreKeyframeAfter == keyframes.begin()) {
+        return iteratorCoreKeyframeAfter->localScale;
+    }
+
+    KeyframeList::const_iterator iteratorCoreKeyframeBefore = iteratorCoreKeyframeAfter;
+    --iteratorCoreKeyframeBefore;
+
+    const CalCoreKeyframe& pCoreKeyframeBefore = *iteratorCoreKeyframeBefore;
+    const CalCoreKeyframe& pCoreKeyframeAfter  = *iteratorCoreKeyframeAfter;
+
+    float blendFactor = 0.0;
+    if (pCoreKeyframeAfter.time != pCoreKeyframeBefore.time) {
+        blendFactor = (time - pCoreKeyframeBefore.time) / (pCoreKeyframeAfter.time - pCoreKeyframeBefore.time);
+    }
+
+    return lerp(blendFactor, pCoreKeyframeBefore.localScale, pCoreKeyframeAfter.localScale);
 }
 
 CalCoreTrack::KeyframeList::const_iterator CalCoreTrack::getUpperBound(float time) const {

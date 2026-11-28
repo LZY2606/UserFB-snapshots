@@ -104,6 +104,21 @@ bool CalSaver::saveCoreAnimation(const std::string& strFilename, CalCoreAnimatio
 bool CalSaver::saveCoreAnimation(std::ostream& file, CalCoreAnimation* pCoreAnimation) {
     const char* strFilename = ""; // do we care?
 
+    // The binary CAF format has no scale channel.  Refuse to save an
+    // animation whose keyframes carry a non-unit localScale rather than
+    // silently dropping the squash/stretch motion.  This check must happen
+    // before any byte is written to the stream.
+    for (CalCoreAnimation::TrackList::const_iterator track = pCoreAnimation->tracks.begin();
+         track != pCoreAnimation->tracks.end(); ++track) {
+        for (size_t i = 0; i < track->keyframes.size(); ++i) {
+            const CalVector& s = track->keyframes[i].localScale;
+            if (s.x != 1.0f || s.y != 1.0f || s.z != 1.0f) {
+                CalError::setLastError(CalError::INVALID_ATTRIBUTE_VALUE, __FILE__, __LINE__, strFilename);
+                return false;
+            }
+        }
+    }
+
     // write magic tag
     if (!CalPlatform::writeBytes(file, &cal3d::ANIMATION_FILE_MAGIC, sizeof(cal3d::ANIMATION_FILE_MAGIC))) {
         CalError::setLastError(CalError::FILE_WRITING_FAILED, __FILE__, __LINE__, strFilename);
@@ -1010,6 +1025,18 @@ bool CalSaver::saveXmlCoreAnimation(std::ostream& os, CalCoreAnimation* pCoreAni
             TiXmlText rotationdata(str.str());
             rotation.InsertEndChild(rotationdata);
             keyframe.InsertEndChild(rotation);
+
+            TiXmlElement scale("SCALE");
+            const CalVector& scaleVector = pCoreKeyframe.localScale;
+
+            str.str("");
+            str << scaleVector.x << " "
+                << scaleVector.y << " "
+                << scaleVector.z;
+
+            TiXmlText scaledata(str.str());
+            scale.InsertEndChild(scaledata);
+            keyframe.InsertEndChild(scale);
 
             track.InsertEndChild(keyframe);
         }
