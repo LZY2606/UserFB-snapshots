@@ -11254,6 +11254,19 @@ typedef struct
 MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
 MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
+/*
+A single point on a sound's volume envelope. `frameIndex` is a source frame index
+relative to the start of the data source's range - the same clock used by
+ma_data_source_get_cursor_in_pcm_frames() - not a global engine time and not a
+count of frames that have been sent to the speakers. This means the envelope
+follows the underlying material when the pitch, range or loop points change.
+*/
+typedef struct
+{
+    ma_uint64 frameIndex;
+    float volume;
+} ma_volume_envelope_point;
+
 struct ma_sound
 {
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
@@ -11265,7 +11278,16 @@ struct ma_sound
     float* pProcessingCache;            /* Will be null if pDataSource is null. */
     ma_uint32 processingCacheFramesRemaining;
     ma_uint32 processingCacheCap;
-    ma_bool8 ownsDataSource;    
+    ma_bool8 ownsDataSource;
+
+    /*
+    Volume envelope, applied to source samples (converted to f32) at read time. The point
+    array is always owned by the sound and is allocated with the engine's allocation
+    callbacks. `volumeEnvelopeCount` being zero means no envelope is set.
+    */
+    ma_volume_envelope_point* pVolumeEnvelope;
+    ma_uint32 volumeEnvelopeCount;
+
 
     /*
     We're declaring a resource manager data source object here to save us a malloc when loading a
@@ -11423,6 +11445,7 @@ MA_API void ma_sound_reset_fade(ma_sound* pSound);
 MA_API void ma_sound_reset_stop_time_and_fade(ma_sound* pSound);  /* Resets fades and scheduled stop time. Does not seek back to the start. */
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API float ma_sound_get_volume(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_volume_envelope(ma_sound* pSound, const ma_volume_envelope_point* pPoints, ma_uint32 count);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API float ma_sound_get_pan(const ma_sound* pSound);
 MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode);
@@ -77139,6 +77162,222 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     *pFrameCountOut = totalFramesProcessedOut;
 }
 
+static float ma_sound_volume_envelope_gain_at(const ma_volume_envelope_point* pPoints, ma_uint32 count, ma_uint64 frameIndex)
+{
+    ma_uint32 lo;
+    ma_uint32 hi;
+
+    if (count == 0) {
+        return 1.0f;
+    }
+
+    /* Before the first point and after the last, hold the endpoint values. */
+    if (frameIndex <= pPoints[0].frameIndex) {
+        return pPoints[0].volume;
+    }
+    if (frameIndex >= pPoints[count - 1].frameIndex) {
+        return pPoints[count - 1].volume;
+    }
+
+    /* Binary search for the segment [lo, hi] containing frameIndex. */
+    lo = 0;
+    hi = count - 1;
+    while (hi - lo > 1) {
+        ma_uint32 mid = lo + (hi - lo) / 2;
+        if (pPoints[mid].frameIndex <= frameIndex) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    {
+        ma_uint64 frameBeg = pPoints[lo].frameIndex;
+        ma_uint64 frameEnd = pPoints[hi].frameIndex;
+        float volumeBeg = pPoints[lo].volume;
+        float volumeEnd = pPoints[hi].volume;
+        float t;
+
+        if (frameEnd == frameBeg) {
+            return volumeEnd;   /* Shouldn't happen due to strictly increasing validation, but don't divide by zero. */
+        }
+
+        t = (float)(frameIndex - frameBeg) / (float)(frameEnd - frameBeg);
+        return volumeBeg + (volumeEnd - volumeBeg) * t;
+    }
+}
+
+static void ma_sound_apply_volume_envelope(const ma_sound* pSound, float* pFrames, ma_uint32 frameCount, ma_uint32 channels, ma_uint64 cursorInPCMFrames)
+{
+    ma_uint32 iFrame;
+
+    if (pSound->volumeEnvelopeCount == 0) {
+        return;
+    }
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float gain = ma_sound_volume_envelope_gain_at(pSound->pVolumeEnvelope, pSound->volumeEnvelopeCount, cursorInPCMFrames + iFrame);
+        ma_uint32 iChannel;
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            pFrames[(ma_uint64)iFrame * channels + iChannel] *= gain;
+        }
+    }
+}
+
+/*
+Reads source frames into the processing cache, applying the volume envelope on the source
+timeline as each frame is read. Unlike ma_data_source_read_pcm_frames(), this never allows the
+data source to loop internally within a single read, because we need to know the source frame
+index of every sample in order to evaluate the envelope at the right position. Looping is
+handled here by explicitly seeking back to the loop point, which happens to be exactly what
+miniaudio does internally anyway.
+
+`frameCount` must not exceed the processing cache capacity. Samples that are read here have the
+envelope applied exactly once; cached samples are never processed again when they are consumed.
+*/
+static ma_result ma_sound_read_data_source_with_volume_envelope(ma_sound* pSound, ma_format dataSourceFormat, ma_uint32 dataSourceChannels, ma_uint32 frameCount, ma_uint64* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint64 totalFramesRead = 0;
+    ma_uint64 rangeBeg = 0;
+    ma_uint64 rangeEnd = ~((ma_uint64)0);
+    ma_uint64 loopBeg  = 0;
+    ma_uint64 loopEnd  = ~((ma_uint64)0);
+    ma_uint64 effectiveEnd;
+    ma_bool32 isLooping;
+    ma_uint8 temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+    ma_uint32 tempCapInFrames;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (pSound == NULL || pSound->pDataSource == NULL || frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    isLooping = ma_data_source_is_looping(pSound->pDataSource);
+    ma_data_source_get_range_in_pcm_frames(pSound->pDataSource, &rangeBeg, &rangeEnd);
+    ma_data_source_get_loop_point_in_pcm_frames(pSound->pDataSource, &loopBeg, &loopEnd);
+
+    /*
+    The effective end is expressed relative to the start of the range, matching the cursor and
+    envelope frame indices. When looping, the loop point bounds the playable region.
+    */
+    if (rangeEnd != ~((ma_uint64)0)) {
+        effectiveEnd = rangeEnd - rangeBeg;
+    } else {
+        ma_uint64 length = 0;
+        if (ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, &length) == MA_SUCCESS && length > rangeBeg) {
+            effectiveEnd = length - rangeBeg;
+        } else {
+            effectiveEnd = ~((ma_uint64)0);  /* Unknown length. Rely on the data source reporting the end. */
+        }
+    }
+
+    if (isLooping && loopEnd != ~((ma_uint64)0) && loopEnd < effectiveEnd) {
+        effectiveEnd = loopEnd;
+    }
+
+    tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
+
+    while (totalFramesRead < frameCount) {
+        ma_uint64 cursor;
+        ma_uint64 framesToRead;
+        ma_uint64 framesJustRead = 0;
+        float* pDstF32;
+
+        if (ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, &cursor) != MA_SUCCESS) {
+            /*
+            The envelope is defined in terms of the source cursor and can't be applied without it.
+            The task guarantees a seekable source with a cursor, so this is only a defensive path.
+            */
+            result = MA_NOT_IMPLEMENTED;
+            break;
+        }
+
+        if (effectiveEnd != ~((ma_uint64)0) && cursor >= effectiveEnd) {
+            if (isLooping) {
+                /* Loop back to the loop point in source time. The envelope resumes from there. */
+                result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, loopBeg);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+
+                /* Guard against a zero-length loop causing us to spin forever. */
+                if (effectiveEnd == loopBeg) {
+                    result = MA_AT_END;
+                    break;
+                }
+
+                continue;
+            } else {
+                result = MA_AT_END;
+                break;
+            }
+        }
+
+        framesToRead = frameCount - totalFramesRead;
+        if (effectiveEnd != ~((ma_uint64)0)) {
+            ma_uint64 framesUntilEnd = effectiveEnd - cursor;
+            if (framesToRead > framesUntilEnd) {
+                framesToRead = framesUntilEnd;
+            }
+        }
+        if (dataSourceFormat != ma_format_f32 && framesToRead > tempCapInFrames) {
+            framesToRead = tempCapInFrames;
+        }
+
+        pDstF32 = ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, totalFramesRead, dataSourceChannels);
+
+        if (dataSourceFormat == ma_format_f32) {
+            result = ma_data_source_read_pcm_frames(pSound->pDataSource, pDstF32, framesToRead, &framesJustRead);
+        } else {
+            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead);
+            if (framesJustRead > 0) {
+                ma_convert_pcm_frames_format(pDstF32, ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
+            }
+        }
+
+        if (framesJustRead > 0) {
+            ma_sound_apply_volume_envelope(pSound, pDstF32, (ma_uint32)framesJustRead, dataSourceChannels, cursor);
+            totalFramesRead += framesJustRead;
+        }
+
+        if (result != MA_SUCCESS) {
+            /*
+            Normalize the same way the non-envelope path does: MA_AT_END with data read is not a
+            valid miniaudio result, so report success and let the next call return the end.
+            */
+            if (result == MA_AT_END && totalFramesRead > 0) {
+                result = MA_SUCCESS;
+            }
+            break;
+        }
+
+        if (framesJustRead == 0) {
+            result = MA_AT_END;
+            break;
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    /* Never report MA_AT_END when data was produced; the next call will report it. */
+    if (result == MA_AT_END && totalFramesRead > 0) {
+        result = MA_SUCCESS;
+    }
+
+    if (result == MA_SUCCESS && totalFramesRead == 0) {
+        result = MA_AT_END;
+    }
+
+    return result;
+}
+
 static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     /* For sounds, we need to first read from the data source. Then we need to apply the engine effects (pan, pitch, fades, etc.). */
@@ -77175,6 +77414,18 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
 
         /* Any time-dependant effects need to have their times updated. */
         ma_node_set_time(pSound, seekTarget);
+
+        /*
+        A seek must not emit any audio that was prefetched before the jump. When an envelope is
+        active we also drop the resampler history so the output matches a freshly configured
+        sound started at that position. Natural looping deliberately does not go through here,
+        so its filter history stays continuous. Volume and fades are output-time state and are
+        intentionally left untouched.
+        */
+        if (pSound->volumeEnvelopeCount > 0) {
+            pSound->processingCacheFramesRemaining = 0;
+            ma_resampler_reset(&pSound->engineNode.resampler);
+        }
 
         ma_atomic_exchange_64(&pSound->seekTarget, MA_SEEK_TARGET_NONE);
     }
@@ -77232,6 +77483,26 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 }
             } else {
                 /* Getting here means there's nothing in the cache. Read more data from the data source. */
+                if (pSound->volumeEnvelopeCount > 0) {
+                    /*
+                    Envelope path. The envelope is defined on the source frame timeline, so it must
+                    be applied while reading from the data source, before resampling, channel
+                    conversion and output processing. Samples are weighted exactly once here; the
+                    cache only ever holds already-weighted f32 data.
+                    */
+                    result = ma_sound_read_data_source_with_volume_envelope(pSound, dataSourceFormat, dataSourceChannels, pSound->processingCacheCap, &framesJustRead);
+
+                    MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
+                    pSound->processingCacheFramesRemaining = (ma_uint32)framesJustRead;
+
+                    if (result == MA_AT_END) {
+                        ma_sound_set_at_end(pSound, MA_TRUE);
+                    }
+
+                    if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                        break;
+                    }
+                } else
                 if (dataSourceFormat == ma_format_f32) {
                     /* Fast path. No conversion to f32 necessary. */
                     result = ma_data_source_read_pcm_frames(pSound->pDataSource, pSound->pProcessingCache, pSound->processingCacheCap, &framesJustRead);
@@ -78987,6 +79258,12 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
         pSound->pProcessingCache = NULL;
     }
 
+    if (pSound->pVolumeEnvelope != NULL) {
+        ma_free(pSound->pVolumeEnvelope, &pSound->engineNode.pEngine->allocationCallbacks);
+        pSound->pVolumeEnvelope = NULL;
+        pSound->volumeEnvelopeCount = 0;
+    }
+
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->ownsDataSource) {
@@ -79123,6 +79400,71 @@ MA_API float ma_sound_get_volume(const ma_sound* pSound)
     ma_engine_node_get_volume(&pSound->engineNode, &volume);
 
     return volume;
+}
+
+MA_API ma_result ma_sound_set_volume_envelope(ma_sound* pSound, const ma_volume_envelope_point* pPoints, ma_uint32 count)
+{
+    ma_volume_envelope_point* pNewPoints = NULL;
+    ma_uint32 i;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pSound->engineNode.pEngine == NULL) {
+        return MA_INVALID_OPERATION;    /* The sound has not been initialized. */
+    }
+
+    /*
+    A count of zero clears the envelope and is the only case where `pPoints` may be NULL.
+    Handle it before validating the points.
+    */
+    if (count == 0) {
+        if (pSound->pVolumeEnvelope != NULL) {
+            ma_free(pSound->pVolumeEnvelope, &pSound->engineNode.pEngine->allocationCallbacks);
+            pSound->pVolumeEnvelope = NULL;
+        }
+        pSound->volumeEnvelopeCount = 0;
+        return MA_SUCCESS;
+    }
+
+    if (pPoints == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Validate the whole list before touching the existing configuration. */
+    for (i = 0; i < count; i += 1) {
+        float volume = pPoints[i].volume;
+
+        /* Volumes must be finite and non-negative. */
+        if (volume != volume || volume < 0.0f || volume > MA_FLT_MAX) {
+            return MA_INVALID_ARGS;
+        }
+
+        if (i > 0 && pPoints[i].frameIndex <= pPoints[i - 1].frameIndex) {
+            return MA_INVALID_ARGS; /* Frame indices must be strictly increasing. */
+        }
+    }
+
+    /*
+    The caller's array is only borrowed for the duration of this call. The sound keeps its own
+    copy so the caller can free or reuse their data immediately.
+    */
+    pNewPoints = (ma_volume_envelope_point*)ma_malloc(sizeof(*pNewPoints) * (size_t)count, &pSound->engineNode.pEngine->allocationCallbacks);
+    if (pNewPoints == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    MA_COPY_MEMORY(pNewPoints, pPoints, sizeof(*pNewPoints) * (size_t)count);
+
+    if (pSound->pVolumeEnvelope != NULL) {
+        ma_free(pSound->pVolumeEnvelope, &pSound->engineNode.pEngine->allocationCallbacks);
+    }
+
+    pSound->pVolumeEnvelope = pNewPoints;
+    pSound->volumeEnvelopeCount = count;
+
+    return MA_SUCCESS;
 }
 
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan)

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/mktemp -p "${TMPDIR:-/tmp/claude-501}" "$@"
