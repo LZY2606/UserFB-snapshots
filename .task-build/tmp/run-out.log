@@ -1,0 +1,781 @@
+-- The C compiler identification is AppleClang 21.0.0.21000401
+-- The CXX compiler identification is AppleClang 21.0.0.21000401
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- OTIO C++ installing to /usr/local
+-- Building static libs
+-- Install C++ bindings: OFF
+-- Install Python bindings: OFF
+-- Building C++ with Coverage: OFF
+-- Using src/deps/Imath by default
+-- Using src/deps/pybind11 by default
+-- Using src/deps/rapidjson by default
+-- Using src/deps/minizip-ng by default
+-- Found ZLIB: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libz.tbd (found version "1.2.12")
+-- Imath is configuring as a cmake sub project
+-- Setting build type to 'Release' as none was specified.
+-- Configure Imath 3.2.1, library API version: 30.3.2.1
+-- Imath pkg-config generation enabled
+-- Looking for sin in m
+-- Looking for sin in m - found
+-- Using CMake version 4.3.3
+-- Looking for dirent.h
+-- Looking for dirent.h - found
+-- Looking for sys/dirent.h
+-- Looking for sys/dirent.h - found
+-- Looking for inttypes.h
+-- Looking for inttypes.h - found
+-- Looking for stdint.h
+-- Looking for stdint.h - found
+-- Looking for sys/types.h
+-- Looking for sys/types.h - found
+-- Looking for stddef.h
+-- Looking for stddef.h - found
+-- Check size of DIR*
+-- Check size of DIR* - done
+-- Check size of off64_t
+-- Check size of off64_t - failed
+-- Looking for fseeko
+-- Looking for fseeko - found
+-- Looking for symlink
+-- Looking for symlink - found
+-- Looking for readlink
+-- Looking for readlink - found
+-- Compression not supported due to missing libraries
+-- Character encoding support requires iconv
+-- Checking for sanitizer option
+--  sanitizer not enabled
+-- The following features have been enabled:
+
+ * MZ_COMPAT, Enables compatibility layer
+
+-- The following features have been disabled:
+
+ * MZ_ZLIB, Enables ZLIB compression
+ * MZ_BZIP2, Enables BZIP2 compression
+ * MZ_LZMA, Enables LZMA & XZ compression
+ * MZ_PPMD, Enables PPMD compression
+ * MZ_ZSTD, Enables ZSTD compression
+ * MZ_LIBCOMP, Enables Apple compression
+ * MZ_FETCH_LIBS, Enables fetching third-party libraries if not found
+ * MZ_FORCE_FETCH_LIBS, Enables fetching third-party libraries always
+ * MZ_PKCRYPT, Enables PKWARE traditional encryption
+ * MZ_WZAES, Enables WinZIP AES encryption
+ * MZ_OPENSSL, Enables OpenSSL for encryption
+ * MZ_LIBBSD, Builds with libbsd crypto random
+ * MZ_ICONV, Enables iconv string encoding conversion library
+ * MZ_COMPRESS_ONLY, Only support compression
+ * MZ_DECOMPRESS_ONLY, Only support decompression
+ * MZ_FILE32_API, Builds using posix 32-bit file api
+ * MZ_BUILD_TESTS, Builds minizip test executable
+ * MZ_BUILD_UNIT_TESTS, Builds minizip unit test project
+ * MZ_BUILD_FUZZ_TESTS, Builds minizip fuzzer executables
+ * MZ_CODE_COVERAGE, Builds with code coverage flags
+ * MZ_SANITIZER, Enable sanitizer testing support
+
+-- Configuring done (2.1s)
+-- Generating done (0.0s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    IMATH_BUILD_TESTS
+
+
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build
+[  6%] Building CXX object src/opentime/CMakeFiles/opentime.dir/rationalTime.cpp.o
+[  6%] Building CXX object src/opentime/CMakeFiles/opentime.dir/errorStatus.cpp.o
+[  6%] Building CXX object src/deps/Imath/src/Imath/CMakeFiles/Imath.dir/half.cpp.o
+[  6%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_crypt.c.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.cpp:4:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/half.cpp:19:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/half.h:17:
+:
+
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:  204 | #6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594 In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathPlatform.h::
+ warniIn file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:1217ng :
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/math.h:297:
+:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15"T:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:he4:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+:204: select  204ed p | #  w4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]larni
+natfg "orm iThe s  204s no lon | #  electeger warnisuppd ngorteplatf "Thdoe srm iselec by libc+ted+."
+      |  n    ^
+o longer platform is no supported by libc++."longer supported by libc++."
+      |    ^
+
+      |    ^
+[  8%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_os.c.o
+[  9%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_strm.c.o
+[ 11%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_strm_buf.c.o
+1 warning generated.
+[ 12%] Building CXX object src/deps/Imath/src/Imath/CMakeFiles/Imath.dir/ImathColorAlgo.cpp.o
+[ 14%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_strm_mem.c.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathColorAlgo.cpp:12:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathColorAlgo.h:16:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathColor.h:16:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathVec.h:15:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/version:293:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+[ 16%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_strm_split.c.o
+[ 17%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_zip.c.o
+1 warning generated.
+[ 19%] Linking CXX static library libopentime.a
+[ 19%] Built target opentime
+[ 20%] Building CXX object src/deps/Imath/src/Imath/CMakeFiles/Imath.dir/ImathFun.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathFun.cpp:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathFun.h:15:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstdint:146:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+[ 22%] Building CXX object src/deps/Imath/src/Imath/CMakeFiles/Imath.dir/ImathMatrixAlgo.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathMatrixAlgo.cpp:15:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathMatrixAlgo.h:16:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathEuler.h:16:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathMath.h:15:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathPlatform.h:17:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/math.h:297:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+[ 24%] Building CXX object src/deps/Imath/src/Imath/CMakeFiles/Imath.dir/ImathRandom.cpp.o
+[ 25%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_zip_rw.c.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathRandom.cpp:13:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/deps/Imath/src/Imath/ImathRandom.h:24:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/math.h:297:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 27%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_os_posix.c.o
+1 warning generated.
+[ 29%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/mz_strm_os_posix.c.o
+[ 30%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/compat/ioapi.c.o
+[ 32%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/compat/unzip.c.o
+[ 33%] Building C object src/deps/minizip-ng/CMakeFiles/minizip.dir/compat/zip.c.o
+[ 35%] Linking C static library libminizip.a
+[ 35%] Built target minizip
+1 warning generated.
+[ 37%] Linking CXX static library libImath-3_2.a
+[ 37%] Built target Imath
+[ 43%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/composable.cpp.o
+[ 43%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/clip.cpp.o
+[ 43%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/color.cpp.o
+[ 43%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/bundle.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/color.cpp:4:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/iomanip:48:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/clip.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/clip.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4:In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/bundle.cpp warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The s:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/bundle.helected p:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeline.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.hlIn file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composable.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composable.h:6:
+:6:
+In file included from aIn file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.htfo:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+rm is nIn file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:o6:
+ loIn file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h::
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+nger/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+ sup:4  204 | #  wap: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+orning "The serted b  204y libc++." | #
+      |    ^
+  warning "Tlected phe selected platlatforform is no longerm i supported by libc++."
+      |    ^
+s no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 45%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/composition.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 46%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/deserialization.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/deserialization.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/deserialization.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 48%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/algo/editAlgorithm.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/algo/editAlgorithm.cpp:4:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/iostream:39:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 50%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/effect.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/effect.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/effect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 51%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/errorStatus.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/errorStatus.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/errorStatus.h:7:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/version.h:12:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 53%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/externalReference.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/externalReference.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/externalReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 54%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/freezeFrame.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/freezeFrame.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/freezeFrame.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/linearTimeWarp.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeEffect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/effect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 56%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/gap.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/gap.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/gap.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 58%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/generatorReference.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/generatorReference.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/generatorReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 59%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/imageSequenceReference.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/imageSequenceReference.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/imageSequenceReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 61%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/item.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 62%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/linearTimeWarp.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/linearTimeWarp.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/linearTimeWarp.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeEffect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/effect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 64%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/marker.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/marker.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/marker.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 66%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/mediaReference.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 67%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/missingReference.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/missingReference.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/missingReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/mediaReference.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 69%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/safely_typed_any.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/safely_typed_any.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/safely_typed_any.h:23:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 70%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/serializableCollection.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableCollection.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableCollection.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 72%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/serializableObject.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 74%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/serializableObjectWithMetadata.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 75%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/serialization.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serialization.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serialization.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/errorStatus.h:7:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/version.h:12:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 77%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/stack.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stack.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stack.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 79%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/stackAlgorithm.cpp.o
+1 warning generated.
+[ 80%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/stackAlgorithmRecursive.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stackAlgorithm.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stackAlgorithm.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stack.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stackAlgorithmRecursive.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stackAlgorithm.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stack.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 82%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/stringUtils.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stringUtils.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/stringUtils.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/stringPrintf.h:7:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstdio:101:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 83%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/timeEffect.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeEffect.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeEffect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/effect.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 85%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/timeline.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeline.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/timeline.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 87%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/track.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/track.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/track.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 88%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/trackAlgorithm.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/trackAlgorithm.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/trackAlgorithm.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/track.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+[ 90%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/transition.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/transition.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/transition.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/composable.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObjectWithMetadata.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 91%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/typeRegistry.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/typeRegistry.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/typeRegistry.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/errorStatus.h:7:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/version.h:12:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[ 93%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/unknownSchema.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/unknownSchema.cpp:4:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/unknownSchema.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/serializableObject.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+[ 95%] Building CXX object src/opentimelineio/CMakeFiles/opentimelineio.dir/CORE_VERSION_MAP.cpp.o
+1 warning generated.
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/CORE_VERSION_MAP.cpp:13:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/typeRegistry.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/errorStatus.h:7:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/version.h:12:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+1 warning generated.
+1 warning generated.
+[ 96%] Linking CXX static library libopentimelineio.a
+[ 96%] Built target opentimelineio
+[ 98%] Building CXX object task_support/CMakeFiles/task_baseline.dir/baseline.cpp.o
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/task_support/baseline.cpp:1:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/clip.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentimelineio/item.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/timeRange.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/rationalTime.h:6:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/src/opentime/errorStatus.h:8:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/string:594:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/max.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__algorithm/comp.h:12:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+[100%] Linking CXX executable task_baseline
+[100%] Built target task_baseline
+[ 22%] Built target minizip
+[ 26%] Built target opentime
+[ 36%] Built target Imath
+[ 95%] Built target opentimelineio
+[ 98%] Building CXX object task_support/CMakeFiles/task_target.dir/recursive_flatten_test.cpp.o
+[ 98%] Building CXX object task_support/CMakeFiles/task_target.dir/driver.c.o
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/task_support/driver.c:1:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/task_support/check.h:3:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/stddef.h:30:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/task_support/recursive_flatten_test.cpp:5:
+In file included from /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/task_support/check.h:3:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/stddef.h:30:
+In file included from /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:15:
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__configuration/availability.h:204:4: warning: "The selected platform is no longer supported by libc++." [-W#warnings]
+  204 | #  warning "The selected platform is no longer supported by libc++."
+      |    ^
+1 warning generated.
+1 warning generated.
+[100%] Linking CXX executable ../target
+[100%] Built target task_target
+CASE visibility example_occlusion checks=19
+CASE visibility outer_crop checks=12
+CASE visibility disabled_branch_reveals_lower checks=14
+CASE visibility all_transparent_and_empty checks=13
+GROUP visibility cases=4 checks=58 COMPLETE
+CASE coordinates inner_crop checks=9
+CASE coordinates multilayer_alternation checks=9
+CASE coordinates mixed_rates checks=18
+CASE coordinates zero_duration checks=3
+CASE coordinates failure_inputs checks=14
+GROUP coordinates cases=5 checks=53 COMPLETE
+CASE markers projection_and_split checks=20
+CASE markers points_and_endpoints checks=12
+CASE markers order_attributes checks=12
+CASE markers json_reload_and_reedit checks=37
+CASE markers copy_independence checks=21
+GROUP markers cases=5 checks=102 COMPLETE
+TARGET_COMPLETE cases=14
+OTIO_NESTED_BASELINE_OK duration=20 children=2 first=Stack:12 tail=B:112..120 json=ok

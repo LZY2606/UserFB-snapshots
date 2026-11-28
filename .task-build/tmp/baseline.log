@@ -1,0 +1,55 @@
+-- OTIO C++ installing to /usr/local
+-- Building static libs
+-- Install C++ bindings: OFF
+-- Install Python bindings: OFF
+-- Building C++ with Coverage: OFF
+-- Using src/deps/Imath by default
+-- Using src/deps/pybind11 by default
+-- Using src/deps/rapidjson by default
+-- Using src/deps/minizip-ng by default
+-- Imath is configuring as a cmake sub project
+-- Configure Imath 3.2.1, library API version: 30.3.2.1
+-- Imath pkg-config generation enabled
+-- Using CMake version 4.3.3
+-- Compression not supported due to missing libraries
+-- Character encoding support requires iconv
+-- Checking for sanitizer option
+--  sanitizer not enabled
+-- The following features have been enabled:
+
+ * MZ_COMPAT, Enables compatibility layer
+
+-- The following features have been disabled:
+
+ * MZ_ZLIB, Enables ZLIB compression
+ * MZ_BZIP2, Enables BZIP2 compression
+ * MZ_LZMA, Enables LZMA & XZ compression
+ * MZ_PPMD, Enables PPMD compression
+ * MZ_ZSTD, Enables ZSTD compression
+ * MZ_LIBCOMP, Enables Apple compression
+ * MZ_FETCH_LIBS, Enables fetching third-party libraries if not found
+ * MZ_FORCE_FETCH_LIBS, Enables fetching third-party libraries always
+ * MZ_PKCRYPT, Enables PKWARE traditional encryption
+ * MZ_WZAES, Enables WinZIP AES encryption
+ * MZ_OPENSSL, Enables OpenSSL for encryption
+ * MZ_LIBBSD, Builds with libbsd crypto random
+ * MZ_ICONV, Enables iconv string encoding conversion library
+ * MZ_COMPRESS_ONLY, Only support compression
+ * MZ_DECOMPRESS_ONLY, Only support decompression
+ * MZ_FILE32_API, Builds using posix 32-bit file api
+ * MZ_BUILD_TESTS, Builds minizip test executable
+ * MZ_BUILD_UNIT_TESTS, Builds minizip unit test project
+ * MZ_BUILD_FUZZ_TESTS, Builds minizip fuzzer executables
+ * MZ_CODE_COVERAGE, Builds with code coverage flags
+ * MZ_SANITIZER, Enable sanitizer testing support
+
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build
+[ 22%] Built target minizip
+[ 27%] Built target opentime
+[ 37%] Built target Imath
+[ 96%] Built target opentimelineio
+[ 98%] Linking CXX executable task_baseline
+[100%] Built target task_baseline
+OTIO_NESTED_BASELINE_OK duration=20 children=2 first=Stack:12 tail=B:112..120 json=ok

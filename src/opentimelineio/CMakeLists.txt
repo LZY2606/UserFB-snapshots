@@ -68,6 +68,7 @@ add_library(opentimelineio ${OTIO_SHARED_OR_STATIC_LIB}
     serialization.cpp
     stack.cpp
     stackAlgorithm.cpp
+    stackAlgorithmRecursive.cpp
     stringUtils.cpp
     stringUtils.h # stringUtils.h is a private header
     timeEffect.cpp

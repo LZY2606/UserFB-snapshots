@@ -3,9 +3,14 @@
 
 #include "opentimelineio/stackAlgorithm.h"
 #include "opentimelineio/gap.h"
+#include "opentimelineio/stack.h"
 #include "opentimelineio/track.h"
 #include "opentimelineio/trackAlgorithm.h"
 #include "opentimelineio/transition.h"
+
+#include <map>
+#include <optional>
+#include <vector>
 
 namespace opentimelineio { namespace OPENTIMELINEIO_VERSION_NS {
 
@@ -256,4 +261,5 @@ flatten_stack(std::vector<Track*> const& tracks, ErrorStatus* error_status)
         error_status);
     return flat_track;
 }
+
 }} // namespace opentimelineio::OPENTIMELINEIO_VERSION_NS

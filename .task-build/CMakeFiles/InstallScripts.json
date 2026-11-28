@@ -1,0 +1,15 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/deps/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/deps/Imath/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/deps/Imath/config/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/deps/Imath/src/Imath/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/deps/minizip-ng/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/opentime/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/src/opentimelineio/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/RE20261125BZ02187/attempts/20261128T165432989842Z/repo/.task-build/task_support/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

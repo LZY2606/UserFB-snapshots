@@ -1,0 +1,4 @@
+#!/bin/sh
+f="$(pwd)/.task-build/tmp/log.$$.$(date +%s)"
+: > "$f"
+printf '%s\n' "$f"
