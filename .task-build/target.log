@@ -1,0 +1,22 @@
+CASE wire_layout pgroup_10bit checks=9
+CASE wire_layout cross_line_c_chain checks=11
+CASE wire_layout pixel_offset_split checks=6
+CASE wire_layout encoder_wire_8bit checks=37
+CASE wire_layout encoder_wire_10bit_split checks=82
+CASE wire_layout config_limits checks=11
+GROUP wire_layout cases=6 checks=156 COMPLETE
+CASE frame_recovery marker_first checks=9
+CASE frame_recovery retransmission_first_copy checks=8
+CASE frame_recovery seq_wrap_16bit checks=12
+CASE frame_recovery seq_wrap_32bit checks=6
+CASE frame_recovery timestamp_wrap checks=7
+CASE frame_recovery late_after_delivery checks=7
+CASE frame_recovery pcmu_control checks=27
+GROUP frame_recovery cases=7 checks=76 COMPLETE
+CASE loss_clock loss_recover_flag checks=14
+CASE loss_clock old_frame_never_overwrites checks=9
+CASE loss_clock in_frame_gap_fill checks=7
+CASE loss_clock callback_errors checks=8
+CASE loss_clock pt_ssrc_filter checks=5
+GROUP loss_clock cases=5 checks=43 COMPLETE
+TARGET_COMPLETE cases=18
