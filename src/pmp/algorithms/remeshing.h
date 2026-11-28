@@ -40,4 +40,29 @@ void adaptive_remeshing(SurfaceMesh& mesh, Scalar min_edge_length,
                         unsigned int iterations = 10,
                         bool use_projection = true);
 
+//! \brief Perform anisotropic, tensor-driven remeshing.
+//! \details Performs incremental remeshing based on edge split, collapse,
+//! flip, and tangential relaxation, all driven by a per-vertex symmetric
+//! positive-definite metric tensor stored in the vertex property
+//! \c "v:metric" as \c Matrix<Scalar,3,3> in world coordinates. Edge
+//! lengths are measured as \f$\sqrt{d^T ((M_0+M_1)/2) d}\f$.
+//!
+//! The input surface and tensor field are frozen when the call starts.
+//! New and moved vertices are projected onto this reference surface, and
+//! their tensors are interpolated from the reference triangle containing
+//! them using barycentric coordinates. The interpolated tensors are
+//! written back to \c "v:metric". The reference mesh with the smallest
+//! initial face index is used for every projection.
+//!
+//! With \p iterations set to zero, only the input is validated; the mesh
+//! topology, coordinates, and properties are left untouched.
+//! \param mesh The input mesh, modified in place.
+//! \param iterations The number of iterations.
+//! \pre Input mesh needs to be a triangle mesh with a finite, symmetric,
+//! positive-definite tensor stored in \c "v:metric" for every vertex.
+//! \throw InvalidInputException if the input precondition is violated.
+//! \ingroup algorithms
+void anisotropic_remeshing(SurfaceMesh& mesh,
+                           unsigned int iterations = 10);
+
 } // namespace pmp
