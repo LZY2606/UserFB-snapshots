@@ -28,10 +28,28 @@ public:
 	VP9RtpPacketizer(shared_ptr<RtpPacketizationConfig> rtpConfig,
 	                 size_t maxFragmentSize = DefaultMaxFragmentSize);
 
+	virtual void outgoing(message_vector &messages, const message_callback &send) override;
+
 private:
 	std::vector<binary> fragment(binary frame) override;
 
+	/// Packetizes a frame carrying multiple VP9 spatial layers.
+	/// Input bytes are the layer frames concatenated in increasing SID order.
+	/// Throws std::invalid_argument if the layer description is invalid.
+	/// @note does not touch sequence numbers, timestamps or picture counters on failure.
+	std::vector<binary> fragmentSpatialLayers(const binary &frame,
+	                                          const std::vector<VP9SpatialLayer> &layers);
+
 	const size_t mMaxFragmentSize;
+
+	// FrameInfo of the frame currently being fragmented, set by the override
+	// of RtpPacketizer::outgoing() around the call to fragment().
+	shared_ptr<FrameInfo> mCurrentFrameInfo;
+
+	// Non-flexible spatial layer state, per RFC 9628 section 4.2.
+	// Starts at 0 and advances once per successfully packetized spatial picture.
+	uint16_t mPictureId = 0;   // 15-bit, wraps
+	uint8_t mTl0PicIdx = 0;    // 8-bit, wraps
 };
 
 } // namespace rtc

@@ -86,8 +86,11 @@ void VideoRtpDepacketizer::incoming(message_vector &messages,
 			auto first = *mBuffer.begin();
 			auto firstHeader = reinterpret_cast<const RtpHeader *>(first->data());
 			if (firstHeader->timestamp() != header->timestamp()) {
+				// Let the implementation finish what it has; a new picture
+				// replaces an incomplete one.
+				mBufferConsumed = false;
 				if (auto frame = reassemble(mBuffer))
-					result.push_back(frame);
+					result.push_back(std::move(frame));
 
 				mBuffer.clear();
 			}
@@ -95,16 +98,29 @@ void VideoRtpDepacketizer::incoming(message_vector &messages,
 
 		mBuffer.insert(std::move(message));
 
-		if (header->marker()) {
-			if (auto frame = reassemble(mBuffer))
-				result.push_back(std::move(frame));
+		// Reassemble the whole buffer. A stateful implementation consumes the
+		// buffer and keeps its own state; the legacy implementation reassembles
+		// when a marker is present and leaves the rest buffered.
+		mBufferConsumed = false;
+		if (auto frame = reassemble(mBuffer))
+			result.push_back(std::move(frame));
 
+		if (mBufferConsumed) {
+			mBuffer.clear();
+			continue;
+		}
+
+		// The legacy implementation produces a frame only when the marker was
+		// among the buffered packets, so a marker ends the picture here.
+		if (header->marker()) {
 			mBuffer.clear();
 		}
 	};
 
 	messages.swap(result);
 }
+
+void VideoRtpDepacketizer::markBufferConsumed() { mBufferConsumed = true; }
 
 bool VideoRtpDepacketizer::sequence_cmp::operator()(message_ptr a, message_ptr b) const {
 	assert(a->size() >= sizeof(RtpHeader) && b->size() >= sizeof(RtpHeader));

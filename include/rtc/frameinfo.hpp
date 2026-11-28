@@ -15,6 +15,21 @@
 
 namespace rtc {
 
+/// Description of one spatial layer of a VP9 picture.
+///
+/// When a frame carries spatial layers, the input bytes are the spatial
+/// layer frames concatenated in increasing SID order (SID 0 first), without
+/// a superframe index. Each entry describes one of those frames.
+struct RTC_CPP_EXPORT VP9SpatialLayer {
+	/// Size in bytes of this spatial layer's frame inside the input.
+	size_t size = 0;
+	/// P bit of the VP9 payload descriptor: inter-picture predicted.
+	bool interPicturePredicted = false;
+	/// D bit of the VP9 payload descriptor: inter-layer predicted.
+	/// Must be false for SID 0.
+	bool interLayerPredicted = false;
+};
+
 struct RTC_CPP_EXPORT FrameInfo {
 	FrameInfo(uint32_t timestamp) : timestamp(timestamp) {};
 	template<typename Period = std::ratio<1>> FrameInfo(std::chrono::duration<double, Period> timestamp) : timestampSeconds(timestamp) {}
@@ -27,6 +42,11 @@ struct RTC_CPP_EXPORT FrameInfo {
 	optional<std::chrono::duration<double>> timestampSeconds;
 
 	bool isKeyFrame = false;	// Set by the application
+
+	/// Optional spatial layer description for VP9.
+	/// Empty means the frame is a single spatial layer and the legacy
+	/// packetization path applies.
+	std::vector<VP9SpatialLayer> vp9SpatialLayers;
 
 	/// Absolute capture timestamp in NTP-format (high 32 bits seconds since
 	/// the NTP epoch 1900-01-01 UTC; low 32 bits fractional seconds). When

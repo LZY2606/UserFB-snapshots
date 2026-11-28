@@ -50,10 +50,18 @@ protected:
 
 	virtual message_ptr reassemble(message_buffer &messages) = 0;
 
+	/// Called by reassemble() implementations that keep their own picture
+	/// state instead of relying on the base buffer. It tells the base class
+	/// that the packets it passed to reassemble() were fully handled and may be
+	/// dropped; this also disables the legacy marker-driven reassembly.
+	/// The flag is reset before every reassemble() call.
+	void markBufferConsumed();
+
 private:
 	void incoming(message_vector &messages, const message_callback &send) override;
 
 	message_buffer mBuffer;
+	bool mBufferConsumed = false;
 };
 
 // Generic audio RTP depacketizer

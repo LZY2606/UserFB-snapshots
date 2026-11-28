@@ -15,7 +15,7 @@ done < <(find src -type f -name '*.cpp' | sort)
 c++ "${CPP_FLAGS[@]}" task_support/baseline.cpp "${objects[@]}" -o .task-build/baseline
 if [[ $mode == target ]]; then
   c++ "${CPP_FLAGS[@]}" task_support/driver.c task_tests/vp9_spatial.cpp "${objects[@]}" -o .task-build/target
-  output_log=$(mktemp)
+  output_log=".task-build/target.log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
