@@ -27,6 +27,8 @@ static const struct
         {".debug_ranges",   section_type::ranges},
         {".debug_str",      section_type::str},
         {".debug_types",    section_type::types},
+        {".debug_str_offsets", section_type::str_offsets},
+        {".debug_addr",     section_type::addr},
 };
 
 bool

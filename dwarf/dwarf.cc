@@ -122,7 +122,7 @@ dwarf::get_section(section_type type) const
         if (!data)
                 throw format_error(std::string(elf::section_type_to_name(type))
                                    + " section missing");
-        m->sections[type] = std::make_shared<section>(section_type::str, data, size, m->sec_info->ord);
+        m->sections[type] = std::make_shared<section>(type, data, size, m->sec_info->ord);
         return m->sections[type];
 }
 
@@ -201,6 +201,76 @@ const std::shared_ptr<section> &
 unit::data() const
 {
         return m->subsec;
+}
+
+bool
+unit::root_attribute(DW_AT attr, uint64_t *out) const
+{
+        if (!m)
+                return false;
+
+        // Read only the root DIE's attributes.  This deliberately
+        // avoids constructing the root die object: an indexed
+        // attribute may appear in the root DIE before the base
+        // attribute that locates its table (DWARF 5 section 6.2.4),
+        // and constructing the root die can trigger indexed lookups.
+        cursor cur(m->subsec, m->root_offset);
+        abbrev_code acode = cur.uleb128();
+        if (acode == 0)
+                return false;
+        const abbrev_entry &ab = get_abbrev(acode);
+
+        for (auto &a : ab.attributes) {
+                section_offset off = cur.get_section_offset();
+                if (a.name == attr) {
+                        switch (a.form) {
+                        case DW_FORM::sec_offset: {
+                                cursor v(m->subsec, off);
+                                *out = v.offset();
+                                return true;
+                        }
+                        case DW_FORM::data1: {
+                                cursor v(m->subsec, off);
+                                *out = v.fixed<uint8_t>();
+                                return true;
+                        }
+                        case DW_FORM::data2: {
+                                cursor v(m->subsec, off);
+                                *out = v.fixed<uint16_t>();
+                                return true;
+                        }
+                        case DW_FORM::data4: {
+                                cursor v(m->subsec, off);
+                                *out = v.fixed<uint32_t>();
+                                return true;
+                        }
+                        case DW_FORM::data8: {
+                                cursor v(m->subsec, off);
+                                *out = v.fixed<uint64_t>();
+                                return true;
+                        }
+                        case DW_FORM::udata: {
+                                cursor v(m->subsec, off);
+                                *out = v.uleb128();
+                                return true;
+                        }
+                        case DW_FORM::sdata: {
+                                cursor v(m->subsec, off);
+                                *out = (uint64_t)v.sleb128();
+                                return true;
+                        }
+                        case DW_FORM::implicit_const:
+                                *out = (uint64_t)a.implicit_value;
+                                return true;
+                        default:
+                                throw format_error("unexpected form " +
+                                                   to_string(a.form) +
+                                                   " for " + to_string(attr));
+                        }
+                }
+                cur.skip_form(a.form);
+        }
+        return false;
 }
 
 const abbrev_entry &

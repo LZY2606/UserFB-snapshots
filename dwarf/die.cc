@@ -74,7 +74,8 @@ die::operator[](DW_AT attr) const
                 int i = 0;
                 for (auto &a : abbrev->attributes) {
                         if (a.name == attr)
-                                return value(cu, a.name, a.form, a.type, attrs[i]);
+                                return value(cu, a.name, a.form, a.type,
+                                             attrs[i], a.implicit_value);
                         i++;
                 }
         }
@@ -174,7 +175,9 @@ die::attributes() const
         // custom iterator.
         int i = 0;
         for (auto &a : abbrev->attributes) {
-                res.push_back(make_pair(a.name, value(cu, a.name, a.form, a.type, attrs[i])));
+                res.push_back(make_pair(a.name,
+                                        value(cu, a.name, a.form, a.type,
+                                              attrs[i], a.implicit_value)));
                 i++;
         }
         return res;

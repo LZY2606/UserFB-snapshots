@@ -213,6 +213,12 @@ enum class DW_AT
         enum_class           = 0x6d, // flag
         linkage_name         = 0x6e, // string
 
+        // DWARF 5
+        str_offsets_base     = 0x72, // stroffsetsptr
+        addr_base            = 0x73, // addrptr
+        rnglists_base        = 0x74, // rnglistsptr
+        loclists_base        = 0x8c, // loclistsptr
+
         lo_user              = 0x2000,
         hi_user              = 0x3fff,
 };
@@ -251,6 +257,26 @@ enum class DW_FORM
         exprloc      = 0x18,    // exprloc
         flag_present = 0x19,    // flag
         ref_sig8     = 0x20,    // reference
+
+        // DWARF 5
+        strx         = 0x1a,    // string index into .debug_str_offsets
+        addrx        = 0x1b,    // address index into .debug_addr
+        ref_sup4     = 0x1c,    // reference (split DWARF, not supported)
+        strp_sup     = 0x1d,    // string (split DWARF, not supported)
+        data16       = 0x1e,    // constant
+        line_strp    = 0x1f,    // string (line strings, not supported)
+        implicit_const = 0x21,  // constant (value lives in the abbrev)
+        loclistx     = 0x22,    // loclist index (not supported)
+        rnglistx     = 0x23,    // rnglist index (not supported)
+        ref_sup8     = 0x24,    // reference (split DWARF, not supported)
+        strx1        = 0x25,    // string index, 1-byte
+        strx2        = 0x26,    // string index, 2-byte
+        strx3        = 0x27,    // string index, 3-byte
+        strx4        = 0x28,    // string index, 4-byte
+        addrx1       = 0x29,    // address index, 1-byte
+        addrx2       = 0x2a,    // address index, 2-byte
+        addrx3       = 0x2b,    // address index, 3-byte
+        addrx4       = 0x2c,    // address index, 4-byte
 };
 
 std::string

@@ -177,6 +177,26 @@ struct cursor
                 }
         }
 
+        /**
+         * Read a 3-byte unsigned value in the section's byte order.
+         * DWARF 5 defines 3-byte forms (DW_FORM_strx3, addrx3, and
+         * data16-style indices) that do not have a native C++ type.
+         */
+        std::uint32_t u24()
+        {
+                ensure(3);
+                const unsigned char *p = (const unsigned char*)pos;
+                std::uint32_t val;
+                if (sec->ord == byte_order::lsb)
+                        val = (std::uint32_t)p[0] | ((std::uint32_t)p[1] << 8) |
+                                ((std::uint32_t)p[2] << 16);
+                else
+                        val = ((std::uint32_t)p[0] << 16) | ((std::uint32_t)p[1] << 8) |
+                                (std::uint32_t)p[2];
+                pos += 3;
+                return val;
+        }
+
         void skip_initial_length();
         void skip_unit_type();
         void skip_form(DW_FORM form);
@@ -227,10 +247,15 @@ struct attribute_spec
         DW_AT name;
         DW_FORM form;
 
+        // For DW_FORM_implicit_const, the value is stored in the
+        // abbrev rather than in the DIE.  It is a signed LEB128.
+        std::int64_t implicit_value;
+
         // Computed information
         value::type type;
 
-        attribute_spec(DW_AT name, DW_FORM form);
+        attribute_spec(DW_AT name, DW_FORM form,
+                       std::int64_t implicit_value = 0);
 };
 
 typedef std::uint64_t abbrev_code;

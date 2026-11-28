@@ -83,6 +83,8 @@ resolve_type(DW_AT name, DW_FORM form)
                 return value::type::uconstant;
         case DW_FORM::sdata:
                 return value::type::sconstant;
+        case DW_FORM::implicit_const:
+                return value::type::sconstant;
 
         case DW_FORM::exprloc:
                 return value::type::exprloc;
@@ -102,11 +104,34 @@ resolve_type(DW_AT name, DW_FORM form)
 
         case DW_FORM::string:
         case DW_FORM::strp:
+        case DW_FORM::strx:
+        case DW_FORM::strx1:
+        case DW_FORM::strx2:
+        case DW_FORM::strx3:
+        case DW_FORM::strx4:
                 return value::type::string;
+
+        case DW_FORM::addrx:
+        case DW_FORM::addrx1:
+        case DW_FORM::addrx2:
+        case DW_FORM::addrx3:
+        case DW_FORM::addrx4:
+                return value::type::address;
 
         case DW_FORM::indirect:
                 // There's nothing meaningful we can do
                 return value::type::invalid;
+
+        // DWARF 5 forms this library does not decode.  Reject them
+        // explicitly rather than silently mis-typing them.
+        case DW_FORM::ref_sup4:
+        case DW_FORM::ref_sup8:
+        case DW_FORM::strp_sup:
+        case DW_FORM::line_strp:
+        case DW_FORM::loclistx:
+        case DW_FORM::rnglistx:
+        case DW_FORM::data16:
+                throw format_error("unsupported attribute form " + to_string(form));
 
         case DW_FORM::sec_offset:
         sec_offset:
@@ -133,6 +158,14 @@ resolve_type(DW_AT name, DW_FORM form)
                 case DW_AT::ranges:
                         return value::type::rangelist;
 
+                // DWARF 5 indexed table bases are section offsets
+                // (readable via as_sec_offset).
+                case DW_AT::str_offsets_base:
+                case DW_AT::addr_base:
+                case DW_AT::rnglists_base:
+                case DW_AT::loclists_base:
+                        return value::type::constant;
+
                 case DW_AT::lo_user...DW_AT::hi_user:
                         //HACK: ignore vendor extensions
                         return value::type::invalid;
@@ -145,8 +178,10 @@ resolve_type(DW_AT name, DW_FORM form)
         throw format_error("unknown attribute form " + to_string(form));
 }
 
-attribute_spec::attribute_spec(DW_AT name, DW_FORM form)
-        : name(name), form(form), type(resolve_type(name, form))
+attribute_spec::attribute_spec(DW_AT name, DW_FORM form,
+                               std::int64_t implicit_value)
+        : name(name), form(form), implicit_value(implicit_value),
+          type(resolve_type(name, form))
 {
 }
 
@@ -167,7 +202,13 @@ abbrev_entry::read(cursor *cur)
                 DW_FORM form = (DW_FORM)cur->uleb128();
                 if (name == (DW_AT)0 && form == (DW_FORM)0)
                         break;
-                attributes.push_back(attribute_spec(name, form));
+                // DWARF 5 section 7.5.3: DW_FORM_implicit_const has
+                // its value encoded as an SLEB128 in the abbrev table.
+                std::int64_t implicit_value = 0;
+                if (form == DW_FORM::implicit_const)
+                        implicit_value = cur->sleb128();
+                attributes.push_back(attribute_spec(name, form,
+                                                    implicit_value));
         }
         attributes.shrink_to_fit();
         return true;

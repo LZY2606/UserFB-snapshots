@@ -92,6 +92,9 @@ enum class section_type
         ranges,
         str,
         types,
+        // DWARF 5
+        str_offsets,
+        addr,
 };
 
 std::string
@@ -240,6 +243,16 @@ public:
          * \internal Return the data for this unit.
          */
         const std::shared_ptr<section> &data() const;
+
+        /**
+         * \internal Return the value of a scalar attribute of this
+         * unit's root DIE without constructing the root DIE.  This is
+         * used to look up the DWARF 5 indexed table bases, which must
+         * work even when an indexed attribute appears before the base
+         * attribute in the root DIE.  Returns false if the attribute
+         * is not present.
+         */
+        bool root_attribute(DW_AT attr, std::uint64_t *out) const;
 
         /**
          * \internal Return the abbrev for the specified abbrev
@@ -705,7 +718,8 @@ private:
         friend class die;
 
         value(const unit *cu,
-              DW_AT name, DW_FORM form, type typ, section_offset offset);
+              DW_AT name, DW_FORM form, type typ, section_offset offset,
+              std::int64_t implicit_value = 0);
 
         void resolve_indirect(DW_AT name);
 
@@ -713,6 +727,10 @@ private:
         DW_FORM form;
         type typ;
         section_offset offset;
+        // Value of DW_FORM_implicit_const attributes.  The encoding
+        // lives in the abbrev, not in the DIE bytes, so it is carried
+        // here rather than read from offset.
+        std::int64_t implicit_value;
 };
 
 std::string
