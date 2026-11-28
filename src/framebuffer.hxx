@@ -85,6 +85,16 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////////
+    // Read-only access (used by tests and by the MLT normalization checks)
+    int Width() const  { return mResX; }
+    int Height() const { return mResY; }
+
+    const Vec3f& Pixel(int aX, int aY) const
+    {
+        return mColor[aX + aY * mResX];
+    }
+
+    //////////////////////////////////////////////////////////////////////////
     // Statistics
     float TotalLuminance()
     {
