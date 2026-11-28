@@ -7,11 +7,13 @@ bash task_support/build.sh
 if [[ $mode == target ]]; then
   test -s task_support/transition_oracle.c
 cc -std=c17 -O2 -Wall -Wextra task_support/transition_oracle.c -o .task-build/transition_oracle -lm
+cc -std=c17 -O2 -Wall -Wextra -I. task_support/transition_gen.c -o .task-build/transition_gen -lm
+cc -std=c17 -O2 -Wall -Wextra -I. task_support/transition_example.c -o .task-build/transition_example -lm
 cc -std=c17 -O2 -Wall -Wextra -I. task_support/driver.c task_support/transition_cases.c -o .task-build/target -lm
 export FFMPEG_BIN="${FFMPEG_BIN:-$PWD/.task-build/ffmpeg/ffmpeg}"
 export FFPROBE_BIN="${FFPROBE_BIN:-$PWD/.task-build/ffmpeg/ffprobe}"
 export TRANSITION_ORACLE_BIN="$PWD/.task-build/transition_oracle"
-  output_log=$(mktemp)
+  output_log=$(mktemp .task-build/target.XXXXXX.log)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
