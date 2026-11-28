@@ -1,0 +1,266 @@
+In file included from task_support/tsf_impl.c:2:
+./tsf.h:555:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  555 |                 { GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, offset               ) }, // 0 StartAddrsOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:556:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  556 |                 { GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, end                  ) }, // 1 EndAddrsOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:557:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  557 |                 { GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, loop_start           ) }, // 2 StartloopAddrsOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:558:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  558 |                 { GEN_UINT_ADD                     , _TSFREGIONOFFSET(unsigned int, loop_end             ) }, // 3 EndloopAddrsOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:559:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  559 |                 { GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, offset               ) }, // 4 StartAddrsCoarseOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:560:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  560 |                 { GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modLfoToPitch        ) }, // 5 ModLfoToPitch
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:561:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  561 |                 { GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, vibLfoToPitch        ) }, // 6 VibLfoToPitch
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:562:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  562 |                 { GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modEnvToPitch        ) }, // 7 ModEnvToPitch
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:563:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  563 |                 { GEN_INT   | GEN_INT_LIMITFC      , _TSFREGIONOFFSET(         int, initialFilterFc      ) }, // 8 InitialFilterFc
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:564:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  564 |                 { GEN_INT   | GEN_INT_LIMITQ       , _TSFREGIONOFFSET(         int, initialFilterQ       ) }, // 9 InitialFilterQ
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:565:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  565 |                 { GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modLfoToFilterFc     ) }, //10 ModLfoToFilterFc
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:566:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  566 |                 { GEN_INT   | GEN_INT_LIMIT12K     , _TSFREGIONOFFSET(         int, modEnvToFilterFc     ) }, //11 ModEnvToFilterFc
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:567:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  567 |                 { GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, end                  ) }, //12 EndAddrsCoarseOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:568:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  568 |                 { GEN_INT   | GEN_INT_LIMIT960     , _TSFREGIONOFFSET(         int, modLfoToVolume       ) }, //13 ModLfoToVolume
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:572:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  572 |                 { GEN_FLOAT | GEN_FLOAT_LIMITPAN   , _TSFREGIONOFFSET(       float, pan                  ) }, //17 Pan
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:576:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  576 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONOFFSET(       float, delayModLFO          ) }, //21 DelayModLFO
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:577:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  577 |                 { GEN_INT   | GEN_INT_LIMIT16K4500 , _TSFREGIONOFFSET(         int, freqModLFO           ) }, //22 FreqModLFO
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:578:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  578 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONOFFSET(       float, delayVibLFO          ) }, //23 DelayVibLFO
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:579:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  579 |                 { GEN_INT   | GEN_INT_LIMIT16K4500 , _TSFREGIONOFFSET(         int, freqVibLFO           ) }, //24 FreqVibLFO
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:580:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  580 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONENVOFFSET(    float, modenv, delay        ) }, //25 DelayModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:581:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  581 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, modenv, attack       ) }, //26 AttackModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:582:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  582 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONENVOFFSET(    float, modenv, hold         ) }, //27 HoldModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:583:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  583 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, modenv, decay        ) }, //28 DecayModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:584:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  584 |                 { GEN_FLOAT | GEN_FLOAT_MAX1000    , _TSFREGIONENVOFFSET(    float, modenv, sustain      ) }, //29 SustainModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:585:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  585 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, modenv, release      ) }, //30 ReleaseModEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:586:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  586 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT1200  , _TSFREGIONENVOFFSET(    float, modenv, keynumToHold ) }, //31 KeynumToModEnvHold
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:587:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  587 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT1200  , _TSFREGIONENVOFFSET(    float, modenv, keynumToDecay) }, //32 KeynumToModEnvDecay
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:588:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  588 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONENVOFFSET(    float, ampenv, delay        ) }, //33 DelayVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:589:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  589 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, ampenv, attack       ) }, //34 AttackVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:590:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  590 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K5K , _TSFREGIONENVOFFSET(    float, ampenv, hold         ) }, //35 HoldVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:591:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  591 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, ampenv, decay        ) }, //36 DecayVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:592:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  592 |                 { GEN_FLOAT | GEN_FLOAT_MAX1440    , _TSFREGIONENVOFFSET(    float, ampenv, sustain      ) }, //37 SustainVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:593:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  593 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT12K8K , _TSFREGIONENVOFFSET(    float, ampenv, release      ) }, //38 ReleaseVolEnv
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:594:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  594 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT1200  , _TSFREGIONENVOFFSET(    float, ampenv, keynumToHold ) }, //39 KeynumToVolEnvHold
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:595:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  595 |                 { GEN_FLOAT | GEN_FLOAT_LIMIT1200  , _TSFREGIONENVOFFSET(    float, ampenv, keynumToDecay) }, //40 KeynumToVolEnvDecay
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:552:117: note: expanded from macro '_TSFREGIONENVOFFSET'
+  552 |         #define _TSFREGIONENVOFFSET(TYPE, ENV, FIELD) (unsigned char)(((TYPE*)&((&(((struct tsf_region*)0)->ENV))->FIELD)) - (TYPE*)0)
+      |                                                                                                                            ^ ~~~~~~~~
+./tsf.h:600:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  600 |                 { GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, loop_start           ) }, //45 StartloopAddrsCoarseOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:603:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  603 |                 { GEN_FLOAT | GEN_FLOAT_LIMITATTN  , _TSFREGIONOFFSET(       float, attenuation          ) }, //48 InitialAttenuation
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:605:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  605 |                 { GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, loop_end             ) }, //50 EndloopAddrsCoarseOffset
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:606:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  606 |                 { GEN_INT                          , _TSFREGIONOFFSET(         int, transpose            ) }, //51 CoarseTune
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:607:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  607 |                 { GEN_INT                          , _TSFREGIONOFFSET(         int, tune                 ) }, //52 FineTune
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:609:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  609 |                 { GEN_LOOPMODE                     , _TSFREGIONOFFSET(         int, loop_mode            ) }, //54 SampleModes
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:611:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  611 |                 { GEN_INT                          , _TSFREGIONOFFSET(         int, pitch_keytrack       ) }, //56 ScaleTuning
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:612:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  612 |                 { GEN_GROUP                        , _TSFREGIONOFFSET(unsigned int, group                ) }, //57 ExclusiveClass
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+./tsf.h:613:40: warning: performing pointer subtraction with a null pointer has undefined behavior [-Wnull-pointer-subtraction]
+  613 |                 { GEN_KEYCENTER                    , _TSFREGIONOFFSET(         int, pitch_keycenter      ) }, //58 OverridingRootKey
+      |                                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./tsf.h:551:97: note: expanded from macro '_TSFREGIONOFFSET'
+  551 |         #define _TSFREGIONOFFSET(TYPE, FIELD) (unsigned char)(((TYPE*)&((struct tsf_region*)0)->FIELD) - (TYPE*)0)
+      |                                                                                                        ^ ~~~~~~~~
+44 warnings generated.
