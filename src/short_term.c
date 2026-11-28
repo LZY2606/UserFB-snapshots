@@ -52,7 +52,7 @@ static void Decoding_of_the_coded_Log_Area_Ratios P2((LARc,LARpp),
 
 #undef	STEP
 #define	STEP( B_TIMES_TWO, MIC, INVA )	\
-		temp1    = GSM_ADD( *LARc++, MIC ) << 10;	\
+		temp1    = gsm_word_asl(GSM_ADD( *LARc++, MIC ), 10);	\
 		temp1    = GSM_SUB( temp1, B_TIMES_TWO );	\
 		temp1    = GSM_MULT_R( INVA, temp1 );		\
 		*LARpp++ = GSM_ADD( temp1, temp1 );
@@ -166,14 +166,14 @@ static void LARp_to_rp P1((LARp),
 
 		if (*LARp < 0) {
 			temp = *LARp == MIN_WORD ? MAX_WORD : -(*LARp);
-			*LARp = - ((temp < 11059) ? temp << 1
+			*LARp = - ((temp < 11059) ? gsm_word_asl(temp, 1)
 				: ((temp < 20070) ? temp + 11059
-				:  GSM_ADD( temp >> 2, 26112 )));
+				:  GSM_ADD( gsm_word_asr(temp, 2), 26112 )));
 		} else {
 			temp  = *LARp;
-			*LARp =    (temp < 11059) ? temp << 1
+			*LARp =    (temp < 11059) ? gsm_word_asl(temp, 1)
 				: ((temp < 20070) ? temp + 11059
-				:  GSM_ADD( temp >> 2, 26112 ));
+				:  GSM_ADD( gsm_word_asr(temp, 2), 26112 ));
 		}
 	}
 }
@@ -280,13 +280,18 @@ static void Short_term_synthesis_filtering P5((S,rrp,k,wt,sr),
 		for (i = 8; i--;) {
 
 			/* sri = GSM_SUB( sri, gsm_mult_r( rrp[i], v[i] ) );
+			 *
+			 * The product plus the Q15 rounding bias is always
+			 * inside the 32 bit range; the floor shift gives
+			 * the same word as the historical masked result.
 			 */
 			tmp1 = rrp[i];
 			tmp2 = v[i];
 			tmp2 =  ( tmp1 == MIN_WORD && tmp2 == MIN_WORD
 				? MAX_WORD
-				: 0x0FFFF & (( (longword)tmp1 * (longword)tmp2
-					     + 16384) >> 15)) ;
+				: (word)gsm_longword_asr(
+					(longword)tmp1 * (longword)tmp2
+					     + 16384, 15 )) ;
 
 			sri  = GSM_SUB( sri, tmp2 );
 
@@ -294,8 +299,9 @@ static void Short_term_synthesis_filtering P5((S,rrp,k,wt,sr),
 			 */
 			tmp1  = ( tmp1 == MIN_WORD && sri == MIN_WORD
 				? MAX_WORD
-				: 0x0FFFF & (( (longword)tmp1 * (longword)sri
-					     + 16384) >> 15)) ;
+				: (word)gsm_longword_asr(
+					(longword)tmp1 * (longword)sri
+					     + 16384, 15 )) ;
 
 			v[i+1] = GSM_ADD( v[i], tmp1);
 		}

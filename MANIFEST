@@ -8,6 +8,7 @@ gsm-1.0/README
 gsm-1.0/add-test/add_test.c
 gsm-1.0/add-test/add_test.dta
 gsm-1.0/inc/gsm.h
+gsm-1.0/inc/portable.h
 gsm-1.0/inc/proto.h
 gsm-1.0/inc/unproto.h
 gsm-1.0/inc/config.h
@@ -57,3 +58,4 @@ gsm-1.0/tst/gsm2cod.c
 gsm-1.0/tst/lin2cod.c
 gsm-1.0/tst/lin2txt.c
 gsm-1.0/tst/run
+gsm-1.0/tests/portable_fixed.c

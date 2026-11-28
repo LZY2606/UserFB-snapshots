@@ -237,12 +237,12 @@ static void Calculation_of_the_LTP_parameters P4((d,dp,bc_out,Nc_out),
 
 	*Nc_out = Nc;
 
-	L_max <<= 1;
+	L_max = gsm_longword_asl(L_max, 1);
 
 	/*  Rescaling of L_max
 	 */
 	assert(scal <= 100 && scal >=  -100);
-	L_max = L_max >> (6 - scal);	/* sub(6, scal) */
+	L_max = SASR(L_max, 6 - scal);	/* sub(6, scal) */
 
 	assert( Nc <= 120 && Nc >= 40);
 
@@ -257,7 +257,7 @@ static void Calculation_of_the_LTP_parameters P4((d,dp,bc_out,Nc_out),
 		L_temp   = SASR( dp[k - Nc], 3 );
 		L_power += L_temp * L_temp;
 	}
-	L_power <<= 1;	/* from L_MULT */
+	L_power = gsm_longword_asl(L_power, 1);	/* from L_MULT */
 
 	/*  Normalization of L_max and L_power
 	 */
@@ -273,8 +273,8 @@ static void Calculation_of_the_LTP_parameters P4((d,dp,bc_out,Nc_out),
 
 	temp = gsm_norm( L_power );
 
-	R = SASR( L_max   << temp, 16 );
-	S = SASR( L_power << temp, 16 );
+	R = SASR( gsm_L_asl(L_max,   temp), 16 );
+	S = SASR( gsm_L_asl(L_power, temp), 16 );
 
 	/*  Coding of the LTP gain
 	 */

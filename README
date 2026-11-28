@@ -35,3 +35,102 @@ Fax: +49.30.31425156, Phone: +49.30.31424315
 Copyright 1992 by Jutta Degener and Carsten Bormann, Technische
 Universitaet Berlin.  See the accompanying file "COPYRIGHT" for
 details.  THERE IS ABSOLUTELY NO WARRANTY FOR THIS SOFTWARE.
+
+Portable integer fixed point path
+---------------------------------
+
+The integer codec used to assume three things that C does not
+guarantee: that "long" is exactly 32 bits, that left shifting a
+negative signed integer keeps its sign, and that right shifting a
+negative signed integer fills with the sign bit.  Built with the
+UndefinedBehaviorSanitizer the codec aborted on ordinary silence and
+signed 16 bit PCM, first in the LAR reconstruction and then in the
+preprocessing, LPC and RPE stages.
+
+The arithmetic is now expressed with explicit, well defined rules.
+inc/portable.h introduces exact-width internal types (16 bit word,
+32 bit longword) and a small set of primitives that the rest of the
+codec calls:
+
+  - gsm_word_asl / gsm_longword_asl keep the low 16/32 bits of the
+    two's complement word.  These are deliberate low-bit truncations,
+    done on the matching unsigned type, not saturations.  The public
+    gsm_asl / gsm_L_asl wrappers keep their historical edge behaviour
+    for out-of-range and negative shift counts (count >= width gives
+    0; count <= -width gives -1 for a negative input, 0 otherwise;
+    a negative count reverses the shift direction).
+  - gsm_word_asr / gsm_longword_asr are arithmetic right shifts that
+    round towards negative infinity.  They are derived from the
+    unsigned magnitude (floor division by a power of two); C division
+    of negative values, which truncates towards zero, is never used to
+    implement them.
+  - The Q15 multiplies form the 16x16 product in the guaranteed 32 bit
+    type and only then apply the floor shift, with the original
+    round-to-nearest bias and the MIN_WORD*MIN_WORD saturation rule
+    unchanged.  GSM_L_MULT keeps its 32 bit low-bit truncation.
+  - gsm_norm works on an unsigned magnitude after flipping the bits of
+    a negative input, so it no longer depends on a signed shift.
+
+Saturating add/subtract (gsm_add, gsm_sub, gsm_L_add, gsm_L_sub,
+gsm_abs) keep the existing GSM saturation rules; only the representation
+of the intermediate magnitude changed.  The scaling and rounding
+positions in the multiply-accumulate, LAR decode, normalized
+correlation quantities and RPE inverse quantization were not moved.
+The FAST/USE_FLOAT_MUL and LTP_CUT approximation branches and the
+WAV49 byte packing were left structurally alone; the packing already
+operates on unsigned quantities.
+
+The supported target is an 8 bit byte, 16 bit short, 32 bit int, two's
+complement machine with 32 or 64 bit long.  portable.h compile-time
+checks these widths.  The header compiles both as C99 (the UBSan
+build) and as strict ANSI C89 (the legacy Makefile).
+
+Compatibility basis.  No algorithmic constant, table, scaling point or
+rounding point changed, so every output bit is preserved: the normal
+build still prints the fixed 33 byte frame and PCM fingerprints
+(encoded=1727e7c8, pcm=7fc5a90a, nonzero=1918 over the 12 frame
+devcheck sequence), and those values are identical at -O0 and -O2 and
+whether or not SASR is defined.  The public gsm.h interface, the
+gsm_signal type, the opaque gsm_state and the 33 byte frame layout are
+unchanged, so existing callers and stored frame files stay compatible.
+
+These fingerprints are only a regression tripwire for that one
+sequence; they do not by themselves cover every fixed point boundary.
+tests/portable_fixed.c separately pins the shift/rounding/saturation
+edges (negative odd shifts, word-width edges, the minimum negative,
+rounding and saturation boundaries), continuous silence/extrema/
+impulse/noise streams with two differently primed decoder instances,
+and independently constructed legal edge frames (edge LAR, RPE pulses,
+all four grids and long term lag reuse) checked against the actual
+decoded samples and their successor state, including two short cases
+that change PCM if a scaling or rounding point is moved.  The expected
+arithmetic values come from independent int64 quotient/remainder and
+modular-truncation rules, never from the helpers being tested.
+
+Run the full matrix (four build combinations under full UBSan plus the
+original non-sanitized baseline) with:
+
+	bash devcheck/target.sh
+
+Minimal C usage, compiler and standard library only:
+
+	#include "gsm.h"
+
+	void frame_example(gsm enc, gsm dec,
+			   gsm_signal in[160], gsm_signal out[160])
+	{
+		gsm_frame frame;
+
+		gsm_encode(enc, in, frame);   /* 160 samples -> 33 bytes */
+		if (gsm_decode(dec, frame, out) != 0)
+			return;                 /* bad magic nibble        */
+	}
+
+For WAV #49 packing, enable the option on both the encoder and the
+decoder before the first frame and feed the alternating 32/33 byte
+packets in order; the half-byte chain and frame index are kept inside
+the opaque state:
+
+	int on = 1;
+	gsm_option(enc, GSM_OPT_WAV49, &on);
+	gsm_option(dec, GSM_OPT_WAV49, &on);

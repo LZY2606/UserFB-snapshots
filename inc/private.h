@@ -9,11 +9,20 @@
 #ifndef	PRIVATE_H
 #define	PRIVATE_H
 
-typedef short			word;		/* 16 bit signed int	*/
-typedef long			longword;	/* 32 bit signed int	*/
+#include "portable.h"
 
-typedef unsigned short		uword;		/* unsigned word	*/
-typedef unsigned long		ulongword;	/* unsigned longword	*/
+/*
+ * Internal fixed point quantities.  The widths are now explicit: a
+ * word is a 16 bit signed quantity and a longword a 32 bit signed
+ * quantity, regardless of whether "long" happens to be 32 or 64 bits.
+ * The public gsm_signal type in gsm.h remains "short"; portable.h
+ * asserts that short has the required 16 bit range.
+ */
+typedef gsm_word		word;		/* 16 bit signed int	*/
+typedef gsm_longword		longword;	/* 32 bit signed int	*/
+
+typedef gsm_uword		uword;		/* unsigned word	*/
+typedef gsm_ulongword		ulongword;	/* unsigned longword	*/
 
 struct gsm_state {
 
@@ -42,18 +51,24 @@ struct gsm_state {
 };
 
 
-#define	MIN_WORD	(-32767 - 1)
-#define	MAX_WORD	  32767
+#define	MIN_WORD	GSM_MIN_WORD
+#define	MAX_WORD	GSM_MAX_WORD
 
-#define	MIN_LONGWORD	(-2147483647 - 1)
-#define	MAX_LONGWORD	  2147483647
+#define	MIN_LONGWORD	GSM_MIN_LONGWORD
+#define	MAX_LONGWORD	GSM_MAX_LONGWORD
 
-#ifdef	SASR		/* flag: >> is a signed arithmetic shift right */
-#undef	SASR
-#define	SASR(x, by)	((x) >> (by))
-#else
-#define	SASR(x, by)	((x) >= 0 ? (x) >> (by) : (~(-((x) + 1) >> (by))))
-#endif	/* SASR */
+/*
+ * SASR(x, by): signed arithmetic shift right that rounds towards
+ * negative infinity.  The SASR preprocessor symbol used to select
+ * between a native signed ">>" and a hand written fallback; neither
+ * form is fully portable, so both builds now use the explicitly
+ * defined helper in portable.h.  Every input is widened to the 32 bit
+ * type first: a floor shift of a 16 bit value gives exactly the bits a
+ * 16 bit arithmetic shift would have produced, so a single 32 bit
+ * definition covers both word and longword call sites.
+ */
+#undef SASR
+#define	SASR(x, by)	gsm_longword_asr((gsm_longword)(x), (by))
 
 #include "proto.h"
 
@@ -86,18 +101,23 @@ extern word	gsm_asr  	P((word a, int n));
  *  Inlined functions from add.h 
  */
 
-/* 
+/*
  * #define GSM_MULT_R(a, b) (* word a, word b, !(a == b == MIN_WORD) *)	\
  *	(0x0FFFF & SASR(((longword)(a) * (longword)(b) + 16384), 15))
  */
+/*
+ * The Q15 multiplies now go through portable.h: the 16x16 product is
+ * formed in the guaranteed 32 bit type and the right shift is an
+ * explicit floor shift, so no negative value is ever shifted in C.
+ */
 #define GSM_MULT_R(a, b) /* word a, word b, !(a == b == MIN_WORD) */	\
-	(SASR( ((longword)(a) * (longword)(b) + 16384), 15 ))
+	(gsm_q15_mult_r((gsm_word)(a), (gsm_word)(b)))
 
 # define GSM_MULT(a,b)	 /* word a, word b, !(a == b == MIN_WORD) */	\
-	(SASR( ((longword)(a) * (longword)(b)), 15 ))
+	(gsm_q15_mult((gsm_word)(a), (gsm_word)(b)))
 
 # define GSM_L_MULT(a, b) /* word a, word b */	\
-	(((longword)(a) * (longword)(b)) << 1)
+	(gsm_q15_L_mult((gsm_word)(a), (gsm_word)(b)))
 
 # define GSM_L_ADD(a, b)	\
 	( (a) <  0 ? ( (b) >= 0 ? (a) + (b)	\

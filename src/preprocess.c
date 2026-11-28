@@ -57,8 +57,13 @@ void Gsm_Preprocess P3((S, s, so),
 	while (k--) {
 
 	/*  4.2.1   Downscaling of the input signal
+	 *
+	 *  The right shift floors towards negative infinity; the
+	 *  following left shift deliberately keeps only the low 16
+	 *  bits, so it goes through the word-truncating helper rather
+	 *  than a signed C shift.
 	 */
-		SO = SASR( *s, 3 ) << 2;
+		SO = gsm_word_asl(SASR( *s, 3 ), 2);
 		s++;
 
 		assert (SO >= -0x4000);	/* downscaled by     */
@@ -83,13 +88,14 @@ void Gsm_Preprocess P3((S, s, so),
 		/*   Compute the recursive part
 		 */
 		L_s2 = s1;
-		L_s2 <<= 15;
+		L_s2 = gsm_longword_asl(L_s2, 15);
 
 		/*   Execution of a 31 bv 16 bits multiplication
 		 */
 
 		msp = SASR( L_z2, 15 );
-		lsp = L_z2-((longword)msp<<15); /* gsm_L_sub(L_z2,(msp<<15)); */
+		/* gsm_L_sub(L_z2,(msp<<15)); low-bit truncating shift */
+		lsp = L_z2 - gsm_longword_asl((longword)msp, 15);
 
 		L_s2  += GSM_MULT_R( lsp, 32735 );
 		L_temp = (longword)msp * 32735; /* GSM_L_MULT(msp,32735) >> 1;*/
