@@ -2351,7 +2351,17 @@ TEMPLATED void BVH<Float, Index>::Build( void (*customGetAABB)(const Index, Vec3
 TEMPLATED void BVH<Float, Index>::Build( BLASInstance* instances, const Index instCount, BVHBase<Float, Index>** blasses, const Index bCount )
 {
 	// TLAS builder. Build a BVH over a list of BLAS instances.
-	BVH_FATAL_ERROR_IF( instCount == 0, "BVH::Build( BLASInstance*, instCount ), instCount == 0." );
+	if (instCount == 0)
+	{
+		// Zero instances (and thus also a null instance pointer) are valid input:
+		// the TLAS becomes empty. Traversal early-outs on triCount == 0, so the
+		// nodes of a previous build on this object are never visited. The object
+		// can later be rebuilt with new instances.
+		SetInput( Slice( nullptr, 0, 0 ), 0 );
+		instList = instances, blasList = blasses, blasCount = bCount;
+		usedNodes = triCount = idxCount = 0;
+		return;
+	}
 	SetInput( Slice( nullptr, 0, 0 ), 0 );
 	instList = instances, blasList = blasses, blasCount = bCount;
 	BuildFromBounds( instCount, [&]( const Index i, Vec3& bmin, Vec3& bmax )
@@ -4053,6 +4063,7 @@ TEMPLATED bool BVH<Float, Index>::IntersectSphere( const Vec3& pos, const Float 
 TEMPLATED int32_t BVH<Float, Index>::Intersect( Ray& ray ) const
 {
 	VALIDATE_RAY( ray );
+	if (triCount == 0) return 0; // empty (T)BVH: nothing to traverse, hit record untouched
 	if (isTLAS()) OCTANT_DISPATCH( IntersectTLASOctant, ray )
 	else OCTANT_DISPATCH( IntersectOctant, ray )
 }
@@ -4222,6 +4233,7 @@ TEMPLATED PER_OCTANT int32_t BVH<Float, Index>::IntersectTLASOctant( Ray& ray ) 
 TEMPLATED bool BVH<Float, Index>::IsOccluded( const Ray& ray ) const
 {
 	VALIDATE_RAY( ray );
+	if (triCount == 0) return false; // empty (T)BVH: nothing to traverse
 	if (isTLAS()) OCTANT_DISPATCH( IsOccludedTLASOctant, ray )
 	else OCTANT_DISPATCH( IsOccludedOctant, ray )
 }
