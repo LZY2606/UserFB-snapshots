@@ -220,6 +220,15 @@ typedef struct
     uint8_t tab_offset, code_tab_width, band_count;
 } L12_subband_alloc_t;
 
+/* Test-only read-only observation point for the Layer II branch.  Off in
+   normal builds so the production translation unit gains no state or hooks. */
+#ifndef MINIMP3_LAYER2_OBSERVE
+#define MINIMP3_LAYER2_OBSERVE 0
+#endif
+#if MINIMP3_LAYER2_OBSERVE
+#include "task_support/layer2_observe.inc"
+#endif
+
 typedef struct
 {
     const uint8_t *sfbtab;
@@ -1790,6 +1799,9 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
             {
                 i = 0;
                 L12_apply_scf_384(sci, sci->scf + igr, scratch.grbuf[0]);
+#if MINIMP3_LAYER2_OBSERVE
+                layer2_obs_record(sci, scratch.grbuf[0]);
+#endif
                 mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, pcm, scratch.syn[0]);
                 memset(scratch.grbuf[0], 0, 576*2*sizeof(float));
                 pcm += 384*info->channels;
