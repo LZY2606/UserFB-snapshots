@@ -1,0 +1,6 @@
+./doc.go
+./fuzz.go
+./tree.go
+./tree_minimize.go
+./tree_persist.go
+./fuzz_test.go
