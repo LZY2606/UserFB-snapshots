@@ -341,7 +341,21 @@ namespace PeLib
 	**/
 	class ResourceDirectory
 	{
+			friend class ResourceNode;
+			friend class ResourceLeaf;
+
 		protected:
+		  /// One contiguous RVA -> file offset mapping segment of the current image.
+		  struct MappedSegment
+		  {
+			/// First mapped RVA.
+			std::uint64_t rva;
+			/// File offset of the first mapped byte.
+			std::uint64_t fileOffset;
+			/// Number of mapped bytes (real file bytes only, no zero fill).
+			std::uint64_t size;
+		  };
+
 		  /// Start offset of directory in file.
 		  unsigned int m_readOffset;
 		  /// The root node of the resource directory.
@@ -352,6 +366,13 @@ namespace PeLib
 		  std::vector<std::pair<unsigned int, unsigned int>> m_occupiedAddresses;
 		  /// Error detected by the import table parser
 		  LoaderError m_ldrError;
+		  /// RVA -> file offset segments of the image that is being read.
+		  std::vector<MappedSegment> m_mappedSegments;
+
+		  /// Translates a single RVA into a file offset using the mapped segments.
+		  bool mapResourceRva(std::uint64_t rva, std::uint64_t& fileOffset, std::uint64_t& available) const;
+		  /// Reads a range of bytes located at an RVA, following the mapped segments.
+		  int readMappedBytes(std::istream& inStream, std::uint64_t rva, std::uint64_t size, std::vector<byte>& data) const;
 
 		  // Prepare for some crazy syntax below to make Digital Mars happy.
 
@@ -540,6 +561,8 @@ namespace PeLib
 
 		  /// Insert offset of loaded node.
 		  void insertNodeOffset(std::size_t nodeOffset);
+		  /// Remove offset of a node that is no longer on the current ancestor chain.
+		  void removeNodeOffset(std::size_t nodeOffset);
 		  /// Check if node with specified offset was loaded.
 		  bool hasNodeOffset(std::size_t nodeOffset) const;
 
@@ -808,16 +831,6 @@ namespace PeLib
 			std::istream& inStream,
 			const PeHeaderT<bits>& peHeader)
 	{
-		unsigned int uiResDirRva = peHeader.getIddResourceRva();
-		unsigned int uiOffset = peHeader.rvaToOffset(uiResDirRva);
-
-		m_resourceNodeOffsets.clear();
-		m_readOffset = uiOffset;
-		if (!uiOffset)
-		{
-			return ERROR_INVALID_FILE;
-		}
-
 		IStreamWrapper inStream_w(inStream);
 
 		if (!inStream_w)
@@ -825,15 +838,70 @@ namespace PeLib
 			return ERROR_OPENING_FILE;
 		}
 
+		// A repeated read replaces the previous tree, the occupied
+		// addresses and the loader error instead of adding to them.
+		m_rnRoot.children.clear();
+		m_rnRoot.header = PELIB_IMAGE_RESOURCE_DIRECTORY();
+		m_resourceNodeOffsets.clear();
+		m_occupiedAddresses.clear();
+		m_ldrError = LDR_ERROR_NONE;
+		m_mappedSegments.clear();
+
 		std::uint64_t ulFileSize = fileSize(inStream_w);
-		if (ulFileSize < uiOffset)
+
+		// The headers are mapped 1:1 at the beginning of the image, but only
+		// where real file bytes exist.
+		std::uint64_t ulHeaderBytes = peHeader.getSizeOfHeaders();
+		if (ulHeaderBytes > ulFileSize)
 		{
+			ulHeaderBytes = ulFileSize;
+		}
+		if (ulHeaderBytes)
+		{
+			m_mappedSegments.push_back({0, 0, ulHeaderBytes});
+		}
+
+		// Every section contributes its raw bytes. The zero filled part of
+		// VirtualSize is not resource content. The section table is not
+		// assumed to be sorted by virtual address.
+		for (word i = 0; i < peHeader.getNumberOfSections(); ++i)
+		{
+			std::uint64_t ulRawOffset = peHeader.getPointerToRawData(i);
+			if (ulRawOffset >= ulFileSize)
+			{
+				continue;
+			}
+			std::uint64_t ulRawSize = peHeader.getSizeOfRawData(i);
+			if (ulRawSize > ulFileSize - ulRawOffset)
+			{
+				ulRawSize = ulFileSize - ulRawOffset;
+			}
+			if (!ulRawSize)
+			{
+				continue;
+			}
+			m_mappedSegments.push_back({peHeader.getVirtualAddress(i), ulRawOffset, ulRawSize});
+		}
+
+		unsigned int uiResDirRva = peHeader.getIddResourceRva();
+		std::uint64_t ulOffset = 0;
+		std::uint64_t ulAvailable = 0;
+		if (!mapResourceRva(uiResDirRva, ulOffset, ulAvailable) || !ulOffset)
+		{
+			m_readOffset = 0;
 			return ERROR_INVALID_FILE;
 		}
 
-		inStream_w.seekg(uiOffset, std::ios::beg);
+		m_readOffset = static_cast<unsigned int>(ulOffset);
 
-		return m_rnRoot.read(inStream_w, uiOffset, 0, uiResDirRva, ulFileSize, peHeader.getSizeOfImage(), this);
+		return m_rnRoot.read(
+				inStream_w,
+				static_cast<unsigned int>(ulOffset),
+				0,
+				uiResDirRva,
+				static_cast<unsigned int>(ulFileSize > 0xFFFFFFFF ? 0xFFFFFFFF : ulFileSize),
+				peHeader.getSizeOfImage(),
+				this);
 	}
 }
 
