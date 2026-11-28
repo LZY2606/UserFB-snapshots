@@ -12,6 +12,7 @@
 #include <common/hashtable.h>
 #include <renderer/samplers/sampler.h>
 #include <renderer/samplers/vec.h>
+#include <renderer/ray_spawn.h>
 #include <datatypes/scene.h>
 #include "../bsdfnode.h"
 
@@ -84,13 +85,11 @@ static struct bsdfSample sample(const struct bsdfNode *bsdf, sampler *sampler, c
 		refracted = vec_add(refracted, fuzz);
 	}
 	
-	struct lightRay out = { .start = record->hitPoint };
+	struct lightRay out;
 	if (sampler_dimension(sampler) < reflectionProbability) {
-		out.direction = reflected;
-		out.type = rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy);
+		out = spawn_surface_ray(record, reflected, rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy));
 	} else {
-		out.direction = refracted;
-		out.type = rt_transmission | (roughness == 0.0f ? rt_singular : rt_glossy);
+		out = spawn_surface_ray(record, refracted, rt_transmission | (roughness == 0.0f ? rt_singular : rt_glossy));
 	}
 	
 	return (struct bsdfSample){

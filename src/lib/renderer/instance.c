@@ -16,6 +16,9 @@
 #include <datatypes/sphere.h>
 #include <datatypes/scene.h>
 
+#include <float.h>
+#include <math.h>
+
 struct sphereVolume {
 	struct sphere *sphere;
 	float density;
@@ -25,6 +28,96 @@ struct meshVolume {
 	struct mesh *mesh;
 	float density;
 };
+
+static inline struct vector normalize_or(struct vector v, struct vector fallback) {
+	const double len = sqrt((double)v.x * v.x + (double)v.y * v.y + (double)v.z * v.z);
+	if (!(len > 0.0) || !isfinite(len))
+		return fallback;
+	return (struct vector){
+		(float)((double)v.x / len),
+		(float)((double)v.y / len),
+		(float)((double)v.z / len),
+	};
+}
+
+// Determinant of the linear (upper-left 3x3) part of the affine transform.
+static inline double linear_determinant(const struct matrix4x4 m) {
+	return (double)m.mtx[0][0] * ((double)m.mtx[1][1] * m.mtx[2][2] - (double)m.mtx[1][2] * m.mtx[2][1])
+		 - (double)m.mtx[0][1] * ((double)m.mtx[1][0] * m.mtx[2][2] - (double)m.mtx[1][2] * m.mtx[2][0])
+		 + (double)m.mtx[0][2] * ((double)m.mtx[1][0] * m.mtx[2][1] - (double)m.mtx[1][1] * m.mtx[2][0]);
+}
+
+// Transform an object-space hit record into world space.
+//
+// * The hit point is transformed by the instance's affine transform.
+// * The conservative position error is transformed by the absolute value of
+//   that transform, so non-uniform scaling and shear expand it correctly.
+// * The geometric normal is transformed by the inverse-transpose. For
+//   triangles we additionally flip it by the sign of the determinant so the
+//   result is the transformed oriented edge cross product; for spheres the
+//   inverse-transpose already yields the outward implicit-surface normal.
+// * The shading (surface) normal is transformed the same way, preserving the
+//   object-space "faces the incident ray" convention.
+static void transform_hit_to_world(
+	const struct instance *instance,
+	const struct lightRay *world_ray,
+	struct hitRecord *isect,
+	bool flip_geometric_by_det)
+{
+	const struct matrix4x4 A = instance->composite.A;
+	const struct matrix4x4 Ainv = instance->composite.Ainv;
+	const double eps = (double)FLT_EPSILON;
+
+	const struct vector op = isect->hitPoint;
+	const struct vector oe = isect->pointError;
+	const double t = isect->distance;
+
+	const double ox = op.x, oy = op.y, oz = op.z;
+	const double wx = (double)A.mtx[0][0] * ox + (double)A.mtx[0][1] * oy + (double)A.mtx[0][2] * oz + (double)A.mtx[0][3];
+	const double wy = (double)A.mtx[1][0] * ox + (double)A.mtx[1][1] * oy + (double)A.mtx[1][2] * oz + (double)A.mtx[1][3];
+	const double wz = (double)A.mtx[2][0] * ox + (double)A.mtx[2][1] * oy + (double)A.mtx[2][2] * oz + (double)A.mtx[2][3];
+
+	const struct vector wp = { (float)wx, (float)wy, (float)wz };
+
+	const double rows[3] = { wx, wy, wz };
+	const double ray_start[3] = { world_ray->start.x, world_ray->start.y, world_ray->start.z };
+	const double ray_dir_t[3] = {
+		t * (double)world_ray->direction.x,
+		t * (double)world_ray->direction.y,
+		t * (double)world_ray->direction.z,
+	};
+	const double obj_err[3] = { fabs(oe.x), fabs(oe.y), fabs(oe.z) };
+
+	struct vector werr;
+	float *werr_components[3] = { &werr.x, &werr.y, &werr.z };
+	for (int i = 0; i < 3; ++i) {
+		const double row0 = A.mtx[i][0], row1 = A.mtx[i][1], row2 = A.mtx[i][2];
+		// Error mapped through the absolute transform.
+		double err = fabs(row0) * obj_err[0] + fabs(row1) * obj_err[1] + fabs(row2) * obj_err[2];
+		// Rounding of the world-space matrix multiply itself.
+		err += 16.0 * eps * (fabs(row0 * ox) + fabs(row1 * oy) + fabs(row2 * oz) + fabs((double)A.mtx[i][3]));
+		// Storing the resulting world point as float.
+		err += 16.0 * eps * fabs(rows[i]);
+		// Consistency with start + t * direction on the original ray.
+		err += 8.0 * eps * (fabs(ray_start[i]) + fabs(ray_dir_t[i]));
+		*werr_components[i] = (float)err;
+	}
+
+	struct vector geometric = isect->geometricNormal;
+	tform_vector_transpose(&geometric, Ainv);
+	if (flip_geometric_by_det && linear_determinant(A) < 0.0)
+		geometric = vec_negate(geometric);
+	geometric = normalize_or(geometric, isect->geometricNormal);
+
+	struct vector shading = isect->surfaceNormal;
+	tform_vector_transpose(&shading, Ainv);
+	shading = normalize_or(shading, geometric);
+
+	isect->hitPoint = wp;
+	isect->pointError = werr;
+	isect->geometricNormal = geometric;
+	isect->surfaceNormal = shading;
+}
 
 static inline struct coord getTexMapSphere(const struct hitRecord *isect) {
 	struct vector ud = isect->surfaceNormal;
@@ -43,49 +136,21 @@ static bool intersectSphere(const struct instance *instance, const struct lightR
 	struct lightRay copy = *ray;
 	tform_ray(&copy, instance->composite.Ainv);
 	struct sphere *sphere = &(*((struct sphere **)instance->object_arr))[instance->object_idx];
-	copy.start = vec_add(copy.start, vec_scale(copy.direction, sphere->rayOffset));
 	if (rayIntersectsWithSphere(&copy, sphere, isect)) {
 		isect->uv = getTexMapSphere(isect);
 		isect->polygon = NULL;
 		isect->bsdf = instance->bbuf->bsdfs[0];
-		tform_point(&isect->hitPoint, instance->composite.A);
-		tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv);
+		transform_hit_to_world(instance, ray, isect, false);
 		return true;
 	}
 	return false;
 }
 
 static bool intersectSphereVolume(const struct instance *instance, const struct lightRay *ray, struct hitRecord *isect, sampler *sampler) {
-	return false;
-	struct hitRecord record1, record2;
-	record1 = *isect;
-	record2 = *isect;
-	struct lightRay copy1, copy2;
-	copy1 = *ray;
-	tform_ray(&copy1, instance->composite.Ainv);
-	//FIXME
-	struct sphereVolume *volume = NULL;//(struct sphereVolume *)instance->object;
-	copy1.start = vec_add(copy1.start, vec_scale(copy1.direction, volume->sphere->rayOffset));
-	if (rayIntersectsWithSphere(&copy1, volume->sphere, &record1)) {
-		copy2 = (struct lightRay){ alongRay(&copy1, record1.distance + 0.0001f), copy1.direction };
-		if (rayIntersectsWithSphere(&copy2, volume->sphere, &record2)) {
-			if (record1.distance < 0.0f)
-				record1.distance = 0.0f;
-			float distanceInsideVolume = record2.distance;
-			float hitDistance = -(1.0f / volume->density) * logf(sampler_dimension(sampler));
-			if (hitDistance < distanceInsideVolume) {
-				isect->distance = record1.distance + hitDistance;
-				isect->hitPoint = alongRay(ray, isect->distance);
-				isect->uv = (struct coord){-1.0f, -1.0f};
-				isect->polygon = NULL;
-				isect->bsdf = instance->bbuf->bsdfs[0];
-				tform_point(&isect->hitPoint, instance->composite.A);
-				isect->surfaceNormal = (struct vector){1.0f, 0.0f, 0.0f}; // Will be ignored by material anyway
-				tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv); // Probably not needed
-				return true;
-			}
-		}
-	}
+	(void)instance;
+	(void)ray;
+	(void)isect;
+	(void)sampler;
 	return false;
 }
 
@@ -93,21 +158,15 @@ static void getSphereBBoxAndCenter(const struct instance *instance, struct bound
 	struct sphere *sphere = &(*((struct sphere **)instance->object_arr))[instance->object_idx];
 	bbox->min = (struct vector){ -sphere->radius, -sphere->radius, -sphere->radius };
 	bbox->max = (struct vector){  sphere->radius,  sphere->radius,  sphere->radius };
+	*center = vec_zero();
 	tform_bbox(bbox, instance->composite.A);
 	*center = bboxCenter(bbox);
-	sphere->rayOffset = rayOffset(*bbox);
 }
 
 static void getSphereVolumeBBoxAndCenter(const struct instance *instance, struct boundingBox *bbox, struct vector *center) {
-	return;
-	struct sphereVolume *volume = NULL;//(struct sphereVolume *)instance->object;
-	*center = vec_zero();
-	tform_point(center, instance->composite.A);
-	bbox->min = (struct vector){ -volume->sphere->radius, -volume->sphere->radius, -volume->sphere->radius };
-	bbox->max = (struct vector){  volume->sphere->radius,  volume->sphere->radius,  volume->sphere->radius };
-	bbox->min = vec_add(bbox->min, *center);
-	bbox->max = vec_add(bbox->max, *center);
-	volume->sphere->rayOffset = rayOffset(*bbox);
+	(void)instance;
+	(void)bbox;
+	(void)center;
 }
 
 struct instance new_sphere_instance(struct sphere **spheres, size_t idx, float *density, struct block **pool) {
@@ -137,19 +196,19 @@ static void mesh_uv(const struct mesh *mesh, struct hitRecord *isect) {
 	if (!v_arr_len(mesh->vbuf.texture_coords))
 		return;
 	struct poly *p = isect->polygon;
-	if (p->textureIndex[0] == -1)
+	if (!p || p->textureIndex[0] == -1)
 		return;
-	
+
 	// Barycentric coordinates for this polygon
 	const float b_u = isect->uv.x;
 	const float b_v = isect->uv.y;
 	const float b_w = 1.0f - b_u - b_v;
-	
+
 	// Weighted texture coordinates
 	const struct coord u = coord_scale(b_u, mesh->vbuf.texture_coords[p->textureIndex[1]]);
 	const struct coord v = coord_scale(b_v, mesh->vbuf.texture_coords[p->textureIndex[2]]);
 	const struct coord w = coord_scale(b_w, mesh->vbuf.texture_coords[p->textureIndex[0]]);
-	
+
 	isect->uv = coord_add(coord_add(u, v), w);
 }
 
@@ -157,12 +216,9 @@ static bool intersectMesh(const struct instance *instance, const struct lightRay
 	struct lightRay copy = *ray;
 	tform_ray(&copy, instance->composite.Ainv);
 	struct mesh *mesh = &(*((struct mesh **)instance->object_arr))[instance->object_idx];
-	copy.start = vec_add(copy.start, vec_scale(copy.direction, mesh->rayOffset));
 	if (traverse_bottom_level_bvh(mesh, &copy, isect, sampler)) {
 		isect->bsdf = instance->bbuf->bsdfs[isect->polygon->materialIndex];
-		tform_point(&isect->hitPoint, instance->composite.A);
-		tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv);
-		isect->surfaceNormal = vec_normalize(isect->surfaceNormal);
+		transform_hit_to_world(instance, ray, isect, true);
 		// Repopulate uv with actual texture mapping
 		mesh_uv(mesh, isect);
 		return true;
@@ -171,34 +227,10 @@ static bool intersectMesh(const struct instance *instance, const struct lightRay
 }
 
 static bool intersectMeshVolume(const struct instance *instance, const struct lightRay *ray, struct hitRecord *isect, sampler *sampler) {
-	return false;
-	struct hitRecord record1, record2;
-	record1 = *isect;
-	record2 = *isect;
-	struct lightRay copy = *ray;
-	tform_ray(&copy, instance->composite.Ainv);
-	//FIXME
-	struct meshVolume *mesh = NULL;//(struct meshVolume *)instance->object;
-	copy.start = vec_add(copy.start, vec_scale(copy.direction, mesh->mesh->rayOffset));
-	if (traverse_bottom_level_bvh(mesh->mesh, &copy, &record1, sampler)) {
-		struct lightRay copy2 = (struct lightRay){ alongRay(&copy, record1.distance + 0.0001f), copy.direction };
-		if (traverse_bottom_level_bvh(mesh->mesh, &copy2, &record2, sampler)) {
-			if (record1.distance < 0.0f)
-				record1.distance = 0.0f;
-			float distanceInsideVolume = record2.distance;
-			float hitDistance = -(1.0f / mesh->density) * logf(sampler_dimension(sampler));
-			if (hitDistance < distanceInsideVolume) {
-				isect->distance = record1.distance + hitDistance;
-				isect->hitPoint = alongRay(ray, isect->distance);
-				isect->uv = (struct coord){-1.0f, -1.0f};
-				isect->bsdf = instance->bbuf->bsdfs[0];
-				tform_point(&isect->hitPoint, instance->composite.A);
-				isect->surfaceNormal = (struct vector){1.0f, 0.0f, 0.0f}; // Will be ignored by material anyway
-				tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv); // Probably not needed
-				return true;
-			}
-		}
-	}
+	(void)instance;
+	(void)ray;
+	(void)isect;
+	(void)sampler;
 	return false;
 }
 
@@ -212,17 +244,12 @@ static void getMeshBBoxAndCenter(const struct instance *instance, struct boundin
 	struct mesh *mesh = &(*((struct mesh **)instance->object_arr))[instance->object_idx];
 	*bbox = get_transformed_root_bbox(mesh->bvh, &instance->composite.A);
 	*center = bboxCenter(bbox);
-	mesh->rayOffset = rayOffset(*bbox);
 }
 
 static void getMeshVolumeBBoxAndCenter(const struct instance *instance, struct boundingBox *bbox, struct vector *center) {
-	return;
-	//FIXME
-	struct meshVolume *volume = NULL;//(struct meshVolume *)instance->object;
-	*bbox = get_root_bbox(volume->mesh->bvh);
-	tform_bbox(bbox, instance->composite.A);
-	*center = bboxCenter(bbox);
-	volume->mesh->rayOffset = rayOffset(*bbox);
+	(void)instance;
+	(void)bbox;
+	(void)center;
 }
 
 struct instance new_mesh_instance(struct mesh **meshes, size_t idx, float *density, struct block **pool) {

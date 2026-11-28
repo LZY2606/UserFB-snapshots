@@ -37,15 +37,6 @@ static inline struct vector bboxCenter(const struct boundingBox* bbox) {
 	return vec_scale(vec_add(bbox->max, bbox->min), 0.5f);
 }
 
-static inline float bboxDiagonal(const struct boundingBox bbox) {
-	struct vector extent = vec_sub(bbox.max, bbox.min);
-	return vec_length(extent);
-}
-
-static inline float rayOffset(const struct boundingBox bbox) {
-	return RAY_OFFSET_MULTIPLIER * bboxDiagonal(bbox);
-}
-
 static inline void tform_bbox(struct boundingBox *bbox, const struct matrix4x4 m) {
 	struct matrix4x4 abs = mat_abs(m);
 	struct vector center = vec_scale(vec_add(bbox->min, bbox->max), 0.5f);

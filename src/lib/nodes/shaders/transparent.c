@@ -13,6 +13,7 @@
 #include <datatypes/hitrecord.h>
 #include <datatypes/scene.h>
 #include <renderer/samplers/sampler.h>
+#include <renderer/ray_spawn.h>
 #include "../colornode.h"
 #include "../bsdfnode.h"
 
@@ -47,7 +48,7 @@ static struct bsdfSample sample(const struct bsdfNode *bsdf, sampler *sampler, c
 	(void)sampler;
 	struct transparent *this = (struct transparent *)bsdf;
 	return (struct bsdfSample){
-		.out = { .start = record->hitPoint, .direction = record->incident->direction, .type = rt_transmission | rt_singular }, // TODO: Correct?
+		.out = spawn_surface_ray(record, record->incident->direction, rt_transmission | rt_singular),
 		.weight = this->color->eval(this->color, sampler, record)
 	};
 }

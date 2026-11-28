@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <renderer/samplers/sampler.h>
 #include <renderer/samplers/vec.h>
+#include <renderer/ray_spawn.h>
 #include <common/color.h>
 #include <common/vector.h>
 #include <common/hashtable.h>
@@ -66,7 +67,7 @@ static struct bsdfSample sampleShiny(const struct bsdfNode *bsdf, sampler *sampl
 		reflected = vec_add(reflected, fuzz);
 	}
 	return (struct bsdfSample){
-		.out = { .start = record->hitPoint, .direction = reflected, .type = rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy) },
+		.out = spawn_surface_ray(record, reflected, rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy)),
 		.weight = plastic->clear_coat->eval(plastic->clear_coat, sampler, record)
 	};
 }

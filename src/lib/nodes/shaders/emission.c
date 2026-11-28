@@ -12,6 +12,7 @@
 #include <common/hashtable.h>
 #include <renderer/samplers/sampler.h>
 #include <renderer/samplers/vec.h>
+#include <renderer/ray_spawn.h>
 #include <datatypes/hitrecord.h>
 #include <datatypes/scene.h>
 #include "../colornode.h"
@@ -52,7 +53,7 @@ static struct bsdfSample sample(const struct bsdfNode *bsdf, sampler *sampler, c
 	struct emissiveBsdf *emitBsdf = (struct emissiveBsdf *)bsdf;
 	const struct vector scatterDir = vec_normalize(vec_add(record->surfaceNormal, vec_on_unit_sphere(sampler)));
 	return (struct bsdfSample){
-		.out = { .start = record->hitPoint, .direction = scatterDir, .type = rt_reflection | rt_diffuse },
+		.out = spawn_surface_ray(record, scatterDir, rt_reflection | rt_diffuse),
 		.emitted = colorCoef(emitBsdf->strength->eval(emitBsdf->strength, sampler, record), emitBsdf->color->eval(emitBsdf->color, sampler, record))
 	};
 }

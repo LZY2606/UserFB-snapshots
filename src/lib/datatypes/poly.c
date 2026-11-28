@@ -9,10 +9,26 @@
 #include "../../includes.h"
 #include "poly.h"
 
+#include <float.h>
 #include "lightray.h"
 #include <common/vector.h>
 #include <renderer/pathtrace.h>
 #include <datatypes/mesh.h>
+
+//Conservative per-coordinate position error for `start + t * direction`.
+static inline struct vector ray_point_error(struct vector point, struct vector start, float t, struct vector direction) {
+	const double term[] = {
+		fabs(point.x) + fabs(start.x) + fabs((double)t * direction.x),
+		fabs(point.y) + fabs(start.y) + fabs((double)t * direction.y),
+		fabs(point.z) + fabs(start.z) + fabs((double)t * direction.z),
+	};
+	const double factor = 8.0 * (double)FLT_EPSILON;
+	return (struct vector){
+		(float)(factor * term[0]),
+		(float)(factor * term[1]),
+		(float)(factor * term[2]),
+	};
+}
 
 bool rayIntersectsWithPolygon(const struct mesh *mesh, const struct lightRay *ray, const struct poly *poly, struct hitRecord *isect) {
 	// Möller-Trumbore ray-triangle intersection routine
@@ -36,18 +52,28 @@ bool rayIntersectsWithPolygon(const struct mesh *mesh, const struct lightRay *ra
 		if (t >= 0.0f && t < isect->distance) {
 			isect->uv = (struct coord) { u, v };
 			isect->distance = t;
+
+			// The geometric normal is the unit direction of the triangle's
+			// oriented edge cross product, (v1 - v0) x (v2 - v0). It is never
+			// smoothed and never flipped towards the incident ray; the
+			// instance transform maps it to world space.
+			struct vector g1 = vec_sub(mesh->vbuf.vertices[poly->vertexIndex[1]], mesh->vbuf.vertices[poly->vertexIndex[0]]);
+			struct vector g2 = vec_sub(mesh->vbuf.vertices[poly->vertexIndex[2]], mesh->vbuf.vertices[poly->vertexIndex[0]]);
+			isect->geometricNormal = vec_normalize(vec_cross(g1, g2));
+
 			if (likely(poly->hasNormals)) {
 				struct vector upcomp = vec_scale(mesh->vbuf.normals[poly->normalIndex[1]], u);
 				struct vector vpcomp = vec_scale(mesh->vbuf.normals[poly->normalIndex[2]], v);
 				struct vector wpcomp = vec_scale(mesh->vbuf.normals[poly->normalIndex[0]], w);
-				
+
 				isect->surfaceNormal = vec_add(vec_add(upcomp, vpcomp), wpcomp);
 			} else {
 				isect->surfaceNormal = n;
 			}
-			// Support two-sided materials by flipping the normal if needed
+			// Support two-sided materials by flipping the shading normal if needed
 			if (vec_dot(ray->direction, isect->surfaceNormal) >= 0.0f) isect->surfaceNormal = vec_negate(isect->surfaceNormal);
 			isect->hitPoint = alongRay(ray, t);
+			isect->pointError = ray_point_error(isect->hitPoint, ray->start, t, ray->direction);
 			return true;
 		}
 	}

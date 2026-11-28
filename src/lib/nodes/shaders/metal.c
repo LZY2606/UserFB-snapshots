@@ -12,6 +12,7 @@
 #include <common/hashtable.h>
 #include <renderer/samplers/sampler.h>
 #include <renderer/samplers/vec.h>
+#include <renderer/ray_spawn.h>
 #include <datatypes/scene.h>
 #include "../bsdfnode.h"
 
@@ -58,7 +59,7 @@ static struct bsdfSample sample(const struct bsdfNode *bsdf, sampler *sampler, c
 	}
 	
 	return (struct bsdfSample){
-		.out = { .start = record->hitPoint, .direction = reflected, .type = rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy) },
+		.out = spawn_surface_ray(record, reflected, rt_reflection | (roughness == 0.0f ? rt_singular : rt_glossy)),
 		.weight = metalBsdf->color->eval(metalBsdf->color, sampler, record)
 	};
 }

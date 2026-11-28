@@ -14,7 +14,6 @@
 
 struct sphere {
 	float radius;
-	float rayOffset;
 };
 
 bool rayIntersectsWithSphere(const struct lightRay *ray, const struct sphere *sphere, struct hitRecord *isect);

@@ -359,7 +359,6 @@ static struct mesh deserialize_mesh(const cJSON *in) {
 static cJSON *serialize_sphere(const struct sphere in) {
 	cJSON *out = cJSON_CreateObject();
 	cJSON_AddNumberToObject(out, "radius", in.radius);
-	cJSON_AddNumberToObject(out, "rayOffset", in.rayOffset);
 	return out;
 }
 
@@ -368,7 +367,6 @@ static struct sphere deserialize_sphere(const cJSON *in) {
 	if (!in)
 		return out;
 	out.radius = cJSON_GetNumberValue(cJSON_GetObjectItem(in, "radius"));
-	out.rayOffset = cJSON_GetNumberValue(cJSON_GetObjectItem(in, "rayOffset"));
 	return out;
 }
 

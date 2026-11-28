@@ -14,6 +14,7 @@
 #include <datatypes/scene.h>
 #include <renderer/samplers/sampler.h>
 #include <renderer/samplers/vec.h>
+#include <renderer/ray_spawn.h>
 #include "../colornode.h"
 #include "../bsdfnode.h"
 
@@ -48,7 +49,7 @@ static struct bsdfSample sample(const struct bsdfNode *bsdf, sampler *sampler, c
 	struct translucentBsdf *diffBsdf = (struct translucentBsdf *)bsdf;
 	const struct vector scatterDir = vec_normalize(vec_add(vec_negate(record->surfaceNormal), vec_on_unit_sphere(sampler)));
 	return (struct bsdfSample){
-			.out = { .start = record->hitPoint, .direction = scatterDir, .type = rt_transmission | rt_diffuse },
+			.out = spawn_surface_ray(record, scatterDir, rt_transmission | rt_diffuse),
 			.weight = diffBsdf->color->eval(diffBsdf->color, sampler, record)
 	};
 }

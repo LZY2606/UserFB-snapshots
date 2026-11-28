@@ -19,7 +19,6 @@ struct mesh {
 	struct bvh *bvh;
 	float surface_area;
 	char *name;
-	float rayOffset;
 };
 
 void mesh_free(struct mesh *mesh);
