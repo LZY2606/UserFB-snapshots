@@ -3684,8 +3684,17 @@ bool Segment::AddGenericFrame(const Frame* frame) {
     frame_created = true;
   }
 
-  if (!cluster->AddFrame(frame))
+  if (!cluster->AddFrame(frame)) {
+    if (frame_created)
+      delete frame;
     return false;
+  }
+
+  if (!MaybeAddMultiTrackCue(frame)) {
+    if (frame_created)
+      delete frame;
+    return false;
+  }
 
   if (new_cuepoint_ && cues_track_ == frame->track_number()) {
     // Only add a cue point at the start of a cluster if the frame is a
@@ -3798,6 +3807,75 @@ bool Segment::CuesTrack(uint64_t track_number) {
     return false;
 
   cues_track_ = track_number;
+  // A successful call switches back to legacy single-track cue mode.
+  cues_tracks_.clear();
+  pending_cue_tracks_.clear();
+  return true;
+}
+
+bool Segment::SetCuesTracks(const uint64_t* tracks, size_t count) {
+  // Multi-track cue mode must be configured before the header is written.
+  if (header_written_)
+    return false;
+
+  if (tracks == NULL || count == 0)
+    return false;
+
+  if (!MultiTrackCuesCompatible())
+    return false;
+
+  for (size_t i = 0; i < count; ++i) {
+    const uint64_t track_number = tracks[i];
+    const Track* const track = GetTrackByNumber(track_number);
+    if (!track)
+      return false;
+    if (!tracks_.TrackIsAudio(track_number) &&
+        !tracks_.TrackIsVideo(track_number)) {
+      return false;
+    }
+    for (size_t j = 0; j < i; ++j) {
+      if (tracks[j] == track_number)
+        return false;
+    }
+  }
+
+  cues_tracks_.assign(tracks, tracks + count);
+  pending_cue_tracks_.clear();
+  cues_track_ = 0;  // Disable legacy single-track cueing.
+  return true;
+}
+
+bool Segment::MultiTrackCuesCompatible() const {
+  if (mode_ != kFile || chunking_ || accurate_cluster_duration_)
+    return false;
+  // A writer that is already known must be seekable.
+  if (writer_cluster_ != NULL && !writer_cluster_->Seekable())
+    return false;
+  return true;
+}
+
+bool Segment::MaybeAddMultiTrackCue(const Frame* frame) {
+  if (cues_tracks_.empty() || !output_cues_)
+    return true;
+
+  const uint64_t track_number = frame->track_number();
+  std::vector<uint64_t>::iterator pending = pending_cue_tracks_.begin();
+  for (; pending != pending_cue_tracks_.end(); ++pending) {
+    if (*pending == track_number)
+      break;
+  }
+  if (pending == pending_cue_tracks_.end())
+    return true;
+
+  // A video track must wait for a key frame; non-key frames do not consume
+  // the track's pending cue point for this cluster.
+  if (tracks_.TrackIsVideo(track_number) && !frame->is_key())
+    return true;
+
+  if (!AddCuePoint(frame->timestamp(), track_number))
+    return false;
+
+  pending_cue_tracks_.erase(pending);
   return true;
 }
 
@@ -4026,6 +4104,12 @@ bool Segment::MakeNewCluster(uint64_t frame_timestamp_ns) {
     return false;
 
   cluster_list_size_ = new_size;
+
+  // Multi-track cue mode: every configured track may register a cue point in
+  // the new cluster.
+  if (!cues_tracks_.empty())
+    pending_cue_tracks_ = cues_tracks_;
+
   return true;
 }
 
@@ -4062,6 +4146,14 @@ bool Segment::DoNewClusterProcessing(uint64_t track_number,
 }
 
 bool Segment::CheckHeaderInfo() {
+  // Multi-track cue mode requires a seekable writer in kFile mode and is not
+  // compatible with chunking, kLive mode, or AccurateClusterDuration. Reject
+  // the combination before the header is written.
+  if (!cues_tracks_.empty() &&
+      (!MultiTrackCuesCompatible() || writer_cluster_ == NULL)) {
+    return false;
+  }
+
   if (!header_written_) {
     if (!WriteSegmentHeader())
       return false;
@@ -4069,7 +4161,7 @@ bool Segment::CheckHeaderInfo() {
     if (!seek_head_.AddSeekEntry(libwebm::kMkvCluster, MaxOffset()))
       return false;
 
-    if (output_cues_ && cues_track_ == 0) {
+    if (output_cues_ && cues_track_ == 0 && cues_tracks_.empty()) {
       // Check for a video track
       for (uint32_t i = 0; i < tracks_.track_entries_size(); ++i) {
         const Track* const track = tracks_.GetTrackByIndex(i);
@@ -4195,6 +4287,10 @@ int Segment::WriteFramesAll() {
   if (!cluster)
     return -1;
 
+  // In multi-track cue mode a write failure must be propagated to the
+  // caller so that no cue point can reference a block that was not written.
+  bool write_failed = false;
+
   for (int32_t i = 0; i < frames_size_; ++i) {
     Frame*& frame = frames_[i];
     // TODO(jzern/vigneshv): using Segment::AddGenericFrame here would limit the
@@ -4203,6 +4299,16 @@ int Segment::WriteFramesAll() {
       doc_type_version_ = 4;
     if (!cluster->AddFrame(frame)) {
       delete frame;
+      frame = NULL;
+      if (!cues_tracks_.empty())
+        write_failed = true;
+      continue;
+    }
+
+    if (!MaybeAddMultiTrackCue(frame)) {
+      delete frame;
+      frame = NULL;
+      write_failed = true;
       continue;
     }
 
@@ -4211,6 +4317,7 @@ int Segment::WriteFramesAll() {
       // keyframe.
       if (frame->is_key() && !AddCuePoint(frame->timestamp(), cues_track_)) {
         delete frame;
+        frame = NULL;
         continue;
       } else {
         new_cuepoint_ = false;
@@ -4226,7 +4333,7 @@ int Segment::WriteFramesAll() {
     frame = NULL;
   }
 
-  const int result = frames_size_;
+  const int result = write_failed ? -1 : frames_size_;
   frames_size_ = 0;
 
   return result;
@@ -4246,6 +4353,10 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
 
     int32_t shift_left = 0;
 
+    // In multi-track cue mode a write failure must be propagated to the
+    // caller so that no cue point can reference a block that was not written.
+    bool write_failed = false;
+
     // TODO(fgalligan): Change this to use the durations of frames instead of
     // the next frame's start time if the duration is accurate.
     for (int32_t i = 1; i < frames_size_; ++i) {
@@ -4260,6 +4371,15 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       if (!cluster->AddFrame(frame_prev)) {
         delete frame_prev;
         ++shift_left;
+        if (!cues_tracks_.empty())
+          write_failed = true;
+        continue;
+      }
+
+      if (!MaybeAddMultiTrackCue(frame_prev)) {
+        delete frame_prev;
+        ++shift_left;
+        write_failed = true;
         continue;
       }
 
@@ -4292,6 +4412,9 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
 
       frames_size_ = new_frames_size;
     }
+
+    if (write_failed)
+      return false;
   }
 
   return true;

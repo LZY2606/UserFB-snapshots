@@ -941,7 +941,7 @@ class Cues {
   const long long m_element_start;
   const long long m_element_size;
 
-  bool Find(  // lower bound of time_ns
+  bool Find(  // per-track lower bound of time_ns
       long long time_ns, const Track*, const CuePoint*&,
       const CuePoint::TrackPosition*&) const;
 

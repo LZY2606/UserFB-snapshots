@@ -141,6 +141,46 @@ the MINGW_PREFIX variable:
 $ cmake -DCMAKE_TOOLCHAIN_FILE=path/to/libwebm/build/mingw-w64_toolchain.cmake \
   -DMINGW_PREFIX=x86_64-w64-mingw32 path/to/libwebm
 
+Multi-track Cues
+
+By default the muxer writes cue points for a single track (the video track,
+or the track selected with CuesTrack()). To give players independent seek
+entry points for several tracks — for example a video track that also carries
+a commentary and an original-audio track — call Segment::SetCuesTracks()
+after the tracks have been added and before any frame is written:
+
+  mkvmuxer::Segment segment;
+  segment.Init(&writer);
+  const uint64_t video = segment.AddVideoTrack(640, 480, 1);
+  const uint64_t commentary = segment.AddAudioTrack(48000, 2, 2);
+  const uint64_t original = segment.AddAudioTrack(48000, 2, 3);
+
+  const uint64_t cue_tracks[] = {video, commentary, original};
+  if (!segment.SetCuesTracks(cue_tracks, 3))
+    // Non-NULL, non-empty, duplicate-free list of existing audio/video
+    // track numbers is required; the previous configuration is unchanged
+    // on failure.
+
+In multi-track cue mode the muxer records, for every configured track, a cue
+point for the first locatable block of that track in each cluster (audio: the
+first written block; video: the first key frame). The cue time is the block's
+timecode, and the cue position and block number refer to the block's cluster
+and physical index in the final file. No re-muxing or re-indexing pass is
+needed.
+
+Multi-track cue mode requires a seekable writer in kFile mode; it is not
+compatible with chunking, kLive mode, or AccurateClusterDuration, and such
+combinations are rejected before the segment header is written. A later
+successful CuesTrack() call switches back to single-track cue mode, and
+OutputCues(false) still disables the cue index entirely.
+
+On the reading side, mkvparser::Cues::Find() resolves cue points per track:
+it returns the requested track's latest cue point not after the requested
+time (or the track's first cue point when the request precedes it), so a
+predecessor cue point belonging to another track no longer hides the
+requested track's entry.
+
+
 Bug reports
 
 Bug reports can be filed in the libwebm issue tracker:
